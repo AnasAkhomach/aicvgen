@@ -1,0 +1,9 @@
+google-generativeai
+faiss-cpu
+numpy
+autopep8
+langchain_core
+Pillow
+google
+langchain-google-genai
+langgraph
