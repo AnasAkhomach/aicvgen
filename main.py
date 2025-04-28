@@ -26,8 +26,8 @@ def main():
     orchestrator = Orchestrator(parser_agent, template_renderer, vector_store_agent, content_writer_agent, research_agent)
 
     # Input fields for job description and CV
-    job_description = st.text_area("Job Description", "Enter the job description here...")
-    user_cv = st.text_area("User CV", "Paste the user's CV here...")
+    job_description = st.text_area("Job Description", "Software Engineer position at Google")
+    user_cv = st.text_area("User CV", "John Doe\nSoftware Engineer with 5+ years of experience.\nExperience:\n- Worked on several projects.\nSkills:\n- Python\n- Java")
 
     if st.button("Generate CV"):
         if not job_description or not user_cv:
@@ -35,6 +35,7 @@ def main():
         else:
             user_cv_data = CVData(raw_text=user_cv, experiences=[], summary="", skills=[], education=[], projects=[])
             rendered_cv = orchestrator.run_workflow(job_description, user_cv_data)
+            print(f"{rendered_cv=}")
 
             # Display the rendered CV
             st.subheader("Generated CV")
