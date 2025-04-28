@@ -9,6 +9,34 @@ from state_manager import VectorStoreConfig, CVData, AgentIO # Import AgentIO
 import os # Import os for file operations
 from content_writer_agent import ContentWriterAgent # Import ContentWriterAgent
 from research_agent import ResearchAgent # Import ResearchAgent
+import streamlit as st # Import Streamlit for user feedback interface
+
+def feedback_interface():
+    """
+    Streamlit-based user interface for displaying generated content and collecting feedback.
+    """
+    st.title("CV Tailoring Feedback Interface")
+
+    # Placeholder for generated content
+    st.subheader("Generated Content")
+    generated_content = st.text_area("Generated Content", "", height=200)
+
+    # Feedback options
+    st.subheader("Feedback")
+    feedback = st.radio("Do you approve this content?", ("Approve", "Reject"))
+
+    # Optional feedback for rejected content
+    if feedback == "Reject":
+        user_feedback = st.text_area("Provide feedback for improvement:", "", height=100)
+    else:
+        user_feedback = ""
+
+    # Submit button
+    if st.button("Submit Feedback"):
+        st.success("Feedback submitted successfully!")
+        return feedback, user_feedback
+
+    return None, None
 
 if __name__ == "__main__":
     print("Starting workflow")
@@ -69,5 +97,10 @@ if __name__ == "__main__":
     except IOError as e:
         print(f"Error writing rendered CV to file {output_file_path}: {e}")
 
+    # Run feedback interface
+    feedback, user_feedback = feedback_interface()
+    if feedback:
+        print(f"Feedback: {feedback}")
+        print(f"User Feedback: {user_feedback}")
 
     print("Ending workflow")

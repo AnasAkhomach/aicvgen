@@ -133,23 +133,17 @@ class WorkflowState(TypedDict):
     job_description: Dict # Parsed job description data
     user_cv: CVData # Extracted user CV data
     extracted_skills: Dict # Deprecate or refine - skills are now in user_cv
-    # generated_content: Dict # Deprecate - replaced by content_pieces
-    
-    # New fields for iterative content generation and review
     content_pieces: Dict[str, List[ContentPiece]] # Dictionary holding lists of ContentPiece by section type
     current_content_piece_id: Optional[str] # ID of the content piece currently being processed/reviewed
     content_generation_plan: List[Dict[str, Any]] # A plan of content pieces to generate/review
     plan_index: int # To track progress through the generation plan
-
     formatted_cv_text: str # Final formatted text before rendering
     rendered_cv: str # Final rendered output
-    feedback: List # List of general feedback entries (can be refined)
-    revision_history: List # List of revision history entries
+    feedback: List[Dict[str, Any]] # List of feedback entries for transparency
+    revision_history: List[Dict[str, Any]] # List of revision history entries
     current_stage: WorkflowStage # Current stage of the overall workflow
     workflow_id: str # Workflow ID
     relevant_experiences: List[str] # Relevant experiences from vector search
     research_results: Dict[str, Any] # Research results
-    
-    # Review status and feedback for the *current* content piece being reviewed
     review_status: str  # e.g., "pending", "approved", "rejected"
     review_feedback: str # Store feedback comments for the current piece

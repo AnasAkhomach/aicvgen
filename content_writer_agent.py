@@ -175,3 +175,98 @@ class ContentWriterAgent(AgentBase):
         except Exception as e:
             print(f"An unexpected error occurred in ContentWriterAgent: {e}")
             return ContentData() # Return empty ContentData on error
+
+    def generate_batch(self, input_data: Dict[str, Any], batch_type: str) -> ContentData:
+        """
+        Generates a batch of content based on the specified type (e.g., 'summary', 'experience_bullet').
+
+        Args:
+            input_data: A dictionary containing 'job_description_data', 'relevant_experiences',
+                        'research_results', and 'user_cv_data'.
+            batch_type: The type of content to generate (e.g., 'summary', 'experience_bullet').
+
+        Returns:
+            A ContentData object with the generated batch content.
+        """
+        job_description_data = input_data.get("job_description_data", {})
+        relevant_experiences = input_data.get("relevant_experiences", [])
+        research_results = input_data.get("research_results", {})
+        user_cv_data = input_data.get("user_cv_data", {})
+
+        # Prepare context for the LLM
+        job_requirements = (
+            f"Skills: {', '.join(job_description_data.get('skills', []))}\n"
+            f"Responsibilities: {'. '.join(job_description_data.get('responsibilities', []))}"
+        )
+        formatted_experiences = "\n".join([f"- {exp}" for exp in relevant_experiences])
+
+        research_context = ""
+        if research_results:
+            research_context = "\n Additional Research Context:"
+            for key, value in research_results.items():
+                research_context += f"{key.replace('_', ' ').title()}: {value}\n "
+
+        cv_sections_context = "\nUser CV Sections:\n"
+        if user_cv_data.get("summary"):
+            cv_sections_context += f"Summary: {user_cv_data['summary']}\n"
+        if user_cv_data.get("skills"):
+            cv_sections_context += f"Skills: {', '.join(user_cv_data['skills'])}\n"
+        if user_cv_data.get("education"):
+            cv_sections_context += f"Education: {'; '.join(user_cv_data['education'])}\n"
+        if user_cv_data.get("projects"):
+            cv_sections_context += f"Projects: {'; '.join(user_cv_data['projects'])}\n"
+
+        # Adjust the prompt based on the batch type
+        if batch_type == "summary":
+            prompt = f"""
+            Generate a professional summary tailored to the job description and research context.
+
+            Job Description:
+            {job_requirements}
+
+            Relevant Experiences:
+            {formatted_experiences}
+
+            {research_context}
+
+            {cv_sections_context}
+
+            Output the summary as a single string.
+            """
+        elif batch_type == "experience_bullet":
+            prompt = f"""
+            Generate a single bullet point for the professional experience section based on the job description
+            and relevant experiences.
+
+            Job Description:
+            {job_requirements}
+
+            Relevant Experiences:
+            {formatted_experiences}
+
+            {research_context}
+
+            {cv_sections_context}
+
+            Output the bullet point as a single string.
+            """
+        else:
+            raise ValueError(f"Unsupported batch type: {batch_type}")
+
+        print(f"Sending prompt to LLM for {batch_type} generation...")
+        try:
+            llm_response = self.llm.generate_content(prompt)
+            print(f"Received response from LLM for {batch_type} generation.")
+
+            # Parse the response
+            generated_content = ContentData()
+            if batch_type == "summary":
+                generated_content["summary"] = llm_response.strip()
+            elif batch_type == "experience_bullet":
+                generated_content["experience_bullets"] = [llm_response.strip()]
+
+            return generated_content
+
+        except Exception as e:
+            print(f"Error generating {batch_type}: {e}")
+            return ContentData()

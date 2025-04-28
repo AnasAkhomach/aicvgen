@@ -36,6 +36,40 @@ class Orchestrator:
         self.checkpointer = MemorySaver()
         self.graph = self._build_graph()
 
+    def handle_feedback_node(self, state: WorkflowState) -> WorkflowState:
+        """
+        LangGraph node to handle user feedback for generated content.
+        """
+        print("Executing: handle_feedback")
+        state["current_stage"] = {"stage_name": "Feedback Handling", "description": "Processing user feedback", "is_completed": False}
+
+        # Simulate feedback collection (replace with actual feedback interface integration)
+        generated_content = state.get("generated_content", {})
+        feedback = state.get("review_status", "pending")
+        user_feedback = state.get("review_feedback", "")
+
+        if feedback == "reject":
+            print("User rejected the content. Regenerating...")
+            # Use user feedback to refine content generation (if applicable)
+            content_writer_input = {
+                "job_description_data": state.get("job_description", {}),
+                "relevant_experiences": state.get("relevant_experiences", []),
+                "research_results": state.get("research_results", {}),
+                "user_cv_data": state.get("user_cv", {})
+            }
+            try:
+                regenerated_content = self.content_writer_agent.generate_batch(content_writer_input, batch_type="experience_bullet")
+                state["generated_content"] = dict(regenerated_content)
+                print("Content regenerated successfully.")
+            except Exception as e:
+                print(f"Error regenerating content: {e}")
+                state["current_stage"] = {"stage_name": "Feedback Handling Failed", "description": f"Error: {e}", "is_completed": True}
+                return state
+
+        state["current_stage"]["is_completed"] = True
+        print("Completed: handle_feedback")
+        return state
+
     def _build_graph(self) -> StateGraph:
         """
         Builds the LangGraph workflow with checkpointing.
@@ -53,10 +87,8 @@ class Orchestrator:
         workflow.add_node("format_cv", self.format_cv_node)
         workflow.add_node("run_quality_assurance", self.run_quality_assurance_node)
         workflow.add_node("human_review", self.human_review_node) # Add human_review node
+        workflow.add_node("handle_feedback", self.handle_feedback_node) # Add feedback handling node
         workflow.add_node("render_cv", self.render_cv_node)
-        # Define a node for refinement (can be generate_content for simplicity or a dedicated agent later)
-        # For now, we will just loop back to generate_content if rejected.
-        
 
         # Define edges (transitions between nodes)
         workflow.add_edge("parse_job_description", "analyze_cv")
@@ -66,21 +98,19 @@ class Orchestrator:
         workflow.add_edge("run_research", "generate_content")
         workflow.add_edge("generate_content", "format_cv")
         workflow.add_edge("format_cv", "run_quality_assurance")
-        # Add edge from quality_assurance to human_review
         workflow.add_edge("run_quality_assurance", "human_review")
-        
+
         # Add conditional edge from human_review
         workflow.add_conditional_edges(
             "human_review", # The starting node for conditional transitions
             self._decide_next_step_after_review, # The function that determines the next node
             {
                 "approve": "render_cv", # If review_status is "approve", go to render_cv
-                # If review_status is "reject", loop back to generate_content (for refinement)
-                "reject": "generate_content", 
-                # Add other conditions like "request_research", "request_analysis", etc. later
+                "reject": "handle_feedback", # If review_status is "reject", go to handle_feedback
             }
         )
-        
+
+        workflow.add_edge("handle_feedback", "generate_content") # Loop back to content generation after feedback
         workflow.add_edge("render_cv", END) # End the workflow after rendering
 
         # Set the entry point
@@ -102,16 +132,10 @@ class Orchestrator:
             return "render_cv"
         elif review_status == "reject":
             print("Review rejected. Looping back to content generation for refinement.")
-            # In a real scenario, you might want a dedicated refinement node or a more sophisticated loop
-            # For simplicity, we loop back to generate_content.
-            return "generate_content"
+            return "handle_feedback"
         else:
-            # Default to rendering or handle as an error/waiting state
             print(f"Unknown review status: {review_status}. Proceeding to rendering by default.")
-            return "render_cv" # Default to rendering if status is unexpected
-
-
-    # ... (Keeping the existing node methods and run_workflow method) ...
+            return "render_cv"
 
     def parse_job_description_node(self, state: WorkflowState) -> WorkflowState:
         """
@@ -180,7 +204,6 @@ class Orchestrator:
 
             state["extracted_skills"] = state["user_cv"]["skills"]
 
-
             state["current_stage"]["is_completed"] = True
             print("Completed: analyze_cv")
 
@@ -198,9 +221,7 @@ class Orchestrator:
 
             state["extracted_skills"] = state["user_cv"]["skills"]
 
-
         return state
-
 
     def add_experiences_to_vector_store_node(self, state: WorkflowState) -> WorkflowState:
         """
@@ -399,21 +420,15 @@ class Orchestrator:
         print("Executing: human_review")
         state["current_stage"] = {"stage_name": "Human Review", "description": "Waiting for human review and feedback", "is_completed": False}
 
-        # In a real application, this is where you would present the CV to the user
-        # and wait for their feedback and decision (approve/reject).
-        # For this simulation, we will update the state with simulated feedback.
-
         print("Simulating human review... (Assume review is pending external input)")
         
-        # --- Simulate Human Input ---
-        # Based on quality_assurance_results, simulate a decision.
         quality_results = state.get("quality_assurance_results", {})
-        is_quality_ok = quality_results.get("is_quality_ok", True) # Assume OK if no results
+        is_quality_ok = quality_results.get("is_quality_ok", True)
         feedback = quality_results.get("feedback", "")
         suggestions = quality_results.get("suggestions", [])
 
-        simulated_review_status = "approve" # Default to approve for simplicity
-        simulated_review_feedback = "Looks good!" # Default feedback
+        simulated_review_status = "approve"
+        simulated_review_feedback = "Looks good!"
 
         if not is_quality_ok:
             simulated_review_status = "reject"
@@ -424,14 +439,11 @@ class Orchestrator:
 
         state["review_status"] = simulated_review_status
         state["review_feedback"] = simulated_review_feedback
-        # ---------------------------
 
         state["current_stage"]["is_completed"] = True
         print("Completed: human_review")
 
-        # The next step will be determined by the conditional edge based on state['review_status']
-        return state # Return the updated state
-
+        return state
 
     def render_cv_node(self, state: WorkflowState) -> WorkflowState:
         """
@@ -451,12 +463,7 @@ class Orchestrator:
             return state
 
         try:
-            # The TemplateRenderer currently takes ContentData. Since we now have formatted_cv_text (string)
-            # we need to adjust this step. For simplicity in this simulation, we will just
-            # store the formatted_cv_text as the final rendered_cv.
-            # A real rendering step might convert this formatted text (e.g., markdown) to PDF.
-
-            state["rendered_cv"] = formatted_cv_text # Store formatted text as rendered_cv
+            state["rendered_cv"] = formatted_cv_text
 
             state["current_stage"]["is_completed"] = True
             print("Completed: render_cv")
@@ -491,7 +498,6 @@ class Orchestrator:
         initial_user_cv_state.setdefault("education", [])
         initial_user_cv_state.setdefault("projects", [])
 
-
         initial_state: WorkflowState = {
             "job_description": {"raw_text": job_description},
             "user_cv": initial_user_cv_state,
@@ -506,24 +512,20 @@ class Orchestrator:
             "relevant_experiences": [],
             "research_results": {}, 
             "quality_assurance_results": {}, 
-            "review_status": "pending", # Initialize review_status
-            "review_feedback": "" # Initialize review_feedback
+            "review_status": "pending", 
+            "review_feedback": ""
         }
 
         try:
             print(
                 "--- Running workflow with invoke (state will be saved automatically) ---"
             )
-            # The workflow will pause at the human_review node waiting for a state update
-            # with 'review_status' set to 'approve' or 'reject'.
-            # For this simulation, the human_review_node itself updates the state.
             final_state = self.graph.invoke(
                 initial_state,
                 config={"configurable": {"thread_id": current_workflow_id}},
             )
 
             print("--- Final State ---")
-            # print(final_state) # Avoid printing large state
             print("Workflow completed")
             print("End")
 
