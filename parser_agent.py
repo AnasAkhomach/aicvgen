@@ -1,10 +1,11 @@
 from agent_base import AgentBase
 from llm import LLM
 from state_manager import (
-    JobDescriptionData,
     AgentIO,
+    JobDescriptionData,  # Import JobDescriptionData from state_manager
 )
-import json # Import json for parsing LLM output
+import json  # Import json for parsing LLM output
+from typing import List, Optional
 
 class ParserAgent(AgentBase):
     """Agent responsible for parsing job descriptions and extracting key information using an LLM."""
@@ -18,7 +19,7 @@ class ParserAgent(AgentBase):
                 input={
                     "job_description": str
                 },
-                output=JobDescriptionData, # The output is a JobDescriptionData object
+                output=JobDescriptionData,  # The output is a JobDescriptionData object
                 description="Raw job description as a string.",
             ),
             output_schema=AgentIO(
@@ -54,7 +55,7 @@ class ParserAgent(AgentBase):
                 company_values=[],
             )
 
-        # Craft the prompt for the LLM
+        # Update prompt to explicitly request JSON output
         prompt = f"""
         Please extract the following key information from the job description below and provide it in JSON format.
         The JSON object should have the following keys:
@@ -69,7 +70,7 @@ class ParserAgent(AgentBase):
         Job Description:
         {raw_job_description}
 
-        JSON Output:
+        IMPORTANT: Respond ONLY with the valid JSON object, starting with {{ and ending with }}.
         """
 
         print("Sending prompt to LLM for parsing...")
@@ -77,53 +78,42 @@ class ParserAgent(AgentBase):
             # Get the LLM's response
             llm_response = self.llm.generate_content(prompt)
             print("Received response from LLM.")
-            print(f"LLM Response: {llm_response}") # Print raw LLM response for debugging
+            print(f"LLM Response: {llm_response}")  # Print raw LLM response for debugging
 
-            # Attempt to parse the JSON response
-            # The LLM might include markdown code block formatting, so try to find the JSON string
+            # Extract JSON object from LLM response
             json_string = llm_response.strip()
-            if json_string.startswith("```json"):
-                json_string = json_string[len("```json"):].strip()
-                if json_string.endswith("```"):
-                    json_string = json_string[:-len("```")].strip()
+            if "{" in json_string and "}" in json_string:
+                json_string = json_string[json_string.find("{"):json_string.rfind("}") + 1]
 
-            # Load the JSON string into a Python dictionary
-            parsed_data = json.loads(json_string)
+            try:
+                parsed_data = json.loads(json_string)
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON from LLM response: {e}")
+                parsed_data = {}
 
             # Create a JobDescriptionData object from the parsed data
             job_data = JobDescriptionData(
-                raw_text=raw_job_description, # Keep the original raw text
+                raw_text=raw_job_description,  # Pass raw_text here
                 skills=parsed_data.get("skills", []),
-                experience_level=parsed_data.get("experience_level", "N/A"),
                 responsibilities=parsed_data.get("responsibilities", []),
+                experience_level=parsed_data.get("experience_level", "N/A"),
                 industry_terms=parsed_data.get("industry_terms", []),
                 company_values=parsed_data.get("company_values", []),
+                error=None if parsed_data else f"Error decoding JSON: {e}"  # Set error field if parsing failed
             )
 
             print("Successfully parsed job description using LLM.")
             return job_data
 
-        except json.JSONDecodeError as e:
-            print(f"Error decoding JSON from LLM response: {e}")
-            print(f"Faulty JSON string: {json_string}") # Print the string that failed to parse
-            # Return a default JobDescriptionData object with error info or partial data
-            # For now, return default and log the error
-            return JobDescriptionData(
-                raw_text=raw_job_description,
-                skills=[],
-                experience_level="Parsing Error",
-                responsibilities=[],
-                industry_terms=[],
-                company_values=[],
-            )
         except Exception as e:
             print(f"An unexpected error occurred during parsing: {e}")
             # Return a default JobDescriptionData object with error info
             return JobDescriptionData(
                 raw_text=raw_job_description,
                 skills=[],
-                experience_level=f"Error: {e}",
+                experience_level="N/A",
                 responsibilities=[],
                 industry_terms=[],
                 company_values=[],
+                error=str(e)  # Populate the error field
             )
