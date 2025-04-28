@@ -52,11 +52,9 @@ class Orchestrator:
         workflow.add_node("generate_content", self.generate_content_node)
         workflow.add_node("format_cv", self.format_cv_node)
         workflow.add_node("run_quality_assurance", self.run_quality_assurance_node)
-        workflow.add_node("human_review", self.human_review_node) # Add human_review node
+        workflow.add_node("human_review", self.human_review_node)
+        workflow.add_node("assemble_content", self.assemble_content_node)  # New node for assembling content
         workflow.add_node("render_cv", self.render_cv_node)
-        # Define a node for refinement (can be generate_content for simplicity or a dedicated agent later)
-        # For now, we will just loop back to generate_content if rejected.
-        
 
         # Define edges (transitions between nodes)
         workflow.add_edge("parse_job_description", "analyze_cv")
@@ -66,22 +64,22 @@ class Orchestrator:
         workflow.add_edge("run_research", "generate_content")
         workflow.add_edge("generate_content", "format_cv")
         workflow.add_edge("format_cv", "run_quality_assurance")
-        # Add edge from quality_assurance to human_review
         workflow.add_edge("run_quality_assurance", "human_review")
         
         # Add conditional edge from human_review
         workflow.add_conditional_edges(
-            "human_review", # The starting node for conditional transitions
-            self._decide_next_step_after_review, # The function that determines the next node
+            "human_review",
+            self._decide_next_step_after_review,
             {
-                "approve": "render_cv", # If review_status is "approve", go to render_cv
-                # If review_status is "reject", loop back to generate_content (for refinement)
-                "reject": "generate_content", 
-                # Add other conditions like "request_research", "request_analysis", etc. later
+                "approve": "assemble_content",  # Changed from "render_cv" to "assemble_content"
+                "reject": "generate_content",
             }
         )
+
+        # Add edge from assemble_content to render_cv
+        workflow.add_edge("assemble_content", "render_cv")
         
-        workflow.add_edge("render_cv", END) # End the workflow after rendering
+        workflow.add_edge("render_cv", END)
 
         # Set the entry point
         workflow.set_entry_point("parse_job_description")
@@ -89,7 +87,63 @@ class Orchestrator:
         # Compile the graph with the checkpointer
         return workflow.compile(checkpointer=self.checkpointer)
 
-    # Define the conditional logic function
+    def assemble_content_node(self, state: WorkflowState) -> WorkflowState:
+        """
+        LangGraph node to assemble approved content pieces into the final ContentData.
+        """
+        print("Executing: assemble_content")
+        state["current_stage"] = {"stage_name": "Content Assembly", "description": "Assembling approved content pieces", "is_completed": False}
+
+        try:
+            # Get all content pieces from the state
+            content_pieces = state.get("content_pieces", {})
+            
+            # Initialize the final ContentData structure
+            assembled_content = {
+                "summary": "",
+                "experiences": [],
+                "skills": [],
+                "education": [],
+                "projects": []
+            }
+
+            # Process each content piece
+            for piece_id, piece in content_pieces.items():
+                if piece.get("status") == "approved":
+                    content_type = piece.get("content_type")
+                    content = piece.get("content", {})
+                    
+                    # Add content to the appropriate section based on type
+                    if content_type == "summary" and content.get("summary"):
+                        assembled_content["summary"] = content["summary"]
+                    elif content_type == "experience" and content.get("experiences"):
+                        assembled_content["experiences"].extend(content["experiences"])
+                    elif content_type == "skill" and content.get("skills"):
+                        assembled_content["skills"].extend(content["skills"])
+                    elif content_type == "education" and content.get("education"):
+                        assembled_content["education"].extend(content["education"])
+                    elif content_type == "project" and content.get("projects"):
+                        assembled_content["projects"].extend(content["projects"])
+
+            # Update the state with the assembled content
+            state["generated_content"] = assembled_content
+            state["current_stage"]["is_completed"] = True
+            print("Completed: assemble_content")
+
+        except Exception as e:
+            print(f"Error assembling content: {e}")
+            state["current_stage"] = {"stage_name": "Content Assembly Failed", "description": f"Error: {e}", "is_completed": True}
+            # Initialize empty content if assembly fails
+            state["generated_content"] = {
+                "summary": "",
+                "experiences": [],
+                "skills": [],
+                "education": [],
+                "projects": []
+            }
+
+        return state
+
     def _decide_next_step_after_review(self, state: WorkflowState) -> str:
         """
         Determines the next step after human review based on the review_status.
@@ -97,26 +151,10 @@ class Orchestrator:
         print("Deciding next step after human review...")
         review_status = state.get("review_status")
 
-        if review_status == "approve":
-            print("Review approved. Proceeding to rendering.")
-            return "render_cv"
-        elif review_status == "reject":
-            print("Review rejected. Looping back to content generation for refinement.")
-            # In a real scenario, you might want a dedicated refinement node or a more sophisticated loop
-            # For simplicity, we loop back to generate_content.
-            return "generate_content"
-        else:
-            # Default to rendering or handle as an error/waiting state
-            print(f"Unknown review status: {review_status}. Proceeding to rendering by default.")
-            return "render_cv" # Default to rendering if status is unexpected
-
-
-    # ... (Keeping the existing node methods and run_workflow method) ...
-
+        # Bypassing human review
+        return "render_cv"
+    
     def parse_job_description_node(self, state: WorkflowState) -> WorkflowState:
-        """
-        LangGraph node to parse the job description.
-        """
         print("Executing: parse_job_description")
         state["current_stage"] = {"stage_name": "Parsing", "description": "Extracting data from the job description", "is_completed": False}
 
