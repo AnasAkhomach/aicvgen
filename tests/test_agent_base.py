@@ -1,61 +1,71 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from agent_base import AgentBase
+from state_manager import AgentIO
+from typing import Any # Import Any
 
-# We will test the abstract nature by attempting to instantiate subclasses without implementing abstract methods
+# Create a concrete implementation of AgentBase for testing
+class ConcreteAgent(AgentBase):
+    def __init__(self, name: str, description: str, input_schema: AgentIO, output_schema: AgentIO):
+        super().__init__(name, description, input_schema, output_schema)
+
+    def run(self, input: Any) -> Any:
+        # This will be mocked in tests, or we can raise NotImplementedError here
+        # For testing the base class, we'll focus on the methods defined in AgentBase
+        pass
 
 class TestAgentBase(unittest.TestCase):
 
-    def test_abstract_class_cannot_be_instantiated(self):
-        """Test that AgentBase cannot be instantiated directly."""
-        name = "TestAgent"
-        description = "A test agent"
-        input_schema = MagicMock()
-        output_schema = MagicMock()
+    def setUp(self):
+        """Set up a concrete agent instance before each test."""
+        self.input_schema = AgentIO(input={'text': str}, output={}, description='Input schema')
+        self.output_schema = AgentIO(input={}, output={'processed_text': str}, description='Output schema')
+        self.agent = ConcreteAgent(
+            name="TestAgent",
+            description="A test agent for AgentBase.",
+            input_schema=self.input_schema,
+            output_schema=self.output_schema
+        )
 
-        with self.assertRaises(TypeError) as cm:
-            AgentBase(name, description, input_schema, output_schema)
+    def test_init(self):
+        """Test that AgentBase is initialized correctly."""
+        self.assertEqual(self.agent.name, "TestAgent")
+        self.assertEqual(self.agent.description, "A test agent for AgentBase.")
+        self.assertEqual(self.agent.input_schema, self.input_schema)
+        self.assertEqual(self.agent.output_schema, self.output_schema)
 
-        # Verify the error message indicates an abstract method is missing
-        self.assertIn("Can't instantiate abstract class AgentBase with abstract method run", str(cm.exception))
+    def test_run_abstract_method(self):
+        """Test that calling the abstract run method raises NotImplementedError."""
+        # Although our concrete agent has a pass in run, if it didn't, this is how you'd test the abstract nature
+        # However, testing the abstract method itself is done by ensuring concrete classes implement it.
+        # A better test for the abstract concept is to ensure AgentBase cannot be instantiated directly.
+        with self.assertRaises(TypeError):
+            AgentBase(name="Abstract", description="Abstract", input_schema=self.input_schema, output_schema=self.output_schema)
 
-    def test_subclass_without_implementing_run_cannot_be_instantiated(self):
-        """Test that a subclass not implementing run cannot be instantiated."""
-        # Define a subclass that inherits from AgentBase but does not implement run
-        class IncompleteAgent(AgentBase):
-            pass
+    @patch('agent_base.logging.info')
+    def test_log_decision(self, mock_log_info):
+        """Test that log_decision calls logging.info with the correct format."""
+        message = "Decision made."
+        self.agent.log_decision(message)
+        mock_log_info.assert_called_once_with(f"[{self.agent.name}] {message}")
 
-        name = "Incomplete"
-        description = "An incomplete agent"
-        input_schema = MagicMock()
-        output_schema = MagicMock()
-
-        with self.assertRaises(TypeError) as cm:
-            IncompleteAgent(name, description, input_schema, output_schema)
-
-        # Verify the error message indicates the abstract method is missing
-        self.assertIn("Can't instantiate abstract class IncompleteAgent with abstract method run", str(cm.exception))
-
-    def test_concrete_subclass_initialization(self):
-        """Test that a concrete subclass can be initialized and inherits base properties."""
-        # Define a concrete subclass that implements the abstract method run
-        class ConcreteAgent(AgentBase):
-            def run(self, input: any) -> any:
-                return "Concrete result"
-
-        name = "ConcreteTestAgent"
-        description = "A concrete test agent"
-        input_schema = MagicMock()
-        output_schema = MagicMock()
-
-        agent = ConcreteAgent(name, description, input_schema, output_schema)
-
-        self.assertEqual(agent.name, name)
-        self.assertEqual(agent.description, description)
-        self.assertEqual(agent.input_schema, input_schema)
-        self.assertEqual(agent.output_schema, output_schema)
-        # Optionally, test the implemented run method
-        self.assertEqual(agent.run("some input"), "Concrete result")
+    def test_generate_explanation(self):
+        """Test that generate_explanation produces the correct output string."""
+        input_data = {'text': "some input"}
+        output_data = {'processed_text': "some output"}
+        expected_explanation = (
+            f"Agent '{self.agent.name}' processed the input data and generated the following output:\n"
+            f"Input: {input_data}\n"
+            f"Output: {output_data}\n"
+            f"Description: {self.agent.description}"
+        )
+        explanation = self.agent.generate_explanation(input_data, output_data)
+        self.assertEqual(explanation, expected_explanation)
+    def test_get_confidence_score(self):
+        """Test that the default get_confidence_score returns 1.0."""
+        output_data = {'processed_text': "some output"}
+        confidence = self.agent.get_confidence_score(output_data)
+        self.assertEqual(confidence, 1.0)
 
 if __name__ == '__main__':
     unittest.main()

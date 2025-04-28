@@ -111,12 +111,12 @@ class ContentWriterAgent(AgentBase):
             "Tailored bullet point 2..."
           ],
           "skills_section": "A comprehensive list of skills relevant to the job description, combining skills from the job requirements, research, and the user's CV.",
-           "projects": ["Tailored project description 1..."], # Include projects based on user CV and job description
+           "projects": ["Tailored project description 1..."],
            "other_content": {{}} # Include other relevant sections if needed
         }}
 
-        Ensure the content is concise, action-oriented, and uses keywords from the job description. Leverage the provided relevant experiences and the full user CV sections to create the most impactful content.
-        """\
+        IMPORTANT: Respond ONLY with the valid JSON object, starting with {{ and ending with }}.
+        """
 
         print("Sending tailored prompt to LLM for content generation from ContentWriterAgent...")
         try:
@@ -124,14 +124,22 @@ class ContentWriterAgent(AgentBase):
             print("Received response from LLM for content generation in ContentWriterAgent.")
             # print(f"LLM Response (Content Gen Agent): {llm_response}") # Uncomment for debugging
 
-            # Attempt to parse the JSON response
+            # Extract JSON object from LLM response
             json_string = llm_response.strip()
-            if json_string.startswith("```json"):
-                json_string = json_string[len("```json"):].strip()
-                if json_string.endswith("```"):
-                    json_string = json_string[:-len("```")].strip()
+            if "{" in json_string and "}" in json_string:
+                json_string = json_string[json_string.find("{"):json_string.rfind("}") + 1]
 
-            parsed_content = json.loads(json_string)
+            try:
+                parsed_content = json.loads(json_string)
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON from LLM response: {e}")
+                parsed_content = {
+                    "summary": "",
+                    "experience_bullets": [],
+                    "skills_section": "",
+                    "projects": [],
+                    "other_content": {}
+                }
 
             # Create a ContentData object from the parsed data
             generated_content = ContentData(
@@ -168,10 +176,6 @@ class ContentWriterAgent(AgentBase):
 
             return generated_content
 
-        except json.JSONDecodeError as e:
-            print(f"Error decoding JSON from LLM response in ContentWriterAgent: {e}")
-            print(f"Faulty JSON string (Content Gen Agent): {json_string}")
-            return ContentData() # Return empty ContentData on error
         except Exception as e:
             print(f"An unexpected error occurred in ContentWriterAgent: {e}")
             return ContentData() # Return empty ContentData on error

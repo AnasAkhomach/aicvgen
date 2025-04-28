@@ -23,21 +23,18 @@ class AgentIO(TypedDict):
     output: Any  # Output data. 
     description: str  # Description of what the agent does.
 
-# JobDescriptionData remains a class as it's a complex structure
+# Ensure JobDescriptionData is the single source of truth
 class JobDescriptionData:
     """
     Represents the parsed data of a job description.
     """
-    def __init__(self, raw_text: str, skills: List[str], experience_level: str, responsibilities: List[str], industry_terms: List[str], company_values: List[str]):
+    def __init__(self, raw_text, skills, experience_level, responsibilities, industry_terms, company_values):
         self.raw_text = raw_text
         self.skills = skills
         self.experience_level = experience_level
         self.responsibilities = responsibilities
         self.industry_terms = industry_terms
         self.company_values = company_values
-
-    def __str__(self):
-        return f"JobDescriptionData(raw_text='{self.raw_text}', skills={self.skills}, experience_level='{self.experience_level}', responsibilities={self.responsibilities}, industry_terms={self.industry_terms}, company_values={self.company_values})"
 
 @dataclass
 class VectorStoreConfig:

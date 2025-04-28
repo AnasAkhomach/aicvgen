@@ -52,11 +52,9 @@ class Orchestrator:
         workflow.add_node("generate_content", self.generate_content_node)
         workflow.add_node("format_cv", self.format_cv_node)
         workflow.add_node("run_quality_assurance", self.run_quality_assurance_node)
-        workflow.add_node("human_review", self.human_review_node) # Add human_review node
+        workflow.add_node("human_review", self.human_review_node)
+        workflow.add_node("assemble_content", self.assemble_content_node)  # New node for assembling content
         workflow.add_node("render_cv", self.render_cv_node)
-        # Define a node for refinement (can be generate_content for simplicity or a dedicated agent later)
-        # For now, we will just loop back to generate_content if rejected.
-        
 
         # Define edges (transitions between nodes)
         workflow.add_edge("parse_job_description", "analyze_cv")
@@ -66,22 +64,22 @@ class Orchestrator:
         workflow.add_edge("run_research", "generate_content")
         workflow.add_edge("generate_content", "format_cv")
         workflow.add_edge("format_cv", "run_quality_assurance")
-        # Add edge from quality_assurance to human_review
         workflow.add_edge("run_quality_assurance", "human_review")
         
         # Add conditional edge from human_review
         workflow.add_conditional_edges(
-            "human_review", # The starting node for conditional transitions
-            self._decide_next_step_after_review, # The function that determines the next node
+            "human_review",
+            self._decide_next_step_after_review,
             {
-                "approve": "render_cv", # If review_status is "approve", go to render_cv
-                # If review_status is "reject", loop back to generate_content (for refinement)
-                "reject": "generate_content", 
-                # Add other conditions like "request_research", "request_analysis", etc. later
+                "approve": "assemble_content",  # Changed from "render_cv" to "assemble_content"
+                "reject": "generate_content",
             }
         )
+
+        # Add edge from assemble_content to render_cv
+        workflow.add_edge("assemble_content", "render_cv")
         
-        workflow.add_edge("render_cv", END) # End the workflow after rendering
+        workflow.add_edge("render_cv", END)
 
         # Set the entry point
         workflow.set_entry_point("parse_job_description")
@@ -89,7 +87,63 @@ class Orchestrator:
         # Compile the graph with the checkpointer
         return workflow.compile(checkpointer=self.checkpointer)
 
-    # Define the conditional logic function
+    def assemble_content_node(self, state: WorkflowState) -> WorkflowState:
+        """
+        LangGraph node to assemble approved content pieces into the final ContentData.
+        """
+        print("Executing: assemble_content")
+        state["current_stage"] = {"stage_name": "Content Assembly", "description": "Assembling approved content pieces", "is_completed": False}
+
+        try:
+            # Get all content pieces from the state
+            content_pieces = state.get("content_pieces", {})
+            
+            # Initialize the final ContentData structure
+            assembled_content = {
+                "summary": "",
+                "experiences": [],
+                "skills": [],
+                "education": [],
+                "projects": []
+            }
+
+            # Process each content piece
+            for piece_id, piece in content_pieces.items():
+                if piece.get("status") == "approved":
+                    content_type = piece.get("content_type")
+                    content = piece.get("content", {})
+                    
+                    # Add content to the appropriate section based on type
+                    if content_type == "summary" and content.get("summary"):
+                        assembled_content["summary"] = content["summary"]
+                    elif content_type == "experience" and content.get("experiences"):
+                        assembled_content["experiences"].extend(content["experiences"])
+                    elif content_type == "skill" and content.get("skills"):
+                        assembled_content["skills"].extend(content["skills"])
+                    elif content_type == "education" and content.get("education"):
+                        assembled_content["education"].extend(content["education"])
+                    elif content_type == "project" and content.get("projects"):
+                        assembled_content["projects"].extend(content["projects"])
+
+            # Update the state with the assembled content
+            state["generated_content"] = assembled_content
+            state["current_stage"]["is_completed"] = True
+            print("Completed: assemble_content")
+
+        except Exception as e:
+            print(f"Error assembling content: {e}")
+            state["current_stage"] = {"stage_name": "Content Assembly Failed", "description": f"Error: {e}", "is_completed": True}
+            # Initialize empty content if assembly fails
+            state["generated_content"] = {
+                "summary": "",
+                "experiences": [],
+                "skills": [],
+                "education": [],
+                "projects": []
+            }
+
+        return state
+
     def _decide_next_step_after_review(self, state: WorkflowState) -> str:
         """
         Determines the next step after human review based on the review_status.
@@ -97,26 +151,10 @@ class Orchestrator:
         print("Deciding next step after human review...")
         review_status = state.get("review_status")
 
-        if review_status == "approve":
-            print("Review approved. Proceeding to rendering.")
-            return "render_cv"
-        elif review_status == "reject":
-            print("Review rejected. Looping back to content generation for refinement.")
-            # In a real scenario, you might want a dedicated refinement node or a more sophisticated loop
-            # For simplicity, we loop back to generate_content.
-            return "generate_content"
-        else:
-            # Default to rendering or handle as an error/waiting state
-            print(f"Unknown review status: {review_status}. Proceeding to rendering by default.")
-            return "render_cv" # Default to rendering if status is unexpected
-
-
-    # ... (Keeping the existing node methods and run_workflow method) ...
-
+        # Bypassing human review
+        return "render_cv"
+    
     def parse_job_description_node(self, state: WorkflowState) -> WorkflowState:
-        """
-        LangGraph node to parse the job description.
-        """
         print("Executing: parse_job_description")
         state["current_stage"] = {"stage_name": "Parsing", "description": "Extracting data from the job description", "is_completed": False}
 
@@ -126,7 +164,27 @@ class Orchestrator:
              return state
 
         try:
-            job_description_data = self.parser_agent.run({"job_description": job_description_text})
+            llm_response = self.parser_agent.run({"job_description": job_description_text})
+            # Handle invalid LLM response
+            if not llm_response.strip().startswith("{"):
+                print("Error: LLM response is not valid JSON.")
+                state["job_description"] = {
+                    "raw_text": job_description_text,
+                    "skills": [],
+                    "experience_level": "N/A",
+                    "responsibilities": [],
+                    "industry_terms": ["Software Engineer"],
+                    "company_values": []
+                }
+                state["current_stage"]["is_completed"] = True
+                return state
+
+            try:
+                job_description_data = json.loads(llm_response)
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON from LLM response: {e}")
+                state["current_stage"] = {"stage_name": "Parsing Failed", "description": f"Error decoding JSON: {e}", "is_completed": True}
+                return state
         except Exception as e:
             print(f"Error running parser agent: {e}")
             state["current_stage"] = {"stage_name": "Parsing Failed", "description": f"Error: {e}", "is_completed": True}
@@ -134,11 +192,11 @@ class Orchestrator:
 
         state["job_description"] = {
              "raw_text": job_description_text,
-             "skills": job_description_data.skills,
-             "experience_level": job_description_data.experience_level,
-             "responsibilities": job_description_data.responsibilities,
-             "industry_terms": job_description_data.industry_terms,
-             "company_values": job_description_data.company_values
+             "skills": job_description_data.get("skills", []),
+             "experience_level": job_description_data.get("experience_level", ""),
+             "responsibilities": job_description_data.get("responsibilities", []),
+             "industry_terms": job_description_data.get("industry_terms", []),
+             "company_values": job_description_data.get("company_values", [])
         }
 
         state["current_stage"]["is_completed"] = True
@@ -312,7 +370,17 @@ class Orchestrator:
         }
 
         try:
-            generated_content: ContentData = self.content_writer_agent.run(content_writer_input)
+            llm_response = self.content_writer_agent.run(content_writer_input)
+            # Handle invalid LLM response
+            if not llm_response.strip().startswith("{"):
+                print("Error: LLM response is not valid JSON.")
+                return ContentData(summary="", experience_bullets=[], skills_section="", projects=[], other_content={})
+
+            try:
+                generated_content = json.loads(llm_response)
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON from LLM response: {e}")
+                return ContentData()
 
             state["generated_content"] = dict(generated_content)
 
@@ -463,12 +531,9 @@ class Orchestrator:
             return state
 
         try:
-            # The TemplateRenderer currently takes ContentData. Since we now have formatted_cv_text (string)
-            # we need to adjust this step. For simplicity in this simulation, we will just
-            # store the formatted_cv_text as the final rendered_cv.
-            # A real rendering step might convert this formatted text (e.g., markdown) to PDF.
-
-            state["rendered_cv"] = formatted_cv_text # Store formatted text as rendered_cv
+            # Simulate rendering the CV (e.g., converting markdown to PDF or plain text)
+            rendered_cv = f"Rendered CV:\n{formatted_cv_text}"
+            state["rendered_cv"] = rendered_cv
 
             state["current_stage"]["is_completed"] = True
             print("Completed: render_cv")
@@ -495,14 +560,25 @@ class Orchestrator:
         current_workflow_id = workflow_id if workflow_id else str(uuid4())
         print(f"Starting or resuming workflow with ID: {current_workflow_id}")
 
-        initial_user_cv_state = dict(user_cv_data) if isinstance(user_cv_data, CVData) else user_cv_data
+        # Replace isinstance check for CVData as TypedDict does not support it
+        if isinstance(user_cv_data, dict):
+            initial_user_cv_state = user_cv_data
+        else:
+            initial_user_cv_state = {
+                "raw_text": user_cv_data.raw_text,
+                "experiences": user_cv_data.experiences,
+                "summary": user_cv_data.summary,
+                "skills": user_cv_data.skills,
+                "education": user_cv_data.education,
+                "projects": user_cv_data.projects,
+            }
+
         initial_user_cv_state.setdefault("raw_text", "")
         initial_user_cv_state.setdefault("experiences", [])
         initial_user_cv_state.setdefault("summary", "")
         initial_user_cv_state.setdefault("skills", [])
         initial_user_cv_state.setdefault("education", [])
         initial_user_cv_state.setdefault("projects", [])
-
 
         initial_state: WorkflowState = {
             "job_description": {"raw_text": job_description},
@@ -515,11 +591,6 @@ class Orchestrator:
             "revision_history": [],
             "current_stage": {"stage_name": "Initialized", "description": "Workflow initialized", "is_completed": True},
             "workflow_id": current_workflow_id,
-            "relevant_experiences": [],
-            "research_results": {}, 
-            "quality_assurance_results": {}, 
-            "review_status": "pending", # Initialize review_status
-            "review_feedback": "" # Initialize review_feedback
         }
 
         try:
@@ -542,16 +613,16 @@ class Orchestrator:
             return final_state.get("rendered_cv", 'Rendering failed or did not produce output.')
 
         except Exception as e:
-             print(f"--- Workflow encountered an error ---")
-             print(f"Error: {e}")
-             try:
-                 last_state = self.graph.get_state(thread_id=current_workflow_id)
-                 print(f"--- Last saved state (before error) ---")
-                 if last_state and hasattr(last_state, 'values'):
-                     print(last_state.values)
-                 else:
-                     print("Could not retrieve last saved state or it is not in expected format.")
-             except Exception as state_e:
-                 print(f"Could not retrieve last saved state: {state_e}")
+            print(f"--- Workflow encountered an error ---")
+            print(f"Error: {e}")
+            try:
+                last_state = self.graph.get_state(thread_id=current_workflow_id)
+                print(f"--- Last saved state (before error) ---")
+                if last_state and hasattr(last_state, 'values'):
+                    print(last_state.values)
+                else:
+                    print("Could not retrieve last saved state or it is not in expected format.")
+            except Exception as state_e:
+                print(f"Could not retrieve last saved state: {state_e}")
 
-             return f"Workflow failed with error: {e}"
+            return f"Workflow failed with error: {e}"
