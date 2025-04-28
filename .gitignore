@@ -100,7 +100,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-vs_venv/  # <<<--- ADDED THIS LINE
+# vs_venv/  <--- REMOVED THIS LINE
 
 # Spyder project settings
 .spyderproject
