@@ -7,3 +7,4 @@ Pillow
 google
 langchain-google-genai
 langgraph
+streamlit

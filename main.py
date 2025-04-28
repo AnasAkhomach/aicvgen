@@ -9,6 +9,10 @@ from state_manager import VectorStoreConfig, CVData, AgentIO # Import AgentIO
 import os # Import os for file operations
 from content_writer_agent import ContentWriterAgent # Import ContentWriterAgent
 from research_agent import ResearchAgent # Import ResearchAgent
+from tools_agent import ToolsAgent # Import ToolsAgent
+from cv_analyzer_agent import CVAnalyzerAgent # Import CVAnalyzerAgent
+from formatter_agent import FormatterAgent # Import FormatterAgent
+from quality_assurance_agent import QualityAssuranceAgent # Import QualityAssuranceAgent
 import streamlit as st # Import Streamlit for UI
 
 def main():
@@ -21,9 +25,13 @@ def main():
     vector_db_config = VectorStoreConfig(dimension=768, index_type="IndexFlatL2")
     vector_db = VectorDB(config=vector_db_config)
     vector_store_agent = VectorStoreAgent(name="Vector Store Agent", description="Agent for managing vector store.", model=model, input_schema=AgentIO(input={}, output={}, description="vector store agent"), output_schema=AgentIO(input={}, output={}, description="vector store agent"), vector_db=vector_db)
-    content_writer_agent = ContentWriterAgent(name="ContentWriterAgent", description="Agent for generating tailored CV content.", llm=model)
+    tools_agent = ToolsAgent(name="ToolsAgent", description="Agent for content processing.")
+    content_writer_agent = ContentWriterAgent(name="ContentWriterAgent", description="Agent for generating tailored CV content.", llm=model, tools_agent=tools_agent)
     research_agent = ResearchAgent(name="ResearchAgent", description="Agent for researching job-related information.", llm=model)
-    orchestrator = Orchestrator(parser_agent, template_renderer, vector_store_agent, content_writer_agent, research_agent)
+    cv_analyzer_agent = CVAnalyzerAgent(name="CVAnalyzerAgent", description="Agent for analyzing CVs.", llm=model)
+    formatter_agent = FormatterAgent(name="FormatterAgent", description="Agent for formatting CV content.")
+    quality_assurance_agent = QualityAssuranceAgent(name="QualityAssuranceAgent", description="Agent for quality assurance checks.")
+    orchestrator = Orchestrator(parser_agent, template_renderer, vector_store_agent, content_writer_agent, research_agent, cv_analyzer_agent, tools_agent, formatter_agent, quality_assurance_agent, model)
 
     # Input fields for job description and CV
     job_description = st.text_area("Job Description", "Software Engineer position at Google")
