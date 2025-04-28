@@ -11,28 +11,30 @@ from llm import LLM
 from parser_agent import ParserAgent
 from template_renderer import TemplateRenderer
 from vector_store_agent import VectorStoreAgent
-from vector_db import VectorDB
+from vector_db import VectorDB, VectorStoreConfig
 from content_writer_agent import ContentWriterAgent
 from research_agent import ResearchAgent
 from cv_analyzer_agent import CVAnalyzerAgent
 from tools_agent import ToolsAgent
 from formatter_agent import FormatterAgent
 from quality_assurance_agent import QualityAssuranceAgent
+from state_manager import AgentIO
 
 try:
     # Assuming LLM can be initialized without args for now, adjust as needed
     llm_instance = LLM()
     # Initialize other agents, passing llm_instance and other dependencies
-    parser_agent_instance = ParserAgent(llm=llm_instance)
-    template_renderer_instance = TemplateRenderer() # Assuming no args needed
-    vector_db_instance = VectorDB() # Assuming no args needed
-    vector_store_agent_instance = VectorStoreAgent(llm=llm_instance, vector_db=vector_db_instance)
-    content_writer_agent_instance = ContentWriterAgent(llm=llm_instance)
-    research_agent_instance = ResearchAgent(llm=llm_instance)
-    cv_analyzer_agent_instance = CVAnalyzerAgent(llm=llm_instance)
-    tools_agent_instance = ToolsAgent(llm=llm_instance)
-    formatter_agent_instance = FormatterAgent(llm=llm_instance)
-    quality_assurance_agent_instance = QualityAssuranceAgent(llm=llm_instance)
+    parser_agent_instance = ParserAgent(name="ParserAgent", description="Agent for parsing job descriptions.", llm=llm_instance)
+    template_renderer_instance = TemplateRenderer(name="TemplateRenderer", description="Agent for rendering CV templates.", model=llm_instance, input_schema=AgentIO(input={}, output={}, description="template renderer"), output_schema=AgentIO(input={}, output={}, description="template renderer"))
+    vector_db_config = VectorStoreConfig(dimension=768, index_type="IndexFlatL2")
+    vector_db_instance = VectorDB(config=vector_db_config)
+    vector_store_agent_instance = VectorStoreAgent(name="Vector Store Agent", description="Agent for managing vector store.", model=llm_instance, input_schema=AgentIO(input={}, output={}, description="vector store agent"), output_schema=AgentIO(input={}, output={}, description="vector store agent"), vector_db=vector_db_instance)
+    tools_agent_instance = ToolsAgent(name="ToolsAgent", description="Agent for providing content processing tools.")
+    content_writer_agent_instance = ContentWriterAgent(name="ContentWriterAgent", description="Agent for generating tailored CV content.", llm=llm_instance, tools_agent=tools_agent_instance)
+    research_agent_instance = ResearchAgent(name="ResearchAgent", description="Agent for researching job-related information.", llm=llm_instance)
+    cv_analyzer_agent_instance = CVAnalyzerAgent(name="CVAnalyzerAgent", description="Agent for analyzing user CVs.", llm=llm_instance)
+    formatter_agent_instance = FormatterAgent(name="FormatterAgent", description="Agent for formatting CV content.")
+    quality_assurance_agent_instance = QualityAssuranceAgent(name="QualityAssuranceAgent", description="Agent for performing quality checks on CV content.")
 
 except Exception as e:
     st.error(f"Error initializing agents or LLM: {e}")
