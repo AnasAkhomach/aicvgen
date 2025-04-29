@@ -67,8 +67,9 @@ class QualityAssuranceAgent(AgentBase):
         job_skills = job_description_data.get("skills", [])
         missing_keywords = [skill for skill in job_skills if skill.lower() not in formatted_cv_text.lower()]
         if missing_keywords:
-            feedback.append(f"Missing potential ATS keywords: {', '.join(missing_keywords)}.")
-            suggestions.append(f"Consider incorporating keywords like: {', '.join(missing_keywords)}.")
+            missing_keywords_str = ", ".join(missing_keywords)
+            feedback.append(f"Missing potential ATS keywords: {missing_keywords_str}.")
+            suggestions.append(f"Consider incorporating keywords like: {missing_keywords_str}.")
             is_quality_ok = False
             
         # Simulate consistency check (placeholder)

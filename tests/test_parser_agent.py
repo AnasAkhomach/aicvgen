@@ -8,17 +8,34 @@ class TestParserAgent(unittest.TestCase):
     def setUp(self):
         """Set up mock objects and ParserAgent instance before each test."""
         self.mock_llm = MagicMock()
-        # The original ParserAgent init uses `model` which seems to be intended as the llm object
-        # We will pass the mock_llm as the `llm` argument.
-        self.parser_agent = ParserAgent(name="TestParserAgent", description="Test Description", llm=self.mock_llm)
+        # Set up the mock LLM to return a properly formatted JSON response
+        mock_response = '{"skills": ["Python"], "experience_level": "Mid-Level", "responsibilities": [], "industry_terms": [], "company_values": []}'
+        self.mock_llm.generate_content.return_value = mock_response
+        
+        # Create the parser agent with the correct name and description
+        self.parser_agent = ParserAgent(
+            name="Parser Agent", 
+            description="Parses job descriptions and extracts key information.",
+            llm=self.mock_llm
+        )
 
     def test_init(self):
         """Test that ParserAgent is initialized correctly."""
         self.assertEqual(self.parser_agent.name, "Parser Agent") # Note: name is hardcoded in __init__
         self.assertEqual(self.parser_agent.description, "Parses job descriptions and extracts key information.") # Note: description is hardcoded in __init__
         self.assertEqual(self.parser_agent.llm, self.mock_llm)
-        self.assertIsInstance(self.parser_agent.input_schema, AgentIO)
-        self.assertIsInstance(self.parser_agent.output_schema, AgentIO)
+        
+        # Check input_schema as a dictionary
+        self.assertIn("input", self.parser_agent.input_schema)
+        self.assertIn("output", self.parser_agent.input_schema) 
+        self.assertIn("description", self.parser_agent.input_schema)
+        
+        # Check output_schema as a dictionary
+        self.assertIn("input", self.parser_agent.output_schema)
+        self.assertIn("output", self.parser_agent.output_schema)
+        self.assertIn("description", self.parser_agent.output_schema)
+        
+        # Check specific content
         self.assertEqual(self.parser_agent.input_schema["input"], {"job_description": str})
         self.assertEqual(self.parser_agent.output_schema["output"], JobDescriptionData)
 
@@ -36,14 +53,14 @@ class TestParserAgent(unittest.TestCase):
         self.assertIsInstance(parsed_data, JobDescriptionData)
 
         # Assert that the raw_text is correctly captured
-        self.assertEqual(parsed_data["raw_text"], job_description_input)
+        self.assertEqual(parsed_data.raw_text, job_description_input)
 
         # Assert that the hardcoded values are returned (based on the current implementation)
-        self.assertEqual(parsed_data["skills"], ["Python"])
-        self.assertEqual(parsed_data["experience_level"], "Mid-Level")
-        self.assertEqual(parsed_data["responsibilities"], [])
-        self.assertEqual(parsed_data["industry_terms"], [])
-        self.assertEqual(parsed_data["company_values"], [])
+        self.assertEqual(parsed_data.skills, ["Python"])
+        self.assertEqual(parsed_data.experience_level, "Mid-Level")
+        self.assertEqual(parsed_data.responsibilities, [])
+        self.assertEqual(parsed_data.industry_terms, [])
+        self.assertEqual(parsed_data.company_values, [])
 
 if __name__ == '__main__':
     unittest.main()

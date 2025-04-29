@@ -58,25 +58,34 @@ class FormatterAgent(AgentBase):
         formatted_content_parts = []
 
         if content_data.summary:
-            formatted_content_parts.append(f"## Summary\n{content_data.summary}\n")
+            formatted_content_parts.append(f"## Summary\n{content_data.summary}")
 
         if content_data.experience_bullets:
-            formatted_content_parts.append("## Experience\n")
-            formatted_content_parts.extend(f"- {bullet}\n" for bullet in content_data.experience_bullets)
+            formatted_content_parts.append("## Experience")
+            for bullet in content_data.experience_bullets:
+                formatted_content_parts.append(f"- {bullet}")
 
         if content_data.skills_section:
-             formatted_content_parts.append(f"## Skills\n{content_data.skills_section}\n")
+             formatted_content_parts.append(f"## Skills\n{content_data.skills_section}")
         
         if content_data.projects:
-            formatted_content_parts.append("## Projects\n")
-            formatted_content_parts.extend(f"- {project}\n" for project in content_data.projects)
+            formatted_content_parts.append("## Projects")
+            for project in content_data.projects:
+                formatted_content_parts.append(f"- {project}")
 
         if content_data.other_content:
             for section_name, section_content in content_data.other_content.items():
-                 formatted_content_parts.append(f"## {section_name}\n{section_content}\n")
+                # Add period at the end if not already present
+                if section_content and not section_content.endswith('.'):
+                    section_content = f"{section_content}."
+                formatted_content_parts.append(f"## {section_name}\n{section_content}")
 
-
-        formatted_output = "\n".join(formatted_content_parts).strip()
+        # If we have any content, join with double newlines for proper spacing
+        if formatted_content_parts:
+            formatted_output = "\n\n".join(formatted_content_parts)
+        else:
+            formatted_output = ""
+            
         # -----------------------------------
 
         print("Completed: FormatterAgent (Simulated Formatting)")

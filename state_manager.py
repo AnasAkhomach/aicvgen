@@ -28,13 +28,17 @@ class JobDescriptionData:
     """
     Represents the parsed data of a job description.
     """
-    def __init__(self, raw_text, skills, experience_level, responsibilities, industry_terms, company_values):
+    def __init__(self, raw_text, skills, experience_level, responsibilities, industry_terms, company_values, error=None):
         self.raw_text = raw_text
         self.skills = skills
         self.experience_level = experience_level
         self.responsibilities = responsibilities
         self.industry_terms = industry_terms
         self.company_values = company_values
+        self.error = error  # Optional error field to store error messages
+        
+    def __str__(self):
+        return f"JobDescriptionData(raw_text='{self.raw_text}', skills={self.skills}, experience_level='{self.experience_level}', responsibilities={self.responsibilities}, industry_terms={self.industry_terms}, company_values={self.company_values})"
 
 @dataclass
 class VectorStoreConfig:
@@ -93,13 +97,48 @@ class ContentData(Dict):
     """
     Represents the assembled tailored CV content for rendering.
     """
-    def __init__(self, summary="", experience_bullets=None, skills_section="", projects=None, other_content=None):
+    def __init__(self, summary="", experience_bullets=None, skills_section="", projects=None, other_content=None,
+                 name="", email="", phone="", linkedin="", github="", education=None, certifications=None, languages=None):
         super().__init__()
+        self["name"] = name
+        self["email"] = email
+        self["phone"] = phone
+        self["linkedin"] = linkedin
+        self["github"] = github
         self["summary"] = summary
-        self["experience_bullets"] = experience_bullets if experience_bullets is not None else []
+        experience_bullets = experience_bullets if experience_bullets is not None else []
+        self["experience_bullets"] = experience_bullets
         self["skills_section"] = skills_section
-        self["projects"] = projects if projects is not None else []
-        self["other_content"] = other_content if other_content is not None else {}
+        projects = projects if projects is not None else []
+        self["projects"] = projects
+        education = education if education is not None else []
+        self["education"] = education
+        certifications = certifications if certifications is not None else []
+        self["certifications"] = certifications
+        languages = languages if languages is not None else []
+        self["languages"] = languages
+        other_content = other_content if other_content is not None else {}
+        self["other_content"] = other_content
+
+    @property
+    def name(self):
+        return self.get("name")
+
+    @property
+    def email(self):
+        return self.get("email")
+
+    @property
+    def phone(self):
+        return self.get("phone")
+
+    @property
+    def linkedin(self):
+        return self.get("linkedin")
+
+    @property
+    def github(self):
+        return self.get("github")
 
     @property
     def summary(self):
@@ -116,6 +155,18 @@ class ContentData(Dict):
     @property
     def projects(self):
         return self.get("projects")
+
+    @property
+    def education(self):
+        return self.get("education")
+
+    @property
+    def certifications(self):
+        return self.get("certifications")
+
+    @property
+    def languages(self):
+        return self.get("languages")
 
     @property
     def other_content(self):

@@ -68,6 +68,7 @@ class ToolsAgent(AgentBase):
         Returns:
             A dictionary with validation results.
         """
+        print(f"validate_content called with content: {content} and requirements: {requirements}")
         print("Simulating content validation...")
         # Placeholder validation logic
         validation_results = {

@@ -50,6 +50,10 @@ class ResearchAgent(AgentBase):
         """
         job_description_data = input_data.get("job_description_data", {})
         
+        # Check if job_description_data is empty, return empty results if so
+        if not job_description_data:
+            return {}
+            
         # Extract relevant information for research queries
         skills = job_description_data.get("skills", [])
         responsibilities = job_description_data.get("responsibilities", [])

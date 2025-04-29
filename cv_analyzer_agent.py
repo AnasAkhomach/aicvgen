@@ -3,6 +3,7 @@ from state_manager import AgentIO, CVData, JobDescriptionData
 from typing import Dict, Any, List
 from llm import LLM # Import LLM
 import json # Import json
+import time
 
 class CVAnalyzerAgent(AgentBase):
     """
@@ -39,6 +40,69 @@ class CVAnalyzerAgent(AgentBase):
             ),
         )
         self.llm = llm # Store the LLM instance
+        self.timeout = 30  # Maximum wait time in seconds
+
+    def extract_basic_info(self, cv_text: str) -> Dict[str, Any]:
+        """
+        Extract basic information from CV text without using LLM for a fallback.
+        
+        Args:
+            cv_text: Raw CV text
+            
+        Returns:
+            Dictionary with basic extracted information
+        """
+        lines = cv_text.split('\n')
+        result = {
+            "summary": "",
+            "experiences": [],
+            "skills": [],
+            "education": [],
+            "projects": []
+        }
+        
+        current_section = None
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Try to identify sections
+            lower_line = line.lower()
+            if "experience" in lower_line and (line.endswith(':') or line.isupper()):
+                current_section = "experiences"
+                continue
+            elif "skill" in lower_line and (line.endswith(':') or line.isupper()):
+                current_section = "skills"
+                continue
+            elif "education" in lower_line and (line.endswith(':') or line.isupper()):
+                current_section = "education"
+                continue
+            elif "project" in lower_line and (line.endswith(':') or line.isupper() or line.startswith('#')):
+                current_section = "projects"
+                continue
+            elif "summary" in lower_line and (line.endswith(':') or line.isupper()):
+                current_section = "summary"
+                continue
+            
+            # Add content to current section
+            if current_section:
+                if line.startswith('-') or line.startswith('•'):
+                    if current_section == "summary":
+                        result[current_section] += f" {line[1:].strip()}"
+                    else:
+                        result[current_section].append(line[1:].strip())
+                elif current_section == "summary":
+                    result[current_section] += f" {line}"
+                else:
+                    result[current_section].append(line)
+        
+        # If we couldn't identify any summary, use the first line as name
+        if not result["summary"] and lines:
+            result["summary"] = f"CV for {lines[0].strip()}"
+            
+        return result
 
     def run(self, input: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -68,6 +132,9 @@ class CVAnalyzerAgent(AgentBase):
 
         print(f"Analyzing CV...\n Raw Text (first 200 chars): {raw_cv_text[:200]}...")
 
+        # Create a fallback extraction first, in case the LLM fails
+        fallback_extraction = self.extract_basic_info(raw_cv_text)
+
         # Craft the prompt for the LLM
         # Include job description for context to help prioritize relevant info
         prompt = f"""
@@ -77,9 +144,10 @@ class CVAnalyzerAgent(AgentBase):
         "experiences": A list of work experiences, each as a string describing the role, company, and key achievements.
         "skills": A list of technical and soft skills mentioned.
         "education": A list of educational qualifications (degrees, institutions, dates).
-        "projects": A list of significant projects mentioned.
+        "projects": A list of significant projects mentioned. IMPORTANT: Be thorough in extracting all projects, including project names, technologies used, and key accomplishments.
 
         If a section is not present, provide an empty string or an empty list accordingly.
+        Pay special attention to the projects section, as it is critical information for the CV.
 
         Job Description Context (for relevance):
         {job_description_data}
@@ -92,9 +160,16 @@ class CVAnalyzerAgent(AgentBase):
 
         print("Sending prompt to LLM for CV analysis...")
         try:
+            # Set a timeout for the LLM call
+            start_time = time.time()
             llm_response = self.llm.generate_content(prompt)
+            elapsed_time = time.time() - start_time
+            
+            if elapsed_time > self.timeout:
+                print(f"LLM response took too long ({elapsed_time:.2f}s). Using fallback extraction.")
+                return fallback_extraction
+                
             print("Received response from LLM.")
-            # print(f"LLM Response: {llm_response}") # Uncomment for debugging
 
             # Attempt to parse the JSON response (handle markdown formatting)
             json_string = llm_response.strip()
@@ -114,27 +189,15 @@ class CVAnalyzerAgent(AgentBase):
             extracted_data.setdefault("projects", [])
 
             print("Successfully analyzed CV using LLM.")
-            # print(f"Extracted Data: {extracted_data}") # Uncomment for debugging
             return extracted_data
 
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON from LLM response during CV analysis: {e}")
-            # print(f"Faulty JSON string: {json_string}") # Uncomment for debugging
-            # Return empty structure on error
-            return {
-                "summary": f"Error parsing CV: {e}", # Indicate error in summary
-                "experiences": [],
-                "skills": [],
-                "education": [],
-                "projects": []
-            }
+            print("Using fallback extraction instead.")
+            fallback_extraction["summary"] = f"Error parsing CV: {fallback_extraction.get('summary', '')}"
+            return fallback_extraction
         except Exception as e:
             print(f"An unexpected error occurred during CV analysis: {e}")
-            # Return empty structure on error
-            return {
-                "summary": f"Error analyzing CV: {e}", # Indicate error in summary
-                "experiences": [],
-                "skills": [],
-                "education": [],
-                "projects": []
-            }
+            print("Using fallback extraction instead.")
+            fallback_extraction["summary"] = f"Error analyzing CV: {fallback_extraction.get('summary', '')}"
+            return fallback_extraction

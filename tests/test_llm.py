@@ -1,67 +1,79 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 import sys
 import os
 
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
+# Add the project root to path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Now import the class from llm.py
-try:
-    from llm import LLM
-except ImportError as e:
-    print(f"Error importing LLM: {e}")
-    # Fallback if the direct import fails (e.g., due to path issues)
-    LLM = None
-
-# Mock the google.generativeai module
-# This prevents actual API calls during tests
-mock_genai = MagicMock()
-
-# Create a mock GenerativeModel instance
-mock_model_instance = MagicMock()
-mock_response = MagicMock()
-mock_response.text = "Mocked response text"
-mock_model_instance.generate_content.return_value = mock_response
-
-# Configure the mock GenerativeModel class to return the mock instance
-mock_genai.GenerativeModel.return_value = mock_model_instance
-
+# Import the LLM class
+from llm import LLM
 
 class TestLLM(unittest.TestCase):
-
-    @patch.dict(sys.modules, {'google.generativeai': mock_genai})
-    def test_llm_initialization_and_generate(self):
-        """Tests LLM initialization and content generation with mocks."""
-        if LLM is None:
-            self.skipTest("LLM class could not be imported.")
-
-        # Reset mocks before test
-        mock_genai.reset_mock()
-        mock_genai.configure.reset_mock()
-        mock_genai.GenerativeModel.reset_mock()
-        mock_model_instance.generate_content.reset_mock()
-
-        # Instantiate the LLM class
-        llm_instance = LLM()
-
-        # Assert that genai.configure was called (implicitly in __init__)
+    @patch('llm.genai')
+    def test_llm_initialization_and_generate(self, mock_genai):
+        """Test initialization and basic content generation."""
+        # Set up the mock response
+        mock_model = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "Mocked response text"
+        mock_model.generate_content.return_value = mock_response
+        mock_genai.GenerativeModel.return_value = mock_model
+        
+        # Create an instance of LLM (which should call genai.configure)
+        llm = LLM()
+        
+        # Verify configure was called
         mock_genai.configure.assert_called_once()
+        
+        # Verify GenerativeModel was instantiated correctly
+        mock_genai.GenerativeModel.assert_called_with('gemini-2.0-flash')
+        
+        # Test the generate_content method
+        result = llm.generate_content("Test prompt")
+        
+        # Verify the model was called with the prompt
+        mock_model.generate_content.assert_called_with("Test prompt")
+        
+        # Verify we got the expected response
+        self.assertEqual(result, "Mocked response text")
 
-        # Assert that genai.GenerativeModel was called with 'gemini-2.0-flash'
-        mock_genai.GenerativeModel.assert_called_once_with('gemini-2.0-flash')
+    @patch('llm.genai')
+    def test_llm_generate_content_exception(self, mock_genai):
+        """Test exception handling in generate_content."""
+        # Set up the mock to raise an exception
+        mock_model = MagicMock()
+        mock_model.generate_content.side_effect = Exception("Test exception")
+        mock_genai.GenerativeModel.return_value = mock_model
+        
+        # Create an instance of LLM
+        llm = LLM()
+        
+        # Call generate_content and verify it returns an error message instead of raising an exception
+        result = llm.generate_content("Test prompt")
+        self.assertTrue(result.startswith("The AI model encountered an issue:"))
+        self.assertIn("Exception", result)
 
-        # Call the generate_content method
-        prompt_text = "Test prompt"
-        response_text = llm_instance.generate_content(prompt_text)
-
-        # Assert that the model's generate_content was called with the prompt
-        mock_model_instance.generate_content.assert_called_once_with(prompt_text)
-
-        # Assert that the returned text is the mocked response text
-        self.assertEqual(response_text, "Mocked response text")
+    @patch('llm.genai')
+    def test_llm_generate_content_unexpected_data(self, mock_genai):
+        """Test handling of unexpected response formats."""
+        # Set up mock to return a response with None for text
+        mock_model = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = None
+        mock_model.generate_content.return_value = mock_response
+        mock_genai.GenerativeModel.return_value = mock_model
+        
+        # Create an instance of LLM
+        llm = LLM()
+        
+        # Call generate_content
+        result = llm.generate_content("Test prompt")
+        
+        # Verify we get an error message back
+        self.assertEqual(result, "LLM returned an empty or invalid response")
 
 if __name__ == '__main__':
     unittest.main()

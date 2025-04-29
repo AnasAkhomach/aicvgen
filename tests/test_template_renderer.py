@@ -8,18 +8,28 @@ class TestTemplateRenderer(unittest.TestCase):
     def setUp(self):
         """Set up mock objects and TemplateRenderer instance before each test."""
         self.mock_llm = MagicMock()
-        self.renderer = TemplateRenderer(model=self.mock_llm)
+        self.renderer = TemplateRenderer(
+            name="Template Renderer",
+            description="Agent responsible for rendering CV templates.",
+            model=self.mock_llm,
+            input_schema=AgentIO(
+                input={"content_data": ContentData},
+                description="The renderer agent will receive a ContentData and return a rendered CV in markdown format"
+            ),
+            output_schema=AgentIO(
+                output=str,
+                description="The renderer agent will receive a ContentData and return a rendered CV in markdown format"
+            )
+        )
 
     def test_init(self):
         """Test that TemplateRenderer is initialized correctly."""
         self.assertEqual(self.renderer.name, "Template Renderer")
         self.assertEqual(self.renderer.description, "Agent responsible for rendering CV templates.")
         self.assertEqual(self.renderer.model, self.mock_llm)
-        self.assertIsInstance(self.renderer.input_schema, AgentIO)
-        self.assertIsInstance(self.renderer.output_schema, AgentIO)
-        # Check input_schema structure - Note: the original code has inconsistent input/output schema definitions
-        # Based on __init__, input_schema['input'] should be {'content_data': ContentData}
-        # And output_schema['output'] should be str. Let's test based on how it's actually defined.
+        # Validate the structure of input_schema and output_schema instead of using isinstance
+        self.assertIn("input", self.renderer.input_schema)
+        self.assertIn("output", self.renderer.output_schema)
         self.assertEqual(self.renderer.input_schema['input'], {'content_data': ContentData})
         self.assertEqual(self.renderer.output_schema['output'], str)
         self.assertEqual(self.renderer.input_schema["description"], "The renderer agent will receive a ContentData and return a rendered CV in markdown format")
@@ -90,9 +100,7 @@ Relevant Skills.
             "projects": [],
             "other_content": {}
         }
-        expected_markdown_falsy = """# Tailored CV
-
-"""
+        expected_markdown_falsy = """# Tailored CV"""
         rendered_cv_falsy = self.renderer.run(content_data_falsy)
         self.assertEqual(rendered_cv_falsy, expected_markdown_falsy)
 

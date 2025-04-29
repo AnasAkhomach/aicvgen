@@ -94,7 +94,11 @@ class TestStateManager(unittest.TestCase):
         # Test with some fields missing or None
         content_partial = ContentData(summary="Only summary")
         self.assertEqual(content_partial["summary"], "Only summary")
-        self.assertNotIn("experience_bullets", content_partial)
+        # Our implementation initializes all fields with default values
+        self.assertEqual(content_partial["experience_bullets"], [])
+        self.assertEqual(content_partial["skills_section"], "")
+        self.assertEqual(content_partial["projects"], [])
+        self.assertEqual(content_partial["other_content"], {})
 
     def test_workflow_state_typeddict(self):
         """Test creation and access of WorkflowState TypedDict."""

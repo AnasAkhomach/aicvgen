@@ -1,5 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from cv_analyzer_agent import CVAnalyzerAgent
 from state_manager import AgentIO, CVData, JobDescriptionData
 from typing import Dict, Any, List # Import List
@@ -71,8 +74,8 @@ class TestCVAnalyzerAgent(unittest.TestCase):
 
         mock_generate_content.assert_called_once()
         called_prompt = mock_generate_content.call_args[0][0]
-        # Access attributes using dot notation instead of dictionary syntax
-        self.assertIn(user_cv_data.raw_text, called_prompt)
+        # Access attributes using dictionary syntax instead of dot notation
+        self.assertIn(user_cv_data["raw_text"], called_prompt)
         self.assertIn(job_description_data.raw_text, called_prompt)
         self.assertIn("Python", called_prompt)
 
@@ -194,6 +197,53 @@ class TestCVAnalyzerAgent(unittest.TestCase):
         mock_generate_content.assert_called_once()
         self.assertIn("Error analyzing CV", extracted_data["summary"])
         self.assertEqual(extracted_data["experiences"], [])
+
+    @patch.object(MockLLM, 'generate_content')
+    def test_run_with_null_response(self, mock_generate_content):
+        """Test run method when LLM returns a null response."""
+        user_cv_data = CVData(raw_text="Some CV text.")
+        job_description_data = JobDescriptionData(raw_text="", skills=[], experience_level="", responsibilities=[], industry_terms=[], company_values=[])
+
+        input_data = {
+            "user_cv": user_cv_data,
+            "job_description": job_description_data
+        }
+
+        # Simulate a null response from LLM
+        mock_generate_content.return_value = None
+
+        extracted_data = self.agent.run(input_data)
+
+        mock_generate_content.assert_called_once()
+        self.assertIn("Error analyzing CV", extracted_data["summary"])
+        self.assertEqual(extracted_data["experiences"], [])
+
+    @patch.object(MockLLM, 'generate_content')
+    def test_run_with_partial_json(self, mock_generate_content):
+        """Test run method when LLM returns partial JSON."""
+        user_cv_data = CVData(raw_text="Some CV text.")
+        job_description_data = JobDescriptionData(raw_text="", skills=[], experience_level="", responsibilities=[], industry_terms=[], company_values=[])
+
+        input_data = {
+            "user_cv": user_cv_data,
+            "job_description": job_description_data
+        }
+
+        # Simulate partial JSON response from LLM
+        mock_llm_response_dict = {
+            "summary": "Partial summary."
+        }
+        mock_llm_response_json = json.dumps(mock_llm_response_dict)
+        mock_generate_content.return_value = mock_llm_response_json
+
+        extracted_data = self.agent.run(input_data)
+
+        mock_generate_content.assert_called_once()
+        self.assertEqual(extracted_data["summary"], "Partial summary.")
+        self.assertEqual(extracted_data["experiences"], [])
+        self.assertEqual(extracted_data["skills"], [])
+        self.assertEqual(extracted_data["education"], [])
+        self.assertEqual(extracted_data["projects"], [])
 
 
 if __name__ == '__main__':

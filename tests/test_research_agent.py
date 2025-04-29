@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from research_agent import ResearchAgent
 from state_manager import AgentIO, JobDescriptionData
-from typing import Dict, Any
+from typing import Dict, Any, List
 import time
 
 # Mock class for LLM dependency
@@ -26,9 +26,8 @@ class TestResearchAgent(unittest.TestCase):
         self.assertEqual(self.agent.name, "TestResearchAgent")
         self.assertEqual(self.agent.description, "A test research agent.")
         self.assertEqual(self.agent.llm, self.mock_llm)
-        self.assertIsInstance(self.agent.input_schema, AgentIO)
-        self.assertIsInstance(self.agent.output_schema, AgentIO)
-        # Check a few aspects of the schema structure based on research_agent.py
+        self.assertIn("input", self.agent.input_schema)
+        self.assertIn("output", self.agent.output_schema)
         self.assertIn('job_description_data', self.agent.input_schema['input'])
         self.assertEqual(self.agent.output_schema['output'], Dict[str, Any]) # Output is a Dict
 

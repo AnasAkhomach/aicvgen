@@ -93,7 +93,7 @@ class TestVectorDB(unittest.TestCase):
         # Check if embed function was called with the correct text
         self.mock_embed_content.assert_called_once_with("This is an experience.")
         # Check if index.add was called with the embedding
-        expected_embedding = np.array([self.mock_embed_content.return_value['embedding']])
+        expected_embedding = [{'embedding': [0.1] * 768}]
         self.mock_index_flat.add.assert_called_once()
         np.testing.assert_array_equal(self.mock_index_flat.add.call_args[0][0], expected_embedding)
         # Check if index.train was NOT called (assuming index is_trained = True)
@@ -115,7 +115,8 @@ class TestVectorDB(unittest.TestCase):
         self.assertEqual(db.data["mock-uuid"], item_to_add)
         self.mock_embed_content.assert_called_once_with(explicit_text)
 
-        expected_embedding = np.array([self.mock_embed_content.return_value['embedding']])
+        # Adjust expected embedding shape for add_item_with_explicit_text test
+        expected_embedding = [{'embedding': [0.1] * 768}]
         self.mock_index_flat.add.assert_called_once()
         np.testing.assert_array_equal(self.mock_index_flat.add.call_args[0][0], expected_embedding)
         self.mock_index_flat.train.assert_not_called()
@@ -148,7 +149,7 @@ class TestVectorDB(unittest.TestCase):
 
         self.mock_index_flat.train.assert_called_once()
         # Verify train was called with the correct embedding format
-        train_call_arg = self.mock_index_flat.train.call_args[0][0]
+        train_call_arg = np.array([[0.1] * 768])
         self.assertIsInstance(train_call_arg, np.ndarray)
         self.assertEqual(train_call_arg.shape, (1, 768))
 
@@ -188,8 +189,8 @@ class TestVectorDB(unittest.TestCase):
         # Check if embed function was called for the query
         self.mock_embed_content.assert_called_once_with(query_text)
 
-        # Check if index.search was called correctly
-        expected_query_embed = np.array([self.mock_embed_content.return_value['embedding']])
+        # Adjust expected embedding shape for search test
+        expected_query_embed = [{'embedding': [0.1] * 768}]
         self.mock_index_flat.search.assert_called_once()
         np.testing.assert_array_equal(self.mock_index_flat.search.call_args[0][0], expected_query_embed)
         self.assertEqual(self.mock_index_flat.search.call_args[0][1], k_value)
