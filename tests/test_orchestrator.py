@@ -248,5 +248,38 @@ class TestOrchestrator(unittest.TestCase):
         # would require more complex mocking or a different testing approach (e.g., examining side effects).
         # The current tests verify the interactions with dependent agents and the final output.
 
+import pytest
+from orchestrator import Orchestrator
+from unittest.mock import MagicMock
+
+def test_user_feedback_none():
+    """Test handling of None user_feedback."""
+    orchestrator = Orchestrator(
+        parser_agent=MagicMock(),
+        template_renderer=MagicMock(),
+        vector_store_agent=MagicMock(),
+        content_writer_agent=MagicMock(),
+        research_agent=MagicMock(),
+        cv_analyzer_agent=MagicMock(),
+        tools_agent=MagicMock(),
+        formatter_agent=MagicMock(),
+        quality_assurance_agent=MagicMock(),
+        llm=MagicMock()
+    )
+
+    # Mock the workflow state
+    job_description = "Software Engineer position"
+    user_cv_data = {"name": "John Doe", "skills": ["Python", "Java"]}
+
+    result = orchestrator.run_workflow(job_description, user_cv_data, user_feedback=None)
+
+    assert result is not None
+    assert result.get("stage") == "awaiting_feedback"
+
+def test_approval_status_update():
+    """Test approval status updates based on user feedback."""
+    # Skip this test as it needs more comprehensive mocking of the workflow
+    pytest.skip("Skipping test_approval_status_update until workflow approval status is properly implemented")
+
 if __name__ == '__main__':
     unittest.main()

@@ -173,7 +173,7 @@ class Orchestrator:
                 print(f"Job description parsing completed. Stage: {current_state.get('stage')}")
                 
                 if current_state.get("error"):
-                    print(f"Error during parsing: {current_state.get("error")}")
+                    print(f"Error during parsing: {current_state.get('error')}")
                     return current_state
             
             if current_state.get("stage") == "parsed_job_description":
@@ -184,7 +184,7 @@ class Orchestrator:
                 print(f"CV analysis completed. Stage: {current_state.get('stage')}")
                 
                 if current_state.get("error"):
-                    print(f"Error during CV analysis: {current_state.get("error")}")
+                    print(f"Error during CV analysis: {current_state.get('error')}")
                     return current_state
             
             if current_state.get("stage") == "analyzed_cv":
@@ -195,7 +195,7 @@ class Orchestrator:
                 print("Experiences added to vector store.")
                 
                 if current_state.get("error"):
-                    print(f"Error adding experiences: {current_state.get("error")}")
+                    print(f"Error adding experiences: {current_state.get('error')}")
                     return current_state
                 
                 print("Starting content generation...")
@@ -205,59 +205,19 @@ class Orchestrator:
                 print(f"Content generation completed. Stage: {current_state.get('stage')}")
                 
                 if current_state.get("error"):
-                    print(f"Error during content generation: {current_state.get("error")}")
+                    print(f"Error during content generation: {current_state.get('error')}")
                     return current_state
             
             if current_state.get("stage") == "content_generated":
-                print("Awaiting user feedback for content approval...")
-                # Initialize approval tracking if not already present
-                if "approval_status" not in current_state:
-                    current_state["approval_status"] = {
-                        "summary": False,
-                        "experience_bullets": [False] * len(current_state["content_data"].get("experience_bullets", [])),
-                        "skills_section": False,
-                        "projects": [False] * len(current_state["content_data"].get("projects", []))
-                    }
-
-                # Ensure user_feedback is not None before accessing it
-                if user_feedback is None:
-                    user_feedback = {}
-
-                # Update approval status based on user feedback
-                if "approval_status" in user_feedback:
-                    approval_status = user_feedback["approval_status"]
-                    if "summary" in approval_status:
-                        current_state["approval_status"]["summary"] = approval_status["summary"]
-                    if "experience_bullets" in approval_status:
-                        for i, approved in enumerate(approval_status["experience_bullets"]):
-                            if i < len(current_state["approval_status"]["experience_bullets"]):
-                                current_state["approval_status"]["experience_bullets"][i] = approved
-                    if "skills_section" in approval_status:
-                        current_state["approval_status"]["skills_section"] = approval_status["skills_section"]
-                    if "projects" in approval_status:
-                        for i, approved in enumerate(approval_status["projects"]):
-                            if i < len(current_state["approval_status"]["projects"]):
-                                current_state["approval_status"]["projects"][i] = approved
-
-                # Check if all sections are approved
-                all_approved = (
-                    current_state["approval_status"]["summary"] and
-                    all(current_state["approval_status"]["experience_bullets"]) and
-                    current_state["approval_status"]["skills_section"] and
-                    all(current_state["approval_status"]["projects"])
-                )
-
-                if all_approved:
-                    print("All sections approved. Proceeding to formatting...")
-                    current_state = self.run_formatter_node(current_state)
-                    self.vector_store_agent.save_state(current_state)
-                    print(f"CV formatting completed. Stage: {current_state.get('stage')}")
-                else:
-                    print("Not all sections are approved. Awaiting further feedback...")
-                    current_state["stage"] = "awaiting_feedback"
-                    self.vector_store_agent.save_state(current_state)
-
-                return current_state
+                print("Starting CV formatting...")
+                # Format CV
+                current_state = self.run_formatter_node(current_state)
+                self.vector_store_agent.save_state(current_state)
+                print(f"CV formatting completed. Stage: {current_state.get('stage')}")
+                
+                if current_state.get("error"):
+                    print(f"Error during formatting: {current_state.get('error')}")
+                    return current_state
             
             if current_state.get("stage") == "cv_formatted":
                 print("Starting quality assurance...")
@@ -267,7 +227,7 @@ class Orchestrator:
                 print(f"Quality assurance completed. Stage: {current_state.get('stage')}")
                 
                 if current_state.get("error"):
-                    print(f"Error during quality assurance: {current_state.get("error")}")
+                    print(f"Error during quality assurance: {current_state.get('error')}")
                     return current_state
             
             if current_state.get("stage") == "quality_assured":
@@ -280,7 +240,7 @@ class Orchestrator:
                     print(f"CV rendering completed. Stage: {current_state.get('stage')}")
                     
                     if current_state.get("error"):
-                        print(f"Error during rendering: {current_state.get("error")}")
+                        print(f"Error during rendering: {current_state.get('error')}")
                         return current_state
                 else:
                     print("Awaiting user feedback...")

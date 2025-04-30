@@ -275,11 +275,10 @@ def main():
         result = st.session_state.workflow_result
         formatted_cv = result.get("formatted_cv", {})
         
-        # Ensure formatted_cv is not None before accessing it
+        # Check if formatted_cv is None or empty
         if formatted_cv is None:
             st.write("No formatted CV available. Please complete all approvals and try again.")
-        else:
-            st.write(formatted_cv.get("summary", "No summary available"))
+            return
         
         # Check if formatted_cv is a string or dictionary
         if isinstance(formatted_cv, str):
