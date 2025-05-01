@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 from llm import LLM # Import LLM
 import json # Import json
 import time
+import os
 
 class CVAnalyzerAgent(AgentBase):
     """
@@ -25,7 +26,8 @@ class CVAnalyzerAgent(AgentBase):
             input_schema=AgentIO(
                 input={
                     "user_cv": CVData,
-                    "job_description": JobDescriptionData  # May need job description for context
+                    "job_description": JobDescriptionData,  # May need job description for context
+                    "template_cv_path": str
                 },
                 output=Dict[str, Any],  # Define a more specific output schema later
                 description="User CV data and optional job description for analysis.",
@@ -104,21 +106,33 @@ class CVAnalyzerAgent(AgentBase):
             
         return result
 
-    def run(self, input: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Analyzes the user's CV using an LLM and extracts key information.
-
+    def run(self, input_data):
+        """Process and analyze the user CV data.
+        
         Args:
-            input: A dictionary containing 'user_cv' (CVData) and optional 'job_description' (JobDescriptionData).
-
+            input_data: Dictionary containing user_cv (CVData object or raw text) and job_description
+            
         Returns:
-            A dictionary containing the extracted information from the CV.
-            Expected keys: 'summary', 'experiences', 'skills', 'education', 'projects'.
+            dict: Analyzed CV data with extracted information
         """
-        user_cv_data: CVData = input.get("user_cv")
-        job_description_data: JobDescriptionData = input.get("job_description") # Use job_description_data for context
+        print("Executing: CVAnalyzerAgent")
+        
+        # Check if a template CV path is provided in the input
+        template_cv_path = input_data.get("template_cv_path")
+        template_content = None
+        
+        if template_cv_path and os.path.exists(template_cv_path):
+            try:
+                with open(template_cv_path, 'r', encoding='utf-8') as file:
+                    template_content = file.read()
+                print(f"Loaded template CV from {template_cv_path}")
+            except Exception as e:
+                print(f"Error loading template CV: {e}")
+        
+        # Get user CV data from input
+        user_cv = input_data.get("user_cv", {})
 
-        raw_cv_text = user_cv_data.get("raw_text", "")
+        raw_cv_text = user_cv.get("raw_text", "")
 
         if not raw_cv_text:
             print("Warning: Empty CV text provided to CVAnalyzerAgent.")
@@ -150,7 +164,7 @@ class CVAnalyzerAgent(AgentBase):
         Pay special attention to the projects section, as it is critical information for the CV.
 
         Job Description Context (for relevance):
-        {job_description_data}
+        {input_data.get("job_description", "")}
 
         CV Text:
         {raw_cv_text}

@@ -39,6 +39,23 @@ class JobDescriptionData:
         
     def __str__(self):
         return f"JobDescriptionData(raw_text='{self.raw_text}', skills={self.skills}, experience_level='{self.experience_level}', responsibilities={self.responsibilities}, industry_terms={self.industry_terms}, company_values={self.company_values})"
+        
+    def to_dict(self):
+        """
+        Convert JobDescriptionData to a dictionary.
+        
+        Returns:
+            dict: A dictionary representation of this JobDescriptionData object
+        """
+        return {
+            "raw_text": self.raw_text,
+            "skills": self.skills,
+            "experience_level": self.experience_level,
+            "responsibilities": self.responsibilities,
+            "industry_terms": self.industry_terms,
+            "company_values": self.company_values,
+            "error": self.error
+        }
 
 @dataclass
 class VectorStoreConfig:

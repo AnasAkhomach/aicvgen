@@ -246,6 +246,14 @@ class Orchestrator:
                     print("Awaiting user feedback...")
                     # Update stage to await feedback if not already approved
                     current_state["stage"] = "awaiting_feedback"
+                    
+                    # Make sure content_data is included in the result for UI display and structured navigation
+                    if "content_data" not in current_state:
+                        if "original_content_data" in current_state:
+                            current_state["content_data"] = current_state["original_content_data"]
+                        elif "generated_content" in current_state:
+                            current_state["content_data"] = current_state["generated_content"]
+                    
                     self.vector_store_agent.save_state(current_state)
             
             if current_state.get("stage") == "cv_rendered":
@@ -481,7 +489,13 @@ class Orchestrator:
         """
         print("Executing: search_vector_store")
         
-        skills = parsed_job_data.get("skills", [])
+        # Convert JobDescriptionData to dict if needed
+        if not isinstance(parsed_job_data, dict) and hasattr(parsed_job_data, 'skills'):
+            skills = parsed_job_data.skills
+        else:
+            # It's already a dictionary or another type with get method
+            skills = parsed_job_data.get("skills", [])
+            
         if not skills:
             print("No skills found in parsed job data for vector store search.")
             return []
@@ -509,7 +523,24 @@ class Orchestrator:
         print("Executing: run_research")
         
         try:
-            research_results = self.research_agent.run({"job_description_data": parsed_job_data})
+            # Convert JobDescriptionData to dict if needed
+            if not isinstance(parsed_job_data, dict) and hasattr(parsed_job_data, 'to_dict'):
+                parsed_job_dict = parsed_job_data.to_dict()
+            elif not isinstance(parsed_job_data, dict) and hasattr(parsed_job_data, 'skills'):
+                # Manual conversion
+                parsed_job_dict = {
+                    "raw_text": getattr(parsed_job_data, "raw_text", ""),
+                    "skills": getattr(parsed_job_data, "skills", []),
+                    "experience_level": getattr(parsed_job_data, "experience_level", ""),
+                    "responsibilities": getattr(parsed_job_data, "responsibilities", []),
+                    "industry_terms": getattr(parsed_job_data, "industry_terms", []),
+                    "company_values": getattr(parsed_job_data, "company_values", [])
+                }
+            else:
+                # Already a dictionary or similar
+                parsed_job_dict = parsed_job_data
+                
+            research_results = self.research_agent.run({"job_description_data": parsed_job_dict})
             print("Completed: run_research")
             return research_results
         except Exception as e:
@@ -518,7 +549,7 @@ class Orchestrator:
 
     def run_formatter_node(self, state):
         """
-        Run the formatter node.
+        Run the formatter node with state.
         
         Args:
             state (dict): The current workflow state
@@ -527,29 +558,39 @@ class Orchestrator:
             dict: Updated workflow state
         """
         try:
+            # Get the content data from state
             content_data = state.get("content_data", {})
             
-            # Prepare input for formatter agent
-            formatter_input = {}
+            # Preserve the original content_data for UI to use
+            # This is needed for the granular approval system
+            state["original_content_data"] = content_data
             
-            if isinstance(content_data, dict):
-                # It's already a dictionary, use it directly
-                formatter_input = {
-                    "content_data": content_data,
-                    "format_specifications": {"template_type": "markdown", "style": "professional"}
-                }
-            else:
-                # Convert ContentData to dict if needed
-                formatter_input = {
-                    "content_data": {
-                        "summary": getattr(content_data, "summary", ""),
-                        "experience_bullets": getattr(content_data, "experience_bullets", []),
-                        "skills_section": getattr(content_data, "skills_section", ""),
-                        "projects": getattr(content_data, "projects", []),
-                        "other_content": getattr(content_data, "other_content", {})
-                    },
-                    "format_specifications": {"template_type": "markdown", "style": "professional"}
-                }
+            # Convert content_data to ContentData object if it's a regular dictionary
+            from state_manager import ContentData
+            if isinstance(content_data, dict) and not isinstance(content_data, ContentData):
+                # Create a ContentData object from the dictionary
+                content_data_obj = ContentData(
+                    summary=content_data.get("summary", ""),
+                    experience_bullets=content_data.get("experience_bullets", []),
+                    skills_section=content_data.get("skills_section", ""),
+                    projects=content_data.get("projects", []),
+                    other_content=content_data.get("other_content", {}),
+                    name=content_data.get("name", ""),
+                    email=content_data.get("email", ""),
+                    phone=content_data.get("phone", ""),
+                    linkedin=content_data.get("linkedin", ""),
+                    github=content_data.get("github", ""),
+                    education=content_data.get("education", []),
+                    certifications=content_data.get("certifications", []),
+                    languages=content_data.get("languages", [])
+                )
+                content_data = content_data_obj
+            
+            # Create input for the formatter agent
+            formatter_input = {
+                "content_data": content_data,
+                "format_specifications": {"template_type": "markdown", "style": "professional"}
+            }
             
             # Run the formatter agent
             formatted_cv = self.formatter_agent.run(formatter_input)
@@ -746,286 +787,279 @@ class Orchestrator:
 
     def run_content_writer_node(self, state):
         """
-        Run the content writer node.
+        Run the content writer node to generate CV content.
         
         Args:
             state (dict): The current workflow state
             
         Returns:
-            dict: Updated workflow state
+            dict: The updated workflow state
         """
         try:
-            analyzed_cv = state.get("analyzed_cv", {})
-            parsed_job = state.get("parsed_job_description", {})
+            # Get required inputs for content generation
+            parsed_job = state.get("parsed_job_description")
+            analyzed_cv = state.get("analyzed_cv")
             user_feedback = state.get("user_feedback", None)
-            regenerate_sections = state.get("regenerate_sections", [])
+            job_description = state.get("job_description", "")
             
-            print(f"Running content writer node. parsed_job type: {type(parsed_job)}")
+            # Regeneration handling logic
+            regenerate_sections = []
+            if user_feedback:
+                regenerate_sections = user_feedback.get("regenerate_only", [])
+                
+                # Check if we need to regenerate just a single bullet point
+                if user_feedback.get("bullet_index") is not None:
+                    # This is bullet point regeneration - either for experience or project
+                    # Get the original content_data
+                    original_content = state.get("content_data", {})
+                    
+                    # Preserve the original content
+                    state["original_content_data"] = original_content
+                    
+                    # Create specific bullet point context based on item type
+                    if user_feedback.get("experience_item_index") is not None:
+                        # Experience bullet point
+                        exp_index = user_feedback.get("experience_item_index")
+                        bullet_index = user_feedback.get("bullet_index")
+                        
+                        # Only proceed if we have valid content data
+                        if "experience_bullets" in original_content and exp_index < len(original_content.get("experience_bullets", [])):
+                            exp_item = original_content["experience_bullets"][exp_index]
+                            
+                            # If bullets exist and index is valid, prepare for regeneration
+                            if "bullets" in exp_item and bullet_index < len(exp_item["bullets"]):
+                                # Create bullet context for regeneration
+                                user_feedback["bullet_context"] = {
+                                    "type": "experience",
+                                    "position": exp_item.get("position", ""),
+                                    "company": exp_item.get("company", ""),
+                                    "current_bullet": exp_item["bullets"][bullet_index],
+                                    "index": exp_index,
+                                    "bullet_index": bullet_index
+                                }
+                    
+                    elif user_feedback.get("project_item_index") is not None:
+                        # Project bullet point
+                        proj_index = user_feedback.get("project_item_index")
+                        bullet_index = user_feedback.get("bullet_index")
+                        
+                        # Only proceed if we have valid content data
+                        if "projects" in original_content and proj_index < len(original_content.get("projects", [])):
+                            proj_item = original_content["projects"][proj_index]
+                            
+                            # If bullets exist and index is valid, prepare for regeneration
+                            if "bullets" in proj_item and bullet_index < len(proj_item["bullets"]):
+                                # Create bullet context for regeneration
+                                user_feedback["bullet_context"] = {
+                                    "type": "project",
+                                    "name": proj_item.get("name", ""),
+                                    "technologies": proj_item.get("technologies", ""),
+                                    "current_bullet": proj_item["bullets"][bullet_index],
+                                    "index": proj_index,
+                                    "bullet_index": bullet_index
+                                }
             
-            # Convert parsed_job to dictionary if it's a JobDescriptionData object
-            parsed_job_dict = {}
-            if hasattr(parsed_job, 'skills'):
-                # It's a JobDescriptionData object, convert to dict
-                parsed_job_dict = {
-                    "skills": getattr(parsed_job, "skills", []),
-                    "experience_level": getattr(parsed_job, "experience_level", ""),
-                    "responsibilities": getattr(parsed_job, "responsibilities", []),
-                    "industry_terms": getattr(parsed_job, "industry_terms", []),
-                    "company_values": getattr(parsed_job, "company_values", []),
-                    "raw_text": getattr(parsed_job, "raw_text", "")
-                }
-                print(f"Converted JobDescriptionData to dict with keys: {list(parsed_job_dict.keys())}")
-            else:
-                # It's already a dictionary
-                parsed_job_dict = parsed_job
-                print(f"Using existing dict with keys: {list(parsed_job_dict.keys()) if isinstance(parsed_job_dict, dict) else 'N/A'}")
+            # Check if we're doing a section regeneration and we need to preserve the original content
+            if regenerate_sections and "original_content_data" not in state:
+                # Store the original content data for partial updates
+                state["original_content_data"] = state.get("content_data", {})
             
             # Get relevant experiences from vector store
-            try:
-                keywords = parsed_job_dict.get("industry_terms", [])
-                required_skills = parsed_job_dict.get("skills", [])
-                
-                print(f"Searching for experiences with keywords: {keywords} and skills: {required_skills}")
-                
-                relevant_experiences = self.vector_store_agent.search_experiences(
-                    keywords,
-                    required_skills
-                )
-                
-                print(f"Found {len(relevant_experiences)} relevant experiences")
-            except Exception as exp_e:
-                print(f"Error searching experiences: {str(exp_e)}")
-                relevant_experiences = []
+            relevant_experiences = []
+            if parsed_job:
+                # Only search vector store if not regenerating or if regenerating experience sections
+                if not regenerate_sections or "experience_bullets" in regenerate_sections:
+                    try:
+                        relevant_experiences = self.search_vector_store_node(parsed_job)
+                    except Exception as e:
+                        print(f"Warning: Failed to search vector store: {str(e)}")
             
-            # Research information if needed
-            try:
-                print("Calling research agent...")
-                research_results = self.research_agent.run({"job_description_data": parsed_job_dict})
-                print(f"Research agent returned: {research_results}")
-            except Exception as res_e:
-                print(f"Error running research: {str(res_e)}")
-                research_results = {}
+            # Get research results
+            research_results = {}
+            if parsed_job:
+                # Only do research if not regenerating or if regenerating relevant sections
+                need_research = not regenerate_sections or any(section in regenerate_sections for section in ["summary", "experience_bullets", "skills_section", "projects"])
+                if need_research:
+                    try:
+                        research_results = self.run_research_node(parsed_job)
+                    except Exception as e:
+                        print(f"Warning: Failed to run research: {str(e)}")
             
-            # Prepare input data for content writer agent
-            input_data = {
-                "job_description_data": parsed_job_dict,
-                "relevant_experiences": [exp.text if hasattr(exp, 'text') else exp for exp in relevant_experiences],
-                "research_results": research_results,
-                "user_cv_data": analyzed_cv
-            }
-            
-            # Add user feedback if provided
-            if user_feedback:
-                input_data["user_feedback"] = user_feedback
-            
-            print(f"Calling content_writer_agent.run with input keys: {list(input_data.keys())}")
-            
-            # Check if this is a regeneration of specific content
-            should_regenerate_specific = False
-            existing_content = state.get("content_data", None)
-            
-            # If we're regenerating a specific experience item
-            if user_feedback and "experience_item_index" in user_feedback and existing_content:
-                should_regenerate_specific = True
-                item_index = user_feedback.get("experience_item_index")
-                print(f"Regenerating specific experience item at index {item_index}")
-                
-                # Get the existing experience bullets if available
-                if hasattr(existing_content, "experience_bullets") and existing_content.experience_bullets:
-                    input_data["existing_experience_bullets"] = existing_content.experience_bullets
-                    input_data["regenerate_experience_index"] = item_index
-                elif isinstance(existing_content, dict) and "experience_bullets" in existing_content:
-                    input_data["existing_experience_bullets"] = existing_content["experience_bullets"]
-                    input_data["regenerate_experience_index"] = item_index
-            
-            # If we're adding a new experience item
-            if user_feedback and user_feedback.get("add_experience", False) and existing_content:
-                should_regenerate_specific = True
-                print(f"Adding a new experience item")
-                
-                # Get the existing experience bullets if available
-                if hasattr(existing_content, "experience_bullets") and existing_content.experience_bullets:
-                    input_data["existing_experience_bullets"] = existing_content.experience_bullets
-                    input_data["add_experience"] = True
-                elif isinstance(existing_content, dict) and "experience_bullets" in existing_content:
-                    input_data["existing_experience_bullets"] = existing_content["experience_bullets"]
-                    input_data["add_experience"] = True
-            
-            # If we're regenerating a specific project item
-            if user_feedback and "project_item_index" in user_feedback and existing_content:
-                should_regenerate_specific = True
-                item_index = user_feedback.get("project_item_index")
-                print(f"Regenerating specific project item at index {item_index}")
-                
-                # Get the existing projects if available
-                if hasattr(existing_content, "projects") and existing_content.projects:
-                    input_data["existing_projects"] = existing_content.projects
-                    input_data["regenerate_project_index"] = item_index
-                elif isinstance(existing_content, dict) and "projects" in existing_content:
-                    input_data["existing_projects"] = existing_content["projects"]
-                    input_data["regenerate_project_index"] = item_index
-            
-            # If we're adding a new project
-            if user_feedback and user_feedback.get("add_project", False) and existing_content:
-                should_regenerate_specific = True
-                print(f"Adding a new project item")
-                
-                # Get the existing projects if available
-                if hasattr(existing_content, "projects") and existing_content.projects:
-                    input_data["existing_projects"] = existing_content.projects
-                    input_data["add_project"] = True
-                elif isinstance(existing_content, dict) and "projects" in existing_content:
-                    input_data["existing_projects"] = existing_content["projects"]
-                    input_data["add_project"] = True
-                    
-            # For education section regeneration
-            if user_feedback and "education" in user_feedback.get("regenerate_only", []) and existing_content:
-                # Mark this as specific regeneration
-                should_regenerate_specific = True
-                print(f"Regenerating education section")
-                
-                # Pass existing education data if available
-                if hasattr(existing_content, "education") and existing_content.education:
-                    input_data["existing_education"] = existing_content.education
-                    input_data["regenerate_education"] = True
-                elif isinstance(existing_content, dict) and "education" in existing_content:
-                    input_data["existing_education"] = existing_content["education"]
-                    input_data["regenerate_education"] = True
-            
-            # For certifications section regeneration
-            if user_feedback and "certifications" in user_feedback.get("regenerate_only", []) and existing_content:
-                # Mark this as specific regeneration
-                should_regenerate_specific = True
-                print(f"Regenerating certifications section")
-                
-                # Pass existing certifications data if available
-                if hasattr(existing_content, "certifications") and existing_content.certifications:
-                    input_data["existing_certifications"] = existing_content.certifications
-                    input_data["regenerate_certifications"] = True
-                elif isinstance(existing_content, dict) and "certifications" in existing_content:
-                    input_data["existing_certifications"] = existing_content["certifications"]
-                    input_data["regenerate_certifications"] = True
-            
-            # For languages section regeneration
-            if user_feedback and "languages" in user_feedback.get("regenerate_only", []) and existing_content:
-                # Mark this as specific regeneration
-                should_regenerate_specific = True
-                print(f"Regenerating languages section")
-                
-                # Pass existing languages data if available
-                if hasattr(existing_content, "languages") and existing_content.languages:
-                    input_data["existing_languages"] = existing_content.languages
-                    input_data["regenerate_languages"] = True
-                elif isinstance(existing_content, dict) and "languages" in existing_content:
-                    input_data["existing_languages"] = existing_content["languages"]
-                    input_data["regenerate_languages"] = True
-            
-            # Generate content with content writer agent
-            try:
-                if should_regenerate_specific:
-                    # Handle partial regeneration
-                    new_content_data = self.content_writer_agent.run(input_data)
-                    
-                    # Merge the new content with existing content
-                    if existing_content:
-                        if isinstance(existing_content, dict):
-                            # Create a copy of existing content
-                            content_data = existing_content.copy()
-                            
-                            # Update specific sections that need regeneration
-                            if "regenerate_experience_index" in input_data and "experience_bullets" in new_content_data:
-                                idx = input_data["regenerate_experience_index"]
-                                if 0 <= idx < len(content_data["experience_bullets"]):
-                                    if isinstance(new_content_data, dict):
-                                        content_data["experience_bullets"][idx] = new_content_data["experience_bullets"][0]
-                                    else:
-                                        content_data["experience_bullets"][idx] = new_content_data.experience_bullets[0]
-                            
-                            # Handle adding a new experience item
-                            if input_data.get("add_experience") and "experience_bullets" in new_content_data:
-                                if isinstance(new_content_data, dict) and new_content_data.get("experience_bullets"):
-                                    content_data["experience_bullets"].append(new_content_data["experience_bullets"][0])
-                                elif hasattr(new_content_data, "experience_bullets") and new_content_data.experience_bullets:
-                                    content_data["experience_bullets"].append(new_content_data.experience_bullets[0])
-                            
-                            if "regenerate_project_index" in input_data and "projects" in new_content_data:
-                                idx = input_data["regenerate_project_index"]
-                                if 0 <= idx < len(content_data["projects"]):
-                                    if isinstance(new_content_data, dict):
-                                        content_data["projects"][idx] = new_content_data["projects"][0]
-                                    else:
-                                        content_data["projects"][idx] = new_content_data.projects[0]
-                            
-                            # Handle adding a new project
-                            if input_data.get("add_project") and "projects" in new_content_data:
-                                if isinstance(new_content_data, dict) and new_content_data.get("projects"):
-                                    content_data["projects"].append(new_content_data["projects"][0])
-                                elif hasattr(new_content_data, "projects") and new_content_data.projects:
-                                    content_data["projects"].append(new_content_data.projects[0])
-                            
-                            # Handle education regeneration
-                            if input_data.get("regenerate_education") and "education" in new_content_data:
-                                if isinstance(new_content_data, dict):
-                                    content_data["education"] = new_content_data["education"]
-                                else:
-                                    content_data["education"] = new_content_data.education
-                            
-                            # Handle certifications regeneration
-                            if input_data.get("regenerate_certifications") and "certifications" in new_content_data:
-                                if isinstance(new_content_data, dict):
-                                    content_data["certifications"] = new_content_data["certifications"]
-                                else:
-                                    content_data["certifications"] = new_content_data.certifications
-                            
-                            # Handle languages regeneration
-                            if input_data.get("regenerate_languages") and "languages" in new_content_data:
-                                if isinstance(new_content_data, dict):
-                                    content_data["languages"] = new_content_data["languages"]
-                                else:
-                                    content_data["languages"] = new_content_data.languages
-                        else:
-                            # Handle ContentData object
-                            content_data = existing_content
-                            
-                            if "regenerate_experience_index" in input_data and hasattr(new_content_data, "experience_bullets"):
-                                idx = input_data["regenerate_experience_index"]
-                                if 0 <= idx < len(content_data.experience_bullets):
-                                    content_data.experience_bullets[idx] = new_content_data.experience_bullets[0]
-                            
-                            if "regenerate_project_index" in input_data and hasattr(new_content_data, "projects"):
-                                idx = input_data["regenerate_project_index"]
-                                if 0 <= idx < len(content_data.projects):
-                                    content_data.projects[idx] = new_content_data.projects[0]
-                    else:
-                        content_data = new_content_data
+            # Convert analyzed CV data to a format the content writer can use
+            user_cv_data = {}
+            if analyzed_cv:
+                if hasattr(analyzed_cv, "to_dict"):
+                    user_cv_data = analyzed_cv.to_dict()
                 else:
-                    # Generate completely new content
-                    content_data = self.content_writer_agent.run(input_data)
-                
-                print(f"Content writer agent returned: {type(content_data)}")
-            except Exception as cont_e:
-                print(f"Error in content writer agent: {str(cont_e)}")
-                # Create empty content data
-                content_data = {
-                    "summary": "Error generating content",
-                    "experience_bullets": [],
-                    "skills_section": "",
-                    "projects": [],
-                    "other_content": {}
-                }
+                    user_cv_data = analyzed_cv
             
-            # Update state
-            state["content_data"] = content_data
+            # Call content writer agent to generate content
+            print("Running content writer node. parsed_job type:", type(parsed_job))
+            
+            # Add job description as raw text fallback
+            if parsed_job and hasattr(parsed_job, "to_dict"):
+                parsed_job_dict = parsed_job.to_dict()
+                parsed_job_dict["raw_text"] = job_description
+                parsed_job = parsed_job_dict
+            
+            # Ensure parsed_job is a dictionary before using get() method
+            if not isinstance(parsed_job, dict):
+                if hasattr(parsed_job, 'skills') and hasattr(parsed_job, 'industry_terms'):
+                    # Convert JobDescriptionData object to dictionary
+                    parsed_job = {
+                        "raw_text": getattr(parsed_job, "raw_text", ""),
+                        "skills": getattr(parsed_job, "skills", []),
+                        "experience_level": getattr(parsed_job, "experience_level", ""),
+                        "responsibilities": getattr(parsed_job, "responsibilities", []),
+                        "industry_terms": getattr(parsed_job, "industry_terms", []),
+                        "company_values": getattr(parsed_job, "company_values", []),
+                    }
+                else:
+                    # Create an empty dictionary as fallback
+                    parsed_job = {"skills": [], "industry_terms": [], "responsibilities": []}
+            
+            print("Converted JobDescriptionData to dict with keys:", list(parsed_job.keys()) if isinstance(parsed_job, dict) else "N/A")
+            print(f"Searching for experiences with keywords: {parsed_job.get('industry_terms', [])} and skills: {parsed_job.get('skills', [])}")
+            print(f"Found {len(relevant_experiences)} relevant experiences")
+            
+            # Generate content
+            content_data = self.generate_content_node(
+                parsed_job, 
+                user_cv_data, 
+                relevant_experiences, 
+                research_results, 
+                user_feedback
+            )
+            
+            # Process the generated content based on regeneration type
+            if user_feedback and user_feedback.get("bullet_context"):
+                # Handle bullet point regeneration
+                bullet_context = user_feedback.get("bullet_context", {})
+                
+                # Create a copy of the original content for updating
+                updated_content = state.get("original_content_data", {}).copy()
+                
+                # Get the newly generated bullet content
+                new_bullet = None
+                if content_data and "generated_bullet" in content_data:
+                    # If content writer generated a specific bullet
+                    new_bullet = content_data["generated_bullet"]
+                elif content_data:
+                    # Otherwise try to find the specific bullet in the regenerated content
+                    if bullet_context.get("type") == "experience" and "experience_bullets" in content_data:
+                        # Find the regenerated experience bullet
+                        try:
+                            exp_index = bullet_context.get("index")
+                            bullet_index = bullet_context.get("bullet_index")
+                            exp_data = content_data["experience_bullets"][exp_index]
+                            new_bullet = exp_data["bullets"][bullet_index]
+                        except (IndexError, KeyError, TypeError):
+                            print("Could not find regenerated experience bullet in content data")
+                    
+                    elif bullet_context.get("type") == "project" and "projects" in content_data:
+                        # Find the regenerated project bullet
+                        try:
+                            proj_index = bullet_context.get("index")
+                            bullet_index = bullet_context.get("bullet_index")
+                            proj_data = content_data["projects"][proj_index]
+                            new_bullet = proj_data["bullets"][bullet_index]
+                        except (IndexError, KeyError, TypeError):
+                            print("Could not find regenerated project bullet in content data")
+                
+                # Update the specific bullet in the original content
+                if new_bullet:
+                    if bullet_context.get("type") == "experience":
+                        try:
+                            index = bullet_context.get("index")
+                            bullet_index = bullet_context.get("bullet_index")
+                            updated_content["experience_bullets"][index]["bullets"][bullet_index] = new_bullet
+                        except (IndexError, KeyError, TypeError) as e:
+                            print(f"Error updating experience bullet: {e}")
+                    
+                    elif bullet_context.get("type") == "project":
+                        try:
+                            index = bullet_context.get("index")
+                            bullet_index = bullet_context.get("bullet_index")
+                            updated_content["projects"][index]["bullets"][bullet_index] = new_bullet
+                        except (IndexError, KeyError, TypeError) as e:
+                            print(f"Error updating project bullet: {e}")
+                
+                # Use the updated content
+                state["content_data"] = updated_content
+                
+            elif regenerate_sections and state.get("original_content_data"):
+                # Handle section regeneration by merging original content with regenerated sections
+                updated_content = state.get("original_content_data", {}).copy()
+                
+                # Update only the regenerated sections
+                if "summary" in regenerate_sections and "summary" in content_data:
+                    updated_content["summary"] = content_data["summary"]
+                    
+                if "skills_section" in regenerate_sections and "skills_section" in content_data:
+                    updated_content["skills_section"] = content_data["skills_section"]
+                    
+                if "experience_bullets" in regenerate_sections:
+                    # Check if we need to update a specific experience item
+                    if user_feedback and user_feedback.get("experience_item_index") is not None:
+                        # Handle single experience item regeneration
+                        exp_index = user_feedback.get("experience_item_index")
+                        
+                        if user_feedback.get("add_experience", False):
+                            # Add a new experience item
+                            if "experience_bullets" in content_data and content_data["experience_bullets"]:
+                                updated_content.setdefault("experience_bullets", [])
+                                updated_content["experience_bullets"].append(content_data["experience_bullets"][0])
+                        else:
+                            # Update an existing experience item
+                            try:
+                                if "experience_bullets" in content_data and exp_index < len(content_data["experience_bullets"]):
+                                    updated_content["experience_bullets"][exp_index] = content_data["experience_bullets"][exp_index]
+                            except (IndexError, KeyError) as e:
+                                print(f"Error updating experience item: {e}")
+                    else:
+                        # Update all experience items
+                        if "experience_bullets" in content_data:
+                            updated_content["experience_bullets"] = content_data["experience_bullets"]
+                
+                if "projects" in regenerate_sections:
+                    # Check if we need to update a specific project
+                    if user_feedback and user_feedback.get("project_item_index") is not None:
+                        # Handle single project regeneration
+                        proj_index = user_feedback.get("project_item_index")
+                        
+                        if user_feedback.get("add_project", False):
+                            # Add a new project
+                            if "projects" in content_data and content_data["projects"]:
+                                updated_content.setdefault("projects", [])
+                                updated_content["projects"].append(content_data["projects"][0])
+                        else:
+                            # Update an existing project
+                            try:
+                                if "projects" in content_data and proj_index < len(content_data["projects"]):
+                                    updated_content["projects"][proj_index] = content_data["projects"][proj_index]
+                            except (IndexError, KeyError) as e:
+                                print(f"Error updating project: {e}")
+                    else:
+                        # Update all projects
+                        if "projects" in content_data:
+                            updated_content["projects"] = content_data["projects"]
+                
+                # Use the updated content
+                state["content_data"] = updated_content
+            else:
+                # No partial updates, use the full regenerated content
+                state["content_data"] = content_data
+            
+            # Update workflow state
             state["stage"] = "content_generated"
             
             return state
+            
         except Exception as e:
+            print(f"Error in content writer node: {str(e)}")
             import traceback
-            error_message = f"Error generating content: {str(e)}"
-            print(error_message)
-            print(traceback.format_exc())  # Print full traceback
-            state["error"] = error_message
-            state["status"] = "error"
+            traceback.print_exc()
+            state["error"] = f"Failed to generate content: {str(e)}"
             return state
 
     def run_quality_assurance_check(self, formatted_cv_text, parsed_job_data):

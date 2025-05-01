@@ -1,0 +1,5 @@
+Test failed with error: No module named 'state_manager'
+Traceback (most recent call last):
+  File "C:\Users\Nitro\Desktop\aicvgen\tests\file_logger_test.py", line 19, in <module>
+    from state_manager import JobDescriptionData
+ModuleNotFoundError: No module named 'state_manager'

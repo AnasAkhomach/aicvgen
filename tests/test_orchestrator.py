@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import unittest
 from unittest.mock import MagicMock, call
 from orchestrator import Orchestrator, WorkflowState, ContentData, ExperienceEntry, VectorStoreConfig
-from state_manager import CVData # Import CVData
+from state_manager import CVData, JobDescriptionData # Import CVData and JobDescriptionData
 
 class TestOrchestrator(unittest.TestCase):
 
@@ -247,6 +247,73 @@ class TestOrchestrator(unittest.TestCase):
         # Note: Testing the exact state changes within the workflow_state dictionary during the run_workflow method
         # would require more complex mocking or a different testing approach (e.g., examining side effects).
         # The current tests verify the interactions with dependent agents and the final output.
+
+    def test_job_description_data_handling(self):
+        """Test that JobDescriptionData objects are properly handled in various methods."""
+        
+        # Create a JobDescriptionData object
+        job_data = JobDescriptionData(
+            raw_text="Test job description",
+            skills=["Python", "Java"],
+            experience_level="Senior",
+            responsibilities=["Lead development team"],
+            industry_terms=["Cloud"],
+            company_values=["Innovation"]
+        )
+        
+        # Setup the state with JobDescriptionData object
+        state = {
+            "job_description": "Test job description",
+            "user_cv": {},
+            "workflow_id": "test-workflow-id",
+            "status": "in_progress",
+            "stage": "parsed_job_description",
+            "error": None,
+            "parsed_job_description": job_data,  # Using JobDescriptionData object
+            "analyzed_cv": {"experiences": [], "skills": []},
+            "content_data": {},
+            "formatted_cv": None,
+            "quality_analysis": None,
+            "rendered_cv": None,
+        }
+        
+        # Mock returns for content_writer_agent
+        self.mock_content_writer_agent.run.return_value = {
+            "summary": "Generated summary",
+            "experience_bullets": [],
+            "skills_section": "",
+            "projects": []
+        }
+        
+        # Test run_content_writer_node with JobDescriptionData object
+        updated_state = self.orchestrator.run_content_writer_node(state)
+        
+        # Verify method succeeded without error
+        self.assertIsNone(updated_state.get("error"))
+        self.assertEqual(updated_state.get("stage"), "content_generated")
+        
+        # Check if content_writer_agent.run was called with proper conversion of JobDescriptionData
+        content_writer_call_args = self.mock_content_writer_agent.run.call_args[0][0]
+        self.assertIn("job_description_data", content_writer_call_args)
+        
+        # Test search_vector_store_node with JobDescriptionData object
+        self.orchestrator.search_vector_store_node(job_data)
+        
+        # Verify vector_store_agent.search was called with skills from JobDescriptionData
+        # The search query should be a string combining skills
+        self.mock_vector_store_agent.search.assert_called()
+        search_call_args = self.mock_vector_store_agent.search.call_args[0][0]
+        self.assertIsInstance(search_call_args, str)
+        self.assertIn("Python", search_call_args)
+        self.assertIn("Java", search_call_args)
+        
+        # Test run_research_node with JobDescriptionData object
+        self.orchestrator.run_research_node(job_data)
+        
+        # Verify research_agent.run was called with JobDescriptionData converted to dict
+        research_call_args = self.mock_research_agent.run.call_args[0][0]
+        self.assertIsInstance(research_call_args, dict)
+        self.assertIn("job_description_data", research_call_args)
 
 import pytest
 from orchestrator import Orchestrator

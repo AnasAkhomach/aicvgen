@@ -179,6 +179,69 @@ class ContentWriterAgent(AgentBase):
                 feedback_context += f"Sections to improve: {', '.join(sections_to_improve)}\n"
                 feedback_context += "Please pay special attention to improving these sections.\n"
 
+        # Check for bullet point regeneration mode
+        if user_feedback and user_feedback.get("bullet_context"):
+            regenerate_mode = "bullet_point"
+            
+            # Get bullet context details
+            bullet_context = user_feedback.get("bullet_context", {})
+            context_type = bullet_context.get("type")
+            bullet_text = bullet_context.get("current_bullet", "")
+            
+            if context_type == "experience":
+                position = bullet_context.get("position", "")
+                company = bullet_context.get("company", "")
+                index = bullet_context.get("index", 0)
+                bullet_index = bullet_context.get("bullet_index", 0)
+                
+                bullet_context_info = f"""
+                You are regenerating a SINGLE bullet point for an experience entry.
+                
+                Position: {position}
+                Company: {company}
+                Current bullet point: "{bullet_text}"
+                
+                Please generate a better version of this single bullet point that more effectively highlights relevant skills
+                and achievements for the target job description.
+                """
+                
+                response_format = """
+                Generate ONLY a replacement for the single bullet point in the following JSON format:
+                
+                {
+                  "generated_bullet": "The improved bullet point text - should be one sentence focused on relevant achievements and skills"
+                }
+                """
+            
+            elif context_type == "project":
+                name = bullet_context.get("name", "")
+                technologies = bullet_context.get("technologies", "")
+                index = bullet_context.get("index", 0)
+                bullet_index = bullet_context.get("bullet_index", 0)
+                
+                bullet_context_info = f"""
+                You are regenerating a SINGLE bullet point for a project.
+                
+                Project: {name}
+                Technologies: {technologies}
+                Current bullet point: "{bullet_text}"
+                
+                Please generate a better version of this single bullet point that more effectively highlights relevant skills
+                and achievements for the target job description.
+                """
+                
+                response_format = """
+                Generate ONLY a replacement for the single bullet point in the following JSON format:
+                
+                {
+                  "generated_bullet": "The improved bullet point text - should be one sentence focused on relevant achievements and skills"
+                }
+                """
+            
+            # Override the standard context sections for bullet-point-specific regeneration
+            cv_sections_context = bullet_context_info
+            feedback_context = ""
+
         # Check if this is a regeneration of a specific item
         regenerate_mode = None
         if "regenerate_experience_index" in input_data and "existing_experience_bullets" in input_data:
@@ -627,7 +690,27 @@ class ContentWriterAgent(AgentBase):
             print(f"Parsed Content: {parsed_content}")
 
             # Handle special case for regeneration modes
-            if regenerate_mode == "experience":
+            if regenerate_mode == "bullet_point":
+                # Just return the regenerated bullet, let the orchestrator handle merging it
+                if "generated_bullet" in parsed_content:
+                    bullet = parsed_content.get("generated_bullet", "")
+                    print(f"Generated bullet point: {bullet}")
+                    return ContentData(
+                        name="",
+                        email="",
+                        phone="",
+                        linkedin="",
+                        github="",
+                        summary="",
+                        experience_bullets=[],
+                        skills_section="",
+                        projects=[],
+                        education=[],
+                        certifications=[],
+                        languages=[],
+                        other_content={"generated_bullet": bullet}
+                    )
+            elif regenerate_mode == "experience":
                 summary = ""
                 experience_bullets = parsed_content.get("experience_bullets", [])
                 skills_section = ""
