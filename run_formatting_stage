@@ -1,0 +1,92 @@
+def run_formatting_stage(self, structured_cv: StructuredCV) -> Dict[str, Any]:
+    """
+    Run the formatting stage.
+
+    Args:
+        structured_cv: The structured CV data.
+
+    Returns:
+        The formatted CV.
+    """
+    print("Starting formatting stage with FormatterAgent...")
+    
+    try:
+        # Convert to ContentData for compatibility with formatter
+        content_data = structured_cv.to_content_data()
+        
+        # Debug the content_data
+        print(f"ContentData keys: {list(content_data.keys())}")
+        print(f"Has sections? {bool(content_data.get('sections'))}")
+        
+        # Run the formatter agent
+        result = self.formatter_agent.run({"content_data": content_data, "format_specs": {}})
+        
+        if "formatted_cv_text" in result:
+            # Store the formatted text in the state
+            return {"formatted_cv_text": result["formatted_cv_text"]}
+        else:
+            # There was an issue, return a fallback simple format
+            print("Warning: Formatter did not return formatted_cv_text, using fallback formatting")
+            markdown = "# Tailored CV\n\n"
+            
+            # Add a summary if available
+            summary = content_data.get("summary", "")
+            if summary:
+                markdown += "## Professional Profile\n\n"
+                markdown += f"{summary}\n\n"
+            
+            # Add key qualifications if available
+            skills = content_data.get("skills_section", "")
+            if skills:
+                markdown += "## Key Qualifications\n\n"
+                markdown += f"{skills}\n\n"
+            
+            # Add professional experience if available
+            experience = content_data.get("experience_bullets", [])
+            if experience:
+                markdown += "## Professional Experience\n\n"
+                for exp in experience:
+                    if isinstance(exp, dict):
+                        position = exp.get("position", "")
+                        if position:
+                            markdown += f"### {position}\n\n"
+                        
+                        bullets = exp.get("bullets", [])
+                        for bullet in bullets:
+                            markdown += f"* {bullet}\n"
+                    else:
+                        markdown += f"* {exp}\n"
+                markdown += "\n"
+            
+            return {"formatted_cv_text": markdown}
+    except Exception as e:
+        # Catch any errors and return a minimal formatting
+        print(f"Error in formatting stage: {str(e)}")
+        
+        # Convert raw structured CV to a simple markdown format as fallback
+        markdown = "# Tailored CV\n\n"
+        
+        try:
+            # Try to add sections with minimal formatting
+            for section in structured_cv.sections:
+                markdown += f"## {section.name}\n\n"
+                
+                # Add direct items
+                for item in section.items:
+                    if item.content:
+                        markdown += f"* {item.content}\n"
+                
+                # Add subsections
+                for subsection in section.subsections:
+                    markdown += f"### {subsection.name}\n\n"
+                    for item in subsection.items:
+                        if item.content:
+                            markdown += f"* {item.content}\n"
+                
+                markdown += "\n"
+        except Exception as fallback_error:
+            # If even the fallback fails, return a very minimal CV
+            print(f"Error in fallback formatting: {str(fallback_error)}")
+            markdown = "# Tailored CV\n\nError occurred during formatting."
+        
+        return {"formatted_cv_text": markdown, "error": f"Formatting error: {str(e)}"} 

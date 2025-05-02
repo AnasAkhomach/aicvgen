@@ -1,0 +1,425 @@
+﻿Software Design Document (SDD)
+Project: CV Tailoring AI Agent (MVP)
+Version: 1.0
+Date: May 1, 2025
+Authors: [Your Name/Team Name]
+
+
+1. Introduction
+1.1 Purpose
+This Software Design Document describes the architecture and detailed design of the CV Tailoring AI Agent MVP. It translates the functional and non-functional requirements outlined in the Software Requirements Specification (SRS) into a concrete design that will guide the implementation process.
+1.2 Scope
+This document covers the design of all components within the MVP, including the agent architecture, data structures (particularly the StructuredCV model), data flow, persistence mechanisms, user interface interaction patterns, and the design of individual agents and key modules (State Manager, LLM wrapper, Vector Database components, Parser, Research, Content Writer, Formatter, UI). It details how these components interact to fulfill the requirements, focusing on the tailoring process for Key Qualifications, Professional Experience, Side Projects, and Executive Summary.
+1.3 Definitions, Acronyms, and Abbreviations
+(Inherit definitions from SRS, Section 1.3)
+StructuredCV: The core data model representing the CV state.
+Data Model: The structure and organization of data.
+API: Application Programming Interface.
+1.4 References
+Software Requirements Specification (SRS) for the CV Tailoring AI Agent (MVP)
+Tailoring AI Agent System Design (MVP).md
+CV Tailoring AI Agent System Design (MVP) - Updated.md
+aicvgen (Code folder)
+cv_ai_builder_final_template.py (Prototype script)
+prompts_folder (LLM prompt files)
+Anas_Akhomach-main-template-en.md (Example base CV template structure)
+cv_template.md (Example output template)
+Requirements.txt
+1.5 Overview
+The remainder of this document describes the system architecture, data design, component design, interface design, and detailed design aspects of the CV Tailoring AI Agent MVP.
+2. System Architecture
+2.1 High-Level Architecture
+The system employs a multi-agent architecture coordinated by a central Manager Agent. This architecture is designed to be modular and facilitate a human-in-the-loop workflow with granular state management.
+[Conceptual Diagram Representation - Imagine a box for the system containing:]
+Manager Agent (Orchestrator): At the center, directing flow.
+State Manager: Connected to Manager, holding the StructuredCV state.
+Functional Agents: Connected to Manager and State Manager:
+Parser Agent
+Research Agent
+Content Writer Agent
+Formatter Agent
+Quality Assurance Agent
+External Interfaces/Services:
+LLM Wrapper (connected to Content Writer, potentially others)
+Vector Database (connected to Research Agent)
+File System (for inputs, state persistence, prompts, templates, output)
+User Interface (UI): Connected to Manager (for workflow commands) and State Manager (for displaying/updating state).
+Arrows represent primary data/control flow.
+2.2 Component Responsibilities
+Manager Agent (orchestrator.py):
+Initializes the tailoring process.
+Defines and traverses the workflow state machine (e.g., using LangGraph).
+Directs tasks to specific functional agents based on the current state and user feedback.
+Manages state transitions.
+Interacts with the StateManager to retrieve and update the StructuredCV.
+State Manager (state_manager.py):
+Holds the single, canonical instance of the StructuredCV data model.
+Provides methods for agents and the UI to access and modify the StructuredCV content and granular status.
+Handles saving (save_state) and loading (load_state) the StructuredCV to/from persistent storage.
+Parser Agent (parser_agent.py):
+Reads input CV and job description text files.
+Analyzes the text structure (e.g., Markdown headings/lists in CV, sections in JD).
+Populates the initial StructuredCV data model with parsed content.
+Extracts key information/requirements from job descriptions.
+Research Agent (research_agent.py):
+Utilizes the VectorDatabase to find semantic matches between job description requirements and the user's CV content.
+Formulates search queries.
+Retrieves relevant text snippets and associated metadata from the Vector DB.
+Structures research findings for use by the ContentWriterAgent.
+Content Writer Agent (content_writer_agent.py):
+Receives instructions from the Manager Agent on what content item/section to generate or regenerate.
+Loads appropriate prompt templates from the prompts_folder.
+Constructs the LLM prompt by combining the prompt template, relevant StructuredCV data (via State Manager), and research findings (from Research Agent).
+Calls the LLM via the llm.py wrapper.
+Parses and cleans the raw LLM output.
+Updates the specific content item in the StructuredCV via the StateManager, setting its status to GENERATED.
+Handles regeneration logic, potentially incorporating user edits/feedback into the prompt context.
+Formatter Agent (formatter_agent.py):
+Receives the final StructuredCV state (or a section of it) from the Manager.
+Uses the TemplateRenderer and a specified template (cv_template.md logic or LaTeX template) to format the content.
+Manages the final output process, including compiling LaTeX to PDF if applicable.
+Quality Assurance Agent (quality_assurance_agent.py):
+Can be invoked by the Manager Agent to perform automated checks on generated content (e.g., length, keyword inclusion).
+UI (ui.py):
+Interacts with the user.
+Displays input fields for files/text.
+Renders the StructuredCV state visually (card-based layout).
+Allows direct editing of content.
+Captures user actions (edits, button clicks: Accept, Regenerate).
+Communicates user feedback as signals to the Manager Agent/State Manager.
+LLM Wrapper (llm.py):
+Provides a standardized interface for interacting with the LLM API (Groq).
+Handles API initialization and basic request/response communication.
+Manages API key access securely (design pending, but must avoid hardcoding).
+Vector Database (vector_db.py):
+Manages the ChromaDB instance.
+Handles collection creation and management.
+Vector Store Agent (vector_store_agent.py):
+Provides an interface for adding text chunks and their embeddings/metadata to the Vector Database.
+Handles the embedding process using the selected model (all-MiniLM-L6-v2).
+Provides methods for performing similarity searches.
+Template Renderer (template_renderer.py):
+Handles the specific logic of rendering the StructuredCV data model into a text format (Markdown or LaTeX) using a templating engine (Jinja2).
+Includes necessary formatting helpers (like LaTeX escaping).
+Template Manager (template_manager.py):
+Handles loading and managing output templates (e.g., cv_template.md or LaTeX template files).
+3. Data Design
+3.1 StructuredCV Data Model
+The StructuredCV is the central data structure. It will be implemented as a set of interconnected Python classes or dataclasses.
+CV Object: Represents the entire CV.
+Attributes: sections (List of Section objects), metadata (e.g., file paths, timestamp).
+Section Object: Represents a major CV section (e.g., "Professional Experience", "Key Qualifications").
+Attributes: name (string), content_type (enum: DYNAMIC, STATIC), subsections (List of Subsection objects, e.g., for roles/projects), items (List of Item objects, e.g., for Key Quals or static lists), raw_text (original text from parsing).
+Subsection Object: Represents an entry within a section that has sub-items (e.g., a specific Professional Experience role or a Side Project).
+Attributes: name (string, e.g., role title), items (List of Item objects, e.g., bullet points), metadata (e.g., dates, company), raw_text.
+Item Object: Represents a granular piece of content (e.g., a bullet point, a key qualification, an education entry).
+Attributes: id (Unique identifier for granular tracking), content (string, the text of the item), status (enum: INITIAL, GENERATED, USER_EDITED, TO_REGENERATE, ACCEPTED), item_type (enum: BULLET_POINT, KEY_QUAL, SUMMARY_PARAGRAPH, etc.), source_text_chunk_id (Optional link to Vector DB), relevance_score (Optional), user_feedback (Optional string for comments).
+3.2 Data Flow
+User Input (CV, JD files) -> Raw Text.
+Raw Text -> Parser Agent -> Initial StructuredCV state (items marked INITIAL).
+Parsed JD + Initial StructuredCV -> Research Agent -> Vector DB (embeddings) & Structured Research Findings.
+Manager Agent orchestrates ContentWriterAgent for sections/items marked INITIAL or TO_REGENERATE.
+ContentWriterAgent reads StructuredCV (via State Manager), loads Prompts, gets Research Findings, calls LLM.
+LLM Output -> ContentWriterAgent (parsing, cleaning) -> StructuredCV (update content, set status to GENERATED) via State Manager.
+StructuredCV (current state) -> UI -> Displayed to the user (card-based).
+User Interaction (Edit, Accept, Regenerate) -> UI -> Signals/Updates sent to Manager Agent/State Manager.
+Manager Agent/State Manager -> Update StructuredCV state (content edited, status changed to USER_EDITED, ACCEPTED, or TO_REGENERATE).
+If items are TO_REGENERATE, Manager triggers ContentWriterAgent (go back to step 4).
+Once the user accepts sections, StructuredCV (final state) -> Formatter Agent -> Final Document.
+3.3 Persistence
+StructuredCV State: The entire StructuredCV object will be saved and loaded by the StateManager. Serialization method (e.g., Python's pickle or JSON if the data model supports it) needs to be chosen. Saved to a local file.
+Vector Database: ChromaDB persists data to disk automatically by default when initialized with a path, handling embeddings and associated metadata.
+Input Files: Original input files may be stored temporarily or persistently as part of the session state metadata in StructuredCV.
+Output Files: Final generated CV document is saved to a user-specified location via the file system.
+4. Component Design
+(Design details for each agent and key module, referencing the code files)
+4.1 Manager Agent (orchestrator.py)
+Key Methods: run_tailoring_session(cv_input, jd_main, jd_similar), handle_user_feedback(item_id, action, new_content=None), _workflow_state_machine().
+Internal Structure: Will use a state machine library (like LangGraph). States correspond to major steps (Parsing, Research, Generating Key Quals, Reviewing Key Quals, Generating Experience, Reviewing Experience, etc.). Edges are triggered by agent completion or user actions.
+Interfaces: Calls execute() methods of other agents, calls methods of StateManager. Receives feedback signals from the UI.
+4.2 State Manager (state_manager.py)
+Key Methods: __init__(session_id), load_state(session_id), save_state(), get_structured_cv(), update_item_content(item_id, new_content), update_item_status(item_id, new_status), get_item(item_id), get_items_by_status(status), add_item(parent_id, item), delete_item(item_id).
+Internal Structure: Holds an instance variable _structured_cv which is the root of the StructuredCV data model.
+Interfaces: Called by Manager Agent, functional agents (to update state), and UI (to get state for display, send updates).
+4.3 Parser Agent (parser_agent.py)
+Key Methods: execute(cv_raw_text, jd_raw_main, jd_raw_similar=None).
+Internal Structure: Will contain parsing logic. For Markdown CV, might use regex or a Markdown parsing library to identify headings (###), lists (*), etc. For JDs, might look for keywords like "Responsibilities", "Requirements", "Skills".
+Interfaces: Takes raw text strings as input. Creates and returns the initial StructuredCV instance.
+4.4 Research Agent (research_agent.py)
+Key Methods: execute(structured_cv, jd_parsed_requirements).
+Internal Structure: Uses the VectorStoreAgent.
+Interfaces: Takes the current StructuredCV state and parsed JD requirements as input. Returns structured research findings (e.g., a dictionary mapping JD requirements to relevant CV item IDs or text snippets).
+4.5 Content Writer Agent (content_writer_agent.py)
+
+
+Key Methods: execute(task_instruction, structured_cv, research_findings=None, user_feedback=None). task_instruction specifies what to generate/regenerate (e.g., {'section': 'Key Qualifications'} or {'item_id': 'ID-123'}).
+Internal Structure: Contains methods for loading prompts (_load_prompt), building LLM context (_build_context), calling LLM (_call_llm), parsing LLM response (_parse_llm_output), and cleaning (_clean_output, adapting logic from prototype).
+Interfaces: Takes instructions, StructuredCV state, research findings, and user feedback as input. Updates the StructuredCV state via the StateManager.
+4.6 Formatter Agent (formatter_agent.py)
+Key Methods: execute(structured_cv, output_format, template_name).
+Internal Structure: Uses TemplateRenderer. Contains logic to select the correct template file and manage the output process (writing to file, calling compiler).
+Interfaces: Takes final StructuredCV state, desired format, and template name. Outputs a file path to the generated CV.
+4.7 UI (ui.py)
+Key Methods: render_ui(structured_cv), capture_user_input(), capture_user_feedback(item_id).
+Internal Structure: Streamlit application code. Will use Streamlit widgets (st.text_area, st.button, st.file_uploader, st.sidebar, st.container, etc.). Logic to iterate through the StructuredCV structure and render cards/editable fields. Callbacks or input handling to detect user actions.
+Interfaces: Gets StructuredCV state from StateManager (or via Manager). Sends signals/updates back to the Manager/State Manager based on user interaction.
+5. Interface Design
+LLM API Interface:
+Endpoint: Groq API endpoint.
+Request: HTTP POST with API key (Authorization header), model name, and messages payload (containing the prompt + context).
+Response: JSON containing generated text.
+Error Handling: Design should account for API errors (invalid key, rate limits, network issues) with appropriate logging, retries, or user messages.
+Vector Database Interface:
+Uses ChromaDB Python client library.
+Key operations: get_or_create_collection, add (for embeddings and metadata), query (for similarity search).
+Internal Agent Interfaces:
+Agents will interact by calling methods on each other (orchestrated by the Manager) or, more commonly, by reading from and writing to the shared StructuredCV state via the StateManager. This makes the StateManager a central communication hub for data.
+UI Interface:
+Uses Streamlit's internal state management and widget callback mechanisms to capture user input and actions. This data is then passed to the backend logic (Manager/State Manager).
+File System Interface:
+Standard Python file I/O for reading inputs, loading prompts/templates, saving state, and writing output files.
+Compiler Interface (if LaTeX/PDF output):
+Uses Python's subprocess module to call the LaTeX compiler (xelatex). Needs to handle command-line arguments, working directory, and check return codes for compilation errors.
+6. Detailed Design
+6.1 StructuredCV Data Model (Example Snippet)
+Python
+import enum
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass, field
+class ItemStatus(enum.Enum):
+    INITIAL = "initial" # Parsed from raw input
+    GENERATED = "generated" # Generated by ContentWriter
+    USER_EDITED = "user_edited" # Modified directly by user
+    TO_REGENERATE = "to_regenerate" # Marked for regeneration by user
+    ACCEPTED = "accepted" # Approved by user
+    STATIC = "static" # Content from base CV, not tailored by AI
+
+
+class ItemType(enum.Enum):
+    BULLET_POINT = "bullet_point"
+    KEY_QUAL = "key_qual"
+    SUMMARY_PARAGRAPH = "summary_paragraph"
+    SECTION_TITLE = "section_title"
+    SUBSECTION_TITLE = "subsection_title"
+    # Add other types as needed (Education Entry, Certification, etc.)
+
+
+@dataclass
+class Item:
+    id: str = field(default_factory=lambda: str(uuid.uuid4())) # Unique ID
+    content: str = ""
+    status: ItemStatus = ItemStatus.INITIAL
+    item_type: ItemType = ItemType.BULLET_POINT
+    metadata: Dict[str, Any] = field(default_factory=dict) # e.g., relevance_score, source_chunk_id
+    user_feedback: Optional[str] = None # Optional user comment
+
+
+@dataclass
+class Subsection:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = "" # e.g., "Software Engineer at XYZ Inc."
+    items: List[Item] = field(default_factory=list) # e.g., bullet points
+    metadata: Dict[str, Any] = field(default_factory=dict) # e.g., dates, company
+    raw_text: str = "" # Original text from parsing
+
+
+@dataclass
+class Section:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = "" # e.g., "Professional Experience"
+    content_type: str = "DYNAMIC" # or "STATIC"
+    subsections: List[Subsection] = field(default_factory=list)
+    items: List[Item] = field(default_factory=list) # For sections without subsections (e.g., Key Quals, Languages)
+    raw_text: str = "" # Original text from parsing
+
+
+@dataclass
+class StructuredCV:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    sections: List[Section] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict) # e.g., original file paths, session_id
+(Note: uuid would need to be imported)
+6.2 Orchestrator State Machine (Conceptual)
+Using a library like LangGraph, the workflow could be modeled as a graph where nodes are agents or decision points, and edges are transitions based on outcomes or state changes.
+States: START, PARSE_INPUT, EMBED_DATA, RESEARCH_JD, GENERATE_KEY_QUALS, REVIEW_KEY_QUALS, GENERATE_EXPERIENCE, REVIEW_EXPERIENCE, GENERATE_PROJECTS, REVIEW_PROJECTS, GENERATE_SUMMARY, REVIEW_SUMMARY, FORMAT_OUTPUT, FINAL, ERROR.
+Transitions:
+START -> PARSE_INPUT (on session start)
+PARSE_INPUT -> EMBED_DATA (on parsing complete)
+EMBED_DATA -> RESEARCH_JD (on embedding complete)
+RESEARCH_JD -> GENERATE_KEY_QUALS (on research complete)
+GENERATE_KEY_QUALS -> REVIEW_KEY_QUALS (on generation complete, status becomes GENERATED)
+REVIEW_KEY_QUALS -> GENERATE_EXPERIENCE (on user action "Accept Key Quals")
+REVIEW_KEY_QUALS -> GENERATE_KEY_QUALS (on user action "Regenerate Key Quals", status becomes TO_REGENERATE)
+REVIEW_KEY_QUALS -> REVIEW_KEY_QUALS (on user action "Edit Key Quals", status becomes USER_EDITED)
+... similar transitions for Experience, Projects, Summary based on user Review actions.
+REVIEW_SUMMARY -> FORMAT_OUTPUT (on user action "Finalize CV")
+FORMAT_OUTPUT -> FINAL (on formatting/compilation complete)
+Any agent/state can transition to ERROR on critical failure.
+6.3 Prompt Building Logic (Content Writer)
+The ContentWriterAgent will need a method (_build_context) that dynamically constructs the input string for the LLM. This involves:
+Loading the base prompt template (e.g., resume_role_prompt.md).
+Identifying which part of the StructuredCV is being generated/regenerated (e.g., bullet point ID-456).
+Retrieving relevant context from the StructuredCV (e.g., the Role title, Company, Dates for a bullet point; all Key Quals for the Experience section).
+Retrieving relevant research findings for this specific item/section from the ResearchAgent's output or from the StructuredCV metadata.
+If regenerating based on user feedback, include the previous generated text and potentially the user's edit or comment in the context.
+Combine these pieces into a single, clear prompt string for the LLM.
+6.4 Parsing Algorithm (Parser Agent)
+For the Markdown CV:
+Read the entire Markdown file.
+Use regex or a Markdown parser to split the text into sections based on headings (e.g., ###).
+For each section, identify if it's a dynamic section targeted for tailoring (Key Quals, Experience, Projects) or static.
+For dynamic sections like Experience and Projects, identify subsections (roles/projects) using titles/markers.
+Within subsections or static sections, identify list items (bullet points * or -).
+Create the corresponding Section, Subsection, and Item objects, populate their raw_text and initial content, assign unique IDs, and set initial status to INITIAL (or STATIC for non-tailored content).
+For Job Descriptions (Plain Text):
+Read the text.
+Attempt to identify key sections (e.g., "Responsibilities", "Requirements", "Skills") using heuristics or regex.
+Extract skills and requirements from these sections.
+Store this information, perhaps as a list of requirements associated with the job description metadata, or potentially as Item objects within a dedicated "Job Requirements" section in the StructuredCV (though not displayed to the user).
+7. Interface Design (Detailed)
+(Building upon Section 5, add more specifics)
+LLM API: Detail the exact JSON structure for the API call messages payload (e.g., [{"role": "system", "content": "Your role..."}, {"role": "user", "content": "Prompt..."}]).
+Vector DB: Specify the schema for the ChromaDB collection metadata (e.g., {'source_file': 'cv', 'section': 'experience', 'item_id': 'ID-123'}). This metadata is crucial for linking search results back to the StructuredCV.
+UI-Orchestrator/State Manager: Define the structure of the messages or function calls used to send user feedback from the UI layer to the backend (e.g., a dictionary {'action': 'accept', 'item_id': 'ID-456'} or {'action': 'edit', 'item_id': 'ID-789', 'new_content': 'User edited text'}).
+8. Appendices
+
+
+Appendix A: Data Model Class Definitions: Full Python code for the StructuredCV dataclasses.
+Appendix B: Workflow State Diagram: A visual representation of the Orchestrator's state machine.
+Appendix C: Prompt Templates: List of prompt files in prompts_folder and their general purpose.
+
+
+
+
+==================================================================================
+
+
+Software Design Document (SDD)
+Project: CV Tailoring AI Agent (MVP)
+Version: 1.2 (Revised - main.py UI)
+Date: May 1, 2025
+Authors: [Your Name/Team Name]
+1. Introduction
+
+
+1.1 Purpose
+This Software Design Document describes the architecture and detailed design of the CV Tailoring AI Agent MVP. It translates the functional and non-functional requirements outlined in the Software Requirements Specification (SRS) into a concrete design that will guide the implementation process, incorporating updates regarding technology choices, input handling, and the location of the UI code.
+1.2 Scope
+This document covers the design of all components within the MVP, including the agent architecture, data structures (particularly the StructuredCV data model designed for JSON compatibility), data flow, persistence mechanisms, user interface implementation within main.py (Streamlit for MVP), and the design of individual agents and key modules (State Manager, LLM wrapper designed for Google GenAI, Vector Database components using ChromaDB, Parser for text inputs, Research, Content Writer, Formatter). It details how these components interact to fulfill the requirements, focusing on the tailoring process for Key Qualifications, Professional Experience, Side Projects, and Executive Summary, accommodating different initial input methods including starting from scratch.
+1.3 Definitions, Acronyms, and Abbreviations
+(Inherit definitions from SRS, Section 1.3)
+ChromaDB: The chosen vector database for the MVP.
+Google GenAI: The primary LLM provider for the MVP.
+JSON: JavaScript Object Notation, the target format for the StructuredCV data model.
+Streamlit: The chosen UI framework, implemented primarily within main.py.
+1.4 References
+
+
+Software Requirements Specification (SRS) for the CV Tailering AI Agent (MVP) - Version 1.1
+Tailoring AI Agent System Design (MVP).md
+CV Tailoring AI Agent System Design (MVP) - Updated.md
+aicvgen (Code folder)
+aicvgen/main.py (Contains Streamlit UI implementation)
+cv_ai_builder_final_template.py (Prototype script)
+prompts_folder (LLM prompt files)
+Anas_Akhomach-main-template-en.md (Example base CV template structure)
+cv_template.md (Example output template)
+requirements.txt
+1.5 Overview
+The remainder of this document describes the system architecture, data design (emphasizing the JSON-compatible StructuredCV), component design reflecting updated technology choices, input handling, and the location of the UI logic in main.py, interface design, and detailed design aspects of the CV Tailoring AI Agent MVP.
+2. System Architecture
+2.1 High-Level Architecture
+The system employs a multi-agent architecture coordinated by a central Manager Agent. This architecture is designed to be modular and facilitate a human-in-the-loop workflow with granular state management. The MVP implementation incorporates the Streamlit UI directly within the main.py script, though the architecture conceptually supports a separation of backend (e.g., FastAPI) and frontend (e.g., React) for future production use.
+[Conceptual Diagram Representation - Imagine a box for the system containing:]
+Manager Agent (Orchestrator): At the center, directing flow.
+State Manager: Connected to Manager, holding the StructuredCV state.
+Functional Agents: Connected to Manager and State Manager:
+Parser Agent
+Research Agent
+Content Writer Agent
+Formatter Agent
+Quality Assurance Agent
+External Interfaces/Services:
+LLM Wrapper (connected to Content Writer, configured for Google GenAI initially)
+Vector Database (connected to Research Agent, implemented with ChromaDB)
+File System (for inputs, state persistence, prompts, templates, output)
+User Interface (UI): Implemented within main.py. Connected to Manager (for workflow commands) and State Manager (for displaying/updating state).
+Arrows represent primary data/control flow.
+2.2 Component Responsibilities
+Manager Agent (orchestrator.py): (Responsibilities remain the same)
+State Manager (state_manager.py): (Responsibilities remain the same, managing JSON-compatible StructuredCV)
+Parser Agent (parser_agent.py): (Responsibilities remain the same, handling text inputs and scratch to JSON-compatible StructuredCV)
+Research Agent (research_agent.py): (Responsibilities remain the same, using ChromaDB, noting future web search)
+Content Writer Agent (content_writer_agent.py): (Responsibilities remain the same, using LLM Wrapper for Google GenAI)
+Formatter Agent (formatter_agent.py): (Responsibilities remain the same, using TemplateRenderer)
+Quality Assurance Agent (quality_assurance_agent.py): (Responsibilities remain the same)
+User Interface (UI - main.py):
+Interacts with the user via the Streamlit application launched by main.py.
+Displays input fields/options.
+Renders the StructuredCV state visually using Streamlit components (card-based layout).
+Allows direct editing of content via Streamlit widgets.
+Captures user actions (edits, button clicks) via Streamlit callbacks.
+Communicates user feedback as signals to the Manager Agent/State Manager, triggering backend logic within the same main.py process. Designed to be potentially replaced by a separate frontend layer communicating with a backend API in the future.
+LLM Wrapper (llm.py): (Responsibilities remain the same, configured for Google GenAI initially)
+Vector Database (vector_db.py): (Manages ChromaDB instance)
+Vector Store Agent (vector_store_agent.py): (Provides interface for adding/querying ChromaDB)
+Template Renderer (template_renderer.py): (Handles rendering StructuredCV data using Jinja2)
+Template Manager (template_manager.py): (Handles loading templates)
+3. Data Design
+
+
+(Remains the same as Version 1.1 - JSON-compatible StructuredCV, data flow, persistence)
+4. Component Design
+(Design details for each agent and key module, referencing updated file locations)
+4.1 Manager Agent (orchestrator.py)
+Key Methods: run_tailoring_session(input_data), handle_user_feedback(item_id, action, new_content=None), _workflow_state_machine().
+Internal Structure: Uses a state machine library (like LangGraph) within orchestrator.py.
+Interfaces: Calls execute() methods of other agents, calls methods of StateManager. Receives feedback signals initiated by user actions captured in main.py.
+4.2 State Manager (state_manager.py)
+Key Methods: (Same as Version 1.1)
+Internal Structure: Holds the StructuredCV data model (JSON-compatible). Serialization/deserialization logic for JSON is within state_manager.py or related data model files.
+Interfaces: Called by Manager Agent, functional agents, and UI logic within main.py.
+4.3 Parser Agent (parser_agent.py)
+Key Methods: execute(input_data).
+Internal Structure: Parsing logic within parser_agent.py.
+Interfaces: Takes raw input data structure. Returns the initial StructuredCV instance.
+4.4 Research Agent (research_agent.py)
+Key Methods: execute(structured_cv, jd_parsed_requirements).
+Internal Structure: Uses VectorStoreAgent within research_agent.py. Interacts with ChromaDB.
+Interfaces: Takes StructuredCV state and JD requirements. Returns research findings.
+4.5 Content Writer Agent (content_writer_agent.py)
+Key Methods: execute(task_instruction, structured_cv, research_findings=None, user_feedback=None).
+Internal Structure: Contains LLM interaction, prompt handling, parsing, cleaning logic within content_writer_agent.py. Uses llm.py.
+Interfaces: Takes instructions and data. Updates StructuredCV via StateManager.
+4.6 Formatter Agent (formatter_agent.py)
+Key Methods: execute(structured_cv, output_format, template_name).
+Internal Structure: Logic within formatter_agent.py. Uses template_renderer.py.
+Interfaces: Takes final StructuredCV state and format. Returns file path.
+4.7 UI (main.py)
+Key Methods: The main.py script will contain the primary Streamlit code structure. Key functions/sections within main.py will handle: render_input_area(), render_review_area(structured_cv), handle_user_input(), handle_button_click(action_type, item_id).
+Internal Structure: Streamlit components (st.file_uploader, st.text_area, st.button, etc.) organized to render the StructuredCV state. Uses Streamlit's st.session_state to hold temporary UI state and reference the main StructuredCV instance (potentially stored in st.session_state as well, managed by the StateManager). Callback functions (on_click) directly trigger Python logic within the same script execution context.
+Interfaces: Gets StructuredCV state from StateManager (often accessed via st.session_state). Calls methods on the Manager Agent (also potentially accessed via st.session_state) based on user actions. Designed to represent the user-facing layer that would ideally communicate with a separate backend API in production.
+4.8 LLM Wrapper (llm.py)
+Dependencies: google-generativeai, os.
+Technical Implementation: Logic within llm.py. Configured for Google GenAI initially.
+Interfaces: Provides complete method.
+4.9 Vector Database (vector_db.py) & Vector Store Agent (vector_store_agent.py)
+Dependencies: chromadb, sentence_transformers, os.
+Technical Implementation: Logic within vector_db.py and vector_store_agent.py. Uses ChromaDB.
+4.10 Template Renderer (template_renderer.py)
+Dependencies: jinja2, potentially custom filters.
+Technical Implementation: Logic within template_renderer.py. Handles Jinja2 rendering.
+4.11 Template Manager (template_manager.py)
+Dependencies: os.
+Technical Implementation: Logic within template_manager.py. Handles loading template files.
+5. Interface Design
+LLM API Interface: Interacts with Google GenAI API via llm.py.
+Vector Database Interface: Uses ChromaDB Python client library via vector_db.py and vector_store_agent.py.
+Internal Agent Interfaces: Agents primarily interact via the StateManager. Manager calls agent execute() methods.
+UI Interface: Implemented within main.py using Streamlit components and callbacks. User actions trigger backend Python functions directly.
+File System Interface: Standard Python file I/O for inputs, state persistence (JSON files), prompt/template loading, and output generation.
+Compiler Interface (if LaTeX/PDF output): Uses Python's subprocess via the Formatter Agent.
+6. Configuration Management
+(Remains the same as TSD - environment variables, config file)
+7. Error Handling
+(Remains the same as TSD - exceptions, logging, UI messages handled within main.py for display)

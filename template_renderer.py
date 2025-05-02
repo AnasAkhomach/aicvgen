@@ -43,13 +43,71 @@ class TemplateRenderer(AgentBase):
         
         # Handle dict or ContentData object
         try:
-            # For an empty CV with no content, just return the title
-            if not (input_data.get("summary") or 
-                    (input_data.get("experience_bullets") and len(input_data.get("experience_bullets")) > 0) or
-                    input_data.get("skills_section") or
-                    (input_data.get("projects") and len(input_data.get("projects")) > 0) or
-                    (input_data.get("other_content") and len(input_data.get("other_content")) > 0)):
-                return "# Tailored CV"
+            # Catch completely empty input_data
+            if not input_data or (isinstance(input_data, dict) and len(input_data) == 0):
+                return "# Tailored CV\n\nNo content provided."
+            
+            # Extract content from formatted_cv_text if available
+            if "formatted_cv_text" in input_data and input_data["formatted_cv_text"]:
+                formatted_text = input_data["formatted_cv_text"]
+                if isinstance(formatted_text, str) and formatted_text.strip():
+                    # If it's already markdown, use as is
+                    if formatted_text.startswith('#') or '\n## ' in formatted_text:
+                        return formatted_text
+                    # Otherwise render it as a professional template
+                    return self._render_professional_text_template(formatted_text)
+            
+            # Check for any content in the ContentData object
+            has_content = False
+            
+            # Check for summary
+            has_summary = input_data.get("summary") and len(str(input_data.get("summary")).strip()) > 0
+            has_content = has_content or has_summary
+            
+            # Check for experience bullets
+            has_experience = (input_data.get("experience_bullets") and 
+                             isinstance(input_data.get("experience_bullets"), list) and 
+                             len(input_data.get("experience_bullets")) > 0)
+            has_content = has_content or has_experience
+            
+            # Check for skills
+            has_skills = input_data.get("skills_section") and len(str(input_data.get("skills_section")).strip()) > 0
+            has_content = has_content or has_skills
+            
+            # Check for projects
+            has_projects = (input_data.get("projects") and 
+                           isinstance(input_data.get("projects"), list) and 
+                           len(input_data.get("projects")) > 0)
+            has_content = has_content or has_projects
+            
+            # Check for education
+            has_education = (input_data.get("education") and 
+                            isinstance(input_data.get("education"), list) and 
+                            len(input_data.get("education")) > 0)
+            has_content = has_content or has_education
+            
+            # Check for certifications
+            has_certifications = (input_data.get("certifications") and 
+                                 isinstance(input_data.get("certifications"), list) and 
+                                 len(input_data.get("certifications")) > 0)
+            has_content = has_content or has_certifications
+            
+            # Check for languages
+            has_languages = (input_data.get("languages") and 
+                            isinstance(input_data.get("languages"), list) and 
+                            len(input_data.get("languages")) > 0)
+            has_content = has_content or has_languages
+            
+            # Even if we don't detect specific content, we'll still try to render if we have other_content
+            has_other = (input_data.get("other_content") and 
+                        isinstance(input_data.get("other_content"), dict) and 
+                        len(input_data.get("other_content")) > 0)
+            has_content = has_content or has_other
+            
+            # If truly no content at all, return minimal CV
+            if not has_content:
+                print("No content found in ContentData, returning minimal CV")
+                return "# Tailored CV\n\nNo content was generated. Please try again."
             
             # Use the enhanced template
             return self._render_professional_template(input_data)
@@ -113,6 +171,45 @@ class TemplateRenderer(AgentBase):
             
             sections.append("\n---\n")
 
+        # Experience section with enhanced format
+        if input_data.get("experience_bullets") and len(input_data.get("experience_bullets")) > 0:
+            sections.append("## Professional Experience\n")
+            
+            experiences = input_data.get("experience_bullets", [])
+            for exp in experiences:
+                if isinstance(exp, dict):
+                    # Format structured experience data
+                    position = exp.get("position", "")
+                    company = exp.get("company", "")
+                    period = exp.get("period", "")
+                    location = exp.get("location", "")
+                    bullets = exp.get("bullets", [])
+                    
+                    section_text = f"### {position}\n\n"
+                    
+                    if company:
+                        section_text += f"*{company}*"
+                        
+                        if location:
+                            section_text += f" | {location}"
+                        
+                        if period:
+                            section_text += f" | {period}"
+                        
+                        section_text += "\n\n"
+                    
+                    for bullet in bullets:
+                        if bullet and isinstance(bullet, str) and bullet.strip():
+                            section_text += f"* {bullet}\n"
+                    
+                    sections.append(section_text)
+                else:
+                    # Simple string format
+                    if isinstance(exp, str) and exp.strip():
+                        sections.append(f"* {exp}\n")
+            
+            sections.append("---\n")
+        
         # Projects section with enhanced format
         if input_data.get("projects") and len(input_data.get("projects")) > 0:
             sections.append("## Project Experience\n")
@@ -124,57 +221,28 @@ class TemplateRenderer(AgentBase):
                     name = project.get("name", "")
                     description = project.get("description", "")
                     technologies = project.get("technologies", [])
+                    bullets = project.get("bullets", [])
                     
-                    section_text = f"### {name}"
-                    if technologies:
-                        section_text += f" | {', '.join(technologies)}"
-                    section_text += "\n\n"
+                    section_text = f"### {name}\n\n"
                     
                     if description:
                         section_text += f"{description}\n\n"
                     
+                    if technologies and isinstance(technologies, list) and len(technologies) > 0:
+                        section_text += f"*Technologies: {', '.join(technologies)}*\n\n"
+                    
+                    for bullet in bullets:
+                        if bullet and isinstance(bullet, str) and bullet.strip():
+                            section_text += f"* {bullet}\n"
+                    
                     sections.append(section_text)
                 else:
                     # Simple string format
-                    sections.append(f"* {project}\n")
+                    if isinstance(project, str) and project.strip():
+                        sections.append(f"* {project}\n")
             
             sections.append("---\n")
 
-        # Experience section with enhanced format
-        if input_data.get("experience_bullets") and len(input_data.get("experience_bullets")) > 0:
-            sections.append("## Professional Experience\n")
-            
-            experiences = input_data.get("experience_bullets", [])
-            for exp in experiences:
-                if isinstance(exp, dict):
-                    # Format structured experience data
-                    company = exp.get("company", "")
-                    position = exp.get("position", "")
-                    period = exp.get("period", "")
-                    location = exp.get("location", "")
-                    bullets = exp.get("bullets", [])
-                    
-                    section_text = f"### {position}\n\n"
-                    section_text += f"*{company}*"
-                    
-                    if location:
-                        section_text += f" | {location}"
-                    
-                    if period:
-                        section_text += f" | {period}"
-                    
-                    section_text += "\n\n"
-                    
-                    for bullet in bullets:
-                        section_text += f"* {bullet}\n"
-                    
-                    sections.append(section_text)
-                else:
-                    # Simple string format
-                    sections.append(f"* {exp}\n")
-            
-            sections.append("---\n")
-            
         # Education section
         if input_data.get("education"):
             sections.append("## Education\n")
@@ -190,23 +258,27 @@ class TemplateRenderer(AgentBase):
                     details = edu.get("details", [])
                     
                     section_text = f"### {degree}\n\n"
-                    section_text += f"*{institution}*"
                     
-                    if location:
-                        section_text += f" | {location}"
-                    
-                    if period:
-                        section_text += f" | {period}"
-                    
-                    section_text += "\n\n"
+                    if institution:
+                        section_text += f"*{institution}*"
+                        
+                        if location:
+                            section_text += f" | {location}"
+                        
+                        if period:
+                            section_text += f" | {period}"
+                        
+                        section_text += "\n\n"
                     
                     for detail in details:
-                        section_text += f"* {detail}\n"
+                        if detail and isinstance(detail, str) and detail.strip():
+                            section_text += f"* {detail}\n"
                     
                     sections.append(section_text)
                 else:
                     # Simple string format
-                    sections.append(f"* {edu}\n")
+                    if isinstance(edu, str) and edu.strip():
+                        sections.append(f"* {edu}\n")
             
             sections.append("---\n")
             
@@ -222,10 +294,12 @@ class TemplateRenderer(AgentBase):
                     date = cert.get("date", "")
                     url = cert.get("url", "")
                     
-                    if url:
+                    if url and name:
                         section_text = f"* [{name}]({url})"
-                    else:
+                    elif name:
                         section_text = f"* {name}"
+                    else:
+                        continue  # Skip empty certification
                     
                     if issuer:
                         section_text += f" ({issuer}"
@@ -233,10 +307,11 @@ class TemplateRenderer(AgentBase):
                             section_text += f", {date}"
                         section_text += ")"
                     
-                    sections.append(section_text)
+                    sections.append(section_text + "\n")
                 else:
                     # Simple string format
-                    sections.append(f"* {cert}")
+                    if isinstance(cert, str) and cert.strip():
+                        sections.append(f"* {cert}\n")
             
             sections.append("\n---\n")
             
@@ -246,24 +321,29 @@ class TemplateRenderer(AgentBase):
             
             languages = input_data.get("languages", [])
             if isinstance(languages, list):
-                language_text = " | ".join([f"**{lang.get('name', '')}** ({lang.get('level', '')})" 
-                                          if isinstance(lang, dict) 
-                                          else lang 
-                                          for lang in languages])
-                sections.append(language_text)
+                langs = []
+                for lang in languages:
+                    if isinstance(lang, dict):
+                        name = lang.get("name", "")
+                        level = lang.get("level", "")
+                        if name:
+                            if level:
+                                langs.append(f"**{name}** ({level})")
+                            else:
+                                langs.append(f"**{name}**")
+                    elif isinstance(lang, str) and lang.strip():
+                        langs.append(lang)
+                
+                if langs:
+                    sections.append(" | ".join(langs) + "\n")
             else:
-                sections.append(languages)
+                # It's just a string
+                sections.append(languages + "\n")
             
-            sections.append("\n---\n")
+            sections.append("---\n")
             
-        # Other content sections
-        if input_data.get("other_content") and len(input_data.get("other_content")) > 0:
-            for section_name, section_content in input_data.get("other_content", {}).items():
-                sections.append(f"## {section_name}\n")
-                sections.append(section_content)
-                sections.append("\n---\n")
-
-        return "".join(sections)
+        # Join all sections into a single document
+        return "\n".join(sections)
     
     def _render_professional_text_template(self, text):
         """

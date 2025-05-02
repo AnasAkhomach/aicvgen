@@ -1,10 +1,15 @@
+"""Agent base module providing the abstract base class for all agents in the system."""
 from abc import ABC, abstractmethod
 from typing import Any
-from state_manager import AgentIO
 import logging
 
+from state_manager import AgentIO
+
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 class AgentBase(ABC):
@@ -25,7 +30,7 @@ class AgentBase(ABC):
         self.output_schema = output_schema
 
     @abstractmethod
-    def run(self, input: Any) -> Any:
+    def run(self, input_data: Any) -> Any:
         """Abstract method to be implemented by each agent.
 
         """
@@ -38,7 +43,7 @@ class AgentBase(ABC):
         Args:
             message: The message to log.
         """
-        logging.info(f"[{self.name}] {message}")
+        logging.info("[%s] %s", self.name, message)
 
     def generate_explanation(self, input_data: Any, output_data: Any) -> str:
         """

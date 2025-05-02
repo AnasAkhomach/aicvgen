@@ -1,0 +1,80 @@
+[
+  {
+    "timestamp": "2025-05-02T18:10:10.298436",
+    "item_id": "9df17617-bf89-4cb9-98c5-b9a9eb8cf4c5",
+    "old_status": "initial",
+    "new_status": "to_regenerate"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:14.439369",
+    "item_id": "58258629-837a-4ec3-b875-35b62aa2e1b6",
+    "old_status": "initial",
+    "new_status": "accepted"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:15.711097",
+    "item_id": "4fcb2a69-09d4-45a3-9f9c-3a544b546da1",
+    "old_status": "initial",
+    "new_status": "to_regenerate"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:17.704173",
+    "item_id": "c25a3f02-3e79-459c-8f25-537c9927c898",
+    "old_status": "initial",
+    "new_status": "accepted"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:21.029762",
+    "item_id": "58258629-837a-4ec3-b875-35b62aa2e1b6",
+    "old_status": "accepted",
+    "new_status": "accepted"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:25.507096",
+    "item_id": "200f616c-98b8-4fe7-8b02-c87ff8ac2d24",
+    "old_status": "initial",
+    "new_status": "to_regenerate"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:26.416874",
+    "item_id": "77deaa57-7e3d-4ad7-90a5-f268c3711191",
+    "old_status": "initial",
+    "new_status": "accepted"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:29.272064",
+    "item_id": "5b7ff979-61e8-4575-8154-ee5910c93240",
+    "old_status": "initial",
+    "new_status": "to_regenerate"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:30.672767",
+    "item_id": "200f616c-98b8-4fe7-8b02-c87ff8ac2d24",
+    "old_status": "to_regenerate",
+    "new_status": "accepted"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:32.571670",
+    "item_id": "77deaa57-7e3d-4ad7-90a5-f268c3711191",
+    "old_status": "accepted",
+    "new_status": "accepted"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:37.691370",
+    "item_id": "9df17617-bf89-4cb9-98c5-b9a9eb8cf4c5",
+    "old_status": "to_regenerate",
+    "new_status": "to_regenerate"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:41.851121",
+    "item_id": "58258629-837a-4ec3-b875-35b62aa2e1b6",
+    "old_status": "accepted",
+    "new_status": "to_regenerate"
+  },
+  {
+    "timestamp": "2025-05-02T18:10:42.910357",
+    "item_id": "4fcb2a69-09d4-45a3-9f9c-3a544b546da1",
+    "old_status": "to_regenerate",
+    "new_status": "to_regenerate"
+  }
+]

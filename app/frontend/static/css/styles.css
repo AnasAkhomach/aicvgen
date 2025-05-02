@@ -1,0 +1,115 @@
+/* Base Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+    color: #333;
+}
+
+/* Header Styles */
+header {
+    background-color: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Card Styles */
+.card {
+    border-radius: 8px;
+    border: none;
+    overflow: hidden;
+}
+
+.card-header {
+    padding: 1rem;
+}
+
+/* Form Styles */
+textarea {
+    resize: vertical;
+}
+
+.form-floating textarea.form-control {
+    height: auto;
+}
+
+/* CV Section Styles */
+.cv-section {
+    transition: all 0.3s ease;
+}
+
+.cv-section:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+}
+
+.section-name, .subsection-name {
+    font-weight: 600;
+}
+
+/* Item Styles */
+.cv-item {
+    border-radius: 4px;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-left: 3px solid #6c757d;
+    transition: all 0.2s ease;
+}
+
+.cv-item:hover {
+    background-color: #f1f3f5;
+    border-left-color: #0d6efd;
+}
+
+.item-status {
+    font-size: 0.75rem;
+}
+
+/* Status Colors */
+.status-regenerated {
+    background-color: #28a745 !important;
+}
+
+.status-to-regenerate {
+    background-color: #ffc107 !important;
+}
+
+.status-edited {
+    background-color: #17a2b8 !important;
+}
+
+.status-generated {
+    background-color: #6c757d !important;
+}
+
+/* Markdown Preview */
+#markdown-preview {
+    max-height: 600px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.fadeIn {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+}
+
+/* Footer Styles */
+.footer {
+    border-top: 1px solid #e9ecef;
+} 
