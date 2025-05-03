@@ -563,6 +563,16 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                 # Content generation stage
                 with st.spinner("Generating tailored CV content..."):
                     try:
+                        # Create a placeholder for progress updates
+                        progress_placeholder = st.empty()
+                        
+                        # Store the placeholder in session state so the agent can update it
+                        st.session_state.progress_placeholder = progress_placeholder
+                        st.session_state.current_generation_stage = "Initializing..."
+                        
+                        # Display initial status
+                        progress_placeholder.info(f"🔄 {st.session_state.current_generation_stage}")
+                        
                         # Generate content for all dynamic sections
                         updated_cv = content_writer_agent.run({
                             "structured_cv": structured_cv,
@@ -570,11 +580,19 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                             "research_results": research_results,
                             "regenerate_item_ids": []  # Empty list means generate all content
                         })
+                        
                         # Update the structured CV in the state manager
                         st.session_state.state_manager._structured_cv = updated_cv
+                        
+                        # Clear the progress placeholder when done
+                        progress_placeholder.empty()
                     except Exception as e:
                         logger.error(f"Error in content generation stage: {str(e)}\n{traceback.format_exc()}")
                         st.warning(f"Content generation encountered an issue: {str(e)}")
+                        
+                        # Clear progress placeholder
+                        if 'progress_placeholder' in st.session_state:
+                            st.session_state.progress_placeholder.empty()
                 
                 # Save state
                 state_file = st.session_state.state_manager.save_state()
@@ -605,6 +623,16 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
             if st.button("🔄 Tailor All Content to Job Description", key="tailor_all_button"):
                 with st.spinner("Tailoring all dynamic sections to match job description..."):
                     try:
+                        # Create a placeholder for progress updates
+                        progress_placeholder = st.empty()
+                        
+                        # Store the placeholder in session state so the agent can update it
+                        st.session_state.progress_placeholder = progress_placeholder
+                        st.session_state.current_generation_stage = "Initializing tailoring process..."
+                        
+                        # Display initial status
+                        progress_placeholder.info(f"🔄 {st.session_state.current_generation_stage}")
+                        
                         # Get job description data
                         job_description_data = {}
                         if orchestrator and hasattr(orchestrator.parser_agent, "get_job_data"):
@@ -632,16 +660,33 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                         # Save state
                         st.session_state.state_manager.save_state()
                         
+                        # Clear the progress placeholder when done
+                        progress_placeholder.empty()
+                        
                         st.success("All dynamic sections have been tailored to the job description!")
                         # Force a rerun to update the UI
                         st.rerun()
                     except Exception as e:
                         logger.error(f"Error during full content regeneration: {str(e)}\n{traceback.format_exc()}")
                         st.error(f"Error generating content: {str(e)}")
+                        
+                        # Clear progress placeholder
+                        if 'progress_placeholder' in st.session_state:
+                            st.session_state.progress_placeholder.empty()
             
             # Check if we have items to regenerate
             if st.session_state.regenerate_sections:
                 with st.spinner("Generating content for marked items..."):
+                    # Create a placeholder for progress updates
+                    progress_placeholder = st.empty()
+                    
+                    # Store the placeholder in session state so the agent can update it
+                    st.session_state.progress_placeholder = progress_placeholder
+                    st.session_state.current_generation_stage = "Initializing regeneration..."
+                    
+                    # Display initial status
+                    progress_placeholder.info(f"🔄 {st.session_state.current_generation_stage}")
+                    
                     # Call the ContentWriterAgent to regenerate the marked items
                     try:
                         # Get research results from session state if available
@@ -675,6 +720,9 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                         # Save state
                         st.session_state.state_manager.save_state()
                         
+                        # Clear the progress placeholder when done
+                        progress_placeholder.empty()
+                        
                         logger.info(
                             f"Successfully regenerated items"
                         )
@@ -684,9 +732,13 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                             f"Error during content regeneration: {str(e)}\n{traceback.format_exc()}"
                         )
                         st.error(f"Error generating content: {str(e)}")
+                        
+                        # Clear progress placeholder
+                        if 'progress_placeholder' in st.session_state:
+                            st.session_state.progress_placeholder.empty()
                     
                     # Force a rerun to update the UI
-                st.rerun()
+                    st.rerun()
                 
             # Display the structured CV content for review and editing
             if structured_cv.sections:
