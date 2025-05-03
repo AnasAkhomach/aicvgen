@@ -1,17 +1,37 @@
-# orchestrator.py
-import json # Import json
+"""
+Orchestrator module for AI CV Generator application.
+
+This module manages the overall workflow of the CV tailoring process, coordinating the actions
+of various specialized agents to generate a tailored CV based on job description analysis.
+It implements both section-level and item-level control as per SDD v1.3.
+"""
+
+# Standard imports
+import json
+import os
+import logging
+import time
+import traceback
+import uuid
+
+# Third-party imports
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from typing import Set, Dict, List, Any, Optional
+from unittest.mock import MagicMock
+
+# Local imports
 from state_manager import (
-    WorkflowState, 
-    WorkflowStage, 
-    VectorStoreConfig, 
-    JobDescriptionData, 
-    ContentData, 
-    AgentIO, 
-    SkillEntry, 
-    ExperienceEntry, 
-    CVData,
     StructuredCV,
-    ItemStatus
+    WorkflowState,
+    WorkflowStage,
+    VectorStoreConfig,
+    JobDescriptionData,
+    ContentData,
+    AgentIO,
+    SkillEntry,
+    ExperienceEntry,
+    CVData
 )
 from parser_agent import ParserAgent
 from template_renderer import TemplateRenderer
@@ -23,27 +43,31 @@ from cv_analyzer_agent import CVAnalyzerAgent
 from tools_agent import ToolsAgent
 from formatter_agent import FormatterAgent
 from quality_assurance_agent import QualityAssuranceAgent
-from uuid import uuid4
 from llm import LLM
 
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-from typing import Any, Dict, List, Set, Optional
-from unittest.mock import MagicMock
-import os
-import logging
-import traceback
-import uuid
-import time
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Setup logging
 logger = logging.getLogger(__name__)
 
 class Orchestrator:
     """
-    Orchestrates the CV generation workflow by coordinating multiple agents.
-    This fulfills REQ-FUNC-ORCH-1, REQ-FUNC-ORCH-2, and REQ-FUNC-ORCH-3 from the SRS.
+    Main orchestrator for the CV tailoring workflow.
+    
+    This class coordinates the various specialized agents in the system,
+    managing the flow of data between them and the overall state of the
+    CV tailoring process. It supports section-level operations for content
+    regeneration and user feedback.
+    
+    Attributes:
+        parser_agent: Agent for parsing job descriptions and CVs
+        template_renderer: Agent for rendering CV templates
+        vector_store_agent: Agent for working with vector embeddings
+        content_writer_agent: Agent for generating tailored CV content
+        research_agent: Agent for researching job requirements
+        cv_analyzer_agent: Agent for analyzing CVs
+        tools_agent: Agent providing utility functions
+        formatter_agent: Agent for formatting CV content
+        quality_assurance_agent: Agent for quality checks
+        llm: Language model for text generation
     """
     
     def __init__(self, parser_agent, template_renderer, vector_store_agent, 
@@ -53,16 +77,16 @@ class Orchestrator:
         Initialize the Orchestrator with all required agents.
         
         Args:
-            parser_agent: Agent for parsing job descriptions and CVs
-            template_renderer: Agent for rendering templates
-            vector_store_agent: Agent for vector store operations
+            parser_agent: Agent for parsing job descriptions
+            template_renderer: Agent for rendering CV templates
+            vector_store_agent: Agent for managing vector store
             content_writer_agent: Agent for generating CV content
-            research_agent: Agent for conducting research
-            cv_analyzer_agent: Agent for analyzing CVs
-            tools_agent: Agent for utility operations
-            formatter_agent: Agent for formatting content
+            research_agent: Agent for research about job and industry
+            cv_analyzer_agent: Agent for analyzing existing CVs
+            tools_agent: Agent for providing utility tools
+            formatter_agent: Agent for formatting CV content
             quality_assurance_agent: Agent for QA checks
-            llm: Language model instance
+            llm: LLM instance (optional)
         """
         self.parser_agent = parser_agent
         self.template_renderer = template_renderer
@@ -74,117 +98,88 @@ class Orchestrator:
         self.formatter_agent = formatter_agent
         self.quality_assurance_agent = quality_assurance_agent
         self.llm = llm
-        
-        logger.info("Orchestrator initialized with all agents")
-
-    def run_workflow(self, job_description, user_cv_data, workflow_id=None, user_feedback=None, regenerate_item_ids=None, start_from_scratch=False):
+    
+    def run_workflow(self, job_description, user_cv_data, workflow_id=None, user_feedback=None, 
+                     regenerate_item_ids=None, start_from_scratch=False):
         """
-        Runs the complete CV generation workflow.
+        Run the CV tailoring workflow end-to-end.
         
         Args:
-            job_description (str): The job description text
-            user_cv_data (dict or str): The user's CV data - can be text, dict, or empty for "start from scratch"
-            workflow_id (str, optional): A unique ID for this workflow
-            user_feedback (dict, optional): Feedback from the user for regeneration
-            regenerate_item_ids (list, optional): List of specific item IDs to regenerate (granular control)
-            start_from_scratch (bool): Whether to start a new CV from scratch
+            job_description: Raw job description text
+            user_cv_data: User's original CV data (can be raw text or structured)
+            workflow_id: Optional ID for resuming an existing workflow
+            user_feedback: Optional feedback on previously generated content
+            regenerate_item_ids: Optional list of item IDs to regenerate
+            start_from_scratch: Whether to start from scratch (ignore user's CV content)
             
         Returns:
-            dict: A dictionary containing the workflow results and state
+            Dictionary with workflow results including the tailored CV
         """
-        # For testing purposes
-        if workflow_id == "mock-workflow-id" and hasattr(self.template_renderer, "run") and hasattr(self.template_renderer.run, "return_value"):
-            # Return just the rendered CV string to match test expectations, not a dictionary
-            return self.template_renderer.run.return_value
-            
-        # Create workflow ID if not provided
-        workflow_id = workflow_id or str(uuid4())
-            
-        # Initialize workflow state
-        initial_state = {
-            "job_description": job_description,
-            "user_cv_text": user_cv_data if isinstance(user_cv_data, str) else "",
-            "workflow_id": workflow_id,
-            "status": "in_progress",
-            "stage": "started",
-            "error": None,
-            "parsed_job_description": None,
-            "structured_cv": None,
-            "research_results": {},
-            "regenerate_item_ids": regenerate_item_ids or [],
-            "start_from_scratch": start_from_scratch,
-            "quality_check_results": None,
-            "formatted_cv": None,
-            "rendered_cv": None,
-        }
-        
-        logger.info(f"Starting workflow with ID: {workflow_id}")
-        
-        # If regenerating specific items, load existing state if available
-        if regenerate_item_ids and len(regenerate_item_ids) > 0:
-            logger.info(f"Setting up regeneration for specific items: {regenerate_item_ids}")
-            initial_state["status"] = "regenerating_items"
-        
-        # Store user feedback in the state
-        if user_feedback:
-            initial_state["user_feedback"] = user_feedback
-        
         try:
-            current_state = initial_state.copy()
+            # 1. Initialize workflow state
+            if workflow_id:
+                # Load existing workflow state
+                logger.info(f"Resuming workflow {workflow_id}")
+                # TODO: Implement state loading
+                state = {"workflow_id": workflow_id} 
+            else:
+                # Create new workflow ID
+                workflow_id = str(uuid.uuid4())
+                logger.info(f"Starting new workflow {workflow_id}")
+                state = {
+                    "workflow_id": workflow_id,
+                    "start_time": time.time(),
+                    "status": "initializing",
+                    "job_description": job_description,
+                    "user_cv_data": user_cv_data,
+                    "start_from_scratch": start_from_scratch
+                }
             
-            # Step 1: Parse job description and CV
-            logger.info("Starting parsing stage")
-            current_state = self.run_parsing_stage(current_state)
+            # 2. Parsing stage
+            state = self.run_parsing_stage(state)
+            if "error" in state:
+                return {"status": "error", "error": state["error"]}
             
-            if current_state.get("error"):
-                logger.error(f"Error in parsing stage: {current_state.get('error')}")
-                return current_state
+            # 3. Research stage
+            state = self.run_research_stage(state)
+            if "error" in state:
+                return {"status": "error", "error": state["error"]}
             
-            # Step 2: Run research and vector search for relevance
-            if not (regenerate_item_ids and "skip_research" in current_state.get("user_feedback", {})):
-                logger.info("Starting research stage")
-                current_state = self.run_research_stage(current_state)
-                
-                if current_state.get("error"):
-                    logger.error(f"Error in research stage: {current_state.get('error')}")
-                    return current_state
+            # 4. Content generation stage
+            state = self.run_content_generation_stage(state)
+            if "error" in state:
+                return {"status": "error", "error": state["error"]}
             
-            # Step 3: Generate content (or regenerate specific items)
-            logger.info("Starting content generation stage")
-            current_state = self.run_content_generation_stage(current_state)
+            # 5. Quality assurance stage
+            state = self.run_quality_assurance_stage(state)
+            if "error" in state:
+                return {"status": "error", "error": state["error"]}
             
-            if current_state.get("error"):
-                logger.error(f"Error in content generation stage: {current_state.get('error')}")
-                return current_state
-                
-            # Step 4: Quality assurance checks
-            logger.info("Starting quality assurance stage")
-            current_state = self.run_quality_assurance_stage(current_state)
+            # 6. Formatting
+            formatted_result = self.run_formatting_stage(state["structured_cv"])
+            if "error" in formatted_result:
+                return {"status": "error", "error": formatted_result["error"]}
             
-            if current_state.get("error"):
-                logger.error(f"Error in quality assurance stage: {current_state.get('error')}")
-                return current_state
+            # 7. Complete the workflow and return results
+            state["status"] = "completed"
+            state["end_time"] = time.time()
+            state["duration"] = state["end_time"] - state["start_time"]
             
-            # Step 5: Format and render final CV
-            logger.info("Starting formatting and rendering stage")
-            current_state = self.run_formatting_stage(current_state["structured_cv"])
+            result = {
+                "status": "success",
+                "workflow_id": workflow_id,
+                "structured_cv": state["structured_cv"],
+                "formatted_cv": formatted_result["formatted_cv_text"],
+                "duration": state["duration"]
+            }
             
-            if current_state.get("error"):
-                logger.error(f"Error in formatting stage: {current_state.get('error')}")
-                return current_state
+            return result
             
-            # Set status to completed
-            current_state["status"] = "completed"
-            logger.info(f"Workflow {workflow_id} completed successfully")
-            
-            return current_state
-        
         except Exception as e:
-            logger.error(f"Unexpected error in workflow: {str(e)}")
-            traceback.print_exc()
+            logger.error(f"Error in workflow: {str(e)}\n{traceback.format_exc()}")
             return {
                 "status": "error",
-                "error": f"Unexpected error: {str(e)}",
+                "error": f"Workflow error: {str(e)}",
                 "workflow_id": workflow_id
             }
     
@@ -193,24 +188,27 @@ class Orchestrator:
         Run the parsing stage of the workflow.
         
         Args:
-            state: The current workflow state
+            state: Current workflow state
             
         Returns:
             Updated workflow state
         """
         try:
+            logger.info(f"Starting parsing stage for workflow {state['workflow_id']}")
+            
             # Parse job description and CV
             parse_result = self.parser_agent.run({
                 "job_description": state["job_description"],
-                "cv_text": state["user_cv_text"],
+                "cv_text": state["user_cv_data"],
                 "start_from_scratch": state.get("start_from_scratch", False)
             })
             
-            # Update state with parsed results
-            state["parsed_job_description"] = parse_result.get("job_description_data")
-            state["structured_cv"] = parse_result.get("structured_cv")
+            # Update state with parsing results
+            state["parsed_job_description"] = parse_result["job_description_data"]
+            state["structured_cv"] = parse_result["structured_cv"]
             state["stage"] = "parsed"
             
+            logger.info("Parsing stage completed successfully")
             return state
             
         except Exception as e:
@@ -223,24 +221,25 @@ class Orchestrator:
         Run the research stage of the workflow.
         
         Args:
-            state: The current workflow state
+            state: Current workflow state
             
         Returns:
             Updated workflow state
         """
         try:
-            # Run research agent to find relevant content and gather insights
-            research_result = self.research_agent.run({
-                "job_description_data": state["parsed_job_description"],
-                "structured_cv": state["structured_cv"]
+            logger.info(f"Starting research stage for workflow {state['workflow_id']}")
+            
+            # Run the research agent
+            research_results = self.research_agent.run({
+                "job_description_data": state["parsed_job_description"]
             })
             
             # Update state with research results
-            state["research_results"] = research_result
+            state["research_results"] = research_results
             state["stage"] = "researched"
             
             return state
-
+            
         except Exception as e:
             logger.error(f"Error in research stage: {str(e)}")
             state["error"] = f"Research error: {str(e)}"
@@ -251,27 +250,46 @@ class Orchestrator:
         Run the content generation stage of the workflow.
         
         Args:
-            state: The current workflow state
+            state: Current workflow state
             
         Returns:
             Updated workflow state
         """
         try:
-            # Prepare input for content writer
-            content_writer_input = {
-                "job_description_data": state["parsed_job_description"],
-                "structured_cv": state["structured_cv"],
-                "research_results": state["research_results"],
-                "regenerate_item_ids": state.get("regenerate_item_ids", [])
-            }
+            logger.info(f"Starting content generation for workflow {state['workflow_id']}")
             
-            # Generate content
-            updated_cv = self.content_writer_agent.run(content_writer_input)
+            # Check if we need to regenerate specific items
+            regenerate_item_ids = state.get("regenerate_item_ids", [])
             
-            # Update state with generated content
-            state["structured_cv"] = updated_cv
+            if regenerate_item_ids:
+                logger.info(f"Regenerating {len(regenerate_item_ids)} items")
+                
+                # Call the content writer agent to regenerate specific items
+                structured_cv = self.content_writer_agent.run({
+                    "structured_cv": state["structured_cv"],
+                    "job_description_data": state["parsed_job_description"],
+                    "research_results": state["research_results"],
+                    "regenerate_item_ids": regenerate_item_ids
+                })
+                
+                # Update state with regenerated content
+                state["structured_cv"] = structured_cv
+                
+            else:
+                logger.info("Generating initial content")
+                
+                # Call the content writer agent for full content generation
+                structured_cv = self.content_writer_agent.run({
+                    "structured_cv": state["structured_cv"],
+                    "job_description_data": state["parsed_job_description"],
+                    "research_results": state["research_results"],
+                    "regenerate_item_ids": []
+                })
+                
+                # Update state with generated content
+                state["structured_cv"] = structured_cv
+            
             state["stage"] = "content_generated"
-            
             return state
             
         except Exception as e:
@@ -284,7 +302,7 @@ class Orchestrator:
         Run the quality assurance stage of the workflow.
         
         Args:
-            state: The current workflow state
+            state: Current workflow state
             
         Returns:
             Updated workflow state
@@ -331,7 +349,8 @@ class Orchestrator:
             # Log the structure for debugging
             print(f"StructuredCV has {len(structured_cv.sections)} sections")
             for section in structured_cv.sections:
-                print(f"  Section: {section.name} ({len(section.items)} items, {len(section.subsections)} subsections)")
+                print(f"  Section: {section.name} ({len(section.items)} items, "
+                      f"{len(section.subsections)} subsections)")
             
             # Convert to ContentData for compatibility with formatter
             content_data = structured_cv.to_content_data()
@@ -355,7 +374,8 @@ class Orchestrator:
             
             if not result:
                 print("Error: formatter_agent.run() returned None")
-                return {"formatted_cv_text": "# Error: Formatter failed", "error": "Formatter returned None"}
+                return {"formatted_cv_text": "# Error: Formatter failed", 
+                       "error": "Formatter returned None"}
             
             print(f"Formatter result keys: {list(result.keys())}")
             
@@ -493,22 +513,15 @@ class Orchestrator:
                     markdown += "## Certifications\n\n"
                     for cert in certifications:
                         if isinstance(cert, dict):
-                            if cert.get("name"):
-                                if cert.get("url"):
-                                    markdown += f"* [{cert['name']}]({cert['url']})"
-                                else:
-                                    markdown += f"* {cert['name']}"
-                                
-                                if cert.get("issuer") or cert.get("date"):
-                                    extra_info = []
-                                    if cert.get("issuer"):
-                                        extra_info.append(cert["issuer"])
-                                    if cert.get("date"):
-                                        extra_info.append(cert["date"])
-                                    
-                                    markdown += f" - {', '.join(extra_info)}"
-                                
-                                markdown += "\n"
+                            cert_text = cert.get("name", "")
+                            if cert.get("url"):
+                                cert_text = f"[{cert_text}]({cert.get('url')})"
+                            if cert.get("issuer"):
+                                cert_text += f" - {cert.get('issuer')}"
+                            if cert.get("date"):
+                                cert_text += f", {cert.get('date')}"
+                            
+                            markdown += f"* {cert_text}\n"
                         else:
                             markdown += f"* {cert}\n"
                     
@@ -518,120 +531,92 @@ class Orchestrator:
                 languages = content_data.get("languages", [])
                 if languages:
                     markdown += "## Languages\n\n"
-                    lang_parts = []
                     for lang in languages:
                         if isinstance(lang, dict):
-                            if lang.get("name"):
-                                if lang.get("level"):
-                                    lang_parts.append(f"**{lang['name']}** ({lang['level']})")
+                            lang_text = lang.get("name", "")
+                            if lang.get("level"):
+                                lang_text += f" ({lang.get('level')})"
+                            
+                            markdown += f"* {lang_text}\n"
                         else:
-                                    lang_parts.append(f"**{lang['name']}**")
-                    else:
-                            lang_parts.append(f"**{lang}**")
-                    
-                    if lang_parts:
-                        markdown += " | ".join(lang_parts) + "\n\n"
-                    
-                    markdown += "---\n\n"
+                            markdown += f"* {lang}\n"
                 
-                print("Fallback formatting completed")
                 return {"formatted_cv_text": markdown}
-            
+                
         except Exception as e:
-            # Catch any errors and return a minimal formatting
-            print(f"Error in formatting stage: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            
-            # Convert raw structured CV to a simple markdown format as fallback
-            markdown = "# Tailored CV\n\n"
-            
-            try:
-                # Try to add sections with minimal formatting
-                for section in structured_cv.sections:
-                    markdown += f"## {section.name}\n\n"
-                    
-                    # Add direct items
-                    for item in section.items:
-                        if item.content:
-                            markdown += f"* {item.content}\n"
-                    
-                    # Add subsections
-                    for subsection in section.subsections:
-                        markdown += f"### {subsection.name}\n\n"
-                        for item in subsection.items:
-                            if item.content:
-                                markdown += f"* {item.content}\n"
-                    
-                    markdown += "\n---\n\n"
-            except Exception as fallback_error:
-                # If even the fallback fails, return a very minimal CV
-                print(f"Error in fallback formatting: {str(fallback_error)}")
-                markdown = "# Tailored CV\n\nError occurred during formatting."
-            
-            return {"formatted_cv_text": markdown, "error": f"Formatting error: {str(e)}"}
-    
+            traceback = traceback
+            logger.error(f"Error in formatting stage: {str(e)}\n{traceback.format_exc()}")
+            return {
+                "formatted_cv_text": "# Error occurred during formatting\n\nPlease try again.",
+                "error": f"Formatting error: {str(e)}"
+            }
+
     def process_user_feedback(self, workflow_id: str, feedback: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Process user feedback and mark items for regeneration.
+        Process user feedback on generated content.
         
         Args:
-            workflow_id: The ID of the workflow
-            feedback: User feedback data
+            workflow_id: The ID of the workflow.
+            feedback: Dictionary containing feedback data including:
+                - accepted_items: List of item IDs that are accepted
+                - rejected_items: List of item IDs that need regeneration
+                - edited_items: Dict mapping item IDs to edited content
+                - feedback_comments: Dict mapping item IDs to feedback text
             
         Returns:
-            List of item IDs to regenerate
+            Dict with status and potentially regenerated content
         """
         try:
-            # Extract regeneration requests from feedback
-            regenerate_items = feedback.get("regenerate_items", [])
+            logger.info(f"Processing user feedback for workflow {workflow_id}")
             
-            # If no specific items, check for section regeneration
-            if not regenerate_items and feedback.get("regenerate_sections"):
-                # Convert section names to item IDs (requires loading the state)
-                regenerate_items = self._get_items_for_sections(workflow_id, feedback["regenerate_sections"])
+            # Update the state based on feedback
+            # TODO: Implement proper state management
+            state = {"workflow_id": workflow_id}
             
-            return {
-                "status": "success",
-                "regenerate_item_ids": regenerate_items,
-                "feedback": feedback
-            }
+            # Items to regenerate
+            regenerate_item_ids = feedback.get("rejected_items", [])
             
+            if regenerate_item_ids:
+                # Call run_workflow with regeneration list
+                return self.run_workflow(
+                    job_description="",  # Will be loaded from state
+                    user_cv_data="",    # Will be loaded from state
+                    workflow_id=workflow_id,
+                    regenerate_item_ids=regenerate_item_ids
+                )
+            
+            return {"status": "feedback_processed", "workflow_id": workflow_id}
+        
         except Exception as e:
             logger.error(f"Error processing feedback: {str(e)}")
-            return {
-                "status": "error",
-                "error": f"Feedback processing error: {str(e)}"
-            }
-    
+            return {"status": "error", "error": f"Feedback processing error: {str(e)}"}
+
     def _get_items_for_sections(self, workflow_id: str, section_names: List[str]) -> List[str]:
         """
-        Get item IDs corresponding to specified sections.
+        Get all item IDs for specified sections.
         
         Args:
-            workflow_id: The workflow ID for which to get items
-            section_names: Names of sections to regenerate
+            workflow_id: The workflow ID
+            section_names: List of section names to get items for
             
         Returns:
-            List of item IDs
+            List of item IDs belonging to the specified sections
         """
-        # This would require loading the stored state
-        # For MVP, this is a placeholder
+        # This is a placeholder implementation
+        # TODO: Implement proper state management to retrieve items by section
         return []
-    
-    # Legacy compatibility methods - these can be simplified or deprecated in future versions
+
     def parse_job_description_node(self, job_description):
-        """Legacy compatibility method"""
-        job_desc_data = self.parser_agent.run({"job_description": job_description}).get("job_description_data", {})
-        return job_desc_data
-
+        """LangGraph node for parsing job descriptions."""
+        # Simple wrapper around parser_agent for use in LangGraph
+        return self.parser_agent.run({"job_description": job_description})
+        
     def run_research_node(self, parsed_job_data):
-        """Legacy compatibility method"""
-        if isinstance(parsed_job_data, dict) and len(parsed_job_data) == 0:
-            return {}
-            
-        return self.research_agent.run({"job_description_data": parsed_job_data}).get("research_results", {})
-
+        """LangGraph node for research."""
+        # Simple wrapper around research_agent for use in LangGraph
+        return self.research_agent.run({"job_description_data": parsed_job_data})
+        
     def search_vector_store_node(self, parsed_job_data):
-        """Legacy compatibility method"""
-        return []
+        """LangGraph node for vector store search."""
+        # Simple wrapper around vector_store_agent for use in LangGraph
+        return self.vector_store_agent.run({"query": parsed_job_data})

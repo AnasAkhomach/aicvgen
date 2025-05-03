@@ -474,13 +474,13 @@ class ParserAgent(AgentBase):
         
         return structured_cv
 
-    def get_job_data(self) -> Optional[JobDescriptionData]:
+    def get_job_data(self) -> Dict[str, Any]:
         """
-        Returns the most recently parsed job description data.
+        Returns the previously parsed job description data.
         
         Returns:
-            The JobDescriptionData object, or None if no job description has been parsed.
+            The parsed job description data as a dictionary, or an empty dict if no job has been parsed
         """
-        if hasattr(self, '_job_data'):
+        if hasattr(self, "_job_data") and self._job_data:
             return self._job_data
-        return None
+        return {}

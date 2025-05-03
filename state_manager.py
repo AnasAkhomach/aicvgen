@@ -351,6 +351,8 @@ class Section:
     items: List[Item] = field(default_factory=list)  # For sections like Key Quals, Education, Languages
     raw_text: str = ""  # Original text snippet from parsing
     order: int = 0  # For maintaining section order from the template
+    status: ItemStatus = ItemStatus.INITIAL  # Status of the entire section
+    user_feedback: Optional[str] = None  # Optional user comment for the section
 
     def to_dict(self):
         """Helper for serialization"""
@@ -361,7 +363,9 @@ class Section:
             "subsections": [subsection.to_dict() for subsection in self.subsections],
             "items": [item.to_dict() for item in self.items],
             "raw_text": self.raw_text,
-            "order": self.order
+            "order": self.order,
+            "status": self.status.value if isinstance(self.status, enum.Enum) else self.status,
+            "user_feedback": self.user_feedback
         }
     
     @classmethod
@@ -375,6 +379,14 @@ class Section:
         for item_data in data.get("items", []):
             items.append(Item.from_dict(item_data))
             
+        # Convert string status to enum if needed
+        status = data.get("status", "initial")
+        if isinstance(status, str):
+            try:
+                status = ItemStatus(status)
+            except ValueError:
+                status = ItemStatus.INITIAL
+                
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             name=data.get("name", ""),
@@ -382,7 +394,9 @@ class Section:
             subsections=subsections,
             items=items,
             raw_text=data.get("raw_text", ""),
-            order=data.get("order", 0)
+            order=data.get("order", 0),
+            status=status,
+            user_feedback=data.get("user_feedback")
         )
 
 
@@ -507,6 +521,107 @@ class StructuredCV:
         
         return items
     
+    def find_section_by_id(self, section_id):
+        """Find a section by its ID"""
+        for section in self.sections:
+            if section.id == section_id:
+                return section
+        return None
+    
+    def update_section_content(self, section_id, new_content_structure):
+        """
+        Update the content of a section (more complex, as a section can have items and subsections).
+        
+        Args:
+            section_id: ID of the section to update
+            new_content_structure: A dictionary with structure matching Section schema
+            
+        Returns:
+            bool: Success or failure
+        """
+        section = self.find_section_by_id(section_id)
+        if not section:
+            return False
+            
+        # For simplicity in MVP, we're just updating text content, not the structure
+        # This is primarily useful for the UI where text areas are edited directly
+        # A more complex implementation would update the full structure
+        
+        # Update items directly in the section
+        if "items" in new_content_structure:
+            for i, item_content in enumerate(new_content_structure["items"]):
+                if i < len(section.items):
+                    section.items[i].content = item_content
+        
+        # Update items in subsections
+        if "subsections" in new_content_structure:
+            for i, subsection_data in enumerate(new_content_structure["subsections"]):
+                if i < len(section.subsections):
+                    # Update subsection name if provided
+                    if "name" in subsection_data:
+                        section.subsections[i].name = subsection_data["name"]
+                    
+                    # Update items in this subsection
+                    if "items" in subsection_data:
+                        for j, item_content in enumerate(subsection_data["items"]):
+                            if j < len(section.subsections[i].items):
+                                section.subsections[i].items[j].content = item_content
+        
+        return True
+    
+    def update_section_status(self, section_id, new_status):
+        """
+        Update the status of an entire section
+        
+        Args:
+            section_id: ID of the section
+            new_status: New status to set (ItemStatus or string)
+            
+        Returns:
+            bool: Success or failure
+        """
+        section = self.find_section_by_id(section_id)
+        if not section:
+            return False
+            
+        # Convert string status to enum if needed
+        if isinstance(new_status, str):
+            try:
+                new_status = ItemStatus(new_status)
+            except ValueError:
+                new_status = ItemStatus.INITIAL
+                
+        old_status = section.status
+        section.status = new_status
+        
+        # Also update status of all items in the section for consistency
+        for item in section.items:
+            item.status = new_status
+            
+        for subsection in section.subsections:
+            for item in subsection.items:
+                item.status = new_status
+                
+        return True
+    
+    def get_sections_by_status(self, status):
+        """
+        Get all sections with a specific status
+        
+        Args:
+            status: Status to filter by (ItemStatus or string)
+            
+        Returns:
+            list: List of matching Section objects
+        """
+        if isinstance(status, str):
+            try:
+                status = ItemStatus(status)
+            except ValueError:
+                status = ItemStatus.INITIAL
+                
+        return [section for section in self.sections if section.status == status]
+        
     def to_content_data(self):
         """Convert StructuredCV to ContentData for backward compatibility"""
         content_data = ContentData()
@@ -951,11 +1066,70 @@ class StateManager:
         Returns:
             A list of items with the specified status.
         """
-        if not self._structured_cv:
-            logger.error("Cannot get items by status: No StructuredCV instance exists.")
-            return []
+        if self._structured_cv:
+            return self._structured_cv.get_items_by_status(status)
+        return []
+    
+    def find_section_by_id(self, section_id):
+        """Find a section by its ID"""
+        if self._structured_cv:
+            return self._structured_cv.find_section_by_id(section_id)
+        return None
         
-        return self._structured_cv.get_items_by_status(status)
+    def update_section_content(self, section_id, new_content_structure):
+        """
+        Update the content of a section
+        
+        Args:
+            section_id: ID of the section
+            new_content_structure: Dictionary with updated content
+            
+        Returns:
+            bool: Success or failure
+        """
+        if self._structured_cv:
+            success = self._structured_cv.update_section_content(section_id, new_content_structure)
+            if success:
+                self.save_state()
+            return success
+        return False
+        
+    def update_section_status(self, section_id, new_status):
+        """
+        Update the status of an entire section
+        
+        Args:
+            section_id: ID of the section
+            new_status: New status to set
+            
+        Returns:
+            bool: Success or failure
+        """
+        if self._structured_cv:
+            section = self._structured_cv.find_section_by_id(section_id)
+            if section:
+                old_status = section.status
+                success = self._structured_cv.update_section_status(section_id, new_status)
+                if success:
+                    self._log_section_state_change(section_id, old_status, new_status)
+                    self.save_state()
+                return success
+        return False
+    
+    def _log_section_state_change(self, section_id, old_status, new_status):
+        """Log a change in section status for debugging and analytics"""
+        section = self._structured_cv.find_section_by_id(section_id)
+        if section:
+            section_name = section.name
+            logger.info(f"Section status change: {section_id} ({section_name}) from {old_status} to {new_status}")
+        else:
+            logger.info(f"Section status change: {section_id} (unknown) from {old_status} to {new_status}")
+    
+    def get_sections_by_status(self, status):
+        """Get all sections with a specific status"""
+        if self._structured_cv:
+            return self._structured_cv.get_sections_by_status(status)
+        return []
     
     def get_diagnostics(self) -> Dict[str, Any]:
         """

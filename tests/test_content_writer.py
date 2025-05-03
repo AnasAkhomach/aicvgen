@@ -2,236 +2,246 @@ import logging
 import os
 import sys
 import json
-from llm import LLM
-from content_writer_agent import ContentWriterAgent, PromptLoader
+import time
+from content_writer_agent import ContentWriterAgent
 from tools_agent import ToolsAgent
-from state_manager import StructuredCV, AgentIO, Section, Subsection, Item, ItemStatus, ItemType
+from llm import LLM
+from state_manager import (
+    JobDescriptionData,
+    StructuredCV,
+    Section,
+    Subsection,
+    Item,
+    ItemStatus,
+    ItemType
+)
 
-# Set up logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('test_content_writer.log', mode='w')
+        logging.FileHandler("content_writer_test.log", mode='w'),
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
 
-class VerbosePromptLoader(PromptLoader):
-    """Extended PromptLoader that logs when prompts are loaded and used"""
+def mock_llm_for_testing():
+    """Create a mock LLM that logs prompt requests but doesn't actually call the API"""
+    original_llm = LLM()
+    original_generate = original_llm.generate_content
     
-    def load_prompt(self, prompt_name):
-        """Override load_prompt to add logging"""
-        print(f"Loading prompt: {prompt_name}")
-        prompt_text = super().load_prompt(prompt_name)
-        print(f"Prompt content (first 200 chars): {prompt_text[:200].replace('{', '{{').replace('}', '}}')}")
-        return prompt_text
+    # Function to wrap the original generate_content
+    def logging_generate_content(prompt):
+        logger.info(f"LLM PROMPT RECEIVED:\n{prompt[:300]}...")
+        logger.info(f"FULL PROMPT LENGTH: {len(prompt)} characters")
+        
+        # Log the prompt to a file for inspection
+        with open("last_prompt.txt", "w", encoding="utf-8") as f:
+            f.write(prompt)
+        
+        # Return a simplified response based on prompt content
+        if "executive summary" in prompt.lower():
+            logger.info("Executive Summary generation prompt detected")
+            return "Experienced data analyst specializing in transforming complex datasets into actionable insights using Python, SQL, and data visualization tools."
+        elif "key qualifications" in prompt.lower():
+            logger.info("Key Qualifications generation prompt detected")
+            return "Data Analysis | SQL | Python | Statistical Analysis | Data Visualization | Problem Solving | Communication"
+        elif "professional experience" in prompt.lower():
+            logger.info("Professional Experience generation prompt detected")
+            return "• Analyzed large datasets to identify trends and opportunities, resulting in 15% increase in operational efficiency\n• Developed automated reporting solutions using Python, saving 10 hours per week\n• Created interactive dashboards to visualize KPIs for executive stakeholders"
+        else:
+            logger.info("Other prompt type detected")
+            return "Mock response for testing: This would be generated content in the real system."
+    
+    # Replace the original method with our logging version
+    original_llm.generate_content = logging_generate_content
+    return original_llm
 
-# Helper to hook LLM calls
-def hook_llm(llm_instance):
-    original_generate = llm_instance.generate_content
+def create_test_structured_cv():
+    """Create a test structured CV with sections marked for regeneration"""
+    structured_cv = StructuredCV()
     
-    def logged_generate(prompt, **kwargs):
-        print(f"\nSending LLM prompt ({len(prompt)} chars):")
-        print(f"Preview: {prompt[:200]}...")
-        
-        response = original_generate(prompt, **kwargs)
-        
-        print(f"Received LLM response ({len(response)} chars):")
-        print(f"Preview: {response[:200]}...")
-        
-        return response
+    # Add sections
+    sections = [
+        {"name": "Executive Summary", "type": "DYNAMIC", "order": 0},
+        {"name": "Key Qualifications", "type": "DYNAMIC", "order": 1},
+        {"name": "Professional Experience", "type": "DYNAMIC", "order": 2},
+        {"name": "Project Experience", "type": "DYNAMIC", "order": 3},
+        {"name": "Education", "type": "STATIC", "order": 4},
+        {"name": "Certifications", "type": "STATIC", "order": 5},
+        {"name": "Languages", "type": "STATIC", "order": 6}
+    ]
     
-    llm_instance.generate_content = logged_generate
-    return llm_instance
-
-def load_structured_cv_from_file():
-    """Load a StructuredCV from the pipeline_test_result.json file"""
-    if os.path.exists("pipeline_test_result.json"):
-        with open("pipeline_test_result.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if "structured_cv" in data:
-                # Create a simplified version manually for testing
-                cv = StructuredCV()
-                
-                # Add a section for summary
-                summary_section = Section(
-                    name="Executive Summary",
-                    content_type="DYNAMIC",
-                    order=0
-                )
-                summary_item = Item(
-                    content="",
+    for section_info in sections:
+        section = Section(
+            name=section_info["name"],
+            content_type=section_info["type"],
+            order=section_info["order"]
+        )
+        
+        # Add items based on section type
+        if section.name == "Executive Summary":
+            section.items.append(Item(
+                content="Data analyst with experience in SQL and Python.",
+                status=ItemStatus.TO_REGENERATE,
+                item_type=ItemType.SUMMARY_PARAGRAPH
+            ))
+        
+        elif section.name == "Key Qualifications":
+            skills = ["SQL", "Python", "Data Analysis", "Power BI", "Excel"]
+            for skill in skills:
+                section.items.append(Item(
+                    content=skill,
                     status=ItemStatus.TO_REGENERATE,
-                    item_type=ItemType.SUMMARY_PARAGRAPH
-                )
-                summary_section.items.append(summary_item)
-                cv.sections.append(summary_section)
-                
-                # Add a section for key qualifications
-                quals_section = Section(
-                    name="Key Qualifications",
-                    content_type="DYNAMIC",
-                    order=1
-                )
-                for _ in range(5):  # Add 5 empty quals
-                    qual_item = Item(
-                        content="",
-                        status=ItemStatus.TO_REGENERATE,
-                        item_type=ItemType.KEY_QUAL
-                    )
-                    quals_section.items.append(qual_item)
-                cv.sections.append(quals_section)
-                
-                # Add a section for experience
-                exp_section = Section(
-                    name="Professional Experience",
-                    content_type="DYNAMIC",
-                    order=2
-                )
-                
-                # Add some subsections for experience
-                subsection1 = Subsection(
-                    name="Retail Sales Experience"
-                )
-                for _ in range(3):  # Add 3 empty bullet points
-                    bullet_item = Item(
-                        content="",
-                        status=ItemStatus.TO_REGENERATE,
-                        item_type=ItemType.BULLET_POINT
-                    )
-                    subsection1.items.append(bullet_item)
-                exp_section.subsections.append(subsection1)
-                
-                cv.sections.append(exp_section)
-                
-                return cv
+                    item_type=ItemType.KEY_QUAL
+                ))
+        
+        elif section.name == "Professional Experience":
+            # Add a subsection for work experience
+            subsection = Subsection(
+                name="Data Analyst at XYZ Corp"
+            )
+            # Add bullet points
+            for _ in range(3):
+                subsection.items.append(Item(
+                    content="Analyzed data and created reports.",
+                    status=ItemStatus.TO_REGENERATE,
+                    item_type=ItemType.BULLET_POINT
+                ))
+            section.subsections.append(subsection)
+        
+        elif section.name == "Project Experience":
+            # Add a subsection for a project
+            subsection = Subsection(
+                name="Data Analysis Project"
+            )
+            # Add bullet points
+            for _ in range(2):
+                subsection.items.append(Item(
+                    content="Implemented data analysis solutions.",
+                    status=ItemStatus.TO_REGENERATE,
+                    item_type=ItemType.BULLET_POINT
+                ))
+            section.subsections.append(subsection)
+        
+        # Add section to structured CV
+        structured_cv.sections.append(section)
     
-    # Return a default empty CV if no file found or error
-    return StructuredCV()
+    return structured_cv
 
-# Create a simple dictionary-based job description data
-# Instead of using JobDescriptionData class which might have compatibility issues
-def create_job_description_dict():
-    """Create a dictionary that mimics JobDescriptionData for compatibility"""
-    return {
-        "raw_text": "Retail Salesperson position with responsibilities for customer service, checkout, and stocking shelves.",
-        "skills": ["Customer service", "Communication", "Teamwork", "Time flexibility"],
-        "experience_level": "Entry-Level",
-        "responsibilities": ["Stocking shelves", "Operating checkout", "Providing customer advice"],
-        "industry_terms": ["Retail", "Food retail"],
-        "company_values": ["Stability", "Teamwork"]
-    }
+def create_test_job_data():
+    """Create test job description data"""
+    return JobDescriptionData(
+        raw_text="Data Analyst position requiring SQL, Python, and data visualization skills.",
+        skills=["SQL", "Python", "Data Analysis", "Data Visualization", "Power BI"],
+        experience_level="Mid-level",
+        responsibilities=["Analyze data", "Create reports", "Visualize insights"],
+        industry_terms=["Data-driven", "Analytics"],
+        company_values=["Innovation", "Quality"]
+    )
 
 def main():
-    print("\n" + "="*70)
-    print("TESTING CONTENT WRITER AGENT DIRECTLY")
-    print("="*70)
+    """Test the content writer agent directly"""
+    logger.info("=========== STARTING CONTENT WRITER TEST ===========")
     
-    # Initialize LLM with logging
-    print("Initializing LLM...")
-    llm = LLM()
-    llm = hook_llm(llm)
+    # Create a mock LLM
+    mock_llm = mock_llm_for_testing()
+    logger.info("Mock LLM created for testing")
     
-    # Initialize PromptLoader with logging
-    print("Initializing PromptLoader...")
-    prompt_loader = VerbosePromptLoader()
-    
-    # Initialize tools agent
-    print("Initializing ToolsAgent...")
+    # Create tools agent
     tools_agent = ToolsAgent(
         name="ToolsAgent", 
-        description="Agent for providing content processing tools."
+        description="Agent for providing content processing tools"
     )
     
-    # Initialize content writer agent
-    print("Initializing ContentWriterAgent...")
+    # Create content writer agent
     content_writer_agent = ContentWriterAgent(
         name="ContentWriterAgent", 
-        description="Agent for generating tailored CV content.", 
-        llm=llm, 
+        description="Agent for generating tailored CV content", 
+        llm=mock_llm, 
         tools_agent=tools_agent
     )
     
-    # Inject our verbose prompt loader
-    content_writer_agent.prompt_loader = prompt_loader
+    # Create test data
+    structured_cv = create_test_structured_cv()
+    job_data = create_test_job_data()
     
-    # Load test data
-    print("Loading test data...")
-    structured_cv = load_structured_cv_from_file()
-    job_description_data = create_job_description_dict()
+    # Log what we're testing with
+    logger.info(f"Testing with structured CV containing {len(structured_cv.sections)} sections")
     
-    # Prepare research results
+    # Count items marked for regeneration
+    items_to_regenerate = []
+    for section in structured_cv.sections:
+        # Check direct items
+        for item in section.items:
+            if item.status == ItemStatus.TO_REGENERATE:
+                items_to_regenerate.append(item.id)
+        
+        # Check items in subsections
+        for subsection in section.subsections:
+            for item in subsection.items:
+                if item.status == ItemStatus.TO_REGENERATE:
+                    items_to_regenerate.append(item.id)
+    
+    logger.info(f"Found {len(items_to_regenerate)} items marked for regeneration")
+    
+    # Create research results (mock data)
     research_results = {
-        "job_requirements_analysis": {
-            "core_technical_skills": ["Customer service", "Checkout operation", "Stocking shelves"],
-            "soft_skills": ["Communication", "Teamwork", "Time management"],
-            "working_environment": "Retail store with focus on customer interaction"
-        },
         "key_matches": {
-            "skills": [
-                {"content": "Customer service experience", "relevance": 0.85},
-                {"content": "Team collaboration", "relevance": 0.78}
-            ],
-            "responsibilities": [
-                {"content": "Maintained product displays and restocked shelves", "relevance": 0.92},
-                {"content": "Operated cash register and processed transactions", "relevance": 0.89}
-            ]
-        }
+            "skills": ["SQL", "Python", "Data Analysis"],
+            "experience": ["Data analysis experience", "Report creation"],
+            "summary_points": ["Strong analytical skills", "Technical expertise"]
+        },
+        "similiar_job_matches": ["Data Analyst", "Business Intelligence Analyst"]
+    }
+    
+    # Create input data for the content writer agent
+    input_data = {
+        "structured_cv": structured_cv,
+        "job_description_data": job_data,
+        "research_results": research_results,
+        "regenerate_item_ids": items_to_regenerate
     }
     
     # Run the content writer agent
-    print("\n" + "="*70)
-    print("RUNNING CONTENT WRITER AGENT")
-    print("="*70)
-    
-    input_data = {
-        "job_description_data": job_description_data,
-        "structured_cv": structured_cv,
-        "research_results": research_results,
-        "regenerate_item_ids": []  # Regenerate all
-    }
-    
-    result = content_writer_agent.run(input_data)
-    
-    # Save the result
-    print("\n" + "="*70)
-    print("CONTENT WRITER AGENT RESULTS")
-    print("="*70)
-    
-    if result:
-        print(f"Generated {len(result.sections)} sections")
+    logger.info("Running content writer agent")
+    try:
+        result = content_writer_agent.run(input_data)
         
-        # Print details of what was generated
-        for section in result.sections:
-            print(f"\nSection: {section.name}")
+        # Check the result
+        if result:
+            logger.info(f"Content writer returned a result with {len(result.sections)} sections")
             
-            # Print items in the section
-            if section.items:
-                print(f"  Items ({len(section.items)}):")
-                for item in section.items:
-                    print(f"    - [{item.status.value}] {item.content[:50]}...")
-            
-            # Print subsections
-            if section.subsections:
-                print(f"  Subsections ({len(section.subsections)}):")
-                for subsection in section.subsections:
-                    print(f"    * {subsection.name}")
-                    if subsection.items:
-                        print(f"      Items ({len(subsection.items)}):")
+            # Check generated content
+            for section in result.sections:
+                if section.content_type == "DYNAMIC":
+                    logger.info(f"Section: {section.name}")
+                    
+                    # Check items directly in the section
+                    for item in section.items:
+                        if item.status == ItemStatus.GENERATED:
+                            logger.info(f"  Generated item: {item.content[:50]}...")
+                    
+                    # Check items in subsections
+                    for subsection in section.subsections:
+                        logger.info(f"  Subsection: {subsection.name}")
                         for item in subsection.items:
-                            print(f"        - [{item.status.value}] {item.content[:50]}...")
-    else:
-        print("No result returned from content writer agent")
+                            if item.status == ItemStatus.GENERATED:
+                                logger.info(f"    Generated item: {item.content[:50]}...")
+            
+            # Save the result to a file
+            with open("content_writer_result.json", "w", encoding="utf-8") as f:
+                json.dump(result.to_dict(), f, indent=2)
+            logger.info("Results saved to content_writer_result.json")
+        else:
+            logger.error("Content writer did not return a result")
     
-    # Save result to file
-    result_file = "content_writer_result.json"
-    with open(result_file, "w", encoding="utf-8") as f:
-        json.dump(result.to_dict() if result else {}, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error testing content writer: {str(e)}", exc_info=True)
     
-    print(f"\nResults saved to {result_file}")
-    print("="*70)
+    logger.info("=========== CONTENT WRITER TEST COMPLETED ===========")
 
 if __name__ == "__main__":
     main() 

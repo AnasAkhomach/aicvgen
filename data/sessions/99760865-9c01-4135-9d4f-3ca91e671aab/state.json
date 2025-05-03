@@ -1,0 +1,451 @@
+{
+  "id": "99760865-9c01-4135-9d4f-3ca91e671aab",
+  "sections": [
+    {
+      "id": "62e993d1-acf7-4515-9855-63e9fa4d9946",
+      "name": "Executive Summary",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "162a7794-b020-4cea-9fbb-524a739c15b3",
+          "content": "Data analyst with an educational background and strong communication skills. I combine in-depth knowledge of SQL, Python and Power BI with the ability to communicate complex topics in an easily understandable way.",
+          "status": "initial",
+          "item_type": "summary_paragraph",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Executive Summary",
+      "order": 0,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "83648f73-2e0d-4a0f-b617-72f99fdc6d4e",
+      "name": "Key Qualifications",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [],
+      "raw_text": "### Key Qualifications",
+      "order": 1,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "7b111e23-f364-478c-b3d1-33c55b47070f",
+      "name": "Professional Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "7b2bd41e-e9ac-427f-aca6-c16cd2e347a9",
+          "name": "Trainee Data Analyst",
+          "items": [
+            {
+              "id": "2ff0abf5-db39-49da-9adf-c48460af2105",
+              "content": "Data-Driven Sales: Increased ROI using SQL/Python segmentation and timely Power BI metrics.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "bdec25b6-4a47-498c-9979-55fa32a98cd2",
+              "content": "Process optimization: Streamlined KPI tracking, shortened decision time for a team of three people.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "1a153684-59c8-4516-958c-929429a15a32",
+              "content": "Teamwork: Developed solutions for different customer segments to improve customer service.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Trainee Data Analyst "
+        },
+        {
+          "id": "d2ab8ea1-0c53-4b5d-a161-a4adb4547e94",
+          "name": "IT trainer",
+          "items": [
+            {
+              "id": "41f5d5b3-8784-4143-9d2a-36a4320b29bd",
+              "content": "Technical Training: Conducted 100+ ERP dashboard sessions (MS Excel) with 95% satisfaction.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "866ef36d-8192-41c9-922c-86d7a861d464",
+              "content": "Friendly communication: Illustrated content with case studies for a quick start.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "70a5826e-6adf-4513-98b6-066fffeccaf8",
+              "content": "Process improvement: Focused on automated reporting and reduced manual data entry.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### IT trainer"
+        },
+        {
+          "id": "72f93900-ac2d-46ec-90c3-63cfca479a77",
+          "name": "Mathematics teacher",
+          "items": [
+            {
+              "id": "cae6299b-6bc5-496a-ac09-d7e633522391",
+              "content": "User Retention: Increased the class average from 3.7 to 3.3 through personalized learning plans and GeoGebra.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "0e343fa6-242b-47ad-860b-da8eb88c474b",
+              "content": "Friendly communication: Successfully guided 5+ students to top 10 placements in math competitions.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "da04204c-0dc4-4d2e-80d4-d8a649e5056a",
+              "content": "Multilingual Service: Supported non-native speakers in diverse classroom environments.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Mathematics teacher"
+        },
+        {
+          "id": "f3817396-f875-429a-9255-564791b797c7",
+          "name": "Indie Mobile Game Developer",
+          "items": [
+            {
+              "id": "1a9892fb-6bb1-4953-98d4-b187949813fd",
+              "content": "Bullet 1: (AI-adjusted description)",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "41905bbe-f767-4696-a926-a98bd031a1c9",
+              "content": "Bullet 2: (AI-adjusted description)",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "f999a33f-686d-4f59-8575-c95bea14feab",
+              "content": "Bullet 3: (AI-adjusted description)",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Indie Mobile Game Developer"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Professional Experience",
+      "order": 2,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "978ac21f-46f6-4f3a-9729-abd1d4766eaa",
+      "name": "Project Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "19e5ce89-5ca9-4e7e-a1c2-badd869d934f",
+          "name": "ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA",
+          "items": [
+            {
+              "id": "cfb8b04b-2802-40a7-8fd6-48d805029438",
+              "content": "Automated manual data entry for raw material receiving and warehouse management, reducing manual errors and improving operational efficiency.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "302170d0-40a7-42fb-a182-ea4a4232b220",
+              "content": "Development and deployment of interactive Sylob ERP dashboards for warehouse staff and dock agents, providing real-time metrics and actionable insights.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "f8c1b155-9fe4-4a75-b781-b604e0e04d25",
+              "content": "Integrated QR code scanners and rugged tablets to optimize material tracking, reduce processing time, and improve inventory accuracy by 35%.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA"
+        },
+        {
+          "id": "700dbdf6-4abb-4a34-b102-254aebc4063b",
+          "name": "SQL Analytics Project | SQL, Data Visualization",
+          "items": [
+            {
+              "id": "9f6232dc-c696-41b6-b695-af00cd7ffdfe",
+              "content": "Led a SQL-based analysis of an e-commerce database to optimize marketing budget and increase website traffic by 22%.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "cdda3e5b-2dd4-452b-8bda-fad9643d2063",
+              "content": "Conducted A/B tests that improved checkout page conversion rates by 15% and reduced bounce rates by 22%.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "80f6e9ed-3e3e-4539-a01a-0550c78edb46",
+              "content": "Worked with stakeholders to translate data insights into actionable strategies, resulting in a 12% reduction in cost per acquisition.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### SQL Analytics Project | SQL, Data Visualization"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Project Experience",
+      "order": 3,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "f6322a7b-8af5-4d16-8f21-3d992415325f",
+      "name": "Education",
+      "content_type": "STATIC",
+      "subsections": [
+        {
+          "id": "225d6585-7620-4179-a77c-4cd08f8862c9",
+          "name": "Master in Data Analytics Engineering",
+          "items": [
+            {
+              "id": "9b2d2be1-792d-4989-aef6-2cc228b89439",
+              "content": "Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "61124e36-4736-4f6a-a952-d5da77eefa46",
+              "content": "Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "37cc7cf6-352a-4925-8e71-3b897fe98693",
+              "content": "Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Master in Data Analytics Engineering"
+        },
+        {
+          "id": "3d28dd9a-4d6e-44e4-816e-ad4cdd122f19",
+          "name": "Teacher Training Centre (CRMEFs)",
+          "items": [
+            {
+              "id": "5a422b25-7ca5-4ddd-9e13-610a35998b95",
+              "content": "Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "10b431f8-5738-4d0c-a67e-837bf8432e54",
+              "content": "Specialized in innovative instructional strategies for teaching math concepts to adolescents",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "dd708e65-f218-4d78-a4ba-57b3dd593833",
+              "content": "Graduated with highest honors (16.75/20)",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Teacher Training Centre (CRMEFs)"
+        },
+        {
+          "id": "774dec55-d076-4cf7-80c4-6f306185ae82",
+          "name": "Bachelor in Mathematics",
+          "items": [
+            {
+              "id": "4d52e20e-b01e-44fc-a36b-3c9f2af56ed1",
+              "content": "Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "14e46e97-c872-41f1-ac12-c38926d15da1",
+              "content": "Mathematical Modeling and linear programming",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "c98cbbe2-e40c-4ca8-b78a-fb37942a8fd7",
+              "content": "Thesis: Applications of Mathematical Models in Agriculture",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Bachelor in Mathematics"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Education",
+      "order": 4,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "9c1acb0a-e97b-4e06-b5ef-692964a6d6d8",
+      "name": "Certifications",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "eb6c6b1a-496e-4ee3-82d9-cba6dcb3ca09",
+          "content": "Applied Data Science with Python - Professional Certificate, IBM (2023)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "bcae823a-de81-4f28-974d-75621a405f09",
+          "content": "Data Visualization with Tableau - Coursera, University of California Davis (2022)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "c69287fc-90ed-43c0-aad3-36fc3249060e",
+          "content": "Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "edc83560-767e-459c-8b0e-c36ccc9effc5",
+          "content": "Machine Learning with Python - Kaggle (2020)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "17ccee4c-3356-4b0a-bf42-62ac7beab156",
+          "content": "Advanced Teacher Certification - Moroccan Department of Education (2018)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Certifications",
+      "order": 5,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "69922084-fd2d-40de-932b-3be8d782f06a",
+      "name": "Languages",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "3c0b9972-7046-4c14-b3f7-085f9453d8ea",
+          "content": "Arabic (native) | English (B2) | German (B2) | French (B2) | Spanish (B1)",
+          "status": "static",
+          "item_type": "language_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Languages",
+      "order": 6,
+      "status": "initial",
+      "user_feedback": null
+    }
+  ],
+  "metadata": {
+    "job_description": {
+      "raw_text": "Software Engineer position at Google",
+      "skills": [],
+      "experience_level": [],
+      "responsibilities": [],
+      "industry_terms": [
+        "Software Engineer"
+      ],
+      "company_values": [],
+      "error": null
+    },
+    "original_cv_text": "**Anas AKHOMACH** | \ud83d\udcde (+212) 600310536 | \ud83d\udce7 [anasakhomach205@gmail.com](mailto:anasakhomach205@gmail.com) | \ud83d\udd17 [LinkedIn](https://www.linkedin.com/in/anas-akhomach/) | \ud83d\udcbb [GitHub](https://github.com/AnasAkhomach)  \n---\n\n### Executive Summary\n\nData analyst with an educational background and strong communication skills. I combine in-depth knowledge of SQL, Python and Power BI with the ability to communicate complex topics in an easily understandable way.  \n---\n\n### Key Qualifications\n\nProcess optimization | Multilingual Service | Friendly communication | Data-Driven Sales | SQL | Python | Power BI | Excel\n---\n\n### Professional Experience\n\n#### Trainee Data Analyst \n\n[*STE Smart-Send*](https://annoncelegale.flasheconomie.com/smart-send/) *| Tetouan, Morocco (Jan. 2024 \u2013 Mar. 2024)*\n\n* Data-Driven Sales: Increased ROI using SQL/Python segmentation and timely Power BI metrics.  \n* Process optimization: Streamlined KPI tracking, shortened decision time for a team of three people.  \n* Teamwork: Developed solutions for different customer segments to improve customer service.\n\n#### IT trainer\n\n[*Supply Chain Management Center*](https://www.scmc.ma/) *| Tetouan, Morocco (June \u2013 Sep 2022, Jun \u2013 Sep 2024)*\n\n* Technical Training: Conducted 100+ ERP dashboard sessions (MS Excel) with 95% satisfaction.  \n* Friendly communication: Illustrated content with case studies for a quick start.  \n* Process improvement: Focused on automated reporting and reduced manual data entry.\n\n#### Mathematics teacher\n\n[*Martile Secondary School*](https://www.facebook.com/ETChamsMartil/?locale=fr_FR) *| Tetouan, Morocco (Sep. 2017 \u2013 Jun. 2024)* \n\n* User Retention: Increased the class average from 3.7 to 3.3 through personalized learning plans and GeoGebra.  \n* Friendly communication: Successfully guided 5+ students to top 10 placements in math competitions.  \n* Multilingual Service: Supported non-native speakers in diverse classroom environments.\n\n#### Indie Mobile Game Developer\n\nUnity\n\n* Bullet 1: (AI-adjusted description)  \n* Bullet 2: (AI-adjusted description)  \n* Bullet 3: (AI-adjusted description)\n\n---\n\n### Project Experience\n\n#### ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA\n\n* Automated manual data entry for raw material receiving and warehouse management, reducing manual errors and improving operational efficiency.\n* Development and deployment of interactive Sylob ERP dashboards for warehouse staff and dock agents, providing real-time metrics and actionable insights.\n* Integrated QR code scanners and rugged tablets to optimize material tracking, reduce processing time, and improve inventory accuracy by 35%.\n\n#### SQL Analytics Project | SQL, Data Visualization\n\n* Led a SQL-based analysis of an e-commerce database to optimize marketing budget and increase website traffic by 22%.\n* Conducted A/B tests that improved checkout page conversion rates by 15% and reduced bounce rates by 22%.\n* Worked with stakeholders to translate data insights into actionable strategies, resulting in a 12% reduction in cost per acquisition.\n\n---\n\n### Education\n\n#### Master in Data Analytics Engineering\n\n*School of Information Sciences, T\u00e9touan (Sep. 2023 - Present)*\n\n* Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies  \n* Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.  \n* Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).\n\n#### Teacher Training Centre (CRMEFs)\n\n*CRMEFs (Sep. 2015- Jul. 2017)*\n\n*  Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies  \n*  Specialized in innovative instructional strategies for teaching math concepts to adolescents  \n*  Graduated with highest honors (16.75/20)\n\n#### Bachelor in Mathematics\n\n*Faculty of Sciences (Sep. 2011 - Jul. 2015)*\n\n*  Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis  \n*  Mathematical Modeling and linear programming  \n*  Thesis: Applications of Mathematical Models in Agriculture\n\n---\n\n### Certifications\n\n* Applied Data Science with Python - Professional Certificate, IBM (2023)  \n* Data Visualization with Tableau - Coursera, University of California Davis (2022)  \n* Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)  \n* Machine Learning with Python - Kaggle (2020)  \n* Advanced Teacher Certification - Moroccan Department of Education (2018)\n\n---\n\n### Languages\n\n* Arabic (native) | English (B2) | German (B2) | French (B2) | Spanish (B1)\n",
+    "name": "Anas AKHOMACH",
+    "email": "anasakhomach205@gmail.com",
+    "phone": "(+212) 600310536",
+    "linkedin": "https://www.linkedin.com/in/anas-akhomach/",
+    "github": "https://github.com/AnasAkhomach"
+  }
+}

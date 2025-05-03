@@ -152,12 +152,12 @@ class ResearchAgent(AgentBase):
         
     def get_research_results(self) -> Dict[str, Any]:
         """
-        Returns the latest research results.
+        Returns the previously generated research results.
         
         Returns:
-            A dictionary containing the most recent research results, or an empty dict if none available.
+            The research results as a dictionary, or an empty dict if no research has been performed
         """
-        if hasattr(self, '_latest_research_results'):
+        if hasattr(self, "_latest_research_results") and self._latest_research_results:
             return self._latest_research_results
         return {}
         

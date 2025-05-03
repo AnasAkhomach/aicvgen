@@ -423,3 +423,220 @@ Compiler Interface (if LaTeX/PDF output): Uses Python's subprocess via the Forma
 (Remains the same as TSD - environment variables, config file)
 7. Error Handling
 (Remains the same as TSD - exceptions, logging, UI messages handled within main.py for display)
+
+
+==================================================================================
+
+
+Software Design Document (SDD)
+
+
+Project: CV Tailoring AI Agent (MVP)
+
+
+Version: 1.3 (Revised - Section-Level Control)
+
+
+Date: May 2, 2025
+
+
+Authors: [Your Name/Team Name]
+
+
+1. Introduction
+
+
+1.1 Purpose
+
+
+This Software Design Document describes the architecture and detailed design of the CV Tailoring AI Agent MVP. It translates the functional and non-functional requirements outlined in the Software Requirements Specification (SRS) into a concrete design that will guide the implementation process, incorporating updates regarding technology choices, input handling, the location of the UI code, and focusing on section-level review and regeneration.
+
+
+1.2 Scope
+
+
+This document covers the design of all components within the MVP, including the agent architecture, data structures (particularly the StructuredCV data model designed for JSON compatibility, with state managed at the section level), data flow, persistence mechanisms, user interface implementation within main.py (Streamlit for MVP) allowing section-level review and feedback, and the design of individual agents and key modules (State Manager, LLM wrapper designed for Google GenAI, Vector Database components using ChromaDB, Parser for text inputs, Research, Content Writer, Formatter). It details how these components interact to fulfill the requirements, focusing on the tailoring process for Key Qualifications, Professional Experience, Side Projects, and Executive Summary, accommodating different initial input methods including starting from scratch.
+
+
+1.3 Definitions, Acronyms, and Abbreviations
+
+
+(Inherit definitions from SRS, Section 1.3)
+
+
+ChromaDB: The chosen vector database for the MVP.
+Google GenAI: The primary LLM provider for the MVP.
+JSON: JavaScript Object Notation, the target format for the StructuredCV data model.
+Streamlit: The chosen UI framework, implemented primarily within main.py.
+Section State: The status (GENERATED, USER_EDITED, TO_REGENERATE, ACCEPTED) of an entire section within the StructuredCV.
+1.4 References
+
+
+Software Requirements Specification (SRS) for the CV Tailering AI Agent (MVP) - Version 1.2
+Tailoring AI Agent System Design (MVP).md
+CV Tailoring AI Agent System Design (MVP) - Updated.md
+aicvgen (Code folder)
+aicvgen/main.py (Contains Streamlit UI implementation)
+cv_ai_builder_final_template.py (Prototype script)
+prompts_folder (LLM prompt files)
+Anas_Akhomach-main-template-en.md (Example base CV template structure)
+cv_template.md (Example output template)
+requirements.txt
+1.5 Overview
+
+
+The remainder of this document describes the system architecture, data design (emphasizing the JSON-compatible StructuredCV with section-level state), component design reflecting updated technology choices, input handling, and the location of the UI logic in main.py, interface design (focusing on section-level interaction), and detailed design aspects of the CV Tailoring AI Agent MVP.
+
+
+2. System Architecture
+
+
+2.1 High-Level Architecture
+
+
+The system employs a multi-agent architecture coordinated by a central Manager Agent. This architecture is designed to be modular and facilitate a human-in-the-loop workflow with state managed at the section level. The MVP implementation incorporates the Streamlit UI directly within the main.py script, though the architecture conceptually supports a separation of backend (e.g., FastAPI) and frontend (e.g., React) for future production use.
+
+
+[Conceptual Diagram Representation - Remains the same high-level view as previous versions, showing connections between Manager, State Manager, Agents, UI, and external services.]
+
+
+2.2 Component Responsibilities
+
+
+Manager Agent (orchestrator.py):
+Initializes the tailoring process based on diverse inputs.
+Defines and traverses the workflow state machine (e.g., using LangGraph), transitioning based on section states and user feedback.
+Directs tasks to specific functional agents (e.g., "Generate Key Qualifications section", "Regenerate Professional Experience section").
+Manages section state transitions.
+Interacts with the StateManager to retrieve and update the StructuredCV state at the section level.
+State Manager (state_manager.py):
+Holds the single, canonical instance of the StructuredCV data model, designed for JSON compatibility.
+Provides methods for agents and the UI to access the StructuredCV content.
+Provides methods specifically to modify the content and status (Section State) of entire sections. While Item objects exist within sections, status and workflow control are managed at the Section level. User edits within a section's content areas will update the text within the relevant Item objects, but the Section's status will reflect the state (e.g., USER_EDITED, TO_REGENERATE).
+Handles saving (save_state) and loading (load_state) the StructuredCV to/from persistent storage using a JSON-based format.
+Parser Agent (parser_agent.py): (Responsibilities remain the same, parsing input into the StructuredCV structure with Item and Subsection objects, but the initial status set at the Section level).
+Research Agent (research_agent.py): (Responsibilities remain the same, using ChromaDB, noting future web search)
+Content Writer Agent (content_writer_agent.py):
+Receives instructions from the Manager Agent to generate or regenerate an entire section (e.g., "Generate Key Qualifications Section", "Regenerate Professional Experience Section").
+Loads appropriate prompt templates from the prompts_folder.
+Constructs the LLM prompt by combining the prompt template, relevant StructuredCV data (via State Manager, potentially including user-edited content from the section being regenerated), and research findings.
+Calls the LLM via the llm.py wrapper (configured for Google GenAI initially).
+Parses and cleans the raw LLM output, which is expected to contain the content for the entire requested section.
+Updates the content and sets the Section's status to GENERATED for the relevant section in the StructuredCV via the StateManager.
+Handles regeneration logic for a section, incorporating the current text content of that section (which might include user edits) into the prompt context.
+Formatter Agent (formatter_agent.py): (Responsibilities remain the same, using TemplateRenderer on the StructuredCV data)
+Quality Assurance Agent (quality_assurance_agent.py): (Responsibilities remain the same, ideally performing checks at the section level)
+User Interface (UI - main.py):
+Interacts with the user via the Streamlit application launched by main.py.
+Displays input fields/options.
+Renders the StructuredCV state visually using Streamlit components (card-based layout), presenting each section clearly.
+Allows direct editing of content within each section's text area(s).
+Captures user actions (edits within sections, button clicks associated with sections).
+Communicates user feedback (Accept/Regenerate signals for a section, along with the section's current edited content) to the Manager Agent/State Manager, triggering backend logic. Designed to be potentially replaced by a separate frontend layer communicating with a backend API in the future.
+LLM Wrapper (llm.py): (Responsibilities remain the same, configured for Google GenAI initially)
+Vector Database (vector_db.py): (Manages ChromaDB instance)
+Vector Store Agent (vector_store_agent.py): (Provides interface for adding/querying ChromaDB)
+Template Renderer (template_renderer.py): (Handles rendering StructuredCV data using Jinja2)
+Template Manager (template_manager.py): (Handles loading templates)
+3. Data Design
+
+
+3.1 StructuredCV Data Model (JSON-Compatible with Section State)
+
+
+The StructuredCV data model will still contain Section, Subsection, and Item objects to represent the CV's structure. However, the status (ItemStatus) and user feedback (user_feedback) fields will primarily be managed at the Section level for workflow control. While Item objects still have status attributes in the data model code, the application logic will rely on the parent Section's status to determine review/regeneration needs.
+
+
+CV Object: (Same structure)
+Section Object (JSON Object): Represents a major CV section.
+Keys: "id" (string), "name" (string), "content_type" (string), "subsections" (JSON Array), "items" (JSON Array), "raw_text" (string), "order" (integer), "metadata" (JSON Object).
+ADD: "status" (string from enum value, reflects Section State), "user_feedback" (Optional string for Section-level comment).
+Subsection Object: (Same structure, status and user_feedback fields at this level might be removed or ignored by workflow logic).
+Item Object: (Same structure, status and user_feedback fields at this level might be removed or ignored by workflow logic, or their value derived from the parent Section's status). For simplification based on section-level control, it's best to remove status and user_feedback from Subsection and Item and keep them only on Section.
+3.2 Data Flow
+
+
+User Input (CV text, JD text, or "start from scratch") -> Raw Input.
+Raw Input -> Parser Agent -> Initial StructuredCV state (JSON-compatible structure, Section statuses set to INITIAL or STATIC).
+Parsed JD + Initial StructuredCV -> Research Agent -> ChromaDB (embeddings) & Structured Research Findings.
+Manager Agent orchestrates ContentWriterAgent for sections with INITIAL or TO_REGENERATE status.
+ContentWriterAgent reads StructuredCV (via State Manager), loads Prompts, gets Research Findings, builds LLM context for a section, calls LLM.
+LLM Output (content for a section) -> ContentWriterAgent (parsing, cleaning) -> Updates the content of the relevant items/subsections within that section in StructuredCV via StateManager, sets the Section's status to GENERATED.
+StructuredCV (current state) -> UI (Streamlit) -> Displayed to user (card-based per section).
+User Interaction (Edit text within a section, click Accept/Regenerate button for a section) -> UI -> Signals/Updates sent to Manager Agent/State Manager.
+Manager Agent/State Manager -> Update StructuredCV state: User edits update Item content within a section. Clicking a section button updates the Section's status (e.g., USER_EDITED if text changed, ACCEPTED, or TO_REGENERATE).
+If sections have TO_REGENERATE status, Manager triggers ContentWriterAgent specifically for those sections.
+Once user accepts sections, StructuredCV (final state, JSON structure) -> Formatter Agent -> Final Document.
+3.3 Persistence
+
+
+StructuredCV State: Saving and loading focus on the StructuredCV object, including the Section statuses. Implementation remains JSON serialization/deserialization.
+4. Component Design
+
+
+(Design details for each agent and key module, reflecting section-level control)
+
+
+4.1 Manager Agent (orchestrator.py)
+
+
+Technical Implementation: State machine logic transitions based on Section statuses. handle_user_feedback method receives feedback for a section (section_id, action_type, potential content updates within that section) and updates the target Section's status via the StateManager. Directs ContentWriterAgent to generate/regenerate specific sections.
+4.2 State Manager (state_manager.py)
+
+
+Key Methods: update_section_content(section_id, new_content_structure), update_section_status(section_id, new_status), get_section(section_id). The update_section_content might take a structure (e.g., list of updated items/subsections) to replace the content within a section, or UI edits might trigger individual update_item_content calls which implicitly make the section USER_EDITED. A simpler approach for MVP might be that any edit makes the whole section USER_EDITED, and 'Regenerate' on a section re-sends the text of that USER_EDITED section. Let's go with: update_item_content exists for UI edits, but update_section_status is the primary workflow control. get_items_by_status is no longer needed; replace with get_sections_by_status(status).
+Internal Structure: _structured_cv holds the data. Logic finds sections by section_id.
+4.3 Parser Agent (parser_agent.py)
+
+
+Technical Implementation: Creates StructuredCV with Sections, Subsections, Items. Sets initial status on Sections to INITIAL or STATIC.
+4.4 Research Agent (research_agent.py)
+
+
+Technical Implementation: Research findings should be structured to inform the generation of entire sections.
+4.5 Content Writer Agent (content_writer_agent.py)
+
+
+Key Methods: execute(task_instruction, structured_cv, research_findings=None). task_instruction specifies the target section ID.
+Technical Implementation: Context building gathers data relevant to the target section. Calls LLM to generate content for the entire section. Parses/cleans output. Updates the target Section's content and status (GENERATED) via StateManager. For regeneration, includes the current content of the target section (which may contain user edits) in the prompt context.
+4.7 UI (main.py)
+
+
+Key Methods: render_review_area(structured_cv) iterates through sections. handle_section_action(section_id, action_type) is the callback handler.
+Technical Implementation: Streamlit code iterates through structured_cv.sections. Displays sections, subsections, and items. Editable st.text_area widgets exist for items/subsections, but "Accept" and "Regenerate" st.buttons are associated with the container/card for the entire section. The handle_section_action callback retrieves the current text from all text areas within that section's card using st.session_state, updates the State Manager (e.g., manager.handle_user_feedback(section_id, action_type, current_text_of_section) if action is regenerate/edit, or just status if accept).
+5. Interface Design
+
+
+UI Interface: Streamlit implementation within main.py. User interaction (edits in text areas, button clicks) maps to actions on sections.
+Internal Agent Interfaces: Agents interact via the StateManager, primarily updating Section statuses and Section content. Manager orchestrates based on Section states.
+6. Detailed Design
+
+
+6.1 StructuredCV Data Model (Simplified Section State)
+
+
+Remove status and user_feedback from Subsection and Item dataclasses. Add status: ItemStatus and user_feedback: Optional[str] to the Section dataclass only.
+
+
+6.2 Orchestrator State Machine (Section-Level)
+
+
+States represent phases of section generation and review (e.g., GENERATE_KEY_QUALS, REVIEW_KEY_QUALS, GENERATE_EXPERIENCE, REVIEW_EXPERIENCE, ...). Transitions triggered by user actions ("Accept Key Quals", "Regenerate Key Quals") or agent completion.
+
+
+6.3 Content Writer Agent - LLM Context Building (Section-Level)
+
+
+_build_context logic gathers context necessary to generate an entire section (e.g., for Professional Experience section, gather all roles/items from that section in the StructuredCV, Key Quals section content, relevant JD info, research findings). If regenerating, include the full current text of the section being regenerated.
+
+
+6.4 UI - StructuredCV Rendering (Section-Level Interaction)
+
+
+Rendering loop iterates through sections. For dynamic sections, create a card/container (st.container or st.expander). Display subsections/items within this container using editable st.text_areas. Add "Accept" and "Regenerate" buttons outside the individual item text areas, at the section container level. Callback logic needs to identify the section ID and, for regenerate/edit, collect text from all relevant text areas within that section.
+
+
+6.5 Formatter Agent - Rendering Logic
+
+
+Rendering logic iterates through sections. Uses the content from the last updated items within each section (either generated or user-edited) based on the Section's status or simply taking the final content stored in the StructuredCV object's items/subsections.

@@ -1,122 +1,81 @@
-# CV Tailoring AI Agent - MVP Upgrade
+# AI CV Generator
 
-## Overview
-This project is an AI-powered CV tailoring system that adapts a user's CV to match specific job descriptions. The system parses both the job description and user's existing CV, and then generates tailored content that highlights relevant skills and experience.
+This project is an AI-powered CV tailoring tool that helps users create personalized CVs for specific job descriptions.
 
-## Recent Upgrades
-The codebase has been significantly enhanced with a more structured data model that enables granular content management:
+## Features
 
-1. **StructuredCV Data Model**
-   - Implemented a hierarchical structure (Section > Subsection > Item)
-   - Added status tracking via enums (ItemStatus) for workflow management
-   - Created methods for content manipulation and persistence
+- **AI-driven CV tailoring**: Automatically tailors your CV to match job descriptions
+- **Section-level control**: Edit and regenerate content at the section level for a simpler user experience
+- **Interactive UI**: Review and edit AI-generated content before finalizing
+- **Template-based generation**: Creates professionally formatted CVs
+- **Session management**: Save and resume your work
 
-2. **Enhanced Parser Agent**
-   - Improved CV parsing to extract structured content from Markdown
-   - Added support for a "Start from Scratch" option
-   - Implemented detailed metadata extraction
+## Recent Changes
 
-3. **Upgraded Content Writer Agent**
-   - Updated to work with the new data model
-   - Added support for granular content generation
-   - Implemented tailored prompt construction for different section types
-   - Enhanced job focus extraction with better identification of key skills and responsibilities
-   - Improved handling of content generation with customized prompting per section type
+### v1.3: Section-Level Control
 
-4. **Formatter Agent Improvements**
-   - Fixed handling of ContentData structure
-   - Added intelligent completion of truncated bullet points
-   - Improved formatting consistency across different section types
-   - Enhanced language section formatting
-   - Added better fallback formatting for error cases
+The system has been updated to use section-level control rather than granular item-level control. This simplifies the user interface and workflow while maintaining powerful tailoring capabilities.
 
-5. **Session Persistence**
-   - Added JSON serialization for complete CV data
-   - Created a data/sessions directory structure for storage
-   - Implemented session loading/saving functionality
+Key improvements:
+- Content generation and regeneration now works at the section level
+- UI controls (Accept, Regenerate) operate on entire sections
+- The orchestrator and content writer agents have been updated to support section-level operations
+- Removed unused log files and fixed code quality issues
 
-6. **UI Improvements**
-   - Updated the interface to support card-based content review
-   - Added controls for accepting, editing, and regenerating specific content items
-   - Implemented user feedback collection at the item level
+These changes make the application more user-friendly while maintaining all the core functionality.
 
-7. **Better Error Handling**
-   - Added robust debugging and error logging throughout the pipeline
-   - Implemented proper fallback mechanisms in case of failures
-   - Fixed truncated content through post-processing
+## Getting Started
 
-## Bug Fixes
-- Fixed linter errors in parser_agent.py (removed invalid 'raw_text' parameter)
-- Updated Streamlit code to use the appropriate rerun method
-- Fixed duplicate skills in the key qualifications section
-- Resolved issues with truncated bullet points in project descriptions
-- Fixed language section formatting problems
+### Prerequisites
 
-## Next Steps
+- Python 3.8+
+- Required packages listed in requirements.txt
 
-### Immediate Tasks
-1. **Testing System Improvement**
-   - Develop more comprehensive test cases
-   - Implement automated regression testing
-   - Add more detailed logging for debugging
+### Installation
 
-2. **QA Agent Upgrades**
-   - Enhance quality checks for generated content
-   - Implement feedback-driven content improvement
-
-3. **Research Agent Integration**
-   - Further integrate with company research capabilities
-   - Improve industry-specific term detection
-
-### Medium-Term Goals
-1. **Formatter Improvements**
-   - Add more export formats (PDF, DOCX, HTML)
-   - Implement custom styling options
-
-2. **UI Refinements**
-   - Add progress tracking
-   - Improve content editing interface
-   - Add visual differentiation between original and AI-generated content
-
-3. **Comprehensive Testing**
-   - Add unit tests for all components
-   - Implement integration tests
-   - Create sample CV and job description datasets for validation
-
-### Long-Term Vision
-1. **Learning System**
-   - Train on user feedback to improve content generation
-   - Build a recommendation system for skills highlighting
-
-2. **Multi-language Support**
-   - Add support for CVs in different languages
-   - Implement translation capabilities
-
-3. **Integration Capabilities**
-   - Add API for integration with job boards
-   - Create plugins for popular word processors
-
-## Installation and Setup
+1. Clone the repository:
 ```bash
-# Clone repository
-git clone [repository-url]
+git clone [repository URL]
+cd aicvgen
+```
 
-# Install dependencies
+2. Install dependencies:
+```bash
 pip install -r requirements.txt
+```
 
-# Run the application
+3. Run the application:
+```bash
 streamlit run main.py
 ```
 
 ## Usage
-1. Enter a job description or paste a job listing
-2. Upload your existing CV or start from scratch
-3. Review and edit AI-generated content
-4. Export the final tailored CV in your preferred format
 
-## Project Structure
-- `state_manager.py`: Core data model and state management
-- `parser_agent.py`: Job description and CV parsing
-- `content_writer_agent.py`: Content generation and tailoring
-- `formatter_agent.py`: Formatting and styling of CV content
-- `main.py`: Streamlit UI and application logic 
+1. Enter your job description
+2. Upload your existing CV or start from scratch
+3. Review and edit the AI-generated content by section
+4. Accept or regenerate sections as needed
+5. Export your tailored CV
+
+## Development
+
+### Project Structure
+
+- `main.py`: Streamlit application entry point
+- `orchestrator.py`: Manages the overall workflow
+- `state_manager.py`: Manages application state and data structures
+- `content_writer_agent.py`: Handles AI content generation
+- `parser_agent.py`: Parses job descriptions and CVs
+- Other agents: Research, formatting, quality assurance, etc.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -am 'Add your feature'`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Create a new Pull Request 

@@ -132,7 +132,7 @@ Software Requirements Specification (SRS)
 Project: CV Tailoring AI Agent (MVP)
 Version: 1.1 (Revised)
 Date: May 1, 2025
-Authors: [Your Name/Team Name]
+Authors: ME
 
 
 1. Introduction
@@ -254,3 +254,204 @@ REQ-NONFUNC-RELIABILITY-2 (Reliability): The state persistence mechanism SHALL r
 REQ-NONFUNC-MAINTAIN-1 (Maintainability): The codebase SHALL be structured modularly following the defined agent architecture and adhere to reasonable coding standards.
 REQ-NONFUNC-MAINTAIN-2 (Maintainability): Prompt templates for content generation SHALL be stored externally in the prompts_folder and loaded dynamically by the agents, allowing for easy modification without code changes.
 REQ-NONFUNC-PORTAB-1 (Portability): The system SHALL be runnable on standard operating systems (Windows, macOS, Linux) that support a Python environment and the specified libraries.
+
+
+==================================================================================
+
+
+Software Requirements Specification (SRS)
+
+
+Project: CV Tailoring AI Agent (MVP)
+
+
+Version: 1.2 (Revised - Section-Level Control)
+
+
+Date: May 2, 2025
+
+
+Authors: [Your Name/Team Name]
+
+
+1. Introduction
+
+
+1.1 Purpose
+
+
+The purpose of this document is to specify the requirements for the Minimum Viable Product (MVP) of the CV Tailoring AI Agent. This system is designed to assist users in tailoring their curriculum vitae (CV) to a specific job description using artificial intelligence (AI) agents. The primary goal is to automate the process of identifying relevant skills and experiences from a user's base CV and rewriting key sections to align with the requirements of a target job advertisement, allowing the user control over the final output by reviewing and regenerating sections.
+
+
+1.2 Scope
+
+
+The scope of this MVP focuses on the core functionality required to generate and refine specific sections of a CV based on a main target job description and optionally similar job descriptions. The system will initially accept a user's base CV in structured text format (Markdown), plain text, or allow starting from scratch. It will also accept job descriptions as input text. The system will parse this input into a structured format (ideally JSON) for internal processing. It will generate tailored content for the following dynamic CV sections:
+
+
+Key Qualifications
+Professional Experience (tailoring existing roles)
+Side Projects (tailoring existing projects)
+Executive Summary / Professional Summary
+The MVP will include a user interface (UI) that allows the user to review the generated content section by section, and provide feedback (accept or request regeneration) for an entire section. The system will maintain the state of the tailoring process at a section level and allow for session persistence. The final output will be a tailored CV document in a specified format.
+
+
+Static sections of the CV (e.g., Education, Certifications, Languages) will be included in the final output but will not be dynamically generated or tailored by the AI within this MVP scope, although they will be used as context for generating dynamic sections. Future stages may include parsing additional input formats (e.g., image/PDF via OCR), adding features like web search to gather external information about companies, and potentially introducing more granular control if deemed necessary and feasible.
+
+
+1.3 Definitions, Acronyms, and Abbreviations
+
+
+AI Agent: An autonomous software program that perceives its environment and takes actions to achieve goals.
+CV: Curriculum Vitae.
+JD: Job Description.
+LLM: Large Language Model.
+MVP: Minimum Viable Product.
+Orchestrator: The central agent managing the workflow and coordinating other agents. Referred to as Manager Agent in design docs.
+StructuredCV: The internal data representation of the user's CV, including generated content and status, preferably in JSON format. State is managed at the section level.
+Section State: The status and content of entire sections within the StructuredCV (e.g., the Professional Experience section's text and whether it's generated, edited, or accepted).
+Vector Database: A database optimized for storing and searching vector embeddings.
+UI: User Interface (accessed by running main.py).
+TO_REGENERATE (Section): A status indicating an entire section requires regeneration by the Content Writer Agent.
+ACCEPTED (Section): A status indicating the user has approved an entire section.
+1.4 References
+
+
+Tailoring AI Agent System Design (MVP).md
+CV Tailoring AI Agent System Design (MVP) - Updated.md
+aicvgen (Code folder)
+cv_ai_builder_final_template.py (Prototype script)
+job_desc_folder (Example job descriptions)
+prompts_folder (LLM prompt files)
+Anas_Akhomach-main-template-en.md (Example base CV template structure)
+requirements.txt
+1.5 Overview
+
+
+The rest of this document details the overall description of the product, including its perspective, user characteristics, operating environment, and constraints. It then specifies the functional requirements (what the system does) and non-functional requirements (qualities of the system) that the MVP must satisfy, focusing on section-level review and regeneration.
+
+
+2. Overall Description
+
+
+(This section remains largely the same, but the description of state management and UI interaction should reflect section-level control rather than item-level.)
+
+
+2.1 Product Perspective
+
+
+The CV Tailoring AI Agent is a standalone application with a user interface (Streamlit for MVP). It interacts with external services, primarily an LLM API (Google GenAI initially), and utilizes a local vector database (ChromaDB). It manages data locally (CV, JD, state persistence, vector database). The intention for production is a more robust backend (e.g., FastAPI) and frontend (e.g., React) architecture.
+
+
+2.2 User Classes and Characteristics
+
+
+(Remains the same)
+
+
+2.3 Operating Environment
+
+
+(Remains the same, noting Streamlit MVP vs. production intention)
+
+
+2.4 Design and Implementation Constraints
+
+
+Technology Stack (MVP): (Remains the same, noting Streamlit for UI, ChromaDB for Vector DB, Google GenAI for LLM)
+Technology Stack (Production Intention): (Remains the same, noting FastAPI/React intention)
+Architecture: Must adhere to the multi-agent architecture orchestrated by a Manager Agent.
+State Management: Must implement state management for the StructuredCV at the section level.
+User Interface: Must use Streamlit for the MVP and implement a card-based review system allowing section-level feedback.
+LLM Dependency: (Remains the same, noting Google GenAI initially, flexibility future)
+Data Handling: (Remains the same, noting local data handling)
+Parsing: Must handle parsing from Markdown and plain text inputs into a structured JSON format (StructuredCV). The capability to start from scratch will require generating an initial empty StructuredCV structure. Image/PDF parsing (OCR) is a future consideration, not required for MVP.
+Vector Database: Must use ChromaDB for the vector database in the MVP, as confirmed by the aicvgen codebase.
+Output Format: Must produce the final CV in a consistent format (Markdown or LaTeX/PDF - decision required).
+2.5 Assumptions and Dependencies
+
+
+(Remains the same)
+
+
+3. Specific Requirements
+
+
+3.1 Functional Requirements
+
+
+3.1.1 Input Handling
+
+
+(Remains the same as Version 1.1)
+
+
+3.1.2 Parsing (Parser Agent)
+
+
+(Remains the same as Version 1.1)
+
+
+3.1.3 State Management & Persistence (State Manager)
+
+
+REQ-FUNC-STATE-1: The system SHALL maintain the complete state of the CV tailoring process as an instance of the StructuredCV data model (preferably JSON-compatible structure). State shall be managed at the section level.
+REQ-FUNC-STATE-2: The system SHALL allow updating the content and status (INITIAL, GENERATED, USER_EDITED, TO_REGENERATE (Section), ACCEPTED (Section), STATIC) of entire sections within the StructuredCV model based on agent actions or user feedback. The StructuredCV model should still hold individual items (like bullet points), but control and status updates are applied to the parent section.
+REQ-FUNC-STATE-3: The system SHALL provide a function to save the current StructuredCV state to persistent storage (e.g., a local file).
+REQ-FUNC-STATE-4: The system SHALL provide a function to load a previously saved StructuredCV state from persistent storage.
+3.1.4 Research & Matching (Vector Database, Research Agent)
+
+
+(Remains the same as Version 1.1)
+
+
+3.1.5 Content Generation (Content Writer Agent, LLM)
+
+
+REQ-FUNC-GEN-1: The system SHALL load prompt templates dynamically from the prompts_folder.
+REQ-FUNC-GEN-2: The system SHALL generate content for the "Key Qualifications" section using relevant CV data, job description requirements, and the key_qualifications_prompt.md.
+REQ-FUNC-GEN-3: The system SHALL tailor or generate bullet points for each entry in the "Professional Experience" section using relevant CV experience details, job description requirements, Key Qualifications, and the resume_role_prompt.md. This shall be done for each professional role in the base CV or a new role added by the user. The output is generated as a complete section/subsection.
+REQ-FUNC-GEN-4: The system SHALL tailor or generate descriptions for each entry in the "Side Projects" section using relevant CV project details, job description requirements, Key Qualifications, and the side_project_prompt.md. This shall be done for each side project in the base CV or a new project added by the user. The output is generated as a complete section/subsection.
+REQ-FUNC-GEN-5: The system SHALL generate content for the "Executive Summary" (or Professional Summary) section based on the tailored Key Qualifications, Professional Experience, Side Projects, and static sections (Education, Certifications, Languages) using the executive_summary_prompt.md.
+REQ-FUNC-GEN-6: The system SHALL apply post-processing and cleaning logic (similar to clean_big_6 and clean_json_output in the prototype) to the raw LLM output to ensure it conforms to the expected format and quality.
+REQ-FUNC-GEN-7: The system SHALL update the content and set the status to GENERATED for the relevant section in the StructuredCV state after content generation.
+REQ-FUNC-GEN-8: The system SHALL be able to regenerate content for specific sections marked TO_REGENERATE (Section), using updated context including any user edits made within that section.
+3.1.6 Orchestration (Manager Agent)
+
+
+REQ-FUNC-ORCH-1: The system SHALL manage the sequence of execution for the Parser, Research, Content Writer, and Formatter Agents based on the defined workflow (Input -> Parse -> Research -> Generate sections sequentially -> Display for Review).
+REQ-FUNC-ORCH-2: The system SHALL transition between workflow stages based on the completion of agent tasks and user feedback signals received from the UI at the section level.
+REQ-FUNC-ORCH-3: The system SHALL specifically direct the ContentWriterAgent to regenerate content for sections marked TO_REGENERATE (Section), providing the necessary context.
+3.1.7 UI & User Interaction
+
+
+REQ-FUNC-UI-1: The system SHALL display the content of the StructuredCV state to the user through a web interface (Streamlit for MVP), organized into sections and items.
+REQ-FUNC-UI-2: The UI SHALL present the generated content in a card-based structure, allowing users to focus on and review each section.
+REQ-FUNC-UI-3: The UI SHALL allow the user to directly edit the text content within a generated section. User edits SHALL update the corresponding section's content in the StructuredCV state and implicitly indicate the section has been modified (e.g., via status or metadata).
+REQ-FUNC-UI-4: The UI SHALL provide interactive elements (e.g., buttons) associated with each generated section to allow the user to explicitly "Accept" the section or request its "Regeneration".
+REQ-FUNC-UI-5: The UI SHALL capture the user's actions (edits within a section, button clicks for a section) and communicate them to the Orchestrator to update the StructuredCV state and trigger appropriate workflow transitions.
+3.1.8 Output Generation (Formatter Agent)
+
+
+REQ-FUNC-OUTPUT-1: The system SHALL render the final content from the StructuredCV state (including all accepted or last-edited sections) into a complete CV document based on a predefined template.
+REQ-FUNC-OUTPUT-2: The system SHALL support generating the output in the chosen format (Markdown or LaTeX/PDF).
+REQ-FUNC-OUTPUT-3: If LaTeX/PDF is the chosen format, the system SHALL compile the generated LaTeX code into a PDF document.
+REQ-FUNC-OUTPUT-4: The system SHALL provide a mechanism for the user to download the generated CV file.
+3.1.9 Quality Assurance (QA Agent)
+
+
+REQ-FUNC-QA-1: The system SHALL perform automated checks on generated content at the section level for basic quality aspects (e.g., length constraints, overall keyword presence from the JD).
+3.2 Non-Functional Requirements
+
+
+REQ-NONFUNC-PERF-1 (Performance): The system SHALL generate the initial set of tailored CV sections (Key Qualifications, Experience, Projects, Summary) within 2 minutes, assuming standard LLM response times.
+REQ-NONFUNC-PERF-2 (Performance): The UI SHALL be responsive to user interactions, displaying updates and state changes within 2 seconds under normal operating conditions.
+REQ-NONFUNC-SECURITY-1 (Security): (Remains the same)
+REQ-NONFUNC-SECURITY-2 (Security): (Remains the same)
+REQ-NONFUNC-USABILITY-1 (Usability): The user interface SHALL be intuitive and easy to navigate for users familiar with web applications.
+REQ-NONFUNC-USABILITY-2 (Usability): The card-based review system SHALL clearly present each generated section and the available options for feedback (Accept/Regenerate section).
+REQ-NONFUNC-RELIABILITY-1 (Reliability): (Remains the same)
+REQ-NONFUNC-RELIABILITY-2 (Reliability): The state persistence mechanism SHALL reliably save and load the tailoring progress, preventing loss of work if the application is closed or interrupted.
+REQ-NONFUNC-MAINTAIN-1 (Maintainability): (Remains the same)
+REQ-NONFUNC-MAINTAIN-2 (Maintainability): (Remains the same)
+REQ-NONFUNC-PORTAB-1 (Portability): (Remains the same)

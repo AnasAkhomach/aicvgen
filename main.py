@@ -1,4 +1,19 @@
 # main.py
+"""
+Main module for the AI CV Generator - A Streamlit application that helps users tailor their CVs
+to specific job descriptions using AI. This version implements section-level control for editing
+and regenerating CV content, which simplifies the user experience compared to the more granular
+item-level approach.
+
+Key features:
+- Input handling for job descriptions and existing CVs
+- Section-level editing and regeneration controls
+- Multiple export formats
+- Session management for saving and loading work
+
+For more details, see the Software Design Document (SDD) v1.3 with Section-Level Control.
+"""
+
 from orchestrator import Orchestrator
 from parser_agent import ParserAgent
 from template_renderer import TemplateRenderer
@@ -64,21 +79,117 @@ def display_section(section, state_manager):
     
     # Create expander for the section
     with st.expander(f"{section.name}", expanded=True):
-        st.markdown(f"#### {section.name}")
-        st.write(f"Type: {section.content_type}")
+        # Section header with status indicator and additional info for DYNAMIC sections
+        if section.content_type == "DYNAMIC":
+            # More prominent header for dynamic (AI-tailorable) sections
+            st.markdown(f"### {section.name}")
+            
+            # Display section status with color coding
+            status_colors = {
+                ItemStatus.INITIAL: "blue",
+                ItemStatus.GENERATED: "orange",
+                ItemStatus.USER_EDITED: "purple",
+                ItemStatus.TO_REGENERATE: "red",
+                ItemStatus.ACCEPTED: "green",
+                ItemStatus.STATIC: "gray"
+            }
+            
+            status_color = status_colors.get(section.status, "gray")
+            
+            # Display status with color-coded badge
+            st.markdown(f"<span style='background-color:{status_color};color:white;padding:3px 8px;border-radius:3px;font-size:0.8em'>Status: {section.status}</span>", unsafe_allow_html=True)
+            
+            # Add AI-tailorable note
+            st.markdown("📝 **AI-Tailorable Section** - Content can be customized to match the job description")
+        else:
+            # Standard header for static sections
+            st.markdown(f"### {section.name}")
+            st.markdown("<span style='background-color:gray;color:white;padding:3px 8px;border-radius:3px;font-size:0.8em'>STATIC</span> (Content preserved from original CV)", unsafe_allow_html=True)
         
-        # Display items directly in the section
+        # Display items directly in the section with editable text areas
         if section.items:
             for item in section.items:
-                display_item(item, section, None, state_manager)
+                # Create simple editable field without individual status controls
+                edited_content = st.text_area(
+                    f"{item.item_type.value if hasattr(item.item_type, 'value') else item.item_type}",
+                    value=item.content,
+                    key=f"item_{item.id}",
+                    height=100
+                )
+                
+                # Update content if edited
+                if edited_content != item.content:
+                    if state_manager.update_item_content(item.id, edited_content):
+                        # If content was edited, update section status to USER_EDITED
+                        if section.status != ItemStatus.USER_EDITED and section.status != ItemStatus.ACCEPTED:
+                            state_manager.update_section_status(section.id, ItemStatus.USER_EDITED)
+                        st.success("Content updated")
         
-        # Display subsections
+        # Display subsections with editable text areas
         for subsection in section.subsections:
-            st.markdown(f"##### {subsection.name}")
+            st.markdown(f"#### {subsection.name}")
             
-            # Display items in the subsection
+            # Display items in the subsection with editable text areas
             for item in subsection.items:
-                display_item(item, section, subsection, state_manager)
+                # Create simple editable field without individual status controls
+                edited_content = st.text_area(
+                    f"{item.item_type.value if hasattr(item.item_type, 'value') else item.item_type}",
+                    value=item.content,
+                    key=f"item_{item.id}",
+                    height=100
+                )
+                
+                # Update content if edited
+                if edited_content != item.content:
+                    if state_manager.update_item_content(item.id, edited_content):
+                        # If content was edited, update section status to USER_EDITED
+                        if section.status != ItemStatus.USER_EDITED and section.status != ItemStatus.ACCEPTED:
+                            state_manager.update_section_status(section.id, ItemStatus.USER_EDITED)
+                        st.success("Content updated")
+        
+        # Section-level feedback field
+        feedback = st.text_input(
+            "Section Feedback",
+            value=section.user_feedback or "",
+            key=f"feedback_{section.id}"
+        )
+        if feedback != (section.user_feedback or ""):
+            section_obj = state_manager.find_section_by_id(section.id)
+            if section_obj:
+                section_obj.user_feedback = feedback
+                st.success("Feedback saved")
+                state_manager.save_state()
+        
+        # Section-level actions
+        if section.content_type == "DYNAMIC":
+            # More prominent action buttons for dynamic sections
+            st.markdown("### Section Actions")
+            col1, col2 = st.columns(2)
+            
+            # Accept button for the entire section
+            with col1:
+                if st.button("✅ Accept Section", key=f"accept_section_{section.id}"):
+                    if state_manager.update_section_status(section.id, ItemStatus.ACCEPTED):
+                        st.success(f"Section '{section.name}' accepted")
+                        # Save state after update
+                        state_manager.save_state()
+            
+            # Regenerate button for the entire section
+            with col2:
+                if st.button("🔄 Regenerate Section", key=f"regen_section_{section.id}"):
+                    if state_manager.update_section_status(section.id, ItemStatus.TO_REGENERATE):
+                        st.success(f"Section '{section.name}' marked for regeneration")
+                        # Save state after update
+                        state_manager.save_state()
+        else:
+            # For static sections, just show simple accept button
+            if st.button("✅ Accept Section", key=f"accept_section_{section.id}"):
+                if state_manager.update_section_status(section.id, ItemStatus.ACCEPTED):
+                    st.success(f"Section '{section.name}' accepted")
+                    # Save state after update
+                    state_manager.save_state()
+        
+        st.markdown("---")
 
 def display_item(item, section, subsection, state_manager):
     """Display an individual item with editing and feedback controls."""
@@ -161,8 +272,8 @@ def main():
         st.session_state.state_manager = StateManager()
     
     # Initialize session state for tracking regeneration
-    if 'regenerate_items' not in st.session_state:
-        st.session_state.regenerate_items = []
+    if 'regenerate_sections' not in st.session_state:
+        st.session_state.regenerate_sections = []
 
     # Check if the template file exists, if not, create it from the default template
     if not os.path.exists(TEMPLATE_FILE_PATH):
@@ -252,7 +363,7 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
     # Add template info in sidebar
     with st.sidebar:
         st.subheader("CV Template Settings")
-        st.info("""Your CV template is being used as the base. 
+        st.info("""Your CV template is being used as the base.
         
         Dynamic sections (will be tailored to match the job):
         - Executive Summary
@@ -272,12 +383,14 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
         if debug_mode:
             st.info("Debug mode enabled. Check the debug.log file for detailed logs.")
             # Configure logging
-            logging.basicConfig(level=logging.INFO, 
-                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                         handlers=[
-                             logging.FileHandler("debug.log"),
-                             logging.StreamHandler()
-                         ])
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[
+                    logging.FileHandler("debug.log"),
+                    logging.StreamHandler()
+                ]
+            )
             # Show section detection info
             if os.path.exists("debug.log"):
                 with open("debug.log", "r") as f:
@@ -312,18 +425,65 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
     with st.spinner("Initializing AI components..."):
         try:
             model = LLM()
-            parser_agent = ParserAgent(name="ParserAgent", description="Agent for parsing job descriptions.", llm=model)
-            template_renderer = TemplateRenderer(name="TemplateRenderer", description="Agent for rendering CV templates.", model=model, input_schema=AgentIO(input={}, output={}, description="template renderer"), output_schema=AgentIO(input={}, output={}, description="template renderer"))
+            parser_agent = ParserAgent(
+                name="ParserAgent",
+                description="Agent for parsing job descriptions.",
+                llm=model
+            )
+            template_renderer = TemplateRenderer(
+                name="TemplateRenderer",
+                description="Agent for rendering CV templates.",
+                model=model,
+                input_schema=AgentIO(input={}, output={}, description="template renderer"),
+                output_schema=AgentIO(input={}, output={}, description="template renderer")
+            )
             vector_db_config = VectorStoreConfig(dimension=768, index_type="IndexFlatL2")
             vector_db = VectorDB(config=vector_db_config)
-            vector_store_agent = VectorStoreAgent(name="Vector Store Agent", description="Agent for managing vector store.", model=model, input_schema=AgentIO(input={}, output={}, description="vector store agent"), output_schema=AgentIO(input={}, output={}, description="vector store agent"), vector_db=vector_db)
+            vector_store_agent = VectorStoreAgent(
+                name="Vector Store Agent",
+                description="Agent for managing vector store.",
+                model=model,
+                input_schema=AgentIO(input={}, output={}, description="vector store agent"),
+                output_schema=AgentIO(input={}, output={}, description="vector store agent"),
+                vector_db=vector_db
+            )
             tools_agent = ToolsAgent(name="ToolsAgent", description="Agent for content processing.")
-            content_writer_agent = ContentWriterAgent(name="ContentWriterAgent", description="Agent for generating tailored CV content.", llm=model, tools_agent=tools_agent)
-            research_agent = ResearchAgent(name="ResearchAgent", description="Agent for researching job-related information.", llm=model)
-            cv_analyzer_agent = CVAnalyzerAgent(name="CVAnalyzerAgent", description="Agent for analyzing CVs.", llm=model)
-            formatter_agent = FormatterAgent(name="FormatterAgent", description="Agent for formatting CV content.")
-            quality_assurance_agent = QualityAssuranceAgent(name="QualityAssuranceAgent", description="Agent for quality assurance checks.")
-            orchestrator = Orchestrator(parser_agent, template_renderer, vector_store_agent, content_writer_agent, research_agent, cv_analyzer_agent, tools_agent, formatter_agent, quality_assurance_agent, model)
+            content_writer_agent = ContentWriterAgent(
+                name="ContentWriterAgent",
+                description="Agent for generating tailored CV content.",
+                llm=model,
+                tools_agent=tools_agent
+            )
+            research_agent = ResearchAgent(
+                name="ResearchAgent",
+                description="Agent for researching job-related information.",
+                llm=model
+            )
+            cv_analyzer_agent = CVAnalyzerAgent(
+                name="CVAnalyzerAgent",
+                description="Agent for analyzing CVs.",
+                llm=model
+            )
+            formatter_agent = FormatterAgent(
+                name="FormatterAgent",
+                description="Agent for formatting CV content."
+            )
+            quality_assurance_agent = QualityAssuranceAgent(
+                name="QualityAssuranceAgent",
+                description="Agent for quality assurance checks."
+            )
+            orchestrator = Orchestrator(
+                parser_agent,
+                template_renderer,
+                vector_store_agent,
+                content_writer_agent,
+                research_agent,
+                cv_analyzer_agent,
+                tools_agent,
+                formatter_agent,
+                quality_assurance_agent,
+                model
+            )
         except Exception as e:
             st.error(f"Error initializing components: {str(e)}")
             return
@@ -335,7 +495,8 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
             template_content = file.read()
     except Exception as e:
         st.warning(f"Could not read template file: {str(e)}")
-        template_content = "John Doe\nSoftware Engineer with 5+ years of experience.\nExperience:\n- Worked on several projects.\nSkills:\n- Python\n- Java"
+        template_content = ("John Doe\nSoftware Engineer with 5+ years of experience."
+                           "\nExperience:\n- Worked on several projects.\nSkills:\n- Python\n- Java")
 
     # Create tabs for different stages of the process
     tab1, tab2, tab3 = st.tabs(["Input", "Review & Edit", "Export"])
@@ -343,7 +504,11 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
     with tab1:
         st.subheader("Enter Job Description and CV")
         # Input fields for job description and CV
-        job_description = st.text_area("Job Description", "Software Engineer position at Google", height=250)
+        job_description = st.text_area(
+            "Job Description",
+            "Software Engineer position at Google",
+            height=250
+        )
         
         # Option to start from scratch
         start_from_scratch = st.checkbox("Start from scratch (no base CV)", key="start_from_scratch")
@@ -372,24 +537,57 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                 job_data = parse_result["job_description_data"]
                 structured_cv = parse_result["structured_cv"]
                 
+                # Store job description in structured_cv metadata
+                structured_cv.metadata["main_jd_text"] = job_description
+                
                 # Store in state manager
                 st.session_state.state_manager._structured_cv = structured_cv
+                
+                # Research stage
+                with st.spinner("Researching job requirements..."):
+                    try:
+                        research_results = research_agent.run({
+                            "job_description_data": job_data
+                        })
+                        # Store research results in session state for later use
+                        if "research_results" not in st.session_state:
+                            st.session_state.research_results = {}
+                        st.session_state.research_results = research_results
+                    except Exception as e:
+                        logger.error(f"Error in research stage: {str(e)}\n{traceback.format_exc()}")
+                        st.warning(f"Research stage encountered an issue: {str(e)}")
+                        # Initialize empty research results
+                        research_results = {}
+                        st.session_state.research_results = {}
+                
+                # Content generation stage
+                with st.spinner("Generating tailored CV content..."):
+                    try:
+                        # Generate content for all dynamic sections
+                        updated_cv = content_writer_agent.run({
+                            "structured_cv": structured_cv,
+                            "job_description_data": job_data,
+                            "research_results": research_results,
+                            "regenerate_item_ids": []  # Empty list means generate all content
+                        })
+                        # Update the structured CV in the state manager
+                        st.session_state.state_manager._structured_cv = updated_cv
+                    except Exception as e:
+                        logger.error(f"Error in content generation stage: {str(e)}\n{traceback.format_exc()}")
+                        st.warning(f"Content generation encountered an issue: {str(e)}")
                 
                 # Save state
                 state_file = st.session_state.state_manager.save_state()
                 if state_file:
-                    st.success(f"Parsed data saved to {state_file}")
+                    st.success(f"Data processed and saved to {state_file}")
                     st.session_state.session_id = structured_cv.id
                     st.info(f"Your session ID is: {structured_cv.id}")
                 
                 # Display instructions to go to Review tab
-                st.success("Parsing complete! Go to the Review & Edit tab to continue.")
+                st.success("Processing complete! Go to the Review & Edit tab to continue.")
                 
-                # If starting from scratch or there are items marked TO_REGENERATE, 
-                # flag that we need to trigger content generation
-                items_to_generate = structured_cv.get_items_by_status(ItemStatus.TO_REGENERATE)
-                if items_to_generate:
-                    st.session_state.regenerate_items = [item.id for item in items_to_generate]
+                # Clear any regeneration flags
+                st.session_state.regenerate_sections = []
             else:
                 st.error("Please provide a job description.")
     
@@ -403,35 +601,88 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
             # Display session ID
             st.info(f"Session ID: {structured_cv.id}")
             
+            # Add a button to manually trigger regeneration of all dynamic sections
+            if st.button("🔄 Tailor All Content to Job Description", key="tailor_all_button"):
+                with st.spinner("Tailoring all dynamic sections to match job description..."):
+                    try:
+                        # Get job description data
+                        job_description_data = {}
+                        if orchestrator and hasattr(orchestrator.parser_agent, "get_job_data"):
+                            job_description_data = orchestrator.parser_agent.get_job_data()
+                        elif "main_jd_text" in structured_cv.metadata:
+                            # Create a simple dict if we have at least the raw text
+                            job_description_data = {"raw_text": structured_cv.metadata.get("main_jd_text", "")}
+                        
+                        # Get research results
+                        research_results = st.session_state.get("research_results", {})
+                        if not research_results and orchestrator and hasattr(orchestrator.research_agent, "get_research_results"):
+                            research_results = orchestrator.research_agent.get_research_results()
+                        
+                        # Generate content for all dynamic sections
+                        updated_cv = content_writer_agent.run({
+                            "structured_cv": structured_cv,
+                            "job_description_data": job_description_data,
+                            "research_results": research_results,
+                            "regenerate_item_ids": []  # Empty list means generate all content
+                        })
+                        
+                        # Update the state manager with the modified structured CV
+                        st.session_state.state_manager._structured_cv = updated_cv
+                        
+                        # Save state
+                        st.session_state.state_manager.save_state()
+                        
+                        st.success("All dynamic sections have been tailored to the job description!")
+                        # Force a rerun to update the UI
+                        st.rerun()
+                    except Exception as e:
+                        logger.error(f"Error during full content regeneration: {str(e)}\n{traceback.format_exc()}")
+                        st.error(f"Error generating content: {str(e)}")
+            
             # Check if we have items to regenerate
-            if st.session_state.regenerate_items:
+            if st.session_state.regenerate_sections:
                 with st.spinner("Generating content for marked items..."):
                     # Call the ContentWriterAgent to regenerate the marked items
                     try:
+                        # Get research results from session state if available
+                        research_results = st.session_state.get("research_results", {})
+                        
+                        # Get job description data
+                        job_description_data = {}
+                        if orchestrator and hasattr(orchestrator.parser_agent, "get_job_data"):
+                            job_description_data = orchestrator.parser_agent.get_job_data()
+                        elif "main_jd_text" in structured_cv.metadata:
+                            # Create a simple dict if we have at least the raw text
+                            job_description_data = {"raw_text": structured_cv.metadata.get("main_jd_text", "")}
+                        
                         # Get the current structured CV state
                         current_cv = st.session_state.state_manager.get_structured_cv()
                         
                         # Call the content writer agent to regenerate specific items
-                        result = orchestrator.content_writer_agent.run({
+                        result = content_writer_agent.run({
                             "structured_cv": current_cv,
-                            "regenerate_item_ids": st.session_state.regenerate_items,
-                            "job_description_data": orchestrator.parser_agent.get_job_data(),
-                            "research_results": orchestrator.research_agent.get_research_results() if hasattr(orchestrator.research_agent, "get_research_results") else {}
+                            "regenerate_item_ids": st.session_state.regenerate_sections,
+                            "job_description_data": job_description_data,
+                            "research_results": research_results
                         })
                         
                         # Update the state manager with the modified structured CV
                         st.session_state.state_manager._structured_cv = result
                         
                         # Clear the regenerate list
-                        st.session_state.regenerate_items = []
+                        st.session_state.regenerate_sections = []
                         
                         # Save state
                         st.session_state.state_manager.save_state()
                         
-                        logger.info(f"Successfully regenerated {len(st.session_state.regenerate_items)} items")
+                        logger.info(
+                            f"Successfully regenerated items"
+                        )
                         st.success("Content regeneration complete!")
                     except Exception as e:
-                        logger.error(f"Error during content regeneration: {str(e)}\n{traceback.format_exc()}")
+                        logger.error(
+                            f"Error during content regeneration: {str(e)}\n{traceback.format_exc()}"
+                        )
                         st.error(f"Error generating content: {str(e)}")
                     
                     # Force a rerun to update the UI
@@ -448,12 +699,38 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
             else:
                 st.warning("No sections found in the CV.")
             
-            # Button to regenerate all TO_REGENERATE items
+            # Check for items or sections marked for regeneration
             items_to_regenerate = structured_cv.get_items_by_status(ItemStatus.TO_REGENERATE)
-            if items_to_regenerate:
-                if st.button("Regenerate Marked Items", key="regenerate_button"):
-                    st.session_state.regenerate_items = [item.id for item in items_to_regenerate]
-                    st.rerun()
+            sections_to_regenerate = [section for section in structured_cv.sections 
+                                     if section.status == ItemStatus.TO_REGENERATE]
+            
+            # Show the regenerate button if there are items marked for regeneration
+            if items_to_regenerate or sections_to_regenerate:
+                st.markdown("### Regenerate Marked Content")
+                
+                # Display info about what will be regenerated
+                if sections_to_regenerate:
+                    section_names = [section.name for section in sections_to_regenerate]
+                    st.markdown(f"**Sections marked for regeneration:** {', '.join(section_names)}")
+                
+                if items_to_regenerate:
+                    st.markdown(f"**{len(items_to_regenerate)} individual items** marked for regeneration")
+                
+                # Button to trigger regeneration
+                if st.button("🔄 Regenerate Marked Content", key="regenerate_button"):
+                    regenerate_ids = []
+                    
+                    # Add section IDs for section-level regeneration
+                    for section in sections_to_regenerate:
+                        regenerate_ids.append(section.id)
+                    
+                    # Add item IDs for item-level regeneration
+                    for item in items_to_regenerate:
+                        regenerate_ids.append(item.id)
+                    
+                    if regenerate_ids:
+                        st.session_state.regenerate_sections = regenerate_ids
+                        st.rerun()  # This will trigger the regeneration code in the "if st.session_state.regenerate_sections:" block
             
             # Button to finalize the CV
             if st.button("Finalize CV", key="finalize_button"):
@@ -474,7 +751,9 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                             for item in subsection.items:
                                 if item.status not in [ItemStatus.ACCEPTED, ItemStatus.STATIC, ItemStatus.USER_EDITED]:
                                     all_items_ready = False
-                                    problem_items.append(f"{section.name} > {subsection.name}: {item.content[:30]}...")
+                                    problem_items.append(
+                                        f"{section.name} > {subsection.name}: {item.content[:30]}..."
+                                    )
                 
                 if all_items_ready:
                     # Move to the Export tab
@@ -580,7 +859,8 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
                         
                         # If PDF was selected, show a message
                         if output_format == "PDF":
-                            st.info("PDF generation is not implemented in the MVP. Please use the Markdown output.")
+                            st.info("PDF generation is not implemented in the MVP. "
+                                   "Please use the Markdown output.")
                     
                     except Exception as e:
                         st.error(f"Error generating final CV: {str(e)}")
@@ -609,9 +889,6 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
             st.markdown(preview)
         else:
             st.info("No CV data found. Please go to the Input tab to start the process.")
-
-    # Existing state management code below
-    # ...
 
 if __name__ == "__main__":
     main()

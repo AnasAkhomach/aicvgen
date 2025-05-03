@@ -19,12 +19,25 @@ job_description = "Software Engineer position at Google. Required skills: Python
 print("Starting job description parsing test...")
 result = parser_agent.run({"job_description": job_description})
 print("\nParsing result:")
-print(f"Skills: {result.skills}")
-print(f"Experience Level: {result.experience_level}")
-print(f"Responsibilities: {result.responsibilities}")
-print(f"Industry Terms: {result.industry_terms}")
-print(f"Company Values: {result.company_values}")
-print(f"Error: {result.error}")
+
+# Access the job_description_data dictionary from the result
+job_description_data = result.get("job_description_data", {})
+if hasattr(job_description_data, 'skills'):
+    # This is a JobDescriptionData object, not a dictionary
+    print(f"Skills: {job_description_data.skills}")
+    print(f"Experience Level: {job_description_data.experience_level}")
+    print(f"Responsibilities: {job_description_data.responsibilities}")
+    print(f"Industry Terms: {job_description_data.industry_terms}")
+    print(f"Company Values: {job_description_data.company_values}")
+    print(f"Error: {job_description_data.error}")
+else:
+    # This is a dictionary
+    print(f"Skills: {job_description_data.get('skills', [])}")
+    print(f"Experience Level: {job_description_data.get('experience_level', '')}")
+    print(f"Responsibilities: {job_description_data.get('responsibilities', [])}")
+    print(f"Industry Terms: {job_description_data.get('industry_terms', [])}")
+    print(f"Company Values: {job_description_data.get('company_values', [])}")
+    print(f"Error: {job_description_data.get('error')}")
 
 print("Starting test")
 
