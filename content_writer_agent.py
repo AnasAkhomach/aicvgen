@@ -299,6 +299,9 @@ class ContentWriterAgent(AgentBase):
         research_results = input_data.get("research_results", {})
         regenerate_item_ids = input_data.get("regenerate_item_ids", [])
         
+        # First, ensure STATIC sections are respected
+        self._ensure_static_sections_preserved(structured_cv)
+        
         if regenerate_item_ids and len(regenerate_item_ids) > 0:
             return self._regenerate_specific_items(
                 structured_cv=structured_cv,
@@ -313,6 +316,39 @@ class ContentWriterAgent(AgentBase):
                 research_results=research_results
             )
     
+    def _ensure_static_sections_preserved(self, structured_cv: StructuredCV):
+        """
+        Makes sure all STATIC sections are preserved and never regenerated.
+        
+        Args:
+            structured_cv: The CV structure to check and protect
+        """
+        if not structured_cv:
+            return
+            
+        print("\n🔒 Ensuring STATIC sections remain unchanged...")
+        
+        static_sections = []
+        for section in structured_cv.sections:
+            if section.content_type == "STATIC":
+                static_sections.append(section.name)
+                
+                # Make sure all items in this section are also marked as STATIC
+                for item in section.items:
+                    if item.status != ItemStatus.STATIC:
+                        print(f"  Protecting item in '{section.name}' as STATIC")
+                        item.status = ItemStatus.STATIC
+                        
+                # Also check subsections
+                for subsection in section.subsections:
+                    for item in subsection.items:
+                        if item.status != ItemStatus.STATIC:
+                            print(f"  Protecting item in '{section.name}/{subsection.name}' as STATIC")
+                            item.status = ItemStatus.STATIC
+        
+        if static_sections:
+            print(f"  Protected sections: {', '.join(static_sections)}")
+        
     @log_execution_time
     def execute(self, task_type: str, **kwargs) -> StructuredCV:
         """
@@ -336,6 +372,9 @@ class ContentWriterAgent(AgentBase):
         structured_cv = kwargs.get("structured_cv")
         research_results = kwargs.get("research_results", {})
         
+        # First, ensure STATIC sections are respected
+        self._ensure_static_sections_preserved(structured_cv)
+        
         # Extract or create job description data from structured_cv metadata
         job_description_data = {}
         if "main_jd_text" in structured_cv.metadata:
@@ -353,6 +392,11 @@ class ContentWriterAgent(AgentBase):
             section = structured_cv.get_section_by_name(section_name)
             if not section:
                 logger.error(f"Section '{section_name}' not found in CV")
+                return structured_cv
+                
+            # Skip generation for STATIC sections
+            if section.content_type == "STATIC":
+                print(f"🔒 Skipping generation for STATIC section: {section_name}")
                 return structured_cv
                 
             logger.info(f"Generating content for section: {section_name}")
@@ -373,6 +417,11 @@ class ContentWriterAgent(AgentBase):
             section = structured_cv.find_section_by_id(section_id)
             if not section:
                 logger.error(f"Section with ID '{section_id}' not found in CV")
+                return structured_cv
+                
+            # Skip regeneration for STATIC sections
+            if section.content_type == "STATIC":
+                print(f"🔒 Skipping regeneration for STATIC section: {section.name}")
                 return structured_cv
                 
             logger.info(f"Regenerating content for section: {section.name}")
@@ -413,46 +462,87 @@ class ContentWriterAgent(AgentBase):
         Returns:
             Updated StructuredCV with generated content
         """
+        # Skip generation completely if this is a STATIC section
+        if section.content_type == "STATIC":
+            print(f"🔒 Skipping generation for STATIC section: {section.name}")
+            return structured_cv
+            
+        # For items explicitly marked as STATIC, respect their status
+        # Check both direct items and items in subsections
+        static_item_count = 0
+        for item in section.items:
+            if item.status == ItemStatus.STATIC:
+                static_item_count += 1
+                
+        for subsection in section.subsections:
+            for item in subsection.items:
+                if item.status == ItemStatus.STATIC:
+                    static_item_count += 1
+                    
+        if static_item_count > 0:
+            print(f"🔒 Respecting {static_item_count} STATIC items in section: {section.name}")
+            
         section_name = section.name.lower()
         
-        if "key qualifications" in section_name or "core competencies" in section_name or "skills" in section_name:
-            self._generate_key_qualifications(
+        # For Project Experience or Experience sections with many items, 
+        # use the split generation approach to avoid resource exhaustion
+        if "project" in section_name or (
+            "experience" in section_name and 
+            sum(len(subsection.items) for subsection in section.subsections) > 4
+        ):
+            logger.info(f"Using split generation for complex section: {section.name}")
+            print(f"🔄 Using batched generation for complex section: {section.name}")
+            self._split_generation_task(
                 section=section,
+                structured_cv=structured_cv,
                 job_description_data=job_description_data,
                 research_results=research_results,
-                structured_cv=structured_cv,
                 job_focus=job_focus
             )
-            
-        elif "experience" in section_name and "project" not in section_name:
-            self._generate_experience_content(
-                section=section,
-                job_description_data=job_description_data,
-                research_results=research_results,
-                structured_cv=structured_cv,
-                job_focus=job_focus
-            )
-            
-        elif "project" in section_name:
-            self._generate_projects_content(
-                section=section,
-                job_description_data=job_description_data,
-                research_results=research_results,
-                structured_cv=structured_cv,
-                job_focus=job_focus
-            )
-            
-        elif "summary" in section_name or "profile" in section_name:
-            self._generate_summary_content(
-                section=section,
-                job_description_data=job_description_data,
-                research_results=research_results,
-                structured_cv=structured_cv,
-                job_focus=job_focus
-            )
-            
         else:
-            logger.warning(f"Unsupported section type for content generation: {section.name}")
+            # Use the standard approach for simpler sections
+            if "key qualifications" in section_name or "core competencies" in section_name or "skills" in section_name:
+                print(f"🔄 Generating Key Qualifications content...")
+                self._generate_key_qualifications(
+                    section=section,
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    structured_cv=structured_cv,
+                    job_focus=job_focus
+                )
+                
+            elif "experience" in section_name and "project" not in section_name:
+                print(f"🔄 Generating Professional Experience content...")
+                self._generate_experience_content(
+                    section=section,
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    structured_cv=structured_cv,
+                    job_focus=job_focus
+                )
+                
+            elif "project" in section_name:
+                print(f"🔄 Generating Project Experience content...")
+                self._generate_projects_content(
+                    section=section,
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    structured_cv=structured_cv,
+                    job_focus=job_focus
+                )
+                
+            elif "summary" in section_name or "profile" in section_name:
+                print(f"🔄 Generating Executive Summary content...")
+                self._generate_summary_content(
+                    section=section,
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    structured_cv=structured_cv,
+                    job_focus=job_focus
+                )
+                
+            else:
+                logger.warning(f"Unsupported section type for content generation: {section.name}")
             
         # Update section status after generation
         section.status = ItemStatus.GENERATED
@@ -479,47 +569,105 @@ class ContentWriterAgent(AgentBase):
         Returns:
             The updated StructuredCV with regenerated content.
         """
+        print("\n🔄 Regenerating specific items requested by user...")
         job_focus = self._extract_job_focus(job_description_data, research_results)
         
+        section_ids = []
+        item_ids_only = []
+        
+        # First separate section IDs from item IDs
         for item_id in item_ids:
-            # First check if it's a section ID
             section = structured_cv.find_section_by_id(item_id)
             if section:
-                logger.info(f"Regenerating entire section: {section.name}")
-                # Use the section-level generation method
-                self._generate_section_content(
-                    section=section,
-                    structured_cv=structured_cv,
-                    job_description_data=job_description_data,
-                    research_results=research_results,
-                    job_focus=job_focus,
-                    is_regeneration=True
-                )
+                section_ids.append(item_id)
+            else:
+                item_ids_only.append(item_id)
+                
+        # Process sections first (using the batched approach internally)
+        if section_ids:
+            print(f"🔄 Processing {len(section_ids)} sections for regeneration")
+            
+        for i, section_id in enumerate(section_ids):
+            section = structured_cv.find_section_by_id(section_id)
+            if not section:
                 continue
                 
-            # If not a section, try to find individual item
-            item, section, subsection = structured_cv.find_item_by_id(item_id)
-            if not item:
-                logger.warning("Item with ID %s not found in StructuredCV", item_id)
+            # Skip STATIC sections
+            if section.content_type == "STATIC":
+                print(f"🔒 Skipping STATIC section: {section.name}")
                 continue
-            
-            logger.info(f"Regenerating item in section {section.name}")
-            
-            # Generate content based on item type and context
-            generated_content = self._generate_item_content(
-                item,
-                section,
-                subsection,
-                job_description_data,
-                research_results,
-                structured_cv,
-                job_focus
+                
+            print(f"🔄 Regenerating section: {section.name} ({i+1}/{len(section_ids)})")
+            logger.info(f"Regenerating entire section: {section.name}")
+            # Use the section-level generation method which now includes batching
+            self._generate_section_content(
+                section=section,
+                structured_cv=structured_cv,
+                job_description_data=job_description_data,
+                research_results=research_results,
+                job_focus=job_focus,
+                is_regeneration=True
             )
-            
-            # Update item with generated content
-            item.content = generated_content
-            item.status = ItemStatus.GENERATED
         
+        # Process individual items with delays between to avoid resource exhaustion
+        if item_ids_only:
+            print(f"🔄 Regenerating {len(item_ids_only)} individual items in batches")
+            
+            # Filter out items from STATIC sections
+            filtered_item_ids = []
+            for item_id in item_ids_only:
+                item, section, subsection = structured_cv.find_item_by_id(item_id)
+                if not item:
+                    continue
+                    
+                if item.status == ItemStatus.STATIC or (section and section.content_type == "STATIC"):
+                    print(f"🔒 Skipping STATIC item: {item_id}")
+                    continue
+                    
+                filtered_item_ids.append(item_id)
+                
+            logger.info(f"Regenerating {len(filtered_item_ids)} non-static items in batches")
+            
+            for i, item_id in enumerate(filtered_item_ids):
+                # Find item, section, subsection
+                item, section, subsection = structured_cv.find_item_by_id(item_id)
+                if not item:
+                    logger.warning(f"Item with ID {item_id} not found in StructuredCV")
+                    continue
+                
+                # Skip if this item is in a STATIC section or is itself STATIC
+                if item.status == ItemStatus.STATIC or (section and section.content_type == "STATIC"):
+                    continue
+                
+                print(f"🔄 Regenerating item {i+1}/{len(filtered_item_ids)} in section {section.name}")
+                logger.info(f"Regenerating item {i+1}/{len(filtered_item_ids)} in section {section.name}")
+                
+                try:
+                    # Generate content based on item type and context
+                    generated_content = self._generate_item_content(
+                        item,
+                        section,
+                        subsection,
+                        job_description_data,
+                        research_results,
+                        structured_cv,
+                        job_focus
+                    )
+                    
+                    # Update item with generated content
+                    item.content = generated_content
+                    item.status = ItemStatus.GENERATED
+                    
+                except Exception as e:
+                    logger.error(f"Error regenerating item {item_id}: {str(e)}")
+                    item.content = "Content generation failed. Please try regenerating individually."
+                    item.status = ItemStatus.GENERATED  # Mark as generated to avoid repeated errors
+                
+                # Add a small delay between items to avoid rate limiting
+                if i < len(filtered_item_ids) - 1:
+                    time.sleep(0.5)
+        
+        print("✅ Regeneration completed")
         return structured_cv
   
     @log_execution_time
@@ -548,55 +696,55 @@ class ContentWriterAgent(AgentBase):
         
         # Generate content section by section, in a specific order for best results
         logger.info("Generating content for all dynamic sections")
+        print("\n🔄 Generating tailored CV content...")
         
-        # 1. First generate Key Qualifications
+        # Track sections to process
+        sections_to_process = []
+        
+        # 1. First identify Key Qualifications
         key_quals_section = structured_cv.get_section_by_name("Key Qualifications")
         if key_quals_section and key_quals_section.content_type == "DYNAMIC":
-            logger.info("Generating Key Qualifications section")
-            self._generate_section_content(
-                section=key_quals_section,
-                structured_cv=structured_cv,
-                job_description_data=job_description_data,
-                research_results=research_results,
-                job_focus=job_focus
-            )
+            sections_to_process.append(("Key Qualifications", key_quals_section))
         
-        # 2. Generate Professional Experience
+        # 2. Identify Professional Experience
         experience_section = structured_cv.get_section_by_name("Professional Experience")
         if experience_section and experience_section.content_type == "DYNAMIC":
-            logger.info("Generating Professional Experience section")
-            self._generate_section_content(
-                section=experience_section,
-                structured_cv=structured_cv,
-                job_description_data=job_description_data,
-                research_results=research_results,
-                job_focus=job_focus
-            )
+            sections_to_process.append(("Professional Experience", experience_section))
         
-        # 3. Generate Project Experience
+        # 3. Identify Project Experience
         projects_section = structured_cv.get_section_by_name("Project Experience")
         if projects_section and projects_section.content_type == "DYNAMIC":
-            logger.info("Generating Project Experience section")
-            self._generate_section_content(
-                section=projects_section,
-                structured_cv=structured_cv,
-                job_description_data=job_description_data,
-                research_results=research_results,
-                job_focus=job_focus
-            )
+            sections_to_process.append(("Project Experience", projects_section))
         
-        # 4. Generate Executive Summary (last, since it depends on other content)
+        # 4. Identify Executive Summary (last, since it depends on other content)
         summary_section = structured_cv.get_section_by_name("Executive Summary")
         if summary_section and summary_section.content_type == "DYNAMIC":
-            logger.info("Generating Executive Summary section")
-            self._generate_section_content(
-                section=summary_section,
-                structured_cv=structured_cv,
-                job_description_data=job_description_data,
-                research_results=research_results,
-                job_focus=job_focus
-            )
+            sections_to_process.append(("Executive Summary", summary_section))
+            
+        # Process each section with a delay between to avoid resource exhaustion
+        for i, (section_name, section) in enumerate(sections_to_process):
+            print(f"🔄 Generating {section_name} section ({i+1}/{len(sections_to_process)})")
+            logger.info(f"Generating {section_name} section ({i+1}/{len(sections_to_process)})")
+            
+            try:
+                self._generate_section_content(
+                    section=section,
+                    structured_cv=structured_cv,
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    job_focus=job_focus
+                )
+                
+                # Add a delay between section generation to avoid rate limiting
+                if i < len(sections_to_process) - 1:
+                    logger.info(f"Pausing briefly before generating next section")
+                    time.sleep(1.0)  # Longer delay between sections
+                    
+            except Exception as e:
+                logger.error(f"Error generating {section_name} section: {str(e)}")
+                # Continue with the next section even if this one fails
         
+        print("✅ CV content generation completed")
         return structured_cv
     
     def _ensure_dynamic_essential_sections(self, structured_cv: StructuredCV):
@@ -606,7 +754,7 @@ class ContentWriterAgent(AgentBase):
         Args:
             structured_cv: The CV structure to check and modify
         """
-        print("\n>>>>> ENSURING ESSENTIAL SECTIONS ARE DYNAMIC <<<<<")
+        print("\n🔄 Ensuring essential sections are properly configured...")
         
         # Essential section names (including alternative names)
         essential_section_names = [
@@ -625,6 +773,115 @@ class ContentWriterAgent(AgentBase):
                     if item.status == ItemStatus.STATIC:
                         print(f"    Setting item in '{section.name}' to TO_REGENERATE (was: {item.status})")
                         item.status = ItemStatus.TO_REGENERATE
+    
+    @log_execution_time
+    def _split_generation_task(
+        self,
+        section: Section,
+        structured_cv: StructuredCV,
+        job_description_data: Dict[str, Any],
+        research_results: Dict[str, Any],
+        job_focus: Dict[str, Any]
+    ) -> None:
+        """
+        Split content generation into batches to avoid resource exhaustion.
+        
+        Args:
+            section: The section to generate content for
+            structured_cv: The full CV structure
+            job_description_data: Parsed job description data
+            research_results: Research findings
+            job_focus: Key focus areas from the job
+        """
+        # Process each item/subsection independently with delays between calls
+        if section.items:
+            logger.info(f"Processing {len(section.items)} items in section {section.name} individually")
+            print(f"🔄 Processing {len(section.items)} items in {section.name} section...")
+            
+            # Count how many items need generation
+            items_to_generate = [item for item in section.items 
+                               if (item.status == ItemStatus.INITIAL or item.status == ItemStatus.TO_REGENERATE)
+                               and item.status != ItemStatus.STATIC]  # Skip STATIC items
+            
+            logger.info(f"Found {len(items_to_generate)} items needing generation in {section.name}")
+            
+            for i, item in enumerate(items_to_generate):
+                try:
+                    # Skip STATIC items
+                    if item.status == ItemStatus.STATIC:
+                        print(f"🔒 Skipping STATIC item {i+1} in section {section.name}")
+                        continue
+                        
+                    # Generate content for this specific item only
+                    content = self._generate_item_content(
+                        item=item,
+                        section=section,
+                        subsection=None,
+                        job_description_data=job_description_data,
+                        research_results=research_results,
+                        structured_cv=structured_cv,
+                        job_focus=job_focus
+                    )
+                    
+                    # Update item with generated content
+                    item.content = content
+                    item.status = ItemStatus.GENERATED
+                    
+                    # Add a longer delay between requests to respect rate limits
+                    if i < len(items_to_generate) - 1:
+                        logger.info(f"Pausing after item {i+1}/{len(items_to_generate)}")
+                        # LLM class now has rate limiting, so we don't need additional delays here
+                    
+                except Exception as e:
+                    logger.error(f"Error in isolated generation for item in {section.name}: {str(e)}")
+                    item.content = "Content generation failed. Please try regenerating with a simpler prompt."
+                    item.status = ItemStatus.GENERATED
+        
+        # Process subsections if any
+        for subsection_index, subsection in enumerate(section.subsections):
+            logger.info(f"Processing subsection {subsection.name} items individually")
+            print(f"🔄 Processing {subsection.name} subsection...")
+            
+            # Count items needing generation in this subsection
+            items_to_generate = [item for item in subsection.items 
+                               if (item.status == ItemStatus.INITIAL or item.status == ItemStatus.TO_REGENERATE)
+                               and item.status != ItemStatus.STATIC]  # Skip STATIC items
+            
+            logger.info(f"Found {len(items_to_generate)} items needing generation in subsection {subsection.name}")
+            
+            for i, item in enumerate(items_to_generate):
+                try:
+                    # Skip STATIC items
+                    if item.status == ItemStatus.STATIC:
+                        print(f"🔒 Skipping STATIC item {i+1} in subsection {subsection.name}")
+                        continue
+                        
+                    # Generate content for this specific item only
+                    content = self._generate_item_content(
+                        item=item,
+                        section=section,
+                        subsection=subsection,
+                        job_description_data=job_description_data,
+                        research_results=research_results,
+                        structured_cv=structured_cv,
+                        job_focus=job_focus
+                    )
+                    
+                    # Update item with generated content
+                    item.content = content
+                    item.status = ItemStatus.GENERATED
+                    
+                    # LLM class now has rate limiting, so we don't need additional delays here
+                    
+                except Exception as e:
+                    logger.error(f"Error in isolated generation for item in {subsection.name}: {str(e)}")
+                    item.content = "Content generation failed. Please try regenerating with a simpler prompt."
+                    item.status = ItemStatus.GENERATED
+            
+            # If we have more subsections to process, add a small wait
+            if subsection_index < len(section.subsections) - 1:
+                logger.info(f"Finished subsection {subsection_index+1}/{len(section.subsections)}")
+                # LLM class now has rate limiting, so we don't need additional delays here
 
     def _extract_job_focus(self, job_description_data: Dict[str, Any], research_results: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -893,6 +1150,11 @@ class ContentWriterAgent(AgentBase):
         
         # Generate content for each key qualification, prioritizing job focus
         for i, item in enumerate(section.items):
+            # Skip STATIC items
+            if item.status == ItemStatus.STATIC:
+                print(f"  🔒 Preserving STATIC key qualification #{i+1}")
+                continue
+                
             if item.status == ItemStatus.INITIAL or item.status == ItemStatus.TO_REGENERATE:
                 # Generate content for this item
                 prompt = self._build_key_qual_prompt_enhanced(
@@ -1314,34 +1576,27 @@ class ContentWriterAgent(AgentBase):
         Returns:
             A prompt string for the LLM
         """
-        # Create a simplified, efficient prompt
-        prompt = "Create a concise professional summary paragraph for a CV (2-3 sentences).\n\n"
+        # Use the absolute minimum for the executive summary prompt
+        # since it tends to cause resource exhaustion most often
+        prompt = "Write a professional summary paragraph for a CV (2-3 sentences max).\n\n"
         
-        # Add minimal but essential job focus
+        # Add job title if available (very important context)
         job_title = job_focus.get("job_title", "")
         if job_title:
             prompt += f"Target position: {job_title}\n"
-            
-        # Add top skills (limited to 3)
-        top_skills = job_focus["primary_skills"][:3] if job_focus["primary_skills"] else []
-        if top_skills:
-            prompt += f"Key skills to highlight: {', '.join(top_skills)}\n"
-            
-        # Add one or two key qualifications
-        if key_quals and len(key_quals) > 0:
-            qual_sample = key_quals[:2] if len(key_quals) >= 2 else key_quals
-            prompt += f"\nKey qualifications: {', '.join(qual_sample)}\n"
-            
-        # Add instructions
-        prompt += "\nSUMMARY REQUIREMENTS:\n"
-        prompt += "1. Begin with professional identity and years of experience\n"
-        prompt += "2. Highlight 2-3 most relevant skills that match the job\n"
-        prompt += "3. Include one key achievement or value proposition\n"
-        prompt += "4. Keep it concise but impactful (<250 characters)\n"
         
-        # Add feedback if provided
+        # Add at most 2 skills to mention
+        skills = job_focus["primary_skills"][:2] if job_focus.get("primary_skills") else []
+        if skills:
+            prompt += f"Key skills: {', '.join(skills)}\n"
+            
+        # Add minimal instructions
+        prompt += "\nWRITE A SHORT (1-2 SENTENCE) PROFESSIONAL SUMMARY.\n"
+        prompt += "Focus on experience level and top skills.\n"
+        
+        # Add feedback if provided (optional)
         if user_feedback:
-            prompt += f"\nFeedback: \"{user_feedback}\"\n"
+            prompt += f"\nFeedback: {user_feedback}\n"
         
         return prompt
 
@@ -1371,6 +1626,11 @@ class ContentWriterAgent(AgentBase):
         Returns:
             Generated content as a string
         """
+        # Respect STATIC items
+        if item.status == ItemStatus.STATIC:
+            print(f"🔒 Preserving STATIC content for item in {section.name}")
+            return item.content
+            
         if not job_focus:
             # Extract job focus if not provided
             job_focus = self._extract_job_focus(job_description_data, research_results)
@@ -1379,75 +1639,108 @@ class ContentWriterAgent(AgentBase):
         item_type = item.item_type
         user_feedback = item.user_feedback
         
-        # Generate based on section and item type
-        if "summary" in section_name or "profile" in section_name:
-            # For summary/profile, use the specialized prompt
-            job_context = job_description_data.get("raw_text", "") if isinstance(job_description_data, dict) else ""
-            research_context = json.dumps(research_results.get("job_requirements_analysis", {}))
-            prompt = self._build_summary_prompt(job_context, research_context, user_feedback)
-            content = self.llm.generate_content(prompt)
+        try:
+            # Generate based on section and item type
+            if "summary" in section_name or "profile" in section_name:
+                # For summary/profile, use the specialized prompt
+                prompt = self._build_summary_prompt_enhanced(
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    section=section,
+                    user_feedback=user_feedback,
+                    job_focus=job_focus,
+                    key_quals=[], # Simplified
+                    key_experiences=[] # Simplified
+                )
+                content = self.llm.generate_content(prompt)
+                content = self._clean_generated_content(content, ItemType.SUMMARY_PARAGRAPH)
+                
+            elif "key qualifications" in section_name or "core competencies" in section_name or "skills" in section_name:
+                # For key qualifications, use the specialized prompt
+                prompt = self._build_key_qual_prompt_enhanced(
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    section=section,
+                    user_feedback=user_feedback,
+                    job_focus=job_focus,
+                    index=1  # Default to index 1 for individual item generation
+                )
+                content = self.llm.generate_content(prompt)
+                content = self._clean_generated_content(content, ItemType.KEY_QUAL)
+                
+            elif "experience" in section_name and "project" not in section_name:
+                # For experience bullets, use the specialized prompt
+                prompt = self._build_bullet_point_prompt_enhanced(
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    section=section,
+                    subsection=subsection,
+                    user_feedback=user_feedback,
+                    job_focus=job_focus
+                )
+                content = self.llm.generate_content(prompt)
+                content = self._clean_generated_content(content, ItemType.BULLET_POINT)
+                
+            elif "project" in section_name:
+                # For project bullets, use the specialized prompt
+                prompt = self._build_project_bullet_point_prompt(
+                    job_description_data=job_description_data,
+                    research_results=research_results,
+                    section=section,
+                    subsection=subsection,
+                    user_feedback=user_feedback,
+                    job_focus=job_focus
+                )
+                content = self.llm.generate_content(prompt)
+                content = self._clean_generated_content(content, ItemType.BULLET_POINT)
+                
+            else:
+                # Fallback using the generic prompt
+                job_context = job_description_data.get("raw_text", "") if isinstance(job_description_data, dict) else ""
+                research_context = json.dumps(research_results)[:100]  # Limit context size
+                prompt = self._build_generic_prompt(
+                    job_context,
+                    research_context,
+                    section,
+                    subsection,
+                    item,
+                    user_feedback
+                )
+                content = self.llm.generate_content(prompt)
+                content = self._clean_generated_content(content, item.item_type)
             
-            # Special cleanup for summary content
-            content = self._clean_generated_content(content, ItemType.SUMMARY_PARAGRAPH)
+        except Exception as e:
+            logger.error(f"Error generating content: {str(e)}\nTrying fallback approach...")
             
-        elif "key qualifications" in section_name or "core competencies" in section_name or "skills" in section_name:
-            # For key qualifications, use the specialized prompt
-            prompt = self._build_key_qual_prompt_enhanced(
-                job_description_data=job_description_data,
-                research_results=research_results,
-                section=section,
-                user_feedback=user_feedback,
-                job_focus=job_focus,
-                index=1  # Default to index 1 for individual item generation
-            )
-            content = self.llm.generate_content(prompt)
-            
-            # Special cleanup for key qualifications
-            content = self._clean_generated_content(content, ItemType.KEY_QUAL)
-            
-        elif "experience" in section_name and "project" not in section_name:
-            # For experience bullets, use the specialized prompt
-            prompt = self._build_bullet_point_prompt_enhanced(
-                job_description_data=job_description_data,
-                research_results=research_results,
-                section=section,
-                subsection=subsection,
-                user_feedback=user_feedback,
-                job_focus=job_focus
-            )
-            content = self.llm.generate_content(prompt)
-            
-            # Special cleanup for experience bullets
-            content = self._clean_generated_content(content, ItemType.BULLET_POINT)
-            
-        elif "project" in section_name:
-            # For project bullets, use the specialized prompt
-            prompt = self._build_project_bullet_point_prompt(
-                job_description_data=job_description_data,
-                research_results=research_results,
-                section=section,
-                subsection=subsection,
-                user_feedback=user_feedback,
-                job_focus=job_focus
-            )
-            content = self.llm.generate_content(prompt)
-            
-            # Special cleanup for project bullets
-            content = self._clean_generated_content(content, ItemType.BULLET_POINT)
-            
-        else:
-            # Fallback using the generic prompt
-            job_context = job_description_data.get("raw_text", "") if isinstance(job_description_data, dict) else ""
-            research_context = json.dumps(research_results)
-            prompt = self._build_generic_prompt(
-                job_context,
-                research_context,
-                section,
-                subsection,
-                item,
-                user_feedback
-            )
-            content = self.llm.generate_content(prompt)
+            # Fallback to a very minimal prompt approach
+            try:
+                # Determine position/project name for context
+                context_name = ""
+                if subsection:
+                    context_name = subsection.name
+                
+                # Extract minimal job information
+                job_skills = []
+                if isinstance(job_focus, dict) and "primary_skills" in job_focus:
+                    job_skills = job_focus["primary_skills"][:2]
+                
+                # Build an ultra-minimal prompt based on item type
+                if item_type == ItemType.BULLET_POINT:
+                    minimal_prompt = f"Write one resume bullet point for {context_name} that mentions {', '.join(job_skills) if job_skills else 'relevant skills'}."
+                elif item_type == ItemType.KEY_QUAL:
+                    minimal_prompt = f"Write one skill for a resume (3-5 words only)."
+                elif item_type == ItemType.SUMMARY_PARAGRAPH:
+                    minimal_prompt = "Write a short professional summary paragraph (1-2 sentences)."
+                else:
+                    minimal_prompt = f"Write brief content for {section.name} section in a resume."
+                
+                # Try with minimal prompt
+                content = self.llm.generate_content(minimal_prompt)
+                content = self._clean_generated_content(content, item_type)
+                
+            except Exception as e2:
+                logger.error(f"Fallback generation also failed: {str(e2)}")
+                content = "Content generation failed. Please try regenerating with a simpler prompt."
             
         # Update item status to GENERATED
         item.status = ItemStatus.GENERATED
@@ -1793,6 +2086,115 @@ class ContentWriterAgent(AgentBase):
                 
                 # Add the new section to the CV
                 structured_cv.sections.append(new_section)
+
+    @log_execution_time
+    def _split_generation_task(
+        self,
+        section: Section,
+        structured_cv: StructuredCV,
+        job_description_data: Dict[str, Any],
+        research_results: Dict[str, Any],
+        job_focus: Dict[str, Any]
+    ) -> None:
+        """
+        Split content generation into batches to avoid resource exhaustion.
+        
+        Args:
+            section: The section to generate content for
+            structured_cv: The full CV structure
+            job_description_data: Parsed job description data
+            research_results: Research findings
+            job_focus: Key focus areas from the job
+        """
+        # Process each item/subsection independently with delays between calls
+        if section.items:
+            logger.info(f"Processing {len(section.items)} items in section {section.name} individually")
+            print(f"🔄 Processing {len(section.items)} items in {section.name} section...")
+            
+            # Count how many items need generation
+            items_to_generate = [item for item in section.items 
+                               if (item.status == ItemStatus.INITIAL or item.status == ItemStatus.TO_REGENERATE)
+                               and item.status != ItemStatus.STATIC]  # Skip STATIC items
+            
+            logger.info(f"Found {len(items_to_generate)} items needing generation in {section.name}")
+            
+            for i, item in enumerate(items_to_generate):
+                try:
+                    # Skip STATIC items
+                    if item.status == ItemStatus.STATIC:
+                        print(f"🔒 Skipping STATIC item {i+1} in section {section.name}")
+                        continue
+                        
+                    # Generate content for this specific item only
+                    content = self._generate_item_content(
+                        item=item,
+                        section=section,
+                        subsection=None,
+                        job_description_data=job_description_data,
+                        research_results=research_results,
+                        structured_cv=structured_cv,
+                        job_focus=job_focus
+                    )
+                    
+                    # Update item with generated content
+                    item.content = content
+                    item.status = ItemStatus.GENERATED
+                    
+                    # Add a longer delay between requests to respect rate limits
+                    if i < len(items_to_generate) - 1:
+                        logger.info(f"Pausing after item {i+1}/{len(items_to_generate)}")
+                        # LLM class now has rate limiting, so we don't need additional delays here
+                    
+                except Exception as e:
+                    logger.error(f"Error in isolated generation for item in {section.name}: {str(e)}")
+                    item.content = "Content generation failed. Please try regenerating with a simpler prompt."
+                    item.status = ItemStatus.GENERATED
+        
+        # Process subsections if any
+        for subsection_index, subsection in enumerate(section.subsections):
+            logger.info(f"Processing subsection {subsection.name} items individually")
+            print(f"🔄 Processing {subsection.name} subsection...")
+            
+            # Count items needing generation in this subsection
+            items_to_generate = [item for item in subsection.items 
+                               if (item.status == ItemStatus.INITIAL or item.status == ItemStatus.TO_REGENERATE)
+                               and item.status != ItemStatus.STATIC]  # Skip STATIC items
+            
+            logger.info(f"Found {len(items_to_generate)} items needing generation in subsection {subsection.name}")
+            
+            for i, item in enumerate(items_to_generate):
+                try:
+                    # Skip STATIC items
+                    if item.status == ItemStatus.STATIC:
+                        print(f"🔒 Skipping STATIC item {i+1} in subsection {subsection.name}")
+                        continue
+                        
+                    # Generate content for this specific item only
+                    content = self._generate_item_content(
+                        item=item,
+                        section=section,
+                        subsection=subsection,
+                        job_description_data=job_description_data,
+                        research_results=research_results,
+                        structured_cv=structured_cv,
+                        job_focus=job_focus
+                    )
+                    
+                    # Update item with generated content
+                    item.content = content
+                    item.status = ItemStatus.GENERATED
+                    
+                    # LLM class now has rate limiting, so we don't need additional delays here
+                    
+                except Exception as e:
+                    logger.error(f"Error in isolated generation for item in {subsection.name}: {str(e)}")
+                    item.content = "Content generation failed. Please try regenerating with a simpler prompt."
+                    item.status = ItemStatus.GENERATED
+            
+            # If we have more subsections to process, add a small wait
+            if subsection_index < len(section.subsections) - 1:
+                logger.info(f"Finished subsection {subsection_index+1}/{len(section.subsections)}")
+                # LLM class now has rate limiting, so we don't need additional delays here
 
 # Add support for generating content with StructuredCV
 def generate_structured_content(self, structured_cv: StructuredCV, job_description_data: Dict[str, Any]) -> StructuredCV:
