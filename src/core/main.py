@@ -38,6 +38,7 @@ from src.agents.cv_analyzer_agent import CVAnalyzerAgent
 from src.agents.formatter_agent import FormatterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.utils.template_manager import TemplateManager
+from src.config.logging_config import setup_logging, get_logger
 import streamlit as st
 import os
 import uuid
@@ -47,16 +48,8 @@ import logging
 import traceback
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s - [%(filename)s:%(lineno)d]",
-    handlers=[
-        logging.FileHandler("debug.log", mode="a"),
-        logging.FileHandler("error.log", mode="a"),
-        logging.StreamHandler(),
-    ],
-)
-logger = logging.getLogger(__name__)
+setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True)
+logger = get_logger(__name__)
 
 
 # Add performance logging

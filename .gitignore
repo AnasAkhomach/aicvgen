@@ -144,5 +144,14 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
+# Logs directory
+logs/*.log
+logs/*.txt
+logs/*.out
+logs/*.err
+logs/debug/
+logs/error/
+logs/access/
+
 # Specific to your project (optional - add if these are generated/temporary)
 # tailored_cv.md

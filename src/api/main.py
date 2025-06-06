@@ -31,14 +31,11 @@ from src.agents.cv_analyzer_agent import CVAnalyzerAgent
 from src.agents.vector_store_agent import VectorStoreAgent
 from src.services.vector_db import VectorDB
 from src.core.state_manager import VectorStoreConfig, AgentIO
+from src.config.logging_config import setup_logging, get_logger, log_request
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s - [%(filename)s:%(lineno)d]",
-    handlers=[logging.FileHandler("../debug.log", mode="a"), logging.StreamHandler()],
-)
-logger = logging.getLogger(__name__)
+setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True)
+logger = get_logger(__name__)
 
 # Create FastAPI app
 app = FastAPI(title="CV Tailoring AI API")
