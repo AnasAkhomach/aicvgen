@@ -7,13 +7,11 @@ from state_manager import JobDescriptionData
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("parser_test.log"),
-        logging.StreamHandler()
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("parser_test.log"), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
+
 
 def load_cv_template():
     """Load the CV template from file"""
@@ -24,26 +22,25 @@ def load_cv_template():
         logger.error(f"Error loading CV template: {e}")
         return None
 
+
 def main():
     """Test the parser agent section detection"""
     logger.info("Starting parser agent test")
-    
+
     # Initialize LLM
     llm = LLM()
-    
+
     # Initialize ParserAgent
     parser_agent = ParserAgent(
-        name="ParserAgent",
-        description="Testing section detection",
-        llm=llm
+        name="ParserAgent", description="Testing section detection", llm=llm
     )
-    
+
     # Load CV template
     cv_text = load_cv_template()
     if not cv_text:
         logger.error("Failed to load CV template")
         return
-    
+
     # Create a simple job description
     job_data = JobDescriptionData(
         raw_text="Test job description",
@@ -51,32 +48,33 @@ def main():
         experience_level="Mid-level",
         responsibilities=["Testing"],
         industry_terms=["AI"],
-        company_values=["Quality"]
+        company_values=["Quality"],
     )
-    
+
     # Parse CV
     logger.info("Parsing CV text")
     structured_cv = parser_agent.parse_cv_text(cv_text, job_data)
-    
+
     # Print sections and their content types
     print("\n=== SECTION DETECTION RESULTS ===")
     print(f"Found {len(structured_cv.sections)} sections:")
-    
+
     for section in structured_cv.sections:
         section_type = "DYNAMIC" if section.content_type == "DYNAMIC" else "STATIC"
         print(f"Section: {section.name} - Type: {section_type}")
-        
+
         # List items in section
         item_count = len(section.items)
         subsection_count = len(section.subsections)
         print(f"  - {item_count} direct items, {subsection_count} subsections")
-        
+
         # Print subsection info
         for subsection in section.subsections:
             subsection_items = len(subsection.items)
             print(f"    * Subsection: {subsection.name} - {subsection_items} items")
-    
+
     print("\n=== TEST COMPLETED ===")
 
+
 if __name__ == "__main__":
-    main() 
+    main()

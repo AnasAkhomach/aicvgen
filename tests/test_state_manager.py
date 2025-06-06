@@ -8,8 +8,9 @@ from state_manager import (
     SkillEntry,
     ExperienceEntry,
     ContentData,
-    WorkflowState
+    WorkflowState,
 )
+
 
 class TestStateManager(unittest.TestCase):
 
@@ -18,7 +19,7 @@ class TestStateManager(unittest.TestCase):
         stage_data: WorkflowStage = {
             "stage_name": "Parsing",
             "description": "Extracting data",
-            "is_completed": False
+            "is_completed": False,
         }
         self.assertEqual(stage_data["stage_name"], "Parsing")
         self.assertEqual(stage_data["description"], "Extracting data")
@@ -29,7 +30,7 @@ class TestStateManager(unittest.TestCase):
         io_data: AgentIO = {
             "input": {"text": str},
             "output": dict,
-            "description": "Processes text."
+            "description": "Processes text.",
         }
         self.assertEqual(io_data["input"], {"text": str})
         self.assertEqual(io_data["output"], dict)
@@ -43,7 +44,7 @@ class TestStateManager(unittest.TestCase):
             experience_level="Senior",
             responsibilities=["Lead team"],
             industry_terms=["FinTech"],
-            company_values=["Innovation"]
+            company_values=["Innovation"],
         )
         self.assertEqual(job_data.raw_text, "Job details.")
         self.assertEqual(job_data.skills, ["Python", "Java"])
@@ -83,7 +84,7 @@ class TestStateManager(unittest.TestCase):
             experience_bullets=["Bullet 1"],
             skills_section="Skills text.",
             projects=["Project A"],
-            other_content={"Awards": "Award 1"}
+            other_content={"Awards": "Award 1"},
         )
         self.assertEqual(content["summary"], "Summary text.")
         self.assertEqual(content["experience_bullets"], ["Bullet 1"])
@@ -109,8 +110,12 @@ class TestStateManager(unittest.TestCase):
             "generated_content": {"summary": "Generated"},
             "feedback": ["Good"],
             "revision_history": ["Rev 1"],
-            "current_stage": {"stage_name": "Done", "description": "Finished", "is_completed": True},
-            "workflow_id": "abc-123"
+            "current_stage": {
+                "stage_name": "Done",
+                "description": "Finished",
+                "is_completed": True,
+            },
+            "workflow_id": "abc-123",
         }
         self.assertEqual(state_data["job_description"], {"skills": ["AI"]})
         self.assertEqual(state_data["user_cv"], {"raw_text": "CV text"})
@@ -118,9 +123,12 @@ class TestStateManager(unittest.TestCase):
         self.assertEqual(state_data["generated_content"], {"summary": "Generated"})
         self.assertEqual(state_data["feedback"], ["Good"])
         self.assertEqual(state_data["revision_history"], ["Rev 1"])
-        self.assertEqual(state_data["current_stage"], {"stage_name": "Done", "description": "Finished", "is_completed": True})
+        self.assertEqual(
+            state_data["current_stage"],
+            {"stage_name": "Done", "description": "Finished", "is_completed": True},
+        )
         self.assertEqual(state_data["workflow_id"], "abc-123")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

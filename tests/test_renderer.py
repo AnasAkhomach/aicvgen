@@ -1,16 +1,27 @@
 import unittest
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from template_renderer import TemplateRenderer
-from state_manager import ContentData, StructuredCV, Section, Subsection, Item, ItemStatus, ItemType
+from state_manager import (
+    ContentData,
+    StructuredCV,
+    Section,
+    Subsection,
+    Item,
+    ItemStatus,
+    ItemType,
+)
 from unittest.mock import MagicMock, patch
+
 
 class MockLLM(MagicMock):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Add a mock method to identify this as a test environment
         self._extract_mock_name = lambda: "mock_llm_for_testing"
+
 
 class TestTemplateRenderer(unittest.TestCase):
     def setUp(self):
@@ -20,11 +31,15 @@ class TestTemplateRenderer(unittest.TestCase):
             description="Test description",
             model=self.mock_llm,
             input_schema={"input": dict, "output": str, "description": "Input schema"},
-            output_schema={"input": dict, "output": str, "description": "Output schema"}
+            output_schema={
+                "input": dict,
+                "output": str,
+                "description": "Output schema",
+            },
         )
-        
+
         # Add a patch for _render_test_template to return expected values based on the test
-        patcher = patch.object(self.renderer, '_render_test_template')
+        patcher = patch.object(self.renderer, "_render_test_template")
         self.mock_render = patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -32,10 +47,13 @@ class TestTemplateRenderer(unittest.TestCase):
         """Test run method with a ContentData object containing all fields."""
         content_data = ContentData(
             summary="A results-oriented professional.",
-            experience_bullets=["Achieved X by doing Y.", "Improved Z by implementing W."],
+            experience_bullets=[
+                "Achieved X by doing Y.",
+                "Improved Z by implementing W.",
+            ],
             skills_section="Python, JavaScript, Testing.",
             projects=["Project Alpha", "Project Beta"],
-            other_content={"Awards": "Employee of the Year"}
+            other_content={"Awards": "Employee of the Year"},
         )
         expected_markdown = """# Tailored CV
 
@@ -59,7 +77,7 @@ Employee of the Year
 """
         # Configure the mock to return the expected value
         self.mock_render.return_value = expected_markdown
-        
+
         rendered_cv = self.renderer.run(content_data)
         self.assertEqual(rendered_cv, expected_markdown)
         self.mock_render.assert_called_once_with(content_data)
@@ -67,11 +85,11 @@ Employee of the Year
     def test_run_with_missing_fields(self):
         """Test run method with a ContentData object missing some fields."""
         content_data = ContentData(
-            summary="", # Empty string
-            experience_bullets=[], # Empty list
+            summary="",  # Empty string
+            experience_bullets=[],  # Empty list
             skills_section="Relevant Skills.",
-            projects=[], # Empty list
-            other_content={} # Empty dictionary
+            projects=[],  # Empty list
+            other_content={},  # Empty dictionary
         )
 
         expected_markdown = """# Tailored CV
@@ -82,7 +100,7 @@ Relevant Skills.
 """
         # Configure the mock to return the expected value
         self.mock_render.return_value = expected_markdown
-        
+
         rendered_cv = self.renderer.run(content_data)
         self.assertEqual(rendered_cv, expected_markdown)
         self.mock_render.assert_called_once_with(content_data)
@@ -95,13 +113,13 @@ Relevant Skills.
             experience_bullets=[],
             skills_section="",
             projects=[],
-            other_content={}
+            other_content={},
         )
         expected_markdown_falsy = """# Tailored CV"""
-        
+
         # Configure the mock for this test
         self.mock_render.return_value = expected_markdown_falsy
-        
+
         rendered_cv_falsy = self.renderer.run(content_data_falsy)
         self.assertEqual(rendered_cv_falsy, expected_markdown_falsy)
         self.mock_render.assert_called_with(content_data_falsy)
@@ -111,7 +129,7 @@ Relevant Skills.
         # Test with empty string
         expected_markdown = "# Tailored CV\n\nNo content provided."
         self.mock_render.return_value = expected_markdown
-        
+
         result = self.renderer.run("")
         self.assertEqual(result, expected_markdown)
         self.mock_render.assert_called_with("")
@@ -121,7 +139,7 @@ Relevant Skills.
         input_text = "This is a sample CV text."
         expected_markdown = "# Tailored CV\n\nThis is a sample CV text."
         self.mock_render.return_value = expected_markdown
-        
+
         result = self.renderer.run(input_text)
         self.assertEqual(result, expected_markdown)
         self.mock_render.assert_called_with(input_text)
@@ -131,7 +149,7 @@ Relevant Skills.
         markdown_text = "# My CV\n\n## Experience\n- Job 1\n- Job 2"
         expected_markdown = markdown_text
         self.mock_render.return_value = expected_markdown
-        
+
         result = self.renderer.run(markdown_text)
         self.assertEqual(result, expected_markdown)
         self.mock_render.assert_called_with(markdown_text)
@@ -145,13 +163,10 @@ Relevant Skills.
                 "company": "Tech Solutions Inc.",
                 "period": "2018-2022",
                 "location": "New York, NY",
-                "bullets": [
-                    "Led a team of 5 developers",
-                    "Implemented CI/CD pipeline"
-                ]
+                "bullets": ["Led a team of 5 developers", "Implemented CI/CD pipeline"],
             }
         ]
-        
+
         expected_markdown = """# Tailored CV
 
 ## Professional Experience
@@ -161,7 +176,7 @@ Relevant Skills.
 * Implemented CI/CD pipeline
 """
         self.mock_render.return_value = expected_markdown
-        
+
         result = self.renderer.run(content)
         self.assertEqual(result, expected_markdown)
         self.mock_render.assert_called_with(content)
@@ -176,11 +191,11 @@ Relevant Skills.
                 "technologies": ["React", "Node.js", "MongoDB"],
                 "bullets": [
                     "Implemented user authentication",
-                    "Designed responsive UI"
-                ]
+                    "Designed responsive UI",
+                ],
             }
         ]
-        
+
         expected_markdown = """# Tailored CV
 
 ## Project Experience
@@ -191,7 +206,7 @@ A full-stack e-commerce solution
 * Designed responsive UI
 """
         self.mock_render.return_value = expected_markdown
-        
+
         result = self.renderer.run(content)
         self.assertEqual(result, expected_markdown)
         self.mock_render.assert_called_with(content)
@@ -205,10 +220,10 @@ A full-stack e-commerce solution
                 "institution": "XYZ University",
                 "year": "2020",
                 "location": "Boston, MA",
-                "achievements": ["GPA: 3.9/4.0", "Dean's List"]
+                "achievements": ["GPA: 3.9/4.0", "Dean's List"],
             }
         ]
-        
+
         expected_markdown = """# Tailored CV
 
 ## Education
@@ -218,7 +233,7 @@ A full-stack e-commerce solution
 * Dean's List
 """
         self.mock_render.return_value = expected_markdown
-        
+
         result = self.renderer.run(content)
         self.assertEqual(result, expected_markdown)
         self.mock_render.assert_called_with(content)
@@ -228,11 +243,13 @@ A full-stack e-commerce solution
         content = ContentData()
         # Other fields should be ignored if formatted_cv_text is present
         content["summary"] = "This should be ignored."
-        content["formatted_cv_text"] = "# Pre-formatted CV\n\nThis CV was pre-formatted."
-        
+        content["formatted_cv_text"] = (
+            "# Pre-formatted CV\n\nThis CV was pre-formatted."
+        )
+
         expected_markdown = "# Pre-formatted CV\n\nThis CV was pre-formatted."
         self.mock_render.return_value = expected_markdown
-        
+
         result = self.renderer.run(content)
         self.assertEqual(result, expected_markdown)
         self.mock_render.assert_called_with(content)
@@ -244,21 +261,23 @@ A full-stack e-commerce solution
         structured_cv.metadata = {
             "name": "John Doe",
             "email": "john@example.com",
-            "phone": "+1234567890"
+            "phone": "+1234567890",
         }
-        
+
         # Add professional profile section
         profile_section = Section(name="Professional Profile", content_type="DYNAMIC")
-        profile_section.items.append(Item(
-            content="Experienced software developer with expertise in Python and JavaScript.",
-            status=ItemStatus.GENERATED,
-            item_type=ItemType.SUMMARY_PARAGRAPH
-        ))
+        profile_section.items.append(
+            Item(
+                content="Experienced software developer with expertise in Python and JavaScript.",
+                status=ItemStatus.GENERATED,
+                item_type=ItemType.SUMMARY_PARAGRAPH,
+            )
+        )
         structured_cv.sections.append(profile_section)
-        
+
         # Convert to ContentData
         content_data = structured_cv.to_content_data()
-        
+
         expected_markdown = """# John Doe
 
 📞 +1234567890 | 📧 john@example.com
@@ -268,10 +287,11 @@ Experienced software developer with expertise in Python and JavaScript.
 """
         # Configure the mock to return the expected value
         self.mock_render.return_value = expected_markdown
-        
+
         rendered_cv = self.renderer.run(content_data)
         self.assertEqual(rendered_cv, expected_markdown)
         self.mock_render.assert_called_with(content_data)
 
-if __name__ == '__main__':
-    unittest.main() 
+
+if __name__ == "__main__":
+    unittest.main()

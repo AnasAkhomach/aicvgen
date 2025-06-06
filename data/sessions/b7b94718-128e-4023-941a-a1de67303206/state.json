@@ -1,0 +1,561 @@
+{
+  "id": "b7b94718-128e-4023-941a-a1de67303206",
+  "sections": [
+    {
+      "id": "2477c02a-679f-49fc-b9a0-74e3ebe592fc",
+      "name": "Executive Summary",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "c0acd9a3-34e7-40ff-93eb-a6dfa9d9f647",
+          "content": "Adept professional skilled in **cloud infrastructure automation**. Experience designing and implementing infrastructure with Python, SQL, AWS, Azure, and Docker. Excels at automating deployments, troubleshooting, and optimizing performance in AI/ML environments.",
+          "status": "generated",
+          "item_type": "summary_paragraph",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Executive Summary",
+      "order": 0,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "d9e7d302-1f46-4375-a9c1-c01918505a25",
+      "name": "Key Qualifications",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "4edf8a27-21e7-45d0-91ef-93f432971068",
+          "content": "Python Proficiency",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "0ba9a846-ea43-4758-bbc1-2685b0db06e6",
+          "content": "Python Proficiency",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "941840ee-3bbc-4127-948b-7028aada85a2",
+          "content": "Python Development",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "0b7dbb55-88f1-4d45-a6b8-1ad5cfc219a2",
+          "content": "Python Development",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "31f765e4-6cf7-4b28-b725-efc223a883f0",
+          "content": "Main Job Description:",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "0d2f9e04-117f-409e-b570-584c02209a43",
+          "content": "Python Automation",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Key Qualifications",
+      "order": 1,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "2d9424e6-b978-405e-a8e2-c72c4358b35c",
+      "name": "Professional Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "ef4ddf76-a5de-48b3-aabe-36e7c00360e0",
+          "name": "Trainee Data Analyst",
+          "items": [
+            {
+              "id": "063357b6-2261-4dfc-82cc-6bacc4cfda5d",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "39b7b8b0-f16b-4f4d-a1bc-532a10d6fe32",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "d7e67ab6-6d14-4dc4-9b51-b4174869e969",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Trainee Data Analyst "
+        },
+        {
+          "id": "da418a6f-edb8-4e63-963c-113c0f53a8c3",
+          "name": "IT trainer",
+          "items": [
+            {
+              "id": "3cbd18e1-2f6f-49f3-bc51-dc0576135f19",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "df3a5e14-434b-4de9-be2a-194b72b29e8f",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "fc1f20fe-ec8c-42dd-bbab-4ee8a9a48aa7",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### IT trainer"
+        },
+        {
+          "id": "caba7aa1-bd18-4630-bfae-f6c81724462c",
+          "name": "Mathematics teacher",
+          "items": [
+            {
+              "id": "e8262281-ef6f-4f82-8429-229b35cb537f",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "9137cc46-27b9-4b41-be0b-790d4c1c0c40",
+              "content": "Kubernetes*: Designed & implemented CI/CD pipeline using Kubernetes, reducing deployment time by 60%.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "9f620fa8-0b67-4e9e-9a3e-b8bbacab59ef",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Mathematics teacher"
+        },
+        {
+          "id": "2d0f95d0-cdaf-45ff-9e01-f3e37c0a1a37",
+          "name": "Indie Mobile Game Developer",
+          "items": [
+            {
+              "id": "844017e5-d810-4dae-8a29-62a22ed721ad",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "604950de-30d1-4022-992e-3f8059ec51ed",
+              "content": "*Input Roles:**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "a6318447-6c93-4239-842a-c818da7dd873",
+              "content": "Python*: Developed Python scripts for data analysis and model training, resulting in a 15% performance improvement.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Indie Mobile Game Developer"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Professional Experience",
+      "order": 2,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "09b9bc22-5958-4bb1-a3ba-098824eb4c53",
+      "name": "Project Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "3ce063c1-6cdd-4513-a455-2a661707970a",
+          "name": "ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA",
+          "items": [
+            {
+              "id": "a00636a3-8082-48e1-8240-4790b5c09033",
+              "content": "*Tools**: Sylob ERP, SQL, Excel VBA",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "5da53240-db57-4e50-a95e-ff298627f383",
+              "content": "*Tools**: {{tools}}",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "079d1449-088f-4799-a3ce-3c948665d629",
+              "content": "*Tools**: Sylob ERP, SQL, Excel VBA",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA"
+        },
+        {
+          "id": "921b0f5b-454d-4a0a-96dc-81716696980d",
+          "name": "SQL Analytics Project | SQL, Data Visualization",
+          "items": [
+            {
+              "id": "e7c97f06-5e77-4399-b661-3d5de6455b79",
+              "content": "*Tools**: {{tools}}",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "14db0905-b72e-4612-b0e3-4d0e21d8166f",
+              "content": "*Tools**: {{tools}}",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "1d45a918-d683-4c17-b837-8cb3b4d34fe6",
+              "content": "*Tools**: {{tools}}",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### SQL Analytics Project | SQL, Data Visualization"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Project Experience",
+      "order": 3,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "99aaf026-742e-42a9-9e75-5c63707b4bf8",
+      "name": "Education",
+      "content_type": "STATIC",
+      "subsections": [
+        {
+          "id": "634cdccb-1d64-4c3b-b8e2-d36218557552",
+          "name": "Master in Data Analytics Engineering",
+          "items": [
+            {
+              "id": "bd5b1367-0f26-44f8-b341-de10da71acae",
+              "content": "Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "366ad631-be53-45a3-8986-dd39f0155824",
+              "content": "Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "aafe8d98-aaca-4cfa-b3df-e2422bce7759",
+              "content": "Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Master in Data Analytics Engineering"
+        },
+        {
+          "id": "ec8e4d1b-c776-41eb-9311-263de3ecdff0",
+          "name": "Teacher Training Centre (CRMEFs)",
+          "items": [
+            {
+              "id": "cdcd8249-ab79-4aed-a34b-c4f253a568f5",
+              "content": "Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "d0680d22-04d5-4e2d-9bcc-e8f5612c2831",
+              "content": "Specialized in innovative instructional strategies for teaching math concepts to adolescents",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "2346a36e-20b1-46c4-9d91-07f9f922b9c8",
+              "content": "Graduated with highest honors (16.75/20)",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Teacher Training Centre (CRMEFs)"
+        },
+        {
+          "id": "fefd4884-52d9-4c4b-ab17-5d2916271f47",
+          "name": "Bachelor in Mathematics",
+          "items": [
+            {
+              "id": "4ed72440-afaf-4c3b-8b58-82f778b5b5d0",
+              "content": "Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "3469d72c-8156-4ca7-b652-00f75eb3623b",
+              "content": "Mathematical Modeling and linear programming",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "ac9597aa-22d1-4abd-9081-2b37aa69014d",
+              "content": "Thesis: Applications of Mathematical Models in Agriculture",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Bachelor in Mathematics"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Education",
+      "order": 4,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "edbc4ca0-d09b-4203-9530-4eda5a521950",
+      "name": "Certifications",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "d5baa7ca-19c1-4720-9792-57002ede51ae",
+          "content": "Applied Data Science with Python - Professional Certificate, IBM (2023)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "322aa17f-391b-4fdc-8385-fe874dcab737",
+          "content": "Data Visualization with Tableau - Coursera, University of California Davis (2022)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "98713159-6c9a-4611-bae0-2e76e97271e1",
+          "content": "Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "6ae75fc0-90d3-4743-b79f-0a75fcc69688",
+          "content": "Machine Learning with Python - Kaggle (2020)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "58dc1632-1bed-4778-89b5-ff4b9773bb7f",
+          "content": "Advanced Teacher Certification - Moroccan Department of Education (2018)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Certifications",
+      "order": 5,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "b50cd33f-fd1e-4ec0-9aa5-55fbef7b006b",
+      "name": "Languages",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "94b8cf94-4ba0-4f02-8552-2626c46e12c9",
+          "content": "Arabic (native) | English (B2) | German (B2) | French (B2) | Spanish (B1)",
+          "status": "static",
+          "item_type": "language_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Languages",
+      "order": 6,
+      "status": "initial",
+      "user_feedback": null
+    }
+  ],
+  "metadata": {
+    "job_description": {
+      "raw_text": "Work\nAI engineer\nAI Engineer (m/f/d)\nevocenta GmbH\nFull-time\nGelsenkirchen\nfrom now on\npermanent\n30+ days ago\nEmployer logo\nJob description\nWhat you can expect from us:\n\nYou'll have plenty of freedom to contribute ideas and extensive opportunities to realize your potential. You'll support our AI solution from conception through implementation to the operational phase. We also offer excellent development opportunities within a rapidly growing, international technology company. In a key position at a solutions provider, you'll have the opportunity, with considerable freedom, to actively influence today's hyper-topic: artificial intelligence.\n\nYour tasks:\n\nThe design and implementation of the infrastructure\nAutomating the application deployment process\nSupport with troubleshooting and troubleshooting\nMonitoring and optimizing performance\nMaintenance and updating of the infrastructure and the application\nCollection of important data and reporting\nStay informed about the latest developments\nImplementation of suitable ML algorithms\nDesigning and developing machine learning systems\nCreate models, perform analyses\nYour profile:\n\nCompleted studies with a focus on computer science\nProficiency in programming languages \u200b\u200bsuch as Python and SQL\nExperience with cloud computing platforms such as AWS, Azure or Google Cloud\nKnowledge of containerization technologies such as Docker and Kubernetes\nFamiliarity with infrastructure automation tools such as Ansible, Chef or Puppet\nFamiliarity with CI/CD pipelines\nExperience with databases such as PostgreSQL or MongoDB\nKnowledge of software development methods such as Agile and DevOps\nExperience with machine learning, especially model deployment\nBasic understanding of numerical mathematics, probability and statistics\nExperience in working with web servers, proxies, API gateways\nYour benefits:\n\nExcellent development opportunities in a rapidly growing company\nAttractive remuneration\nIndividual professional and personal development opportunities\nModern workplace\nExclusive employee offers (corporate benefits)\nCompany parties, employee and company events\nDiscounted lunch\nFresh organic fruit, coffee / tea variations (milk/oat milk) and (chilled) water\nWe offer you a responsible, interesting and varied job in a dynamic, innovative environment and the opportunity to contribute and further develop your skills and knowledge.\n\nIf you're interested, we'd be happy to receive your profile. We'd also be happy to provide you with further information during an initial phone call.\n\nWorkplaces\n\nShow map\nMunscheidstr. 14, 45886 Gelsenkirchen\nCompany profile: evocenta GmbHEmployer logo\nevocenta GmbH\n\nHeadquarters: Gelsenkirchen\nFounded: 2020\nCompany size: 50-100\nWe are evocenta GmbH, a high-tech company specializing in applied artificial intelligence. At the heart of our solutions is our proprietary \"AI as a Service\" solution, EMMA\u00ae, which enables intelligent automation at the customer interface. We also support our customers in the successful transformation of their digital processes.\n\nHomepage\nView all open positions\nView full company profile\nInformation on the application\nSecurity query\nWe protect the employer's contact information from unauthorized access. Please enter the characters shown in the text field to display the employer's contact information.\n\nSecurity query\nLoad another image\nPlay audio version\nNote: The characters shown do not contain umlauts (\u00e4, \u00f6, \u00fc or \u00df), special characters or spaces.\n\nCharacters shown\nSubmit\nFoot area\n\nPosition supervised by the BA\n\nReference No.: 10001-1000754217-S\nLast edited on: 14.03.2025\nReport violation",
+      "skills": [
+        "Python",
+        "SQL",
+        "AWS",
+        "Azure",
+        "Google Cloud",
+        "Docker",
+        "Kubernetes",
+        "Ansible",
+        "Chef",
+        "Puppet",
+        "CI/CD pipelines",
+        "PostgreSQL",
+        "MongoDB",
+        "Agile",
+        "DevOps",
+        "Machine learning",
+        "Numerical mathematics",
+        "Probability",
+        "Statistics",
+        "Web servers",
+        "Proxies",
+        "API gateways"
+      ],
+      "experience_level": [
+        "Not specified, but implies some experience due to responsibilities and required skills."
+      ],
+      "responsibilities": [
+        "Design and implementation of the infrastructure",
+        "Automating the application deployment process",
+        "Support with troubleshooting",
+        "Monitoring and optimizing performance",
+        "Maintenance and updating of the infrastructure and the application",
+        "Collection of important data and reporting",
+        "Stay informed about the latest developments",
+        "Implementation of suitable ML algorithms",
+        "Designing and developing machine learning systems",
+        "Create models, perform analyses"
+      ],
+      "industry_terms": [
+        "AI",
+        "Artificial intelligence",
+        "Machine learning",
+        "Cloud computing",
+        "Containerization",
+        "Infrastructure automation",
+        "CI/CD",
+        "Databases",
+        "Agile",
+        "DevOps",
+        "Model deployment",
+        "Web servers",
+        "Proxies",
+        "API gateways",
+        "AI as a Service",
+        "EMMA\u00ae"
+      ],
+      "company_values": [
+        "Freedom to contribute ideas",
+        "Opportunities to realize potential",
+        "Excellent development opportunities",
+        "Dynamic environment",
+        "Innovative environment",
+        "Responsibility",
+        "Interesting work",
+        "Varied work"
+      ],
+      "error": null
+    },
+    "original_cv_text": "**Anas AKHOMACH** | \ud83d\udcde (+212) 600310536 | \ud83d\udce7 [anasakhomach205@gmail.com](mailto:anasakhomach205@gmail.com) | \ud83d\udd17 [LinkedIn](https://www.linkedin.com/in/anas-akhomach/) | \ud83d\udcbb [GitHub](https://github.com/AnasAkhomach)  \n---\n\n### Executive Summary\n\nData analyst with an educational background and strong communication skills. I combine in-depth knowledge of SQL, Python and Power BI with the ability to communicate complex topics in an easily understandable way.  \n---\n\n### Key Qualifications\n\nProcess optimization | Multilingual Service | Friendly communication | Data-Driven Sales | SQL | Python | Power BI | Excel\n---\n\n### Professional Experience\n\n#### Trainee Data Analyst \n\n[*STE Smart-Send*](https://annoncelegale.flasheconomie.com/smart-send/) *| Tetouan, Morocco (Jan. 2024 \u2013 Mar. 2024)*\n\n* Data-Driven Sales: Increased ROI using SQL/Python segmentation and timely Power BI metrics.  \n* Process optimization: Streamlined KPI tracking, shortened decision time for a team of three people.  \n* Teamwork: Developed solutions for different customer segments to improve customer service.\n\n#### IT trainer\n\n[*Supply Chain Management Center*](https://www.scmc.ma/) *| Tetouan, Morocco (June \u2013 Sep 2022, Jun \u2013 Sep 2024)*\n\n* Technical Training: Conducted 100+ ERP dashboard sessions (MS Excel) with 95% satisfaction.  \n* Friendly communication: Illustrated content with case studies for a quick start.  \n* Process improvement: Focused on automated reporting and reduced manual data entry.\n\n#### Mathematics teacher\n\n[*Martile Secondary School*](https://www.facebook.com/ETChamsMartil/?locale=fr_FR) *| Tetouan, Morocco (Sep. 2017 \u2013 Jun. 2024)* \n\n* User Retention: Increased the class average from 3.7 to 3.3 through personalized learning plans and GeoGebra.  \n* Friendly communication: Successfully guided 5+ students to top 10 placements in math competitions.  \n* Multilingual Service: Supported non-native speakers in diverse classroom environments.\n\n#### Indie Mobile Game Developer\n\nUnity\n\n* Bullet 1: (AI-adjusted description)  \n* Bullet 2: (AI-adjusted description)  \n* Bullet 3: (AI-adjusted description)\n\n---\n\n### Project Experience\n\n#### ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA\n\n* Automated manual data entry for raw material receiving and warehouse management, reducing manual errors and improving operational efficiency.\n* Development and deployment of interactive Sylob ERP dashboards for warehouse staff and dock agents, providing real-time metrics and actionable insights.\n* Integrated QR code scanners and rugged tablets to optimize material tracking, reduce processing time, and improve inventory accuracy by 35%.\n\n#### SQL Analytics Project | SQL, Data Visualization\n\n* Led a SQL-based analysis of an e-commerce database to optimize marketing budget and increase website traffic by 22%.\n* Conducted A/B tests that improved checkout page conversion rates by 15% and reduced bounce rates by 22%.\n* Worked with stakeholders to translate data insights into actionable strategies, resulting in a 12% reduction in cost per acquisition.\n\n---\n\n### Education\n\n#### Master in Data Analytics Engineering\n\n*School of Information Sciences, T\u00e9touan (Sep. 2023 - Present)*\n\n* Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies  \n* Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.  \n* Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).\n\n#### Teacher Training Centre (CRMEFs)\n\n*CRMEFs (Sep. 2015- Jul. 2017)*\n\n*  Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies  \n*  Specialized in innovative instructional strategies for teaching math concepts to adolescents  \n*  Graduated with highest honors (16.75/20)\n\n#### Bachelor in Mathematics\n\n*Faculty of Sciences (Sep. 2011 - Jul. 2015)*\n\n*  Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis  \n*  Mathematical Modeling and linear programming  \n*  Thesis: Applications of Mathematical Models in Agriculture\n\n---\n\n### Certifications\n\n* Applied Data Science with Python - Professional Certificate, IBM (2023)  \n* Data Visualization with Tableau - Coursera, University of California Davis (2022)  \n* Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)  \n* Machine Learning with Python - Kaggle (2020)  \n* Advanced Teacher Certification - Moroccan Department of Education (2018)\n\n---\n\n### Languages\n\n* Arabic (native) | English (B2) | German (B2) | French (B2) | Spanish (B1)\n",
+    "name": "Anas AKHOMACH",
+    "email": "anasakhomach205@gmail.com",
+    "phone": "(+212) 600310536",
+    "linkedin": "https://www.linkedin.com/in/anas-akhomach/",
+    "github": "https://github.com/AnasAkhomach",
+    "main_jd_text": "Work\nAI engineer\nAI Engineer (m/f/d)\nevocenta GmbH\nFull-time\nGelsenkirchen\nfrom now on\npermanent\n30+ days ago\nEmployer logo\nJob description\nWhat you can expect from us:\n\nYou'll have plenty of freedom to contribute ideas and extensive opportunities to realize your potential. You'll support our AI solution from conception through implementation to the operational phase. We also offer excellent development opportunities within a rapidly growing, international technology company. In a key position at a solutions provider, you'll have the opportunity, with considerable freedom, to actively influence today's hyper-topic: artificial intelligence.\n\nYour tasks:\n\nThe design and implementation of the infrastructure\nAutomating the application deployment process\nSupport with troubleshooting and troubleshooting\nMonitoring and optimizing performance\nMaintenance and updating of the infrastructure and the application\nCollection of important data and reporting\nStay informed about the latest developments\nImplementation of suitable ML algorithms\nDesigning and developing machine learning systems\nCreate models, perform analyses\nYour profile:\n\nCompleted studies with a focus on computer science\nProficiency in programming languages \u200b\u200bsuch as Python and SQL\nExperience with cloud computing platforms such as AWS, Azure or Google Cloud\nKnowledge of containerization technologies such as Docker and Kubernetes\nFamiliarity with infrastructure automation tools such as Ansible, Chef or Puppet\nFamiliarity with CI/CD pipelines\nExperience with databases such as PostgreSQL or MongoDB\nKnowledge of software development methods such as Agile and DevOps\nExperience with machine learning, especially model deployment\nBasic understanding of numerical mathematics, probability and statistics\nExperience in working with web servers, proxies, API gateways\nYour benefits:\n\nExcellent development opportunities in a rapidly growing company\nAttractive remuneration\nIndividual professional and personal development opportunities\nModern workplace\nExclusive employee offers (corporate benefits)\nCompany parties, employee and company events\nDiscounted lunch\nFresh organic fruit, coffee / tea variations (milk/oat milk) and (chilled) water\nWe offer you a responsible, interesting and varied job in a dynamic, innovative environment and the opportunity to contribute and further develop your skills and knowledge.\n\nIf you're interested, we'd be happy to receive your profile. We'd also be happy to provide you with further information during an initial phone call.\n\nWorkplaces\n\nShow map\nMunscheidstr. 14, 45886 Gelsenkirchen\nCompany profile: evocenta GmbHEmployer logo\nevocenta GmbH\n\nHeadquarters: Gelsenkirchen\nFounded: 2020\nCompany size: 50-100\nWe are evocenta GmbH, a high-tech company specializing in applied artificial intelligence. At the heart of our solutions is our proprietary \"AI as a Service\" solution, EMMA\u00ae, which enables intelligent automation at the customer interface. We also support our customers in the successful transformation of their digital processes.\n\nHomepage\nView all open positions\nView full company profile\nInformation on the application\nSecurity query\nWe protect the employer's contact information from unauthorized access. Please enter the characters shown in the text field to display the employer's contact information.\n\nSecurity query\nLoad another image\nPlay audio version\nNote: The characters shown do not contain umlauts (\u00e4, \u00f6, \u00fc or \u00df), special characters or spaces.\n\nCharacters shown\nSubmit\nFoot area\n\nPosition supervised by the BA\n\nReference No.: 10001-1000754217-S\nLast edited on: 14.03.2025\nReport violation"
+  }
+}

@@ -24,7 +24,7 @@ vector_db = VectorDB(config=vector_config)
 parser_agent = ParserAgent(
     name="Job Description Parser",
     description="Parses job descriptions to extract key information.",
-    llm=llm
+    llm=llm,
 )
 
 template_renderer = TemplateRenderer(
@@ -34,42 +34,30 @@ template_renderer = TemplateRenderer(
     input_schema=AgentIO(
         input={"cv_content": dict},
         output=str,
-        description="Renders a CV based on structured content."
+        description="Renders a CV based on structured content.",
     ),
     output_schema=AgentIO(
         input={"cv_content": dict},
         output=str,
-        description="The rendered CV in markdown format."
-    )
+        description="The rendered CV in markdown format.",
+    ),
 )
 
 vector_store_agent = VectorStoreAgent(
     name="Vector Store Agent",
     description="Manages vector store operations.",
     model=llm,
-    input_schema=AgentIO(
-        input={},
-        output={},
-        description="Vector store operations input."
-    ),
-    output_schema=AgentIO(
-        input={},
-        output={},
-        description="Vector store operations output."
-    ),
-    vector_db=vector_db
+    input_schema=AgentIO(input={}, output={}, description="Vector store operations input."),
+    output_schema=AgentIO(input={}, output={}, description="Vector store operations output."),
+    vector_db=vector_db,
 )
 
 research_agent = ResearchAgent(
-    name="Research Agent",
-    description="Conducts research for CV enhancement.",
-    llm=llm
+    name="Research Agent", description="Conducts research for CV enhancement.", llm=llm
 )
 
 cv_analyzer_agent = CVAnalyzerAgent(
-    name="CV Analyzer",
-    description="Analyzes CVs to extract key information.",
-    llm=llm
+    name="CV Analyzer", description="Analyzes CVs to extract key information.", llm=llm
 )
 
 tools_agent = ToolsAgent(
@@ -81,17 +69,16 @@ content_writer_agent = ContentWriterAgent(
     name="Content Writer",
     description="Generates content for the CV.",
     llm=llm,
-    tools_agent=tools_agent
+    tools_agent=tools_agent,
 )
 
 formatter_agent = FormatterAgent(
-    name="Formatter Agent",
-    description="Formats CV content into presentable text."
+    name="Formatter Agent", description="Formats CV content into presentable text."
 )
 
 quality_assurance_agent = QualityAssuranceAgent(
     name="Quality Assurance Agent",
-    description="Ensures CV quality and alignment with job requirements."
+    description="Ensures CV quality and alignment with job requirements.",
 )
 
 # Initialize the orchestrator
@@ -105,7 +92,7 @@ orchestrator = Orchestrator(
     tools_agent=tools_agent,
     formatter_agent=formatter_agent,
     quality_assurance_agent=quality_assurance_agent,
-    llm=llm
+    llm=llm,
 )
 
 # Test data
@@ -116,11 +103,11 @@ user_cv_data = CVData(
     summary="",
     skills=[],
     education=[],
-    projects=[]
+    projects=[],
 )
 
 # Run the workflow
 print("Starting workflow test...")
 result = orchestrator.run_workflow(job_description, user_cv_data)
 print("\nWorkflow result:")
-print(result) 
+print(result)

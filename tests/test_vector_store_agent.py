@@ -2,7 +2,8 @@ import unittest
 from unittest.mock import MagicMock, call
 from vector_store_agent import VectorStoreAgent
 from state_manager import VectorStoreConfig, AgentIO
-from agent_base import AgentBase # Import AgentBase to define a concrete subclass
+from agent_base import AgentBase  # Import AgentBase to define a concrete subclass
+
 
 # Define a concrete subclass of VectorStoreAgent for testing
 class ConcreteVectorStoreAgent(VectorStoreAgent):
@@ -21,6 +22,7 @@ class ConcreteVectorStoreAgent(VectorStoreAgent):
         """Concrete implementation of run_search for testing."""
         return self.vector_store.search(query_text, k)
 
+
 class TestVectorStoreAgent(unittest.TestCase):
 
     def setUp(self):
@@ -33,14 +35,12 @@ class TestVectorStoreAgent(unittest.TestCase):
             description="Agent for managing a vector store.",
             model=self.mock_model,
             input_schema=AgentIO(
-                input={},
-                description="Input schema for vector store operations."
+                input={}, description="Input schema for vector store operations."
             ),
             output_schema=AgentIO(
-                output={},
-                description="Output schema for vector store operations."
+                output={}, description="Output schema for vector store operations."
             ),
-            vector_db=self.mock_vector_db
+            vector_db=self.mock_vector_db,
         )
 
     def test_init(self):
@@ -51,10 +51,10 @@ class TestVectorStoreAgent(unittest.TestCase):
         self.assertEqual(self.agent.vector_store, self.mock_vector_db)
         self.assertEqual(self.agent.config, self.mock_config)
         # Validate schema attributes directly
-        self.assertTrue('input' in self.agent.input_schema)
-        self.assertTrue('description' in self.agent.input_schema)
-        self.assertTrue('output' in self.agent.output_schema)
-        self.assertTrue('description' in self.agent.output_schema)
+        self.assertTrue("input" in self.agent.input_schema)
+        self.assertTrue("description" in self.agent.input_schema)
+        self.assertTrue("output" in self.agent.output_schema)
+        self.assertTrue("description" in self.agent.output_schema)
 
     def test_run_add_item(self):
         """Test the run_add_item method."""
@@ -64,7 +64,9 @@ class TestVectorStoreAgent(unittest.TestCase):
         self.agent.run_add_item(item_to_add, text=text_for_embedding)
 
         # Assert that vector_store.add_item was called with the correct arguments
-        self.mock_vector_db.add_item.assert_called_once_with(item_to_add, text_for_embedding)
+        self.mock_vector_db.add_item.assert_called_once_with(
+            item_to_add, text_for_embedding
+        )
 
     def test_run_search(self):
         """Test the run_search method."""
@@ -83,5 +85,6 @@ class TestVectorStoreAgent(unittest.TestCase):
         # Assert that the method returned the result from vector_store.search
         self.assertEqual(results, mock_search_results)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ from agent_base import AgentBase
 from state_manager import AgentIO
 from typing import Any, Dict, List
 
+
 class ToolsAgent(AgentBase):
     """
     Agent responsible for providing tool access for content processing and validation.
@@ -20,8 +21,8 @@ class ToolsAgent(AgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                input=Any, # This agent's overall input might vary depending on the tool being used
-                output=Any, # This agent's overall output might vary
+                input=Any,  # This agent's overall input might vary depending on the tool being used
+                output=Any,  # This agent's overall output might vary
                 description="Input for a specific tool function.",
             ),
             output_schema=AgentIO(
@@ -35,7 +36,9 @@ class ToolsAgent(AgentBase):
         """
         The main run method for the agent (might not be used directly if methods are called).
         """
-        raise NotImplementedError("ToolsAgent methods should be called directly (e.g., format_text, validate_content).")
+        raise NotImplementedError(
+            "ToolsAgent methods should be called directly (e.g., format_text, validate_content)."
+        )
 
     def format_text(self, text: str, format_type: str = "markdown") -> str:
         """
@@ -72,7 +75,7 @@ class ToolsAgent(AgentBase):
         print("Simulating content validation...")
         # Placeholder validation logic
         validation_results = {
-            "is_valid": True, # Assume valid for simulation
+            "is_valid": True,  # Assume valid for simulation
             "feedback": "Content looks good (simulated).",
             "matched_requirements": [],
             "missing_requirements": [],
@@ -83,7 +86,9 @@ class ToolsAgent(AgentBase):
                 validation_results["matched_requirements"].append(req)
             else:
                 validation_results["missing_requirements"].append(req)
-                validation_results["is_valid"] = False # Mark as invalid if any requirement is missing
+                validation_results["is_valid"] = (
+                    False  # Mark as invalid if any requirement is missing
+                )
                 validation_results["feedback"] = "Content is missing some requirements (simulated)."
 
         return validation_results

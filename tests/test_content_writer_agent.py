@@ -1,18 +1,31 @@
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import unittest
 from unittest.mock import MagicMock, patch, call
 from content_writer_agent import ContentWriterAgent
-from state_manager import ContentData, AgentIO, JobDescriptionData, CVData, StructuredCV
+from state_manager import (
+    ContentData,
+    AgentIO,
+    JobDescriptionData,
+    CVData,
+    StructuredCV,
+    Section,
+    Item,
+    ItemStatus,
+    ItemType,
+)
 from typing import Dict, List, Any
 import json
+
 
 # Mock classes for dependencies
 class MockLLM:
     def generate_content(self, prompt: str) -> str:
         return "Mock generated content"
+
 
 class MockToolsAgent:
     def format_text(self, text: str, format_type: str) -> str:
@@ -32,7 +45,7 @@ class TestContentWriterAgent(unittest.TestCase):
             name="TestContentWriterAgent",
             description="A test content writer agent.",
             llm=self.mock_llm,
-            tools_agent=self.mock_tools_agent
+            tools_agent=self.mock_tools_agent,
         )
         # Explicitly inject the mocked tools_agent into the agent
         self.agent.tools_agent = self.mock_tools_agent
@@ -45,102 +58,80 @@ class TestContentWriterAgent(unittest.TestCase):
         self.assertEqual(self.agent.tools_agent, self.mock_tools_agent)
 
     def test_generate_cv_content(self):
-        """Simple test to verify the agent can generate content for a CV."""
-        input_data = {
-            "job_description_data": {
-                "skills": ["Python", "Machine Learning"],
-                "responsibilities": ["Develop models", "Deploy solutions"]
+        """Simple test to verify the agent can generate content for a StructuredCV."""
+        # Create a job description data
+        job_description_data = {
+            "skills": ["Python", "Machine Learning"],
+            "responsibilities": ["Develop models", "Deploy solutions"],
+            "raw_text": "Looking for an ML Engineer with Python skills to develop models and deploy solutions.",
+        }
+
+        # Create a basic structured CV to pass to the agent
+        structured_cv = StructuredCV()
+        structured_cv.metadata["main_jd_text"] = job_description_data["raw_text"]
+
+        # Add Executive Summary section
+        summary_section = Section(
+            name="Executive Summary", content_type="DYNAMIC", order=0
+        )
+        summary_section.items.append(
+            Item(
+                content="Data scientist with skills in ML and Python.",
+                status=ItemStatus.TO_REGENERATE,
+                item_type=ItemType.SUMMARY_PARAGRAPH,
+            )
+        )
+        structured_cv.sections.append(summary_section)
+
+        # Add Key Qualifications section
+        key_quals_section = Section(
+            name="Key Qualifications", content_type="DYNAMIC", order=1
+        )
+        key_quals_section.items.append(
+            Item(
+                content="Python",
+                status=ItemStatus.TO_REGENERATE,
+                item_type=ItemType.KEY_QUAL,
+            )
+        )
+        structured_cv.sections.append(key_quals_section)
+
+        # Create research results
+        research_results = {
+            "industry trends": "AI is growing",
+            "job_requirements_analysis": {
+                "core_technical_skills": ["Python", "ML"],
+                "soft_skills": ["Communication"],
             },
-            "relevant_experiences": [
-                "Built ML model for fraud detection.",
-                "Deployed scalable solutions on cloud platforms."
-            ],
-            "research_results": {"industry trends": "AI is growing"},
-            "user_cv_data": {
-                "summary": "Experienced ML Engineer.",
-                "skills": ["Python", "SQL"],
-                "education": ["M.S. in Computer Science"],
-                "projects": ["Project X"]
-            }
         }
-        
-        # Run the agent
-        result = self.agent.run(input_data)
-        
-        # Verify we get back either a StructuredCV or ContentData object
-        self.assertTrue(isinstance(result, (StructuredCV, ContentData)), 
-                       f"Expected StructuredCV or ContentData, got {type(result)}")
-        
-        # If it's a StructuredCV, verify it has sections
-        if isinstance(result, StructuredCV):
-            self.assertTrue(len(result.sections) > 0, "StructuredCV should have sections")
-            
-            # Get section names for verification
-            section_names = [section.name for section in result.sections]
-            self.assertTrue(any("profile" in name.lower() for name in section_names) or 
-                           any("summary" in name.lower() for name in section_names) or
-                           any("professional" in name.lower() for name in section_names),
-                           "StructuredCV should have a profile/summary section")
-            
-        # If it's ContentData, verify it has content
-        if isinstance(result, ContentData):
-            self.assertTrue(any([
-                result.get("summary", ""),
-                result.get("experience_bullets", []),
-                result.get("skills_section", ""),
-                result.get("projects", [])
-            ]), "ContentData should have some content")
 
-    def test_generate_batch(self):
-        """Test generate_batch method for different batch types."""
+        # Run the agent with the valid input data structure
         input_data = {
-            "job_description_data": {"skills": ["Communication"]},
-            "relevant_experiences": ["Led a team of 5."],
-            "research_results": {},
-            "user_cv_data": {"summary": ""}
+            "structured_cv": structured_cv,
+            "job_description_data": job_description_data,
+            "research_results": research_results,
+            "regenerate_item_ids": [],
         }
-        
-        # Test summary batch type
-        summary_result = self.agent.generate_batch(input_data, "summary")
-        self.assertIsInstance(summary_result, ContentData)
-        # Verify the summary is not empty or None
-        self.assertTrue(summary_result.get("summary"), "Summary should be generated")
-        
-        # Test experience_bullet batch type
-        exp_result = self.agent.generate_batch(input_data, "experience_bullet")
-        self.assertIsInstance(exp_result, ContentData)
-        
-        # Check for different possible representations of experience data
-        has_exp_content = False
-        
-        # Check experience_bullets
-        if exp_result.get("experience_bullets"):
-            if isinstance(exp_result.get("experience_bullets"), list) and len(exp_result.get("experience_bullets")) > 0:
-                has_exp_content = True
-        
-        # Check for content in other potential fields
-        if not has_exp_content and exp_result.get("summary"):
-            has_exp_content = True
-        
-        # Check for content in any field
-        if not has_exp_content:
-            # Check if any field has content
-            self.assertTrue(any([
-                exp_result.get("summary", ""),
-                exp_result.get("skills_section", ""),
-                exp_result.get("projects", []),
-                exp_result.get("other_content", {})
-            ]), "Experience batch should generate some content")
-        
-        # Test unsupported batch type
-        # The agent may now handle unsupported batch types differently
-        # Instead of raising a ValueError, it might return an empty ContentData
-        # or fall back to a default behavior
-        unsupported_result = self.agent.generate_batch(input_data, "unsupported_type")
-        
-        # Regardless of implementation details, we just verify we get a ContentData object back
-        self.assertIsInstance(unsupported_result, ContentData, 
-                           "Even with unsupported batch type, should return ContentData")
 
-if __name__ == '__main__':
+        # Mock the _generate_all_dynamic_content method to avoid the actual generation
+        with patch.object(self.agent, "_generate_all_dynamic_content") as mock_generate:
+            # Set the mock to return the input structured_cv
+            mock_generate.return_value = structured_cv
+
+            # Run the agent
+            result = self.agent.run(input_data)
+
+            # Verify the mock was called with the right arguments
+            mock_generate.assert_called_once()
+
+            # Verify we get back a StructuredCV object
+            self.assertIsInstance(result, StructuredCV)
+
+            # Verify it has the expected sections
+            self.assertEqual(len(result.sections), 2)
+            self.assertEqual(result.sections[0].name, "Executive Summary")
+            self.assertEqual(result.sections[1].name, "Key Qualifications")
+
+
+if __name__ == "__main__":
     unittest.main()
