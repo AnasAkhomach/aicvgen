@@ -47,8 +47,8 @@ import time
 import logging
 import traceback
 
-# Configure logging
-setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True)
+# Setup logging
+setup_logging()
 logger = get_logger(__name__)
 
 

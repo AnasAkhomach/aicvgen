@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import json
+from pathlib import Path
 from src.core.orchestrator import Orchestrator
 from src.agents.parser_agent import ParserAgent
 from src.utils.template_renderer import TemplateRenderer
@@ -15,19 +16,11 @@ from src.agents.formatter_agent import FormatterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.services.llm import LLM
 from src.core.state_manager import AgentIO
+from src.config.logging_config import setup_test_logging
 
-# Set up logging to console and file with proper format
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(
-            "test_pipeline.log", mode="w"
-        ),  # Use mode='w' to overwrite previous log
-    ],
-)
-logger = logging.getLogger(__name__)
+# Configure test logging
+test_log_path = Path("logs/debug/test_pipeline.log")
+logger = setup_test_logging("test_pipeline", test_log_path)
 
 
 class VerbosePromptLoader(PromptLoader):

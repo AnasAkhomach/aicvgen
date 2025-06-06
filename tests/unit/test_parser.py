@@ -1,16 +1,16 @@
 import logging
-import os
+import unittest
+from unittest.mock import MagicMock, patch
+from pathlib import Path
+
 from src.agents.parser_agent import ParserAgent
 from src.services.llm import LLM
 from src.core.state_manager import JobDescriptionData
+from src.config.logging_config import setup_test_logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("parser_test.log"), logging.StreamHandler()],
-)
-logger = logging.getLogger(__name__)
+# Configure test logging
+test_log_path = Path("logs/debug/test_parser.log")
+logger = setup_test_logging("test_parser", test_log_path)
 
 
 def load_cv_template():

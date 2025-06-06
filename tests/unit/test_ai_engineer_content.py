@@ -4,6 +4,7 @@ import logging
 import unittest
 import json
 from unittest.mock import MagicMock, patch
+from pathlib import Path
 
 # Add the parent directory to sys.path to import project modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -20,17 +21,11 @@ from src.core.state_manager import (
     JobDescriptionData,
 )
 from src.services.llm import LLM
+from src.config.logging_config import setup_test_logging
 
-# Configure logging to file and console
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("test_ai_engineer_content.log", mode="w"),
-        logging.StreamHandler(),
-    ],
-)
-logger = logging.getLogger(__name__)
+# Configure test logging
+test_log_path = Path("logs/debug/test_ai_engineer_content.log")
+logger = setup_test_logging("test_ai_engineer_content", test_log_path)
 
 
 class TestAIEngineerContent(unittest.TestCase):

@@ -3,6 +3,10 @@ import os
 import sys
 import json
 import time
+import unittest
+from unittest.mock import MagicMock, patch
+from pathlib import Path
+
 from src.agents.content_writer_agent import ContentWriterAgent
 from src.agents.tools_agent import ToolsAgent
 from src.services.llm import LLM
@@ -15,17 +19,11 @@ from src.core.state_manager import (
     ItemStatus,
     ItemType,
 )
+from src.config.logging_config import setup_test_logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("content_writer_test.log", mode="w"),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
-logger = logging.getLogger(__name__)
+# Configure test logging
+test_log_path = Path("logs/debug/test_content_writer.log")
+logger = setup_test_logging("test_content_writer", test_log_path)
 
 
 def mock_llm_for_testing():

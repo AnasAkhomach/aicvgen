@@ -3,6 +3,10 @@ import os
 import sys
 import json
 import time
+import unittest
+from unittest.mock import MagicMock, patch
+from pathlib import Path
+
 from src.core.orchestrator import Orchestrator
 from src.agents.parser_agent import ParserAgent
 from src.utils.template_renderer import TemplateRenderer
@@ -16,17 +20,11 @@ from src.agents.formatter_agent import FormatterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.services.llm import LLM
 from src.core.state_manager import AgentIO
+from src.config.logging_config import setup_test_logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("workflow_test.log", mode="w"),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
-logger = logging.getLogger(__name__)
+# Configure test logging
+test_log_path = Path("logs/debug/test_workflow.log")
+logger = setup_test_logging("test_workflow", test_log_path)
 
 
 def mock_llm_for_testing():

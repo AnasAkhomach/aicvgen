@@ -103,38 +103,58 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def log_request(method: str, url: str, status_code: int = None, duration: float = None):
-    """
-    Log HTTP requests for API access logging.
+def log_request(request_info: dict):
+    """Log HTTP request information."""
+    access_logger = logging.getLogger("access")
+    access_logger.info(
+        f"{request_info.get('method', 'UNKNOWN')} {request_info.get('path', '/')} - "
+        f"Status: {request_info.get('status', 'UNKNOWN')} - "
+        f"Duration: {request_info.get('duration', 0):.3f}s - "
+        f"IP: {request_info.get('ip', 'UNKNOWN')}"
+    )
+
+
+def setup_test_logging(test_name: str, log_file_path: Path) -> logging.Logger:
+    """Setup logging for test files with proper file handling.
     
     Args:
-        method: HTTP method
-        url: Request URL
-        status_code: Response status code
-        duration: Request duration in seconds
+        test_name: Name of the test (used as logger name)
+        log_file_path: Path to the log file (relative to project root)
+        
+    Returns:
+        Configured logger instance
     """
-    access_logger = logging.getLogger("access")
+    # Ensure the log directory exists
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Create access log handler if it doesn't exist
-    if not access_logger.handlers:
-        logs_dir = Path("logs")
-        access_handler = logging.handlers.RotatingFileHandler(
-            logs_dir / "access" / "access.log",
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
-        )
-        access_formatter = logging.Formatter(
-            '%(asctime)s - %(message)s'
-        )
-        access_handler.setFormatter(access_formatter)
-        access_logger.addHandler(access_handler)
-        access_logger.setLevel(logging.INFO)
-        access_logger.propagate = False  # Don't propagate to root logger
+    # Create logger
+    logger = logging.getLogger(test_name)
+    logger.setLevel(logging.INFO)
     
-    message = f"{method} {url}"
-    if status_code:
-        message += f" - {status_code}"
-    if duration:
-        message += f" - {duration:.3f}s"
+    # Remove existing handlers to avoid duplicates
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
     
-    access_logger.info(message)
+    # Create formatter
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    
+    # File handler (overwrite mode for tests)
+    file_handler = logging.FileHandler(log_file_path, mode="w")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    # Add handlers
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    # Prevent propagation to avoid duplicate logs
+    logger.propagate = False
+    
+    return logger
