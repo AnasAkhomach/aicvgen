@@ -1,148 +1,153 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
 
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# PEP 582; remove this if you aren't using it
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# MicrosoftVisualStudioCode configuration file
-.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
 !.vscode/settings.json
 !.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-*.code-workspace
-
-# SublimeText configuration file
-*.sublime-workspace
-*.sublime-project
-
+!artefacts/models/.gitkeep
+!artefacts/vector_stores/.gitkeep
+!content_writer_result.json
+!data/sessions/.gitkeep
+!pipeline_test_result.json
+!workflow_test_result.json
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+# --- Appended lines ---
+# Byte-compiled / optimized / DLL files
+# C extensions
+# Celery stuff
+# Distribution / packaging
+# Django stuff:
 # Eclipse project settings
-.project
-.pydevproject
-.settings/
-
+# Environment variables
+# Environments
+# Flask stuff:
+# IDE and editor files
+# IPython
+# Installer logs
+# Jupyter Notebook
+# Logs
+# MicrosoftVisualStudioCode configuration file
+# OS generated files
+# PEP 582; remove this if you aren't using it
+# Project Specific
+# PyBuilder
 # PyCharm project settings
-.idea/
+# PyInstaller
+# Rope project settings
+# Runtime data / Project specific
+# SageMath parsed files
+# Scrapy stuff:
+# Specific to your project (optional - add if these are generated/temporary)
+# Sphinx documentation
+# Spyder project settings
+# SublimeText configuration file
+# Test outputs and caches
+# Translations
+# Unit test / coverage reports
+# Vim swap files and backup files
+# pyenv
+# tailored_cv.md
+*$py.class
+*.bak
+*.code-workspace
+*.cover
+*.egg
+*.egg-info/
 *.iml
 *.ipr
-
-# Vim swap files and backup files
-*.swp
+*.json
+*.log
+*.manifest
+*.mo
+*.pot
+*.py,cover
+*.py[cod]
+*.sage.py
+*.so
+*.spec
+*.sublime-project
+*.sublime-workspace
 *.swo
+*.swp
 *~
-*.bak
-
-# OS generated files
 .DS_Store
 .DS_Store?
-._*
+.Python
 .Spotlight-V100
 .Trashes
-ehthumbs.db
+._*
+.cache
+.classpath
+.coverage
+.coverage.*
+.cproject
+.eggs/
+.env
+.env.*
+.envrc
+.hypothesis/
+.idea/
+.installed.cfg
+.ipynb_checkpoints
+.nox/
+.project
+.pydevproject
+.pytest_cache/
+tests/outputs/
+.python-version
+.ropeproject
+.scrapy
+.settings/
+.spyderproject
+.spyproject
+.tox/
+.venv
+.vscode/*
+.webassets-cache
+Anas_Akhomach-main-template-en.md
+ENV/
+MANIFEST
 Thumbs.db
-
-# Specific to your project (optional - add if these are generated/temporary)
-# tailored_cv.md
+VENV/
+__pycache__/
+__pypackages__/
+artefacts/models/*
+artefacts/vector_stores/*
+build/
+celerybeat-schedule
+celerybeat.pid
+coverage.xml
+cv_ai_generator_prototype.ipynb
+data/sessions/*
+db.sqlite3
+db.sqlite3-journal
+develop-eggs/
+dist/
+docs/_build/
+downloads/
+eggs/
+ehthumbs.db
+env.bak/
+env/
+htmlcov/
+instance/
+ipython_config.py
+lib/
+lib64/
+local_settings.py
+logs/
+nbproject/
+nosetests.xml
+notebooks/.ipynb_checkpoints/
+parts/
+pip-delete-this-directory.txt
+pip-log.txt
+profile_default/
+reports/
+sdist/
+tailored_cv.md
+target/
+var/
+venv.bak/
+venv/
+wheels/
