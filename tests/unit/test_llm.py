@@ -4,7 +4,7 @@ import sys
 import os
 
 # Add the project root to path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
@@ -13,7 +13,7 @@ from src.services.llm import LLM
 
 
 class TestLLM(unittest.TestCase):
-    @patch("llm.genai")
+    @patch("src.services.llm.genai")
     def test_llm_initialization_and_generate(self, mock_genai):
         """Test initialization and basic content generation."""
         # Set up the mock response
@@ -41,7 +41,7 @@ class TestLLM(unittest.TestCase):
         # Verify we got the expected response
         self.assertEqual(result, "Mocked response text")
 
-    @patch("llm.genai")
+    @patch("src.services.llm.genai")
     def test_llm_generate_content_exception(self, mock_genai):
         """Test exception handling in generate_content."""
         # Set up the mock to raise an exception
@@ -57,7 +57,7 @@ class TestLLM(unittest.TestCase):
         self.assertTrue(result.startswith("The AI model encountered an issue:"))
         self.assertIn("Exception", result)
 
-    @patch("llm.genai")
+    @patch("src.services.llm.genai")
     def test_llm_generate_content_unexpected_data(self, mock_genai):
         """Test handling of unexpected response formats."""
         # Set up mock to return a response with None for text
