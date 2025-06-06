@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Command to run the application when the container starts
-# Assuming main.py is the entry point
-CMD ["python", "main.py"]
+# Use the launcher script that sets up Python path correctly
+CMD ["python", "run_app.py"]
 
 # If you want to run the Jupyter notebook, you might change the CMD or add an entrypoint
 # For example, to run the Jupyter notebook server:
