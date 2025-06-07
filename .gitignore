@@ -155,3 +155,15 @@ logs/access/
 
 # Specific to your project (optional - add if these are generated/temporary)
 # tailored_cv.md
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Other
+.DS_Store
