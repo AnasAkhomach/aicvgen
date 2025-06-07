@@ -10,20 +10,6 @@ This project is an AI-powered CV tailoring tool that helps users create personal
 - **Template-based generation**: Creates professionally formatted CVs
 - **Session management**: Save and resume your work
 
-## Recent Changes
-
-### v1.3: Section-Level Control
-
-The system has been updated to use section-level control rather than granular item-level control. This simplifies the user interface and workflow while maintaining powerful tailoring capabilities.
-
-Key improvements:
-- Content generation and regeneration now works at the section level
-- UI controls (Accept, Regenerate) operate on entire sections
-- The orchestrator and content writer agents have been updated to support section-level operations
-- Removed unused log files and fixed code quality issues
-
-These changes make the application more user-friendly while maintaining all the core functionality.
-
 ## Getting Started
 
 ### Prerequisites
@@ -36,7 +22,7 @@ These changes make the application more user-friendly while maintaining all the 
 1. Clone the repository:
 ```bash
 git clone [repository URL]
-cd aicvgen
+cd aicvgen # Or your repository directory name
 ```
 
 2. Install dependencies:
@@ -45,9 +31,14 @@ pip install -r requirements.txt
 ```
 
 3. Run the application:
-```bash
-streamlit run main.py
-```
+   - For the Streamlit UI:
+     ```bash
+     streamlit run run_app.py
+     ```
+   - For the FastAPI backend (if applicable):
+     ```bash
+     python src/api/main.py
+     ```
 
 ## Usage
 
@@ -61,12 +52,41 @@ streamlit run main.py
 
 ### Project Structure
 
-- `main.py`: Streamlit application entry point
-- `orchestrator.py`: Manages the overall workflow
-- `state_manager.py`: Manages application state and data structures
-- `content_writer_agent.py`: Handles AI content generation
-- `parser_agent.py`: Parses job descriptions and CVs
-- Other agents: Research, formatting, quality assurance, etc.
+The project is organized as follows:
+
+- `run_app.py`: Main entry point for the Streamlit application.
+- `src/`: Contains the core source code.
+  - `core/`: Core logic of the application.
+    - `main.py`: Core application logic for Streamlit.
+    - `orchestrator.py`: Manages the overall workflow.
+    - `state_manager.py`: Manages application state and data structures.
+  - `agents/`: Contains various AI agents.
+    - `content_writer_agent.py`: Handles AI content generation.
+    - `parser_agent.py`: Parses job descriptions and CVs.
+    - `cv_analyzer_agent.py`: Analyzes CV content.
+    - `formatter_agent.py`: Formats the output CV.
+    - `quality_assurance_agent.py`: Ensures quality of generated content.
+    - `research_agent.py`: Performs research tasks.
+    - `tools_agent.py`: Provides tools for other agents.
+    - `vector_store_agent.py`: Manages vector store interactions.
+  - `api/`: Contains the FastAPI backend code.
+    - `main.py`: Entry point for the FastAPI application.
+  - `config/`: Configuration files (e.g., logging).
+  - `frontend/`: Files related to the user interface (HTML, CSS, JS).
+  - `models/`: Data models and structures.
+  - `services/`: External services integrations (e.g., LLM, Vector DB).
+  - `templates/`: CV templates and other Jinja2 templates.
+  - `utils/`: Utility functions and classes.
+- `data/`: Stores data used by the application, including job descriptions, prompts, and user sessions.
+- `docs/`: Contains documentation files (SRS, SDD).
+- `logs/`: Application logs.
+- `scripts/`: Utility scripts for development and maintenance.
+- `tests/`: Contains unit and integration tests.
+  - `unit/`: Unit tests for individual modules.
+  - `integration/`: Integration tests for component interactions.
+- `requirements.txt`: Lists Python dependencies.
+- `Dockerfile`: For building the application container.
+- `README.md`: This file.
 
 ## License
 
