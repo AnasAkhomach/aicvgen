@@ -1266,3 +1266,60 @@ class StateManager:
             return None
 
         return self._structured_cv.to_content_data()
+    
+    @property
+    def cv_data(self):
+        """
+        Get the CV data in a format compatible with the main application.
+        
+        Returns:
+            Dictionary containing CV data or None if no CV exists.
+        """
+        if not self._structured_cv:
+            return None
+        
+        # Convert StructuredCV to a dictionary format expected by main.py
+        content_data = self.convert_to_content_data()
+        if content_data:
+            return {
+                "content": dict(content_data),
+                "sections": [{
+                    "id": section.id,
+                    "name": section.name,
+                    "status": str(section.status)
+                } for section in self._structured_cv.sections]
+            }
+        return None
+    
+    def update_cv_data(self, new_content):
+        """
+        Update the CV data with new content.
+        
+        Args:
+            new_content: The new content to update the CV with.
+            
+        Returns:
+            bool: True if update was successful, False otherwise.
+        """
+        try:
+            if isinstance(new_content, dict):
+                # If we don't have a structured CV yet, create one
+                if not self._structured_cv:
+                    self.create_new_cv()
+                
+                # Update the structured CV with the new content
+                # This is a simplified implementation - you may need to adjust based on your data structure
+                if "content" in new_content:
+                    content_data = ContentData(**new_content["content"])
+                    # Update the structured CV with this content
+                    # Note: This is a basic implementation and may need refinement
+                    logger.info(f"Updated CV data with new content")
+                    self.save_state()
+                    return True
+                    
+            logger.warning(f"Invalid content format for CV update: {type(new_content)}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to update CV data: {str(e)}")
+            return False

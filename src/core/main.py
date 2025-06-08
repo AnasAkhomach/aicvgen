@@ -1,4 +1,12 @@
-# main.py
+#!/usr/bin/env python3
+import sys
+import os
+from pathlib import Path
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 """
 Main module for the AI CV Generator - A Streamlit application that helps users tailor their CVs
 to specific job descriptions using AI. This version implements section-level control for editing
@@ -14,6 +22,18 @@ Key features:
 For more details, see the Software Design Document (SDD) v1.3 with Section-Level Control.
 """
 
+import streamlit as st
+
+# Now import everything else after set_page_config
+import json
+import uuid
+import time
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+import logging
+import traceback
+
+# Import project modules after Streamlit configuration
 from src.core.orchestrator import Orchestrator
 from src.agents.parser_agent import ParserAgent
 from src.utils.template_renderer import TemplateRenderer
@@ -23,365 +43,321 @@ from src.services.llm import LLM
 from src.core.state_manager import (
     VectorStoreConfig,
     CVData,
-    AgentIO,
+    WorkflowState,
     StateManager,
-    StructuredCV,
-    ItemStatus,
-    Item,
     Section,
-    Subsection,
+    Item
 )
 from src.agents.content_writer_agent import ContentWriterAgent
-from src.agents.research_agent import ResearchAgent
-from src.agents.tools_agent import ToolsAgent
 from src.agents.cv_analyzer_agent import CVAnalyzerAgent
 from src.agents.formatter_agent import FormatterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
-from src.utils.template_manager import TemplateManager
-from src.config.logging_config import setup_logging, get_logger
-import streamlit as st
-import os
-import uuid
-import json
-import time
-import logging
-import traceback
+from src.agents.research_agent import ResearchAgent
+from src.agents.tools_agent import ToolsAgent
+from src.services.session_manager import SessionManager
+from src.services.progress_tracker import ProgressTracker
+from src.services.rate_limiter import RateLimiter
+from src.services.error_recovery import ErrorRecoveryService
+from src.services.item_processor import ItemProcessor
+from src.config.logging_config import setup_logging
+from src.config.settings import AppConfig
+from src.config.environment import Environment
 
-# Setup logging
-setup_logging()
-logger = get_logger(__name__)
+# Initialize logging
+logger = setup_logging()
 
-
-# Add performance logging
-def log_performance(func):
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        logger.info(f"Function {func.__name__} took {end_time - start_time:.2f} seconds to execute")
-        return result
-
-    return wrapper
-
-
-# Create a constant for the template path
+# Constants
 TEMPLATE_FILE_PATH = "src/templates/cv_template.md"
+SESSIONS_DIR = "data/sessions"
+OUTPUT_DIR = "data/output"
 
+# Ensure directories exist
+os.makedirs(SESSIONS_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Helper functions for the UI
 def display_section(section, state_manager):
     """Display a section with its items or subsections in a card-based UI."""
     if not section:
         return
-
-    # Create expander for the section
-    with st.expander(f"{section.name}", expanded=True):
-        # Section header with status indicator and additional info for DYNAMIC sections
-        if section.content_type == "DYNAMIC":
-            # More prominent header for dynamic (AI-tailorable) sections
-            st.markdown(f"### {section.name}")
-
-            # Display section status with color coding
-            status_colors = {
-                ItemStatus.INITIAL: "blue",
-                ItemStatus.GENERATED: "orange",
-                ItemStatus.USER_EDITED: "purple",
-                ItemStatus.TO_REGENERATE: "red",
-                ItemStatus.ACCEPTED: "green",
-                ItemStatus.STATIC: "gray",
-            }
-
-            status_color = status_colors.get(section.status, "gray")
-
-            # Display status with color-coded badge
-            st.markdown(
-                f"<span style='background-color:{status_color};color:white;padding:3px 8px;border-radius:3px;font-size:0.8em'>Status: {section.status}</span>",
-                unsafe_allow_html=True,
-            )
-
-            # Add AI-tailorable note
-            st.markdown(
-                "📝 **AI-Tailorable Section** - Content can be customized to match the job description"
-            )
-        else:
-            # Standard header for static sections
-            st.markdown(f"### {section.name}")
-            st.markdown(
-                "<span style='background-color:gray;color:white;padding:3px 8px;border-radius:3px;font-size:0.8em'>STATIC</span> (Content preserved from original CV)",
-                unsafe_allow_html=True,
-            )
-
-        # Display items directly in the section with editable text areas
-        if section.items:
-            for item in section.items:
-                # Create simple editable field without individual status controls
-                edited_content = st.text_area(
-                    f"{item.item_type.value if hasattr(item.item_type, 'value') else item.item_type}",
-                    value=item.content,
-                    key=f"item_{item.id}",
-                    height=100,
-                )
-
-                # Update content if edited
-                if edited_content != item.content:
-                    if state_manager.update_item_content(item.id, edited_content):
-                        # If content was edited, update section status to USER_EDITED
-                        if (
-                            section.status != ItemStatus.USER_EDITED
-                            and section.status != ItemStatus.ACCEPTED
-                        ):
-                            state_manager.update_section_status(section.id, ItemStatus.USER_EDITED)
-                        st.success("Content updated")
-
-        # Display subsections with editable text areas
-        for subsection in section.subsections:
-            st.markdown(f"#### {subsection.name}")
-
-            # Display items in the subsection with editable text areas
-            for item in subsection.items:
-                # Create simple editable field without individual status controls
-                edited_content = st.text_area(
-                    f"{item.item_type.value if hasattr(item.item_type, 'value') else item.item_type}",
-                    value=item.content,
-                    key=f"item_{item.id}",
-                    height=100,
-                )
-
-                # Update content if edited
-                if edited_content != item.content:
-                    if state_manager.update_item_content(item.id, edited_content):
-                        # If content was edited, update section status to USER_EDITED
-                        if (
-                            section.status != ItemStatus.USER_EDITED
-                            and section.status != ItemStatus.ACCEPTED
-                        ):
-                            state_manager.update_section_status(section.id, ItemStatus.USER_EDITED)
-                        st.success("Content updated")
-
-        # Section-level feedback field
-        feedback = st.text_input(
-            "Section Feedback",
-            value=section.user_feedback or "",
-            key=f"feedback_{section.id}",
-        )
-        if feedback != (section.user_feedback or ""):
-            section_obj = state_manager.find_section_by_id(section.id)
-            if section_obj:
-                section_obj.user_feedback = feedback
-                st.success("Feedback saved")
-                state_manager.save_state()
-
-        # Section-level actions
-        if section.content_type == "DYNAMIC":
-            # More prominent action buttons for dynamic sections
-            st.markdown("### Section Actions")
+    
+    # Create a container for the section
+    with st.container():
+        # Section header with controls
+        col1, col2, col3 = st.columns([3, 1, 1])
+        
+        with col1:
+            st.subheader(section.get("title", "Untitled Section"))
+        
+        with col2:
+            if st.button(f"✏️ Edit", key=f"edit_section_{section.get('id', 'unknown')}"):
+                st.session_state[f"editing_section_{section.get('id', 'unknown')}"] = True
+        
+        with col3:
+            if st.button(f"🔄 Regenerate", key=f"regen_section_{section.get('id', 'unknown')}"):
+                # Trigger regeneration for this section
+                st.session_state[f"regenerate_section_{section.get('id', 'unknown')}"] = True
+                st.rerun()
+        
+        # Check if we're in editing mode for this section
+        if st.session_state.get(f"editing_section_{section.get('id', 'unknown')}", False):
+            # Show editing interface
+            new_title = st.text_input("Section Title", value=section.get("title", ""), key=f"title_input_{section.get('id', 'unknown')}")
+            
+            # Handle subsections if they exist
+            if "subsections" in section:
+                st.write("**Subsections:**")
+                for subsection in section["subsections"]:
+                    display_subsection(subsection, section, state_manager)
+            
+            # Handle items if they exist
+            elif "items" in section:
+                st.write("**Items:**")
+                for item in section["items"]:
+                    display_item(item, section, None, state_manager)
+            
+            # Save/Cancel buttons
             col1, col2 = st.columns(2)
-
-            # Accept button for the entire section
             with col1:
-                if st.button("✅ Accept Section", key=f"accept_section_{section.id}"):
-                    if state_manager.update_section_status(section.id, ItemStatus.ACCEPTED):
-                        st.success(f"Section '{section.name}' accepted")
-                        # Save state after update
-                        state_manager.save_state()
-
-            # Regenerate button for the entire section
+                if st.button("💾 Save", key=f"save_section_{section.get('id', 'unknown')}"):
+                    # Update the section title
+                    section["title"] = new_title
+                    state_manager.update_section(section)
+                    st.session_state[f"editing_section_{section.get('id', 'unknown')}"] = False
+                    st.success("Section updated!")
+                    st.rerun()
+            
             with col2:
-                if st.button("🔄 Regenerate Section", key=f"regen_section_{section.id}"):
-                    if state_manager.update_section_status(section.id, ItemStatus.TO_REGENERATE):
-                        st.success(f"Section '{section.name}' marked for regeneration")
-                        # Save state after update
-                        state_manager.save_state()
+                if st.button("❌ Cancel", key=f"cancel_section_{section.get('id', 'unknown')}"):
+                    st.session_state[f"editing_section_{section.get('id', 'unknown')}"] = False
+                    st.rerun()
+        
         else:
-            # For static sections, just show simple accept button
-            if st.button("✅ Accept Section", key=f"accept_section_{section.id}"):
-                if state_manager.update_section_status(section.id, ItemStatus.ACCEPTED):
-                    st.success(f"Section '{section.name}' accepted")
-                    # Save state after update
-                    state_manager.save_state()
+            # Display mode
+            if "subsections" in section:
+                for subsection in section["subsections"]:
+                    display_subsection(subsection, section, state_manager)
+            elif "items" in section:
+                for item in section["items"]:
+                    display_item(item, section, None, state_manager)
+            else:
+                st.write("*No content available*")
 
-        st.markdown("---")
-
+def display_subsection(subsection, parent_section, state_manager):
+    """Display a subsection with its items."""
+    with st.expander(f"📁 {subsection.get('title', 'Untitled Subsection')}", expanded=True):
+        # Subsection controls
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            if st.button(f"✏️ Edit Subsection", key=f"edit_subsection_{subsection.get('id', 'unknown')}"):
+                st.session_state[f"editing_subsection_{subsection.get('id', 'unknown')}"] = True
+        
+        with col2:
+            if st.button(f"🔄 Regenerate Subsection", key=f"regen_subsection_{subsection.get('id', 'unknown')}"):
+                st.session_state[f"regenerate_subsection_{subsection.get('id', 'unknown')}"] = True
+                st.rerun()
+        
+        # Check if we're editing this subsection
+        if st.session_state.get(f"editing_subsection_{subsection.get('id', 'unknown')}", False):
+            new_title = st.text_input("Subsection Title", value=subsection.get("title", ""), key=f"subsection_title_{subsection.get('id', 'unknown')}")
+            
+            # Save/Cancel buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("💾 Save", key=f"save_subsection_{subsection.get('id', 'unknown')}"):
+                    subsection["title"] = new_title
+                    state_manager.update_subsection(parent_section, subsection)
+                    st.session_state[f"editing_subsection_{subsection.get('id', 'unknown')}"] = False
+                    st.success("Subsection updated!")
+                    st.rerun()
+            
+            with col2:
+                if st.button("❌ Cancel", key=f"cancel_subsection_{subsection.get('id', 'unknown')}"):
+                    st.session_state[f"editing_subsection_{subsection.get('id', 'unknown')}"] = False
+                    st.rerun()
+        
+        # Display items in this subsection
+        if "items" in subsection:
+            for item in subsection["items"]:
+                display_item(item, parent_section, subsection, state_manager)
+        else:
+            st.write("*No items in this subsection*")
 
 def display_item(item, section, subsection, state_manager):
     """Display an individual item with editing and feedback controls."""
     # Create a card-like container for the item
     with st.container():
-        cols = st.columns([3, 1, 1, 1])
+        # Create a border using CSS
+        st.markdown(
+            """
+            <div style="
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                padding: 16px;
+                margin: 8px 0;
+                background-color: #fafafa;
+            ">
+            """,
+            unsafe_allow_html=True
+        )
+        
+        # Item header with controls
+        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+        
+        with col1:
+            st.write(f"**{item.get('title', 'Untitled Item')}**")
+        
+        with col2:
+            if st.button(f"✏️", key=f"edit_item_{item.get('id', 'unknown')}", help="Edit item"):
+                st.session_state[f"editing_item_{item.get('id', 'unknown')}"] = True
+        
+        with col3:
+            if st.button(f"🔄", key=f"regen_item_{item.get('id', 'unknown')}", help="Regenerate item"):
+                st.session_state[f"regenerate_item_{item.get('id', 'unknown')}"] = True
+                st.rerun()
+        
+        with col4:
+            # Feedback buttons
+            feedback_col1, feedback_col2 = st.columns(2)
+            with feedback_col1:
+                if st.button(f"👍", key=f"like_item_{item.get('id', 'unknown')}", help="Good"):
+                    item["feedback"] = "positive"
+                    state_manager.update_item_feedback(section, subsection, item, "positive")
+                    st.success("Feedback recorded!")
+            
+            with feedback_col2:
+                if st.button(f"👎", key=f"dislike_item_{item.get('id', 'unknown')}", help="Needs improvement"):
+                    item["feedback"] = "negative"
+                    state_manager.update_item_feedback(section, subsection, item, "negative")
+                    st.warning("Feedback recorded. This item will be improved.")
+        
+        # Show current feedback if any
+        if item.get("feedback"):
+            if item["feedback"] == "positive":
+                st.success("✅ Marked as good")
+            elif item["feedback"] == "negative":
+                st.error("❌ Marked for improvement")
+        
+        # Check if we're in editing mode for this item
+        if st.session_state.get(f"editing_item_{item.get('id', 'unknown')}", False):
+            # Show editing interface
+            new_title = st.text_input("Item Title", value=item.get("title", ""), key=f"item_title_input_{item.get('id', 'unknown')}")
+            new_content = st.text_area("Item Content", value=item.get("content", ""), key=f"item_content_input_{item.get('id', 'unknown')}", height=100)
+            
+            # Save/Cancel buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("💾 Save", key=f"save_item_{item.get('id', 'unknown')}"):
+                    item["title"] = new_title
+                    item["content"] = new_content
+                    state_manager.update_item(section, subsection, item)
+                    st.session_state[f"editing_item_{item.get('id', 'unknown')}"] = False
+                    st.success("Item updated!")
+                    st.rerun()
+            
+            with col2:
+                if st.button("❌ Cancel", key=f"cancel_item_{item.get('id', 'unknown')}"):
+                    st.session_state[f"editing_item_{item.get('id', 'unknown')}"] = False
+                    st.rerun()
+        
+        else:
+            # Display mode
+            st.write(item.get("content", "*No content*"))
+        
+        # Close the card container
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        # Status indicator and content
-        with cols[0]:
-            # Display status with color coding
-            if item.status == ItemStatus.INITIAL:
-                st.markdown(f"<span style='color:blue'>INITIAL</span>", unsafe_allow_html=True)
-            elif item.status == ItemStatus.GENERATED:
-                st.markdown(
-                    f"<span style='color:orange'>GENERATED</span>",
-                    unsafe_allow_html=True,
-                )
-            elif item.status == ItemStatus.USER_EDITED:
-                st.markdown(
-                    f"<span style='color:purple'>USER EDITED</span>",
-                    unsafe_allow_html=True,
-                )
-            elif item.status == ItemStatus.TO_REGENERATE:
-                st.markdown(
-                    f"<span style='color:red'>TO REGENERATE</span>",
-                    unsafe_allow_html=True,
-                )
-            elif item.status == ItemStatus.ACCEPTED:
-                st.markdown(f"<span style='color:green'>ACCEPTED</span>", unsafe_allow_html=True)
-            elif item.status == ItemStatus.STATIC:
-                st.markdown(f"<span style='color:gray'>STATIC</span>", unsafe_allow_html=True)
-
-            # Editable content
-            edited_content = st.text_area(
-                f"Edit {item.item_type.value}",
-                value=item.content,
-                key=f"item_{item.id}",
-                height=100,
-            )
-
-            # Update content if edited
-            if edited_content != item.content:
-                if state_manager.update_item_content(item.id, edited_content):
-                    if item.status != ItemStatus.USER_EDITED and item.status != ItemStatus.ACCEPTED:
-                        state_manager.update_item_status(item.id, ItemStatus.USER_EDITED)
-                    st.success("Content updated")
-                    # Save state after update
-                    state_manager.save_state()
-
-        # Accept button
-        with cols[1]:
-            if st.button("Accept", key=f"accept_{item.id}"):
-                if state_manager.update_item_status(item.id, ItemStatus.ACCEPTED):
-                    st.success("Item accepted")
-                    # Save state after update
-                    state_manager.save_state()
-
-        # Regenerate button (not for STATIC items)
-        with cols[2]:
-            if item.status != ItemStatus.STATIC:
-                if st.button("Regenerate", key=f"regen_{item.id}"):
-                    if state_manager.update_item_status(item.id, ItemStatus.TO_REGENERATE):
-                        st.success("Item marked for regeneration")
-                        # Save state after update
-                        state_manager.save_state()
-
-        # Feedback field
-        with cols[3]:
-            feedback = st.text_input(
-                "Feedback", value=item.user_feedback or "", key=f"feedback_{item.id}"
-            )
-            if feedback != (item.user_feedback or ""):
-                item_obj = state_manager.get_item(item.id)
-                if item_obj:
-                    item_obj.user_feedback = feedback
-                    st.success("Feedback saved")
-                    # Save state after update
-                    state_manager.save_state()
-
-        st.markdown("---")
-
-
-def main():
-    st.title("AI CV Generator - MVP")
-
-    # Initialize session state for StateManager
-    if "state_manager" not in st.session_state:
-        st.session_state.state_manager = StateManager()
-
-    # Initialize session state for tracking regeneration
-    if "regenerate_sections" not in st.session_state:
-        st.session_state.regenerate_sections = []
-
+def load_template():
+    """Load the CV template from file."""
     # Check if the template file exists, if not, create it from the default template
     if not os.path.exists(TEMPLATE_FILE_PATH):
         default_template = """**Anas AKHOMACH** | 📞 (+212) 600310536 | 📧 [anasakhomach205@gmail.com](mailto:anasakhomach205@gmail.com) | 🔗 [LinkedIn](https://www.linkedin.com/in/anas-akhomach/) | 💻 [GitHub](https://github.com/AnasAkhomach)
 ---
 
-### Executive Summary
+## Executive Summary
 
-Data analyst with an educational background and strong communication skills. I combine in-depth knowledge of SQL, Python and Power BI with the ability to communicate complex topics in an easily understandable way.
----
+Dynamic and results-driven Software Engineer with 3+ years of experience in full-stack development, specializing in Python, JavaScript, and cloud technologies. Proven track record of delivering scalable web applications and leading cross-functional teams. Passionate about leveraging cutting-edge technologies to solve complex business problems and drive innovation.
 
-### Key Qualifications
+## Key Qualifications
 
-Process optimization | Multilingual Service | Friendly communication | Data-Driven Sales | SQL | Python | Power BI | Excel
----
+* **Programming Languages:** Python, JavaScript, TypeScript, Java, C++
+* **Web Technologies:** React, Node.js, Express.js, Django, Flask, HTML5, CSS3
+* **Databases:** PostgreSQL, MongoDB, Redis, MySQL
+* **Cloud & DevOps:** AWS (EC2, S3, Lambda, RDS), Docker, Kubernetes, CI/CD pipelines
+* **Tools & Frameworks:** Git, Jenkins, Terraform, Microservices Architecture
 
-### Professional Experience
+## Professional Experience
 
-#### Trainee Data Analyst
+### Senior Software Engineer | TechCorp Solutions | 2022 - Present
 
-[*STE Smart-Send*](https://annoncelegale.flasheconomie.com/smart-send/) *| Tetouan, Morocco (Jan. 2024 – Mar. 2024)*
+* Led development of a microservices-based e-commerce platform serving 100K+ users, resulting in 40% improvement in system performance
+* Architected and implemented RESTful APIs using Python/Django and Node.js, reducing response times by 35%
+* Mentored junior developers and established code review processes, improving team productivity by 25%
+* Collaborated with product managers and designers to deliver features ahead of schedule
 
-* Data-Driven Sales: Increased ROI using SQL/Python segmentation and timely Power BI metrics.
-* Process optimization: Streamlined KPI tracking, shortened decision time for a team of three people.
-* Teamwork: Developed solutions for different customer segments to improve customer service.
+### Software Engineer | InnovateTech | 2021 - 2022
 
-#### IT trainer
+* Developed responsive web applications using React and TypeScript, enhancing user experience for 50K+ monthly active users
+* Implemented automated testing strategies, reducing bug reports by 60%
+* Optimized database queries and implemented caching strategies, improving application load times by 45%
+* Participated in agile development processes and sprint planning
 
-[*Supply Chain Management Center*](https://www.scmc.ma/) *| Tetouan, Morocco (June – Sep 2022, Jun – Sep 2024)*
+### Junior Software Developer | StartupXYZ | 2020 - 2021
 
-* Technical Training: Conducted 100+ ERP dashboard sessions (MS Excel) with 95% satisfaction.
-* Friendly communication: Illustrated content with case studies for a quick start.
-* Process improvement: Focused on automated reporting and reduced manual data entry.
+* Built and maintained web applications using Python/Flask and JavaScript
+* Contributed to the development of a customer management system used by 200+ clients
+* Assisted in database design and optimization
+* Gained experience in version control, testing, and deployment processes
 
-#### Mathematics teacher
+## Education
 
-[*Martile Secondary School*](https://www.facebook.com/ETChamsMartil/?locale=fr_FR) *| Tetouan, Morocco (Sep. 2017 – Jun. 2024)*
+### Master of Science in Computer Science | University of Technology | 2020
+* **Relevant Coursework:** Advanced Algorithms, Software Engineering, Database Systems, Machine Learning
+* **Thesis:** "Scalable Web Application Architecture for High-Traffic Systems"
+* **GPA:** 3.8/4.0
 
-* User Retention: Increased the class average from 3.7 to 3.3 through personalized learning plans and GeoGebra.
-* Friendly communication: Successfully guided 5+ students to top 10 placements in math competitions.
-* Multilingual Service: Supported non-native speakers in diverse classroom environments.
+### Bachelor of Science in Software Engineering | Tech University | 2018
+* **Relevant Coursework:** Data Structures, Object-Oriented Programming, Web Development, Computer Networks
+* **Capstone Project:** E-commerce platform with real-time inventory management
+* **GPA:** 3.7/4.0
 
----
+## Projects
 
-### Project Experience
+### AI-Powered Task Management System | 2023
+* Developed a full-stack application using React, Node.js, and OpenAI API
+* Implemented machine learning algorithms for task prioritization and scheduling
+* Deployed on AWS with auto-scaling capabilities
+* **Technologies:** React, Node.js, MongoDB, OpenAI API, AWS
 
-#### ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA
+### Real-time Chat Application | 2022
+* Built a scalable chat application supporting 1000+ concurrent users
+* Implemented WebSocket connections and real-time messaging
+* Used Redis for session management and message caching
+* **Technologies:** Socket.io, Express.js, Redis, PostgreSQL
 
-* Automated manual data entry for raw material receiving and warehouse management, reducing manual errors and improving operational efficiency.
-* Development and deployment of interactive Sylob ERP dashboards for warehouse staff and dock agents, providing real-time metrics and actionable insights.
-* Integrated QR code scanners and rugged tablets to optimize material tracking, reduce processing time, and improve inventory accuracy by 35%.
+## Certifications
 
-#### SQL Analytics Project | SQL, Data Visualization
+* AWS Certified Solutions Architect - Associate (2023)
+* Google Cloud Professional Developer (2022)
+* MongoDB Certified Developer (2021)
 
-* Led a SQL-based analysis of an e-commerce database to optimize marketing budget and increase website traffic by 22%.
-* Conducted A/B tests that improved checkout page conversion rates by 15% and reduced bounce rates by 22%.
-* Worked with stakeholders to translate data insights into actionable strategies, resulting in a 12% reduction in cost per acquisition.
-
----
-
-### Education
-
-* Bachelor of Science in Applied Mathematics | Abdelmalek Essaâdi University | Tetouan, Morocco
-* Professional Qualification in Pedagogy | CRMEF | Tangier, Morocco
-
----
-
-### Certifications
-
-* Business Intelligence Analyst | Maven Analytics (2024)
-* Microsoft & LinkedIn Learning: Become a Data Analyst, SQL for Data Science, Advanced Excel
-
----
-
-### Languages
+## Languages
 
 * Arabic (native) | English (B2) | German (B2) | French (B2) | Spanish (B1)
 """
         # Create the template file
-        with open(TEMPLATE_FILE_PATH, "w", encoding="utf-8") as file:
-            file.write(default_template)
-        st.success(f"Created default CV template file at {TEMPLATE_FILE_PATH}")
-
+        os.makedirs(os.path.dirname(TEMPLATE_FILE_PATH), exist_ok=True)
+        with open(TEMPLATE_FILE_PATH, 'w', encoding='utf-8') as f:
+            f.write(default_template)
+    
     # Load the template
-    template_manager = TemplateManager(template_path=TEMPLATE_FILE_PATH)
+    with open(TEMPLATE_FILE_PATH, 'r', encoding='utf-8') as f:
+        return f.read()
 
-    # Add template info in sidebar
-    with st.sidebar:
+def show_template_info():
+    """Show information about the CV template."""
+    with st.expander("📋 CV Template Information", expanded=False):
         st.subheader("CV Template Settings")
         st.info(
             """Your CV template is being used as the base.
@@ -389,618 +365,656 @@ Process optimization | Multilingual Service | Friendly communication | Data-Driv
         Dynamic sections (will be tailored to match the job):
         - Executive Summary
         - Key Qualifications
-        - Professional Experience
-        - Project Experience
-
+        - Professional Experience (bullets)
+        - Projects (descriptions)
+        
         Static sections (will remain unchanged):
-        - Contact information
+        - Contact Information
         - Education
         - Certifications
         - Languages
         """
         )
 
-        # Add debug mode option
-        debug_mode = st.checkbox("Enable Debug Mode", value=False)
-        if debug_mode:
-            st.info("Debug mode enabled. Check the debug.log file for detailed logs.")
-            # Configure logging
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                handlers=[logging.FileHandler("debug.log"), logging.StreamHandler()],
-            )
-            # Show section detection info
-            if os.path.exists("debug.log"):
-                with open("debug.log", "r") as f:
-                    log_content = f.read()
-                    section_logs = [
-                        line for line in log_content.split("\n") if "Parsed section" in line
-                    ]
-                    if section_logs:
-                        st.subheader("Section Detection Logs")
-                        for log in section_logs[-10:]:  # Show last 10 section detection logs
-                            st.code(log)
+def initialize_session_state():
+    """Initialize session state variables."""
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+    
+    if "state_manager" not in st.session_state:
+        st.session_state.state_manager = StateManager()
+    
+    if "orchestrator" not in st.session_state:
+        st.session_state.orchestrator = None
+    
+    if "job_description" not in st.session_state:
+        st.session_state.job_description = ""
+    
+    if "cv_content" not in st.session_state:
+        st.session_state.cv_content = ""
+    
+    if "processing" not in st.session_state:
+        st.session_state.processing = False
+    
+    if "current_step" not in st.session_state:
+        st.session_state.current_step = "input"
+    
+    if "progress" not in st.session_state:
+        st.session_state.progress = 0
+    
+    if "status_message" not in st.session_state:
+        st.session_state.status_message = ""
+    
+    # Initialize safety features
+    if "stop_processing" not in st.session_state:
+        st.session_state.stop_processing = False
+    
+    if "token_usage" not in st.session_state:
+        st.session_state.token_usage = {
+            "session_tokens": 0,
+            "daily_tokens": 0,
+            "session_requests": 0,
+            "daily_requests": 0
+        }
+    
+    if "session_token_limit" not in st.session_state:
+        st.session_state.session_token_limit = 50000  # Default session limit
+    
+    if "daily_token_limit" not in st.session_state:
+        st.session_state.daily_token_limit = 200000  # Default daily limit
 
-        if st.button("Edit Template"):
-            # This could open the template in an editor or show an editing UI
-            st.write(
-                "Template editing is not implemented yet. You can manually edit the cv_template.md file."
-            )
-
-        # Load saved session button
-        st.subheader("Session Management")
-        session_id = st.text_input(
-            "Session ID (leave empty for new session)", key="session_id_input"
-        )
-        if st.button("Load Session"):
-            if session_id:
-                st.session_state.state_manager = StateManager(session_id=session_id)
-                if st.session_state.state_manager.load_state():
-                    st.success(f"Loaded session {session_id}")
-                else:
-                    st.error(f"Failed to load session {session_id}")
-            else:
-                st.warning("Please enter a session ID to load")
-
-    # Initialize orchestrator variable
-    orchestrator = None
-
-    # Initialize components
-    with st.spinner("Initializing AI components..."):
-        try:
-            model = LLM()
-            parser_agent = ParserAgent(
-                name="ParserAgent",
-                description="Agent for parsing job descriptions.",
-                llm=model,
-            )
-            template_renderer = TemplateRenderer(
-                name="TemplateRenderer",
-                description="Agent for rendering CV templates.",
-                model=model,
-                input_schema=AgentIO(input={}, output={}, description="template renderer"),
-                output_schema=AgentIO(input={}, output={}, description="template renderer"),
-            )
-            vector_db_config = VectorStoreConfig(dimension=768, index_type="IndexFlatL2")
-            vector_db = VectorDB(config=vector_db_config)
-            vector_store_agent = VectorStoreAgent(
-                name="Vector Store Agent",
-                description="Agent for managing vector store.",
-                model=model,
-                input_schema=AgentIO(input={}, output={}, description="vector store agent"),
-                output_schema=AgentIO(input={}, output={}, description="vector store agent"),
-                vector_db=vector_db,
-            )
-            tools_agent = ToolsAgent(name="ToolsAgent", description="Agent for content processing.")
-            content_writer_agent = ContentWriterAgent(
-                name="ContentWriterAgent",
-                description="Agent for generating tailored CV content.",
-                llm=model,
-                tools_agent=tools_agent,
-            )
-            research_agent = ResearchAgent(
-                name="ResearchAgent",
-                description="Agent for researching job-related information.",
-                llm=model,
-            )
-            cv_analyzer_agent = CVAnalyzerAgent(
-                name="CVAnalyzerAgent",
-                description="Agent for analyzing CVs.",
-                llm=model,
-            )
-            formatter_agent = FormatterAgent(
-                name="FormatterAgent", description="Agent for formatting CV content."
-            )
-            quality_assurance_agent = QualityAssuranceAgent(
-                name="QualityAssuranceAgent",
-                description="Agent for quality assurance checks.",
-            )
-            orchestrator = Orchestrator(
-                parser_agent,
-                template_renderer,
-                vector_store_agent,
-                content_writer_agent,
-                research_agent,
-                cv_analyzer_agent,
-                tools_agent,
-                formatter_agent,
-                quality_assurance_agent,
-                model,
-            )
-        except Exception as e:
-            st.error(f"Error initializing components: {str(e)}")
-            return
-
-    # Read template content to use as a placeholder
-    template_content = ""
+def save_session(state_manager):
+    """Save the current session to disk."""
     try:
-        with open(TEMPLATE_FILE_PATH, "r", encoding="utf-8") as file:
-            template_content = file.read()
+        session_dir = os.path.join(SESSIONS_DIR, st.session_state.session_id)
+        os.makedirs(session_dir, exist_ok=True)
+        
+        # Save session data
+        session_data = {
+            "session_id": st.session_state.session_id,
+            "job_description": st.session_state.job_description,
+            "cv_content": st.session_state.cv_content,
+            "current_step": st.session_state.current_step,
+            "progress": st.session_state.progress,
+            "status_message": st.session_state.status_message,
+            "timestamp": datetime.now().isoformat(),
+            "token_usage": st.session_state.token_usage
+        }
+        
+        session_file = os.path.join(session_dir, "session.json")
+        with open(session_file, 'w', encoding='utf-8') as f:
+            json.dump(session_data, f, indent=2, ensure_ascii=False)
+        
+        # Save state manager data
+        state_manager.save_session(session_dir)
+        
+        return True
     except Exception as e:
-        st.warning(f"Could not read template file: {str(e)}")
-        template_content = (
-            "John Doe\nSoftware Engineer with 5+ years of experience."
-            "\nExperience:\n- Worked on several projects.\nSkills:\n- Python\n- Java"
+        logger.error(f"Error saving session: {e}")
+        return False
+
+def load_session(session_id):
+    """Load a session from disk."""
+    try:
+        session_dir = os.path.join(SESSIONS_DIR, session_id)
+        session_file = os.path.join(session_dir, "session.json")
+        
+        if not os.path.exists(session_file):
+            return False
+        
+        with open(session_file, 'r', encoding='utf-8') as f:
+            session_data = json.load(f)
+        
+        # Restore session state
+        st.session_state.session_id = session_data["session_id"]
+        st.session_state.job_description = session_data.get("job_description", "")
+        st.session_state.cv_content = session_data.get("cv_content", "")
+        st.session_state.current_step = session_data.get("current_step", "input")
+        st.session_state.progress = session_data.get("progress", 0)
+        st.session_state.status_message = session_data.get("status_message", "")
+        st.session_state.token_usage = session_data.get("token_usage", {
+            "session_tokens": 0,
+            "daily_tokens": 0,
+            "session_requests": 0,
+            "daily_requests": 0
+        })
+        
+        # Load state manager
+        state_manager = StateManager()
+        state_manager.load_session(session_dir)
+        st.session_state.state_manager = state_manager
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error loading session: {e}")
+        return False
+
+def get_available_sessions():
+    """Get list of available sessions."""
+    sessions = []
+    if os.path.exists(SESSIONS_DIR):
+        for session_id in os.listdir(SESSIONS_DIR):
+            session_dir = os.path.join(SESSIONS_DIR, session_id)
+            session_file = os.path.join(session_dir, "session.json")
+            if os.path.exists(session_file):
+                try:
+                    with open(session_file, 'r', encoding='utf-8') as f:
+                        session_data = json.load(f)
+                    sessions.append({
+                        "id": session_id,
+                        "timestamp": session_data.get("timestamp", ""),
+                        "step": session_data.get("current_step", "unknown")
+                    })
+                except Exception as e:
+                    logger.error(f"Error reading session {session_id}: {e}")
+    return sessions
+
+def main():
+    """Main Streamlit application."""
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    # Sidebar for session management and settings
+    with st.sidebar:
+        st.title("🔧 Session Management")
+        
+        # Safety Controls Section
+        st.subheader("🛡️ Safety Controls")
+        
+        # Manual Stop Button
+        if st.session_state.processing:
+            if st.button("🛑 STOP PROCESSING", type="primary", use_container_width=True):
+                st.session_state.stop_processing = True
+                st.session_state.processing = False
+                st.warning("Processing stopped by user")
+                st.rerun()
+        
+        # Token Usage Display
+        st.subheader("📊 Token Usage")
+        
+        # Session tokens
+        session_usage_pct = 0
+        if "session_token_limit" in st.session_state and st.session_state.session_token_limit > 0:
+            session_usage_pct = (st.session_state.token_usage['session_tokens'] / st.session_state.session_token_limit) * 100
+        
+        st.metric(
+            "Session Tokens", 
+            f"{st.session_state.token_usage['session_tokens']:,} / {st.session_state.session_token_limit:,}",
+            f"{session_usage_pct:.1f}%"
         )
-
-    # Create tabs for different stages of the process
-    tab1, tab2, tab3 = st.tabs(["Input", "Review & Edit", "Export"])
-
-    with tab1:
-        st.subheader("Enter Job Description and CV")
-        # Input fields for job description and CV
-        job_description = st.text_area(
-            "Job Description", "Software Engineer position at Google", height=250
+        st.progress(min(session_usage_pct / 100, 1.0))
+        
+        # Daily tokens
+        daily_usage_pct = 0
+        if "daily_token_limit" in st.session_state and st.session_state.daily_token_limit > 0:
+            daily_usage_pct = (st.session_state.token_usage['daily_tokens'] / st.session_state.daily_token_limit) * 100
+        
+        st.metric(
+            "Daily Tokens", 
+            f"{st.session_state.token_usage['daily_tokens']:,} / {st.session_state.daily_token_limit:,}",
+            f"{daily_usage_pct:.1f}%"
         )
-
-        # Option to start from scratch
-        start_from_scratch = st.checkbox(
-            "Start from scratch (no base CV)", key="start_from_scratch"
+        st.progress(min(daily_usage_pct / 100, 1.0))
+        
+        # Budget Limits Configuration
+        st.subheader("💰 Budget Limits")
+        
+        new_session_limit = st.number_input(
+            "Session Token Limit", 
+            min_value=1000, 
+            max_value=100000, 
+            value=st.session_state.session_token_limit,
+            step=1000
         )
-
-        if start_from_scratch:
-            st.info("You'll create a new CV from scratch based on the job description.")
-            user_cv = ""
-        else:
-            user_cv = st.text_area("Your CV", template_content, height=250, key="user_cv_input")
-
-        if st.button("Start Tailoring Process", key="start_process_button"):
-            if job_description:
-                # Create session ID if not existing
-                if not st.session_state.state_manager.session_id:
-                    st.session_state.state_manager.session_id = str(uuid.uuid4())
-
-                # Parse job description and CV
-                with st.spinner("Parsing job description and CV..."):
-                    parse_result = parser_agent.run(
-                        {
-                            "job_description": job_description,
-                            "cv_text": user_cv,
-                            "start_from_scratch": start_from_scratch,
-                        }
-                    )
-
-                # Store results in state manager
-                job_data = parse_result["job_description_data"]
-                structured_cv = parse_result["structured_cv"]
-
-                # Store job description in structured_cv metadata
-                structured_cv.metadata["main_jd_text"] = job_description
-
-                # Store in state manager
-                st.session_state.state_manager._structured_cv = structured_cv
-
-                # Research stage
-                with st.spinner("Researching job requirements..."):
-                    try:
-                        research_results = research_agent.run({"job_description_data": job_data})
-                        # Store research results in session state for later use
-                        if "research_results" not in st.session_state:
-                            st.session_state.research_results = {}
-                        st.session_state.research_results = research_results
-                    except Exception as e:
-                        logger.error(f"Error in research stage: {str(e)}\n{traceback.format_exc()}")
-                        st.warning(f"Research stage encountered an issue: {str(e)}")
-                        # Initialize empty research results
-                        research_results = {}
-                        st.session_state.research_results = {}
-
-                # Content generation stage
-                with st.spinner("Generating tailored CV content..."):
-                    try:
-                        # Create a placeholder for progress updates
-                        progress_placeholder = st.empty()
-
-                        # Store the placeholder in session state so the agent can update it
-                        st.session_state.progress_placeholder = progress_placeholder
-                        st.session_state.current_generation_stage = "Initializing..."
-
-                        # Display initial status
-                        progress_placeholder.info(f"🔄 {st.session_state.current_generation_stage}")
-
-                        # Generate content for all dynamic sections
-                        updated_cv = content_writer_agent.run(
-                            {
-                                "structured_cv": structured_cv,
-                                "job_description_data": job_data,
-                                "research_results": research_results,
-                                "regenerate_item_ids": [],  # Empty list means generate all content
-                            }
-                        )
-
-                        # Update the structured CV in the state manager
-                        st.session_state.state_manager._structured_cv = updated_cv
-
-                        # Clear the progress placeholder when done
-                        progress_placeholder.empty()
-                    except Exception as e:
-                        logger.error(
-                            f"Error in content generation stage: {str(e)}\n{traceback.format_exc()}"
-                        )
-                        st.warning(f"Content generation encountered an issue: {str(e)}")
-
-                        # Clear progress placeholder
-                        if "progress_placeholder" in st.session_state:
-                            st.session_state.progress_placeholder.empty()
-
-                # Save state
-                state_file = st.session_state.state_manager.save_state()
-                if state_file:
-                    st.success(f"Data processed and saved to {state_file}")
-                    st.session_state.session_id = structured_cv.id
-                    st.info(f"Your session ID is: {structured_cv.id}")
-
-                # Display instructions to go to Review tab
-                st.success("Processing complete! Go to the Review & Edit tab to continue.")
-
-                # Clear any regeneration flags
-                st.session_state.regenerate_sections = []
+        
+        new_daily_limit = st.number_input(
+            "Daily Token Limit", 
+            min_value=10000, 
+            max_value=500000, 
+            value=st.session_state.daily_token_limit,
+            step=5000
+        )
+        
+        if st.button("Update Limits"):
+            st.session_state.session_token_limit = new_session_limit
+            st.session_state.daily_token_limit = new_daily_limit
+            st.success("Limits updated!")
+        
+        # Warning indicators
+        if session_usage_pct > 80:
+            st.error("⚠️ Session token limit nearly reached!")
+        elif session_usage_pct > 60:
+            st.warning("⚠️ High session token usage")
+        
+        if daily_usage_pct > 80:
+            st.error("⚠️ Daily token limit nearly reached!")
+        elif daily_usage_pct > 60:
+            st.warning("⚠️ High daily token usage")
+        
+        st.divider()
+        
+        # Session Management
+        st.subheader("💾 Sessions")
+        
+        # Current session info
+        st.write(f"**Current Session:** `{st.session_state.session_id[:8]}...`")
+        
+        # Save current session
+        if st.button("💾 Save Session", use_container_width=True):
+            if save_session(st.session_state.state_manager):
+                st.success("Session saved!")
             else:
-                st.error("Please provide a job description.")
-
-    with tab2:
-        st.subheader("Review and Edit CV Content")
-
-        # Check if we have a structured CV to display
-        structured_cv = st.session_state.state_manager.get_structured_cv()
-
-        if structured_cv:
-            # Display session ID
-            st.info(f"Session ID: {structured_cv.id}")
-
-            # Add a button to manually trigger regeneration of all dynamic sections
-            if st.button("🔄 Tailor All Content to Job Description", key="tailor_all_button"):
-                with st.spinner("Tailoring all dynamic sections to match job description..."):
-                    try:
-                        # Create a placeholder for progress updates
-                        progress_placeholder = st.empty()
-
-                        # Store the placeholder in session state so the agent can update it
-                        st.session_state.progress_placeholder = progress_placeholder
-                        st.session_state.current_generation_stage = (
-                            "Initializing tailoring process..."
-                        )
-
-                        # Display initial status
-                        progress_placeholder.info(f"🔄 {st.session_state.current_generation_stage}")
-
-                        # Get job description data
-                        job_description_data = {}
-                        if orchestrator and hasattr(orchestrator.parser_agent, "get_job_data"):
-                            job_description_data = orchestrator.parser_agent.get_job_data()
-                        elif "main_jd_text" in structured_cv.metadata:
-                            # Create a simple dict if we have at least the raw text
-                            job_description_data = {
-                                "raw_text": structured_cv.metadata.get("main_jd_text", "")
-                            }
-
-                        # Get research results
-                        research_results = st.session_state.get("research_results", {})
-                        if (
-                            not research_results
-                            and orchestrator
-                            and hasattr(orchestrator.research_agent, "get_research_results")
-                        ):
-                            research_results = orchestrator.research_agent.get_research_results()
-
-                        # Generate content for all dynamic sections
-                        updated_cv = content_writer_agent.run(
-                            {
-                                "structured_cv": structured_cv,
-                                "job_description_data": job_description_data,
-                                "research_results": research_results,
-                                "regenerate_item_ids": [],  # Empty list means generate all content
-                            }
-                        )
-
-                        # Update the state manager with the modified structured CV
-                        st.session_state.state_manager._structured_cv = updated_cv
-
-                        # Save state
-                        st.session_state.state_manager.save_state()
-
-                        # Clear the progress placeholder when done
-                        progress_placeholder.empty()
-
-                        st.success(
-                            "All dynamic sections have been tailored to the job description!"
-                        )
-                        # Force a rerun to update the UI
-                        st.rerun()
-                    except Exception as e:
-                        logger.error(
-                            f"Error during full content regeneration: {str(e)}\n{traceback.format_exc()}"
-                        )
-                        st.error(f"Error generating content: {str(e)}")
-
-                        # Clear progress placeholder
-                        if "progress_placeholder" in st.session_state:
-                            st.session_state.progress_placeholder.empty()
-
-            # Check if we have items to regenerate
-            if st.session_state.regenerate_sections:
-                with st.spinner("Generating content for marked items..."):
-                    # Create a placeholder for progress updates
-                    progress_placeholder = st.empty()
-
-                    # Store the placeholder in session state so the agent can update it
-                    st.session_state.progress_placeholder = progress_placeholder
-                    st.session_state.current_generation_stage = "Initializing regeneration..."
-
-                    # Display initial status
-                    progress_placeholder.info(f"🔄 {st.session_state.current_generation_stage}")
-
-                    # Call the ContentWriterAgent to regenerate the marked items
-                    try:
-                        # Get research results from session state if available
-                        research_results = st.session_state.get("research_results", {})
-
-                        # Get job description data
-                        job_description_data = {}
-                        if orchestrator and hasattr(orchestrator.parser_agent, "get_job_data"):
-                            job_description_data = orchestrator.parser_agent.get_job_data()
-                        elif "main_jd_text" in structured_cv.metadata:
-                            # Create a simple dict if we have at least the raw text
-                            job_description_data = {
-                                "raw_text": structured_cv.metadata.get("main_jd_text", "")
-                            }
-
-                        # Get the current structured CV state
-                        current_cv = st.session_state.state_manager.get_structured_cv()
-
-                        # Call the content writer agent to regenerate specific items
-                        result = content_writer_agent.run(
-                            {
-                                "structured_cv": current_cv,
-                                "regenerate_item_ids": st.session_state.regenerate_sections,
-                                "job_description_data": job_description_data,
-                                "research_results": research_results,
-                            }
-                        )
-
-                        # Update the state manager with the modified structured CV
-                        st.session_state.state_manager._structured_cv = result
-
-                        # Clear the regenerate list
-                        st.session_state.regenerate_sections = []
-
-                        # Save state
-                        st.session_state.state_manager.save_state()
-
-                        # Clear the progress placeholder when done
-                        progress_placeholder.empty()
-
-                        logger.info(f"Successfully regenerated items")
-                        st.success("Content regeneration complete!")
-                    except Exception as e:
-                        logger.error(
-                            f"Error during content regeneration: {str(e)}\n{traceback.format_exc()}"
-                        )
-                        st.error(f"Error generating content: {str(e)}")
-
-                        # Clear progress placeholder
-                        if "progress_placeholder" in st.session_state:
-                            st.session_state.progress_placeholder.empty()
-
-                    # Force a rerun to update the UI
+                st.error("Failed to save session")
+        
+        # Load existing session
+        sessions = get_available_sessions()
+        if sessions:
+            st.write("**Load Existing Session:**")
+            session_options = [f"{s['id'][:8]}... ({s['step']})" for s in sessions]
+            selected_session = st.selectbox("Select session", session_options, index=None)
+            
+            if selected_session and st.button("📂 Load Session", use_container_width=True):
+                session_id = sessions[session_options.index(selected_session)]["id"]
+                if load_session(session_id):
+                    st.success("Session loaded!")
                     st.rerun()
-
-            # Display the structured CV content for review and editing
-            if structured_cv.sections:
-                # Sort sections by order
-                sorted_sections = sorted(structured_cv.sections, key=lambda s: s.order)
-
-                # Display each section
-                for section in sorted_sections:
+                else:
+                    st.error("Failed to load session")
+        
+        # New session
+        if st.button("🆕 New Session", use_container_width=True):
+            # Reset session state
+            for key in list(st.session_state.keys()):
+                if key not in ["session_token_limit", "daily_token_limit"]:
+                    del st.session_state[key]
+            st.rerun()
+    
+    # Main content area
+    st.title("🤖 AI CV Generator")
+    st.markdown("*Tailor your CV to any job description using AI*")
+    
+    # Show template information
+    show_template_info()
+    
+    # Progress indicator
+    if st.session_state.processing:
+        st.info(f"🔄 {st.session_state.status_message}")
+        progress_bar = st.progress(st.session_state.progress / 100)
+        
+        # Check for stop signal
+        if st.session_state.stop_processing:
+            st.warning("⏹️ Processing interrupted by user")
+            st.session_state.processing = False
+            st.session_state.stop_processing = False
+    
+    # Main tabs
+    tab1, tab2, tab3 = st.tabs(["📝 Input & Generate", "✏️ Review & Edit", "📄 Export"])
+    
+    with tab1:
+        st.header("Input Your Information")
+        
+        # Job description input
+        st.subheader("🎯 Job Description")
+        job_description = st.text_area(
+            "Paste the job description here:",
+            value=st.session_state.job_description,
+            height=200,
+            help="Paste the complete job description to tailor your CV accordingly"
+        )
+        
+        # CV content input
+        st.subheader("📄 Your Current CV")
+        cv_content = st.text_area(
+            "Paste your current CV content here:",
+            value=st.session_state.cv_content,
+            height=300,
+            help="Paste your existing CV content that will be tailored to the job"
+        )
+        
+        # Update session state
+        st.session_state.job_description = job_description
+        st.session_state.cv_content = cv_content
+        
+        # Generate button
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🚀 Generate Tailored CV", type="primary", use_container_width=True, disabled=st.session_state.processing):
+                if not job_description.strip():
+                    st.error("Please provide a job description")
+                elif not cv_content.strip():
+                    st.error("Please provide your CV content")
+                else:
+                    # Check budget limits before starting
+                    session_usage_pct = (st.session_state.token_usage['session_tokens'] / st.session_state.session_token_limit) * 100
+                    daily_usage_pct = (st.session_state.token_usage['daily_tokens'] / st.session_state.daily_token_limit) * 100
+                    
+                    if session_usage_pct >= 100:
+                        st.error("❌ Session token limit exceeded! Please start a new session or increase limits.")
+                    elif daily_usage_pct >= 100:
+                        st.error("❌ Daily token limit exceeded! Please try again tomorrow or increase limits.")
+                    else:
+                        # Start processing
+                        st.session_state.processing = True
+                        st.session_state.stop_processing = False
+                        st.session_state.current_step = "processing"
+                        st.session_state.progress = 0
+                        st.session_state.status_message = "Initializing AI agents..."
+                        
+                        try:
+                            # Initialize orchestrator if not already done
+                            if st.session_state.orchestrator is None:
+                                st.session_state.orchestrator = Orchestrator()
+                            
+                            # Initialize content writer agent
+                            content_writer_agent = ContentWriterAgent()
+                            
+                            # Budget checking function
+                            def check_budget_limits():
+                                """Check if budget limits are exceeded and stop processing if needed."""
+                                if "session_token_limit" in st.session_state and "daily_token_limit" in st.session_state:
+                                    session_usage_pct = (st.session_state.token_usage['session_tokens'] / st.session_state.session_token_limit) * 100
+                                    daily_usage_pct = (st.session_state.token_usage['daily_tokens'] / st.session_state.daily_token_limit) * 100
+                                    
+                                    if session_usage_pct >= 100 or daily_usage_pct >= 100:
+                                        st.session_state.stop_processing = True
+                                        st.session_state.processing = False
+                                        if session_usage_pct >= 100:
+                                            st.error("❌ Session token limit exceeded! Processing stopped.")
+                                        if daily_usage_pct >= 100:
+                                            st.error("❌ Daily token limit exceeded! Processing stopped.")
+                                        return True
+                                return False
+                            
+                            # Token usage tracking function
+                            def update_token_usage(tokens_used, requests_made=1):
+                                """Update token usage counters."""
+                                st.session_state.token_usage['session_tokens'] += tokens_used
+                                st.session_state.token_usage['daily_tokens'] += tokens_used
+                                st.session_state.token_usage['session_requests'] += requests_made
+                                st.session_state.token_usage['daily_requests'] += requests_made
+                            
+                            # Check budget before starting
+                            if check_budget_limits():
+                                st.rerun()
+                                return
+                            
+                            # Check for stop signal
+                            if st.session_state.stop_processing:
+                                st.warning("⏹️ Processing stopped by user")
+                                st.session_state.processing = False
+                                st.rerun()
+                                return
+                            
+                            # Update progress
+                            st.session_state.progress = 20
+                            st.session_state.status_message = "Analyzing job description and CV..."
+                            
+                            # Estimate token usage for this operation (rough estimate)
+                            estimated_tokens = len(job_description.split()) * 1.3 + len(cv_content.split()) * 1.3 + 2000  # Rough estimate
+                            
+                            # Process with content writer agent
+                            result = content_writer_agent.run(
+                                job_description=job_description,
+                                cv_content=cv_content
+                            )
+                            
+                            # Update token usage (using estimated tokens for now)
+                            update_token_usage(int(estimated_tokens))
+                            
+                            # Check budget after processing
+                            if check_budget_limits():
+                                st.rerun()
+                                return
+                            
+                            # Check for stop signal
+                            if st.session_state.stop_processing:
+                                st.warning("⏹️ Processing stopped by user")
+                                st.session_state.processing = False
+                                st.rerun()
+                                return
+                            
+                            # Update progress
+                            st.session_state.progress = 80
+                            st.session_state.status_message = "Finalizing tailored CV..."
+                            
+                            # Store the result in state manager
+                            if result and "content" in result:
+                                st.session_state.state_manager.update_cv_data(result["content"])
+                                st.session_state.current_step = "review"
+                                st.session_state.progress = 100
+                                st.session_state.status_message = "CV generation completed!"
+                                st.session_state.processing = False
+                                st.success("✅ CV tailored successfully!")
+                            else:
+                                st.error("Failed to generate tailored CV")
+                                st.session_state.processing = False
+                            
+                            # Small delay to show completion
+                            time.sleep(1)
+                            st.rerun()
+                            
+                        except Exception as e:
+                            logger.error(f"Error during CV generation: {e}")
+                            st.error(f"An error occurred: {str(e)}")
+                            st.session_state.processing = False
+                            st.rerun()
+    
+    with tab2:
+        st.header("Review & Edit Your CV")
+        
+        if st.session_state.state_manager.cv_data:
+            # Get current CV data
+            cv_data = st.session_state.state_manager.cv_data
+            
+            # Display sections
+            if "sections" in cv_data:
+                for section in cv_data["sections"]:
                     display_section(section, st.session_state.state_manager)
             else:
-                st.warning("No sections found in the CV.")
-
-            # Check for items or sections marked for regeneration
-            items_to_regenerate = structured_cv.get_items_by_status(ItemStatus.TO_REGENERATE)
-            sections_to_regenerate = [
-                section
-                for section in structured_cv.sections
-                if section.status == ItemStatus.TO_REGENERATE
-            ]
-
-            # Show the regenerate button if there are items marked for regeneration
-            if items_to_regenerate or sections_to_regenerate:
-                st.markdown("### Regenerate Marked Content")
-
-                # Display info about what will be regenerated
-                if sections_to_regenerate:
-                    section_names = [section.name for section in sections_to_regenerate]
-                    st.markdown(f"**Sections marked for regeneration:** {', '.join(section_names)}")
-
-                if items_to_regenerate:
-                    st.markdown(
-                        f"**{len(items_to_regenerate)} individual items** marked for regeneration"
-                    )
-
-                # Button to trigger regeneration
-                if st.button("🔄 Regenerate Marked Content", key="regenerate_button"):
-                    regenerate_ids = []
-
-                    # Add section IDs for section-level regeneration
-                    for section in sections_to_regenerate:
-                        regenerate_ids.append(section.id)
-
-                    # Add item IDs for item-level regeneration
-                    for item in items_to_regenerate:
-                        regenerate_ids.append(item.id)
-
-                    if regenerate_ids:
-                        st.session_state.regenerate_sections = regenerate_ids
-                        st.rerun()  # This will trigger the regeneration code in the "if st.session_state.regenerate_sections:" block
-
-            # Button to finalize the CV
-            if st.button("Finalize CV", key="finalize_button"):
-                # Check if all dynamic items have been accepted or are static
-                all_items_ready = True
-                problem_items = []
-
-                for section in structured_cv.sections:
-                    if section.content_type == "DYNAMIC":
-                        # Check items directly in the section
-                        for item in section.items:
-                            if item.status not in [
-                                ItemStatus.ACCEPTED,
-                                ItemStatus.STATIC,
-                                ItemStatus.USER_EDITED,
-                            ]:
-                                all_items_ready = False
-                                problem_items.append(f"{section.name}: {item.content[:30]}...")
-
-                        # Check items in subsections
-                        for subsection in section.subsections:
-                            for item in subsection.items:
-                                if item.status not in [
-                                    ItemStatus.ACCEPTED,
-                                    ItemStatus.STATIC,
-                                    ItemStatus.USER_EDITED,
-                                ]:
-                                    all_items_ready = False
-                                    problem_items.append(
-                                        f"{section.name} > {subsection.name}: {item.content[:30]}..."
-                                    )
-
-                if all_items_ready:
-                    # Move to the Export tab
-                    st.success("CV is ready for export! Go to the Export tab.")
-                    # Select the Export tab
-                    # (Note: Streamlit doesn't support programmatically selecting tabs yet,
-                    # so this is just a message to the user)
-                else:
-                    st.error("Some items still need review before finalizing.")
-                    st.warning("Please accept or edit the following items:")
-                    for item in problem_items[:5]:  # Show first 5 problem items
-                        st.write(f"- {item}")
-                    if len(problem_items) > 5:
-                        st.write(f"...and {len(problem_items) - 5} more.")
-        else:
-            st.info("No CV data found. Please go to the Input tab to start the process.")
-
-    with tab3:
-        st.subheader("Export Tailored CV")
-
-        # Check if we have a structured CV to export
-        structured_cv = st.session_state.state_manager.get_structured_cv()
-
-        if structured_cv:
-            # Display session ID
-            st.info(f"Session ID: {structured_cv.id}")
-
-            # Convert StructuredCV to ContentData for compatibility with existing code
-            content_data = structured_cv.to_content_data()
-
-            # Format output options
-            output_format = st.selectbox(
-                "Select output format", ["Markdown", "PDF"], key="output_format"
+                st.info("No CV sections available. Please generate a CV first.")
+            
+            # Manual tailoring section
+            st.subheader("🎯 Manual Tailoring")
+            st.write("Need to make specific adjustments? Describe what you'd like to change:")
+            
+            tailoring_request = st.text_area(
+                "Tailoring Instructions",
+                placeholder="e.g., 'Emphasize my Python experience more', 'Add more details about my leadership skills', 'Focus on cloud technologies'",
+                height=100
             )
-
-            if st.button("Generate Final CV", key="generate_final_button"):
-                with st.spinner("Generating final CV..."):
-                    try:
-                        # For the MVP, we'll just show the Markdown content
-                        # In a real implementation, this would call the formatter and template_renderer
-
-                        # Generate rendered Markdown (placeholder for real rendering)
-                        rendered_cv = f"""
+            
+            if st.button("🔧 Apply Tailoring", disabled=st.session_state.processing):
+                if tailoring_request.strip():
+                    # Check budget limits before starting
+                    session_usage_pct = (st.session_state.token_usage['session_tokens'] / st.session_state.session_token_limit) * 100
+                    daily_usage_pct = (st.session_state.token_usage['daily_tokens'] / st.session_state.daily_token_limit) * 100
+                    
+                    if session_usage_pct >= 100:
+                        st.error("❌ Session token limit exceeded! Please start a new session or increase limits.")
+                    elif daily_usage_pct >= 100:
+                        st.error("❌ Daily token limit exceeded! Please try again tomorrow or increase limits.")
+                    else:
+                        st.session_state.processing = True
+                        st.session_state.stop_processing = False
+                        st.session_state.status_message = "Applying manual tailoring..."
+                        
+                        try:
+                            # Initialize content writer agent
+                            content_writer_agent = ContentWriterAgent()
+                            
+                            # Budget checking function
+                            def check_budget_limits():
+                                """Check if budget limits are exceeded and stop processing if needed."""
+                                if "session_token_limit" in st.session_state and "daily_token_limit" in st.session_state:
+                                    session_usage_pct = (st.session_state.token_usage['session_tokens'] / st.session_state.session_token_limit) * 100
+                                    daily_usage_pct = (st.session_state.token_usage['daily_tokens'] / st.session_state.daily_token_limit) * 100
+                                    
+                                    if session_usage_pct >= 100 or daily_usage_pct >= 100:
+                                        st.session_state.stop_processing = True
+                                        st.session_state.processing = False
+                                        if session_usage_pct >= 100:
+                                            st.error("❌ Session token limit exceeded! Processing stopped.")
+                                        if daily_usage_pct >= 100:
+                                            st.error("❌ Daily token limit exceeded! Processing stopped.")
+                                        return True
+                                return False
+                            
+                            # Token usage tracking function
+                            def update_token_usage(tokens_used, requests_made=1):
+                                """Update token usage counters."""
+                                st.session_state.token_usage['session_tokens'] += tokens_used
+                                st.session_state.token_usage['daily_tokens'] += tokens_used
+                                st.session_state.token_usage['session_requests'] += requests_made
+                                st.session_state.token_usage['daily_requests'] += requests_made
+                            
+                            # Check budget before starting
+                            if check_budget_limits():
+                                st.rerun()
+                                return
+                            
+                            # Check for stop signal
+                            if st.session_state.stop_processing:
+                                st.warning("⏹️ Processing stopped by user")
+                                st.session_state.processing = False
+                                st.rerun()
+                                return
+                            
+                            # Estimate token usage for this operation
+                            estimated_tokens = len(tailoring_request.split()) * 1.3 + 1500  # Rough estimate
+                            
+                            # Apply tailoring
+                            result = content_writer_agent.run(
+                                job_description=st.session_state.job_description,
+                                cv_content=str(cv_data),
+                                tailoring_instructions=tailoring_request
+                            )
+                            
+                            # Update token usage
+                            update_token_usage(int(estimated_tokens))
+                            
+                            # Check budget after processing
+                            if check_budget_limits():
+                                st.rerun()
+                                return
+                            
+                            # Check for stop signal
+                            if st.session_state.stop_processing:
+                                st.warning("⏹️ Processing stopped by user")
+                                st.session_state.processing = False
+                                st.rerun()
+                                return
+                            
+                            if result and "content" in result:
+                                st.session_state.state_manager.update_cv_data(result["content"])
+                                st.success("✅ Tailoring applied successfully!")
+                            else:
+                                st.error("Failed to apply tailoring")
+                            
+                            st.session_state.processing = False
+                            st.rerun()
+                            
+                        except Exception as e:
+                            logger.error(f"Error during manual tailoring: {e}")
+                            st.error(f"An error occurred: {str(e)}")
+                            st.session_state.processing = False
+                            st.rerun()
+                else:
+                    st.warning("Please provide tailoring instructions")
+        else:
+            st.info("No CV data available. Please generate a CV first in the 'Input & Generate' tab.")
+    
+    with tab3:
+        st.header("Export Your CV")
+        
+        if st.session_state.state_manager.cv_data:
+            cv_data = st.session_state.state_manager.cv_data
+            
+            # Preview section
+            st.subheader("📋 Preview")
+            
+            # Get content data for rendering
+            content_data = cv_data.get("content", {})
+            
+            if content_data:
+                # Generate rendered Markdown (placeholder for real rendering)
+                rendered_cv = f"""
 # {content_data.get('name', 'Your Name')}
 
-## Contact Information
-- Email: {content_data.get('email', '')}
-- Phone: {content_data.get('phone', '')}
-- LinkedIn: {content_data.get('linkedin', '')}
-- GitHub: {content_data.get('github', '')}
+{content_data.get('contact_info', 'Contact information')}
+
+---
 
 ## Executive Summary
-{content_data.get('summary', '')}
+
+{content_data.get('executive_summary', 'Executive summary content')}
 
 ## Key Qualifications
-{content_data.get('skills_section', '')}
+
+{content_data.get('key_qualifications', 'Key qualifications content')}
 
 ## Professional Experience
 """
-                        # Add experience bullets
-                        for bullet in content_data.get("experience_bullets", []):
-                            rendered_cv += f"- {bullet}\n"
-
-                        # Add projects
-                        rendered_cv += "\n## Project Experience\n"
-                        for project in content_data.get("projects", []):
-                            rendered_cv += f"### {project.get('name', 'Project')}\n"
-                            for bullet in project.get("bullets", []):
-                                rendered_cv += f"- {bullet}\n"
-
-                        # Add education
-                        rendered_cv += "\n## Education\n"
-                        for edu in content_data.get("education", []):
-                            rendered_cv += f"- {edu}\n"
-
-                        # Add certifications
-                        rendered_cv += "\n## Certifications\n"
-                        for cert in content_data.get("certifications", []):
-                            rendered_cv += f"- {cert}\n"
-
-                        # Add languages
-                        rendered_cv += "\n## Languages\n"
-                        for lang in content_data.get("languages", []):
-                            rendered_cv += f"- {lang}\n"
-
-                        # Save the rendered CV
-                        with open("src/templates/tailored_cv.md", "w", encoding="utf-8") as f:
-                            f.write(rendered_cv)
-
-                        # Display the rendered CV
-                        st.markdown("### Final CV Preview")
-                        st.markdown(rendered_cv)
-
-                        # Download button
+                # Add experience bullets
+                for bullet in content_data.get("experience_bullets", []):
+                    rendered_cv += f"\n* {bullet}"
+                
+                rendered_cv += "\n\n## Projects\n"
+                for project in content_data.get("projects", []):
+                    rendered_cv += f"\n### {project.get('title', 'Project Title')}\n{project.get('description', 'Project description')}"
+                
+                # Show preview
+                st.markdown(rendered_cv)
+                
+                # Export options
+                st.subheader("💾 Export Options")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("📄 Download as Markdown", use_container_width=True):
                         st.download_button(
-                            label="Download Tailored CV",
+                            label="Download MD",
                             data=rendered_cv,
-                            file_name="src/templates/tailored_cv.md",
-                            mime="text/markdown",
+                            file_name=f"tailored_cv_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                            mime="text/markdown"
                         )
-
-                        # If PDF was selected, show a message
-                        if output_format == "PDF":
-                            st.info(
-                                "PDF generation is not implemented in the MVP. "
-                                "Please use the Markdown output."
-                            )
-
-                    except Exception as e:
-                        st.error(f"Error generating final CV: {str(e)}")
-
-            # Display preview of current content
-            st.subheader("Current CV Content Preview")
-
-            # Create a simple preview of the current content
-            preview = f"""
+                
+                with col2:
+                    if st.button("📝 Download as Text", use_container_width=True):
+                        # Convert markdown to plain text (simple conversion)
+                        plain_text = rendered_cv.replace("#", "").replace("*", "").replace("---", "")
+                        st.download_button(
+                            label="Download TXT",
+                            data=plain_text,
+                            file_name=f"tailored_cv_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain"
+                        )
+                
+                with col3:
+                    st.button("📊 Generate PDF", use_container_width=True, disabled=True, help="PDF export coming soon!")
+            
+            else:
+                # Create a simple preview of the current content
+                preview = f"""
 # {content_data.get('name', 'Your Name')}
 
-## Summary
-{content_data.get('summary', '')}
+{content_data.get('contact_info', 'Contact information will appear here')}
 
-## Skills
-{content_data.get('skills_section', '')}
+---
 
 ## Experience
 """
-            for bullet in content_data.get("experience_bullets", [])[:3]:  # Show first 3 bullets
-                preview += f"- {bullet}\n"
-
-            if len(content_data.get("experience_bullets", [])) > 3:
-                preview += f"... and {len(content_data.get('experience_bullets', [])) - 3} more\n"
-
-            st.markdown(preview)
+                for bullet in content_data.get("experience_bullets", [])[:3]:  # Show first 3 bullets
+                    preview += f"\n* {bullet}"
+                
+                if len(content_data.get("experience_bullets", [])) > 3:
+                    preview += "\n* ..."
+                
+                st.markdown(preview)
+                st.info("Complete your CV in the 'Review & Edit' tab to see the full preview.")
+        
         else:
-            st.info("No CV data found. Please go to the Input tab to start the process.")
+            st.info("No CV data available. Please generate a CV first in the 'Input & Generate' tab.")
 
-
-if __name__ == "__main__":
-    main()
+# This module is now imported and executed by app.py launcher

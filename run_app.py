@@ -14,8 +14,17 @@ sys.path.insert(0, str(project_root))
 # Now we can import and run the main application
 if __name__ == '__main__':
     try:
-        from src.core.main import main
-        main()
+        # Import streamlit and run the app
+        import streamlit.web.cli as stcli
+        import streamlit as st
+        
+        # Set the main script path
+        main_script = str(project_root / "src" / "core" / "main.py")
+        
+        # Run streamlit
+        sys.argv = ["streamlit", "run", main_script]
+        stcli.main()
+        
     except ImportError as e:
         print(f"Import error: {e}")
         print("Make sure all dependencies are installed: pip install -r requirements.txt")

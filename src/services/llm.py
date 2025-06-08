@@ -2,92 +2,130 @@ import google.generativeai as genai
 import os
 import sys
 import time
+import asyncio
 import concurrent.futures
 import threading
 from queue import Queue
 import logging
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
+from datetime import datetime
 
-logger = logging.getLogger(__name__)
+from ..config.logging_config import get_structured_logger
+from ..config.settings import get_config
+from ..models.data_models import ContentType
+from .rate_limiter import RateLimiter as EnhancedRateLimiter
+from .error_recovery import get_error_recovery_service
+
+logger = get_structured_logger("llm_service")
 
 
-class RateLimiter:
+@dataclass
+class LLMResponse:
+    """Structured response from LLM calls."""
+    content: str
+    tokens_used: int = 0
+    processing_time: float = 0.0
+    model_used: str = ""
+    success: bool = True
+    error_message: Optional[str] = None
+    metadata: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+
+class EnhancedLLMService:
     """
-    Simple rate limiter to prevent exceeding API quotas.
-    Enforces a maximum number of requests per minute.
-    """
-
-    def __init__(self, max_requests_per_minute=12):
-        """
-        Initialize the rate limiter.
-
-        Args:
-            max_requests_per_minute: Maximum requests allowed per minute
-        """
-        self.max_requests = max_requests_per_minute
-        self.interval = 60 / max_requests_per_minute  # seconds between requests
-        self.request_times = []
-        self.lock = threading.Lock()
-
-    def wait_if_needed(self):
-        """
-        Wait if necessary to respect the rate limit.
-        """
-        with self.lock:
-            now = time.time()
-
-            # Remove old requests from the tracking window
-            self.request_times = [t for t in self.request_times if now - t < 60]
-
-            # If we've hit the limit, wait until we can make another request
-            if len(self.request_times) >= self.max_requests:
-                oldest_request = min(self.request_times)
-                sleep_time = max(0, 60 - (now - oldest_request))
-
-                if sleep_time > 0:
-                    logger.info(
-                        "Rate limit reached. Waiting %.2f seconds before next request",
-                        sleep_time,
-                    )
-                    # Release the lock while sleeping
-                    self.lock.release()
-                    time.sleep(sleep_time)
-                    # Re-acquire the lock
-                    self.lock.acquire()
-
-            # Add this request to the tracking window
-            self.request_times.append(time.time())
-
-
-class LLM:
-    """
-    A wrapper class for the Google Generative AI model (Gemini).
+    Enhanced LLM service with Phase 1 infrastructure integration.
+    Provides structured logging, rate limiting, and error recovery.
     """
 
-    def __init__(self, timeout=30, max_requests_per_minute=12):
+    def __init__(
+        self, 
+        timeout: int = 30, 
+        rate_limiter: Optional[EnhancedRateLimiter] = None,
+        error_recovery = None
+    ):
         """
-        Initialize the LLM with API key and model configuration.
+        Initialize the enhanced LLM service.
 
         Args:
             timeout: Maximum time in seconds to wait for LLM response
-            max_requests_per_minute: Maximum requests allowed per minute
+            rate_limiter: Optional rate limiter instance
+            error_recovery: Optional error recovery service
         """
-        # Configure API key
-        api_key = os.environ.get("GEMINI_API_KEY", "AIzaSyCUi6CPAsGcYkpatm6cil8_XMCfwUCmV3I")
+        self.settings = get_config()
+        self.timeout = timeout
+        
+        # Configure API keys with fallback support
+        self.primary_api_key = self.settings.llm.gemini_api_key_primary
+        self.fallback_api_key = self.settings.llm.gemini_api_key_fallback
+        
+        if not self.primary_api_key and not self.fallback_api_key:
+            raise ValueError("No Gemini API key found. Set GEMINI_API_KEY environment variable or ensure fallback key is configured.")
+        
+        # Use primary key first, fallback if not available
+        api_key = self.primary_api_key or self.fallback_api_key
+        self.current_api_key = api_key
 
         # Initialize the model
         genai.configure(api_key=api_key)
-        self.llm = genai.GenerativeModel("gemini-2.0-flash")
-        self.timeout = timeout
+        self.model_name = "gemini-2.0-flash"
+        self.llm = genai.GenerativeModel(self.model_name)
+        self.using_fallback = not bool(self.primary_api_key)
+        
+        # Enhanced services
+        self.rate_limiter = rate_limiter or EnhancedRateLimiter()
+        self.error_recovery = error_recovery or get_error_recovery_service()
+        
+        # Performance tracking
+        self.call_count = 0
+        self.total_tokens = 0
+        self.total_processing_time = 0.0
+        
+        logger.info(
+            "Enhanced LLM service initialized",
+            model=self.model_name,
+            timeout=timeout,
+            using_fallback_key=self.using_fallback
+        )
+    
+    def _switch_to_fallback_key(self):
+        """Switch to fallback API key when rate limits are encountered."""
+        if not self.using_fallback and self.fallback_api_key:
+            logger.warning(
+                "Switching to fallback API key due to rate limit or error",
+                previous_key_type="primary",
+                fallback_available=True
+            )
+            
+            # Reconfigure with fallback key
+            genai.configure(api_key=self.fallback_api_key)
+            self.current_api_key = self.fallback_api_key
+            self.using_fallback = True
+            
+            # Reinitialize the model with new key
+            self.llm = genai.GenerativeModel(self.model_name)
+            
+            logger.info("Successfully switched to fallback API key")
+            return True
+        else:
+            logger.error(
+                "Cannot switch to fallback key",
+                already_using_fallback=self.using_fallback,
+                fallback_available=bool(self.fallback_api_key)
+            )
+            return False
 
-        # Initialize rate limiter
-        self.rate_limiter = RateLimiter(max_requests_per_minute)
-
-    def _generate_with_timeout(self, prompt):
+    def _generate_with_timeout(self, prompt: str, session_id: str = None) -> Any:
         """
         Generate content with a timeout using ThreadPoolExecutor.
 
         Args:
             prompt: Text prompt to send to the model
+            session_id: Optional session ID for tracking
 
         Returns:
             Generated text response or raises TimeoutError
@@ -95,82 +133,252 @@ class LLM:
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(self.llm.generate_content, prompt)
             try:
-                return future.result(timeout=self.timeout)
+                result = future.result(timeout=self.timeout)
+                
+                # Log successful call
+                logger.info(
+                    "LLM call completed successfully",
+                    session_id=session_id,
+                    model=self.model_name,
+                    prompt_length=len(prompt),
+                    response_length=len(result.text) if hasattr(result, 'text') else 0
+                )
+                
+                return result
+                
             except concurrent.futures.TimeoutError:
                 # Try to cancel if possible
                 future.cancel()
+                
+                # Log timeout
+                logger.error(
+                    "LLM request timed out",
+                    session_id=session_id,
+                    timeout=self.timeout,
+                    prompt_length=len(prompt)
+                )
+                
                 raise TimeoutError(f"LLM request timed out after {self.timeout} seconds")
 
-    def generate_content(self, prompt):
+    async def generate_content(
+        self, 
+        prompt: str, 
+        content_type: ContentType = ContentType.QUALIFICATION,
+        session_id: str = None,
+        item_id: str = None,
+        max_retries: int = 3
+    ) -> LLMResponse:
         """
-        Generate content using the Gemini model with timeout and error handling.
+        Generate content using the Gemini model with enhanced error handling.
 
         Args:
             prompt: Text prompt to send to the model
+            content_type: Type of content being generated
+            session_id: Session ID for tracking
+            item_id: Item ID for tracking
+            max_retries: Maximum number of retries
 
         Returns:
-            Generated text response or a fallback message for errors
-
-        Note:
-            This implementation respects rate limits and handles errors gracefully
+            LLMResponse with generated content and metadata
         """
-        # Apply rate limiting before making the request
-        self.rate_limiter.wait_if_needed()
-
-        # Normal operation with timeout
-        try:
-            # Log prompt snippet for debugging
-            prompt_snippet = prompt[:200] + "..." if len(prompt) > 200 else prompt
-            print(f"📤 PROMPT: {prompt_snippet}")
-
-            start_time = time.time()
-            print(f"Sending request to LLM at {time.strftime('%H:%M:%S')}")
-
-            # Use the timeout version
-            response = self._generate_with_timeout(prompt)
-
-            elapsed = time.time() - start_time
-            print(f"LLM response received in {elapsed:.2f} seconds")
-
-            if not hasattr(response, "text") or response.text is None:
-                return "LLM returned an empty or invalid response"
-
-            # Log response snippet for debugging
-            response_snippet = (
-                response.text[:200] + "..." if len(response.text) > 200 else response.text
-            )
-            print(f"📥 RESPONSE: {response_snippet}")
-
-            return response.text
-
-        except TimeoutError as e:
-            print(f"LLM request timed out: {e}")
-            return f"The AI model is taking too long to respond. Please try again later or use a simpler query."
-
-        except Exception as e:
-            print(f"Error in LLM.generate_content: {type(e).__name__}: {e}")
-
-            # For rate limiting errors, wait longer and suggest a solution
-            if "ResourceExhausted" in str(e) or "quota" in str(e).lower() or "429" in str(e):
-                retry_message = "Rate limit exceeded. Consider using a paid API key or reducing the request frequency."
-
-                # Try to extract retry delay from error message
-                import re
-
-                retry_seconds = 60  # Default to 60 seconds
-                delay_match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", str(e))
-                if delay_match:
-                    retry_seconds = int(delay_match.group(1))
-
-                print(
-                    f"Rate limit exceeded. Waiting {retry_seconds} seconds before allowing next request."
+        start_time = time.time()
+        retry_count = 0
+        
+        # Update call tracking
+        self.call_count += 1
+        
+        while retry_count <= max_retries:
+            try:
+                # Apply rate limiting
+                await self.rate_limiter.acquire()
+                
+                # Log the attempt
+                logger.info(
+                    "Starting LLM generation",
+                    session_id=session_id,
+                    item_id=item_id,
+                    content_type=content_type.value,
+                    prompt_length=len(prompt),
+                    retry_count=retry_count
                 )
 
-                # Enforce a longer wait for the next request
-                time.sleep(
-                    min(retry_seconds, 5)
-                )  # Wait at most 5 seconds here, the rate limiter will handle the rest
+                # Generate content with timeout
+                response = self._generate_with_timeout(prompt, session_id)
+                
+                processing_time = time.time() - start_time
+                self.total_processing_time += processing_time
+                
+                if not hasattr(response, "text") or response.text is None:
+                    raise ValueError("LLM returned an empty or invalid response")
 
-                return f"The AI model encountered a rate limit issue. {retry_message}"
+                # Estimate token usage (rough approximation)
+                tokens_used = len(prompt.split()) + len(response.text.split())
+                self.total_tokens += tokens_used
+                
+                # Create structured response
+                llm_response = LLMResponse(
+                    content=response.text,
+                    tokens_used=tokens_used,
+                    processing_time=processing_time,
+                    model_used=self.model_name,
+                    success=True,
+                    metadata={
+                        "session_id": session_id,
+                        "item_id": item_id,
+                        "content_type": content_type.value,
+                        "retry_count": retry_count,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                )
+                
+                # Log successful generation
+                logger.info(
+                    "LLM generation completed successfully",
+                    session_id=session_id,
+                    item_id=item_id,
+                    processing_time=processing_time,
+                    tokens_used=tokens_used,
+                    response_length=len(response.text)
+                )
+                
+                return llm_response
 
-            return f"The AI model encountered an issue: {type(e).__name__}. Please try again later."
+            except Exception as e:
+                processing_time = time.time() - start_time
+                
+                # Check if this is a rate limit error and try fallback key
+                error_str = str(e).lower()
+                is_rate_limit_error = any(keyword in error_str for keyword in [
+                    "rate limit", "quota", "429", "too many requests", "resource_exhausted"
+                ])
+                
+                if is_rate_limit_error and not self.using_fallback:
+                    logger.warning(
+                        "Rate limit detected, attempting to switch to fallback API key",
+                        error=str(e),
+                        retry_count=retry_count
+                    )
+                    
+                    if self._switch_to_fallback_key():
+                        # Retry with fallback key without incrementing retry count
+                        logger.info("Retrying with fallback API key")
+                        continue
+                
+                # Handle error with recovery service
+                if self.error_recovery:
+                    recovery_action = await self.error_recovery.handle_error(
+                        e, item_id or "unknown", content_type, session_id, 
+                        retry_count, {"prompt_length": len(prompt)}
+                    )
+                    
+                    # Check if we should retry
+                    if recovery_action.strategy.value == "retry" and retry_count < max_retries:
+                        retry_count += 1
+                        if recovery_action.delay_seconds > 0:
+                            await asyncio.sleep(recovery_action.delay_seconds)
+                        continue
+                    
+                    # Use fallback content if available
+                    if recovery_action.fallback_content:
+                        return LLMResponse(
+                            content=recovery_action.fallback_content,
+                            tokens_used=0,
+                            processing_time=processing_time,
+                            model_used=self.model_name,
+                            success=False,
+                            error_message=str(e),
+                            metadata={
+                                "session_id": session_id,
+                                "item_id": item_id,
+                                "content_type": content_type.value,
+                                "retry_count": retry_count,
+                                "fallback_used": True,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                        )
+                
+                # Log error
+                logger.error(
+                    "LLM generation failed",
+                    session_id=session_id,
+                    item_id=item_id,
+                    error=str(e),
+                    retry_count=retry_count,
+                    processing_time=processing_time
+                )
+                
+                # If we've exhausted retries, return error response
+                if retry_count >= max_retries:
+                    return LLMResponse(
+                        content=f"Failed to generate content after {max_retries} retries: {str(e)}",
+                        tokens_used=0,
+                        processing_time=processing_time,
+                        model_used=self.model_name,
+                        success=False,
+                        error_message=str(e),
+                        metadata={
+                            "session_id": session_id,
+                            "item_id": item_id,
+                            "content_type": content_type.value,
+                            "retry_count": retry_count,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
+                
+                retry_count += 1
+    
+    def get_service_stats(self) -> Dict[str, Any]:
+        """Get service performance statistics."""
+        return {
+            "total_calls": self.call_count,
+            "total_tokens": self.total_tokens,
+            "total_processing_time": self.total_processing_time,
+            "average_processing_time": self.total_processing_time / max(self.call_count, 1),
+            "model_name": self.model_name,
+            "rate_limiter_status": self.rate_limiter.get_status() if hasattr(self.rate_limiter, 'get_status') else None
+        }
+    
+    def reset_stats(self):
+        """Reset performance statistics."""
+        self.call_count = 0
+        self.total_tokens = 0
+        self.total_processing_time = 0.0
+        
+        logger.info("LLM service statistics reset")
+
+
+# Legacy compatibility
+class LLM(EnhancedLLMService):
+    """Legacy LLM class for backward compatibility."""
+    
+    def __init__(self, timeout=30, max_requests_per_minute=12):
+        # Create a simple rate limiter for legacy compatibility
+        from .rate_limiter import RateLimiter
+        rate_limiter = RateLimiter()
+        super().__init__(timeout=timeout, rate_limiter=rate_limiter)
+    
+    def generate_content(self, prompt: str) -> str:
+        """Legacy method that returns string content directly."""
+        import asyncio
+        
+        # Run the async method synchronously
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            response = loop.run_until_complete(
+                super().generate_content(prompt)
+            )
+            return response.content
+        finally:
+            loop.close()
+
+
+# Global service instance
+_llm_service_instance = None
+
+def get_llm_service() -> EnhancedLLMService:
+    """Get global LLM service instance."""
+    global _llm_service_instance
+    if _llm_service_instance is None:
+        _llm_service_instance = EnhancedLLMService()
+    return _llm_service_instance
