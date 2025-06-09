@@ -353,6 +353,30 @@ class CVGenerationState:
             self.executive_summary is not None and
             self.executive_summary.metadata.status == ProcessingStatus.COMPLETED
         )
+    
+    def get_final_cv(self) -> Dict[str, Any]:
+        """Get the final CV content as a dictionary."""
+        return {
+            "executive_summary": self.executive_summary.generated_content if self.executive_summary else "",
+            "key_qualifications": [q.generated_content for q in self.key_qualifications if q.generated_content],
+            "professional_experiences": [{
+                "company": exp.company,
+                "position": exp.position,
+                "duration": exp.duration,
+                "content": exp.generated_content
+            } for exp in self.professional_experiences if exp.generated_content],
+            "side_projects": [{
+                "name": proj.name,
+                "description": proj.description,
+                "content": proj.generated_content
+            } for proj in self.side_projects if proj.generated_content],
+            "metadata": {
+                "session_id": self.session_id,
+                "created_at": self.created_at.isoformat(),
+                "total_tokens_used": self.total_tokens_used,
+                "total_llm_calls": self.total_llm_calls
+            }
+        }
 
 
 @dataclass
@@ -365,6 +389,8 @@ class RateLimitState:
     last_request_time: datetime = field(default_factory=datetime.now)
     consecutive_failures: int = 0
     backoff_until: Optional[datetime] = None
+    max_requests_per_minute: int = 30
+    max_tokens_per_minute: int = 50000
     
     def can_make_request(self, estimated_tokens: int = 0) -> bool:
         """Check if a request can be made given current rate limits."""
@@ -380,14 +406,10 @@ class RateLimitState:
             self.tokens_per_minute = 0
             self.window_start = now
         
-        # Check rate limits (conservative estimates)
-        # These should be configured based on actual API limits
-        max_requests_per_minute = 30  # Conservative estimate
-        max_tokens_per_minute = 50000  # Conservative estimate
-        
+        # Check rate limits using configured limits
         return (
-            self.requests_per_minute < max_requests_per_minute and
-            (self.tokens_per_minute + estimated_tokens) < max_tokens_per_minute
+            self.requests_per_minute < self.max_requests_per_minute and
+            (self.tokens_per_minute + estimated_tokens) < self.max_tokens_per_minute
         )
     
     def record_request(self, tokens_used: int, success: bool):

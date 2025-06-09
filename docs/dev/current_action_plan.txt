@@ -1,0 +1,94 @@
+## Analysis of the Current Issue and Proposed Solution
+After thoroughly analyzing the conversation history, current logs, and codebase, I've identified the root cause of the persistent issue and why our previous fix didn't work.
+
+### Root Cause Analysis
+1. Architecture Mismatch : The system has a fundamental architecture mismatch between what agents produce and what the CV system expects:
+
+   - EnhancedContentWriter produces individual content pieces (strings) for specific content types (qualification, experience, etc.)
+   - CV System expects a complete ContentData structure with fields like summary , experience_bullets , skills_section
+2. Missing Aggregation Layer : There's no aggregation mechanism to combine individual agent outputs into a complete CV structure.
+3. Our Previous Fix : We correctly extracted the content from AgentResult.output_data["content"] , but this content is a string (individual piece), not the dictionary structure that update_cv_data() requires.
+### The Current Flow Problem
+```
+EnhancedContentWriter → Individual Content (String) → 
+update_cv_data() → FAILS
+                                                      ↑
+                                              Expects 
+                                              ContentData Dict
+```
+Log Evidence :
+
+- "CV content found, type: <class 'str'>"
+- "Invalid content format for CV update: <class 'str'>"
+### Proposed Solution: Content Aggregation Strategy
+We need to implement a content aggregation layer that:
+
+1. Collects individual content pieces from different agents
+2. Maps them to appropriate ContentData fields based on content type
+3. Assembles them into a complete ContentData structure
+### Implementation Plan Phase 1: Create Content Aggregator
+```
+class ContentAggregator:
+    def __init__(self):
+        self.content_map = {
+            'qualification': 'summary',
+            'experience': 'experience_bullets', 
+            'skills': 'skills_section',
+            'project': 'projects'
+        }
+    
+    def aggregate_results(self, task_results):
+        content_data = {
+            'summary': '',
+            'experience_bullets': [],
+            'skills_section': '',
+            'projects': []
+        }
+        
+        for result in task_results:
+            if result.get('agent_type') == 'content_writer':
+                content_type = result.get('content', {}).get
+                ('content_type')
+                content_text = result.get('content', {}).get
+                ('content')
+                
+                if content_type in self.content_map:
+                    field = self.content_map[content_type]
+                    if isinstance(content_data[field], list):
+                        content_data[field].append(content_text)
+                    else:
+                        content_data[field] = content_text
+        
+        return content_data
+``` Phase 2: Update Main Processing Logic
+Replace the current content extraction logic in main.py (lines 1180-1230) with:
+
+```
+# Create content aggregator
+aggregator = ContentAggregator()
+
+# Aggregate all agent results into ContentData structure
+cv_content = aggregator.aggregate_results(cleaned_result
+["results"])
+
+if cv_content and any(cv_content.values()):
+    logger.info(f"Aggregated CV content: {list(cv_content.keys
+    ())}")
+    st.session_state.state_manager.update_cv_data(cv_content)
+else:
+    logger.error("No valid content found after aggregation")
+``` Phase 3: Enhanced Error Handling
+- Add validation for content types
+- Implement fallback strategies for missing content
+- Add detailed logging for aggregation process
+### Why This Will Work
+1. Addresses Root Cause : Properly aggregates individual pieces into expected structure
+2. Maintains Agent Architecture : Doesn't require changing existing agents
+3. Scalable : Easy to add new content types and mappings
+4. Robust : Handles missing or invalid content gracefully
+### Next Steps
+1. Implement the ContentAggregator class
+2. Update the content processing logic in main.py
+3. Test with a complete CV generation workflow
+4. Monitor logs to ensure proper aggregation
+This solution transforms the current string-to-dict mismatch into a proper aggregation-to-ContentData flow, resolving the persistent "Invalid content format" error.

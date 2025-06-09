@@ -11,7 +11,7 @@ markdown>=3.5.1
 
 # AI and ML dependencies
 google-generativeai>=0.4.0
-groq>=0.4.0
+
 numpy>=1.26.0
 scikit-learn>=1.3.2
 faiss-cpu>=1.7.6

@@ -1,34 +1,30 @@
 #!/usr/bin/env python3
 """
-Application launcher that properly sets up the Python path for the reorganized project structure.
+Entry point for the CV Generator Streamlit application.
+This script properly sets up the Python path and runs the application.
 """
 
 import sys
 import os
 from pathlib import Path
 
-# Add the project root to Python path
+# Add the src directory to Python path
 project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
+src_path = project_root / "src"
+sys.path.insert(0, str(src_path))
 
-# Now we can import and run the main application
-if __name__ == '__main__':
-    try:
-        # Import streamlit and run the app
-        import streamlit.web.cli as stcli
-        import streamlit as st
-        
-        # Set the main script path
-        main_script = str(project_root / "src" / "core" / "main.py")
-        
-        # Run streamlit
-        sys.argv = ["streamlit", "run", main_script]
-        stcli.main()
-        
-    except ImportError as e:
-        print(f"Import error: {e}")
-        print("Make sure all dependencies are installed: pip install -r requirements.txt")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error running application: {e}")
-        sys.exit(1)
+# Now import and run the Streamlit app
+if __name__ == "__main__":
+    import streamlit.web.cli as stcli
+    import sys
+    
+    # Set up the command line arguments for Streamlit
+    sys.argv = [
+        "streamlit",
+        "run",
+        str(src_path / "api" / "main.py"),
+        "--server.port=8501"
+    ]
+    
+    # Run Streamlit
+    stcli.main()

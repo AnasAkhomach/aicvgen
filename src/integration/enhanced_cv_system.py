@@ -14,7 +14,7 @@ from enum import Enum
 from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
-from ..core.error_recovery import get_error_recovery_service
+from ..services.error_recovery import get_error_recovery_service, RecoveryStrategy
 
 # Enhanced CV system imports
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
@@ -25,10 +25,7 @@ from ..agents.specialized_agents import (
 from ..templates.content_templates import (
     get_template_manager, ContentTemplateManager
 )
-from ..services.vector_db import (
-    get_enhanced_vector_db, store_enhanced_document,
-    search_enhanced_documents, find_similar_content
-)
+from ..services.vector_db import get_enhanced_vector_db
 from ..orchestration.agent_orchestrator import (
     get_agent_orchestrator, AgentOrchestrator
 )
@@ -63,6 +60,32 @@ class EnhancedCVConfig:
     enable_performance_monitoring: bool = True
     enable_error_recovery: bool = True
     debug_mode: bool = False
+    api_key: Optional[str] = None
+    enable_caching: bool = True
+    enable_monitoring: bool = True
+    
+    def to_dict(self):
+        """Convert config to dictionary with JSON-serializable values."""
+        result = {}
+        for field_name, field_value in self.__dict__.items():
+            if isinstance(field_value, IntegrationMode):
+                result[field_name] = field_value.value
+            elif isinstance(field_value, timedelta):
+                result[field_name] = field_value.total_seconds()
+            else:
+                result[field_name] = field_value
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: dict):
+        """Create config from dictionary."""
+        # Convert mode back to enum
+        if 'mode' in data and isinstance(data['mode'], str):
+            data['mode'] = IntegrationMode(data['mode'])
+        # Convert timeout back to timedelta
+        if 'orchestration_timeout' in data and isinstance(data['orchestration_timeout'], (int, float)):
+            data['orchestration_timeout'] = timedelta(seconds=data['orchestration_timeout'])
+        return cls(**data)
 
 
 class EnhancedCVIntegration:
@@ -98,7 +121,7 @@ class EnhancedCVIntegration:
         try:
             self.logger.info("Initializing enhanced CV system components", extra={
                 "mode": self.config.mode.value,
-                "config": self.config.__dict__
+                "config": self.config.to_dict()
             })
 
             # Initialize template manager
@@ -108,9 +131,7 @@ class EnhancedCVIntegration:
 
             # Initialize vector database
             if self.config.enable_vector_db:
-                self._vector_db = get_enhanced_vector_db(
-                    db_path=self.config.vector_db_path
-                )
+                self._vector_db = get_enhanced_vector_db()
                 self.logger.info("Vector database initialized")
 
             # Initialize orchestrator
@@ -129,10 +150,12 @@ class EnhancedCVIntegration:
         except Exception as e:
             self.logger.error("Failed to initialize enhanced CV system components", extra={
                 "error": str(e),
-                "config": self.config.__dict__
+                "config": self.config.to_dict()
             })
             if self.config.enable_error_recovery:
-                self.error_recovery.handle_error(e, {"component": "phase2_integration"})
+                # Note: handle_error is async, but we're in a sync context
+                # For now, we'll skip the error recovery call during initialization
+                self.logger.warning("Error recovery skipped during initialization due to async/sync mismatch")
             raise
 
     def _initialize_agents(self):
@@ -285,6 +308,10 @@ class EnhancedCVIntegration:
         """List available agent types."""
         return list(self._agents.keys())
 
+    def get_orchestrator(self):
+        """Get the orchestrator instance."""
+        return self._orchestrator
+
     # Workflow Execution
     async def execute_workflow(
         self,
@@ -335,7 +362,7 @@ class EnhancedCVIntegration:
                 "results": result.task_results,
                 "metadata": result.metadata,
                 "processing_time": processing_time,
-                "errors": result.errors
+                "errors": result.error_summary
             }
 
         except Exception as e:
@@ -350,13 +377,20 @@ class EnhancedCVIntegration:
             })
 
             if self.config.enable_error_recovery:
-                recovery_result = self.error_recovery.handle_error(e, {
-                    "workflow_type": workflow_type,
-                    "input_data": input_data,
-                    "session_id": session_id
-                })
-                if recovery_result.get("retry"):
+                recovery_result = await self.error_recovery.handle_error(
+                    exception=e,
+                    item_id=f"workflow_{workflow_type.value}",
+                    item_type=ContentType.EXECUTIVE_SUMMARY,  # Default content type for workflow errors
+                    session_id=session_id or "default",
+                    context={
+                        "workflow_type": workflow_type,
+                        "input_data": input_data
+                    }
+                )
+                if recovery_result.strategy in [RecoveryStrategy.IMMEDIATE_RETRY, RecoveryStrategy.EXPONENTIAL_BACKOFF, RecoveryStrategy.LINEAR_BACKOFF]:
                     self.logger.info("Retrying workflow after error recovery")
+                    if recovery_result.delay_seconds > 0:
+                        await asyncio.sleep(recovery_result.delay_seconds)
                     return await self.execute_workflow(
                         workflow_type, input_data, session_id, custom_options
                     )

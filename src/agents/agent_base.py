@@ -23,10 +23,16 @@ class AgentExecutionContext:
     content_type: Optional[ContentType] = None
     retry_count: int = 0
     metadata: Dict[str, Any] = None
+    input_data: Optional[Dict[str, Any]] = None
+    processing_options: Optional[Dict[str, Any]] = None
     
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+        if self.input_data is None:
+            self.input_data = {}
+        if self.processing_options is None:
+            self.processing_options = {}
 
 
 @dataclass

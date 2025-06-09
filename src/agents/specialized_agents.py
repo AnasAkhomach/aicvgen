@@ -9,6 +9,7 @@ from .enhanced_content_writer import EnhancedContentWriterAgent, create_content_
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
+from ..config.settings import get_config
 from ..services.llm import get_llm_service
 
 logger = get_structured_logger("specialized_agents")
@@ -32,12 +33,46 @@ class CVAnalysisAgent(EnhancedAgentBase):
             }
         )
         self.llm_service = get_llm_service()
+        
+        # Initialize settings for prompt loading
+        self.settings = get_config()
+    
+    def run(self, input_data: Any) -> Any:
+        """Synchronous wrapper for run_async method."""
+        import asyncio
+        
+        # Create a basic context if not provided
+        context = AgentExecutionContext(
+            session_id="sync_session",
+            item_id="sync_item",
+            content_type=None
+        )
+        
+        # Run the async method
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        return loop.run_until_complete(self.run_async(input_data, context))
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Analyze CV content against job requirements."""
         try:
+            # Debug logging to understand the input_data type and content
+            self.logger.info(f"CVAnalysisAgent received input_data type: {type(input_data)}")
+            self.logger.info(f"CVAnalysisAgent received input_data: {str(input_data)[:500]}")
+            
+            # Ensure input_data is a dictionary
+            if not isinstance(input_data, dict):
+                self.logger.warning(f"Converting non-dict input_data from {type(input_data)} to empty dict")
+                input_data = {}
+            
             cv_data = input_data.get("cv_data", {})
             job_description = input_data.get("job_description", {})
+            
+            self.logger.info(f"Extracted cv_data type: {type(cv_data)}, job_description type: {type(job_description)}")
             
             # Perform analysis
             analysis = await self._analyze_cv_job_match(cv_data, job_description, context)
@@ -70,36 +105,81 @@ class CVAnalysisAgent(EnhancedAgentBase):
             )
             return AgentResult(
                 success=False,
+                output_data={},
                 error_message=str(e),
                 confidence_score=0.0
             )
     
+    def run(self, input_data: Any) -> Any:
+        """Legacy synchronous run method for backward compatibility."""
+        import asyncio
+        from .agent_base import AgentExecutionContext
+        
+        # Create a basic execution context
+        context = AgentExecutionContext(
+            session_id="sync_execution",
+            user_id="system",
+            request_id="sync_request"
+        )
+        
+        # Run the async method synchronously
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        result = loop.run_until_complete(self.run_async(input_data, context))
+        
+        if result.success:
+            return result.output_data
+        else:
+            raise Exception(result.error_message or "CV analysis failed")
+    
     async def _analyze_cv_job_match(
         self, 
         cv_data: Dict[str, Any], 
-        job_description: Dict[str, Any],
+        job_description: Any,
         context: AgentExecutionContext
     ) -> Dict[str, Any]:
         """Analyze how well CV matches job requirements."""
         
-        prompt = f"""
-Analyze the following CV against the job requirements and provide a detailed assessment.
-
-Job Title: {job_description.get('title', 'Unknown')}
-Job Requirements: {job_description.get('raw_text', '')[:1000]}
-
-CV Summary: {cv_data.get('executive_summary', '')}
-Experience: {json.dumps(cv_data.get('experience', []), indent=2)[:1000]}
-Skills: {json.dumps(cv_data.get('qualifications', []), indent=2)[:500]}
-
-Provide analysis in JSON format with:
-1. skill_gaps: List of missing skills
-2. strengths: List of strong matching points
-3. experience_relevance: Score 0-1
-4. keyword_match: Score 0-1
-5. overall_assessment: Brief summary
-
-Analysis:"""
+        # Handle job_description being either a string or dict
+        if isinstance(job_description, str):
+            job_title = "Unknown"
+            job_requirements = job_description[:1000]
+        elif isinstance(job_description, dict):
+            job_title = job_description.get('title', 'Unknown')
+            job_requirements = job_description.get('raw_text', str(job_description))[:1000]
+        else:
+            job_title = "Unknown"
+            job_requirements = str(job_description)[:1000]
+        
+        # Load prompt template from external file
+        try:
+            prompt_path = self.settings.get_prompt_path("cv_assessment_prompt")
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                prompt_template = f.read()
+            logger.info("Successfully loaded CV assessment prompt template")
+        except Exception as e:
+            logger.error(f"Error loading CV assessment prompt template: {e}")
+            # Fallback to basic prompt
+            prompt_template = """
+            Analyze CV against job requirements.
+            Job: {job_title}
+            Requirements: {job_requirements}
+            CV Summary: {executive_summary}
+            Return JSON analysis.
+            """
+        
+        # Format the prompt with actual data
+        prompt = prompt_template.format(
+            job_title=job_title,
+            job_requirements=job_requirements,
+            executive_summary=cv_data.get('executive_summary', ''),
+            experience=json.dumps(cv_data.get('experience', []), indent=2)[:1000],
+            qualifications=json.dumps(cv_data.get('qualifications', []), indent=2)[:500]
+        )
         
         response = await self.llm_service.generate_content(
             prompt=prompt,
@@ -127,31 +207,27 @@ Analysis:"""
     
     async def _generate_recommendations(
         self, 
-        analysis: Dict[str, Any],
+        analysis: Dict[str, Any], 
         context: AgentExecutionContext
     ) -> List[str]:
         """Generate improvement recommendations based on analysis."""
         
         recommendations = []
         
-        # Skill gap recommendations
-        skill_gaps = analysis.get("skill_gaps", [])
+        # Add skill gap recommendations
+        skill_gaps = analysis.get('skill_gaps', [])
         if skill_gaps:
-            recommendations.append(f"Consider highlighting or developing these skills: {', '.join(skill_gaps[:3])}")
+            recommendations.append(f"Consider developing these skills: {', '.join(skill_gaps[:3])}")
         
-        # Experience relevance recommendations
-        exp_relevance = analysis.get("experience_relevance", 0.5)
-        if exp_relevance < 0.7:
-            recommendations.append("Emphasize more relevant work experience and achievements")
+        # Add experience recommendations
+        experience_score = analysis.get('experience_relevance', 0)
+        if experience_score < 0.7:
+            recommendations.append("Highlight more relevant work experience")
         
-        # Keyword matching recommendations
-        keyword_match = analysis.get("keyword_match", 0.5)
-        if keyword_match < 0.6:
-            recommendations.append("Include more industry-specific keywords from the job description")
-        
-        # General recommendations
-        if len(recommendations) == 0:
-            recommendations.append("CV shows good alignment with job requirements")
+        # Add keyword optimization
+        keyword_score = analysis.get('keyword_match', 0)
+        if keyword_score < 0.6:
+            recommendations.append("Optimize CV with more job-relevant keywords")
         
         return recommendations
     
@@ -200,10 +276,33 @@ class ContentOptimizationAgent(EnhancedAgentBase):
             }
         )
         self.llm_service = get_llm_service()
+        
+        # Initialize settings for prompt loading
+        self.settings = get_config()
         self.content_writers = {
             content_type: create_content_writer(content_type)
             for content_type in ContentType
         }
+    
+    def run(self, input_data: Any) -> Any:
+        """Synchronous wrapper for run_async method."""
+        import asyncio
+        
+        # Create a basic context if not provided
+        context = AgentExecutionContext(
+            session_id="sync_session",
+            item_id="sync_item",
+            content_type=None
+        )
+        
+        # Run the async method
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        return loop.run_until_complete(self.run_async(input_data, context))
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Optimize content items for better performance."""
@@ -256,6 +355,7 @@ class ContentOptimizationAgent(EnhancedAgentBase):
             )
             return AgentResult(
                 success=False,
+                output_data={},
                 error_message=str(e),
                 confidence_score=0.0
             )
@@ -345,6 +445,26 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             }
         )
     
+    def run(self, input_data: Any) -> Any:
+        """Synchronous wrapper for run_async method."""
+        import asyncio
+        
+        # Create a basic context if not provided
+        context = AgentExecutionContext(
+            session_id="sync_session",
+            item_id="sync_item",
+            content_type=None
+        )
+        
+        # Run the async method
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        return loop.run_until_complete(self.run_async(input_data, context))
+    
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Perform quality assurance on content items."""
         try:
@@ -403,6 +523,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             )
             return AgentResult(
                 success=False,
+                output_data={},
                 error_message=str(e),
                 confidence_score=0.0
             )

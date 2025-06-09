@@ -2,6 +2,9 @@ from src.agents.agent_base import AgentBase
 from src.core.state_manager import AgentIO, CVData, JobDescriptionData
 from typing import Dict, Any, List
 from src.services.llm import LLM  # Import LLM
+from src.config.logging_config import get_logger
+from src.config.settings import get_config
+from src.services.llm import LLMResponse
 import json  # Import json
 import time
 import os
@@ -41,6 +44,9 @@ class CVAnalyzerAgent(AgentBase):
         )
         self.llm = llm  # Store the LLM instance
         self.timeout = 30  # Maximum wait time in seconds
+        
+        # Initialize settings for prompt loading
+        self.settings = get_config()
 
     def extract_basic_info(self, cv_text: str) -> Dict[str, Any]:
         """
@@ -106,7 +112,7 @@ class CVAnalyzerAgent(AgentBase):
 
         return result
 
-    def run(self, input_data):
+    def analyze_cv(self, input_data):
         """Process and analyze the user CV data.
 
         Args:
@@ -149,28 +155,27 @@ class CVAnalyzerAgent(AgentBase):
         # Create a fallback extraction first, in case the LLM fails
         fallback_extraction = self.extract_basic_info(raw_cv_text)
 
-        # Craft the prompt for the LLM
-        # Include job description for context to help prioritize relevant info
-        prompt = f"""
-        Analyze the following CV text and extract the key sections and information.
-        Provide the output in JSON format with the following keys:
-        "summary": The professional summary or objective statement.
-        "experiences": A list of work experiences, each as a string describing the role, company, and key achievements.
-        "skills": A list of technical and soft skills mentioned.
-        "education": A list of educational qualifications (degrees, institutions, dates).
-        "projects": A list of significant projects mentioned. IMPORTANT: Be thorough in extracting all projects, including project names, technologies used, and key accomplishments.
-
-        If a section is not present, provide an empty string or an empty list accordingly.
-        Pay special attention to the projects section, as it is critical information for the CV.
-
-        Job Description Context (for relevance):
-        {input_data.get("job_description", "")}
-
-        CV Text:
-        {raw_cv_text}
-
-        JSON Output:
-        """
+        # Load prompt template from external file
+        logger = get_logger(__name__)
+        try:
+            prompt_path = self.settings.get_prompt_path("cv_analysis_prompt")
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                prompt_template = f.read()
+            logger.info("Successfully loaded CV analysis prompt template")
+        except Exception as e:
+            logger.error(f"Error loading CV analysis prompt template: {e}")
+            # Fallback to basic prompt
+            prompt_template = """
+            Analyze the following CV text and extract key information in JSON format.
+            CV Text: {raw_cv_text}
+            Job Description Context: {job_description}
+            """
+        
+        # Format the prompt with actual data
+        prompt = prompt_template.format(
+            raw_cv_text=raw_cv_text,
+            job_description=input_data.get("job_description", "")
+        )
 
         print("Sending prompt to LLM for CV analysis...")
         try:
@@ -221,3 +226,15 @@ class CVAnalyzerAgent(AgentBase):
                 f"Error analyzing CV: {fallback_extraction.get('summary', '')}"
             )
             return fallback_extraction
+    
+    def run(self, input_data: Any) -> Any:
+        """Legacy run method for backward compatibility."""
+        if isinstance(input_data, dict):
+            return self.analyze_cv(input_data)
+        else:
+            # Convert string input to expected format
+            formatted_input = {
+                'user_cv': {'raw_text': str(input_data)},
+                'job_description': ''
+            }
+            return self.analyze_cv(formatted_input)

@@ -255,6 +255,9 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
     
     logging.info(f"Logging initialized - Level: {logging.getLevelName(log_level)}")
     logging.info(f"Log files location: {logs_dir.absolute()}")
+    
+    # Return the root logger
+    return logging.getLogger()
 
 
 def get_structured_logger(name: str) -> StructuredLogger:

@@ -8,10 +8,10 @@ from enum import Enum
 import uuid
 
 from ..models.data_models import ContentType, ProcessingStatus
-from ..core.structured_logging import get_structured_logger
-from ..core.error_handling import get_error_recovery_service
-from ..core.progress_tracking import get_progress_tracker
-from ..core.session_management import get_session_manager
+from ..config.logging_config import get_structured_logger
+from ..services.error_recovery import get_error_recovery_service
+from ..services.progress_tracker import get_progress_tracker
+from ..services.session_manager import get_session_manager
 from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
 from ..agents.specialized_agents import (
@@ -82,6 +82,50 @@ class OrchestrationResult:
     performance_stats: Dict[str, Any]
     error_summary: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    @property
+    def task_results(self) -> List[Dict[str, Any]]:
+        """Extract results from completed tasks."""
+        from src.core.main import enum_to_value, EnumEncoder
+        import json
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        results = []
+        
+        for task in self.completed_tasks:
+            if task.result and task.result.success:
+                try:
+                    # Convert AgentResult to dictionary format with comprehensive enum handling
+                    task_result = {
+                        "task_id": task.id,
+                        "agent_type": task.agent_type,
+                        "content": enum_to_value(task.result.output_data),
+                        "confidence_score": task.result.confidence_score,
+                        "processing_time": task.result.processing_time,
+                        "metadata": enum_to_value(task.result.metadata)
+                    }
+                    
+                    # Test serialization to catch any remaining enum issues
+                    json.dumps(task_result, cls=EnumEncoder)
+                    results.append(task_result)
+                    
+                except Exception as e:
+                    logger.error(f"Error processing task result for task {task.id}: {e}")
+                    logger.error(f"Task output_data type: {type(task.result.output_data)}")
+                    logger.error(f"Task metadata type: {type(task.result.metadata)}")
+                    # Add a simplified version without problematic data
+                    task_result = {
+                        "task_id": task.id,
+                        "agent_type": task.agent_type,
+                        "content": str(task.result.output_data),
+                        "confidence_score": task.result.confidence_score,
+                        "processing_time": task.result.processing_time,
+                        "metadata": {"error": "Serialization failed", "original_error": str(e)}
+                    }
+                    results.append(task_result)
+                    
+        return results
 
 
 class AgentOrchestrator:
@@ -225,11 +269,13 @@ class AgentOrchestrator:
         
         try:
             # Update progress tracking
-            progress_id = await self.progress_tracker.start_operation(
-                f"orchestration_plan_{plan.id}",
-                total_steps=len(plan.tasks),
-                session_id=self.session_id
+            from src.models.data_models import CVGenerationState, WorkflowStage
+            state = CVGenerationState(
+                session_id=self.session_id,
+                current_stage=WorkflowStage.INITIALIZATION
             )
+            self.progress_tracker.start_tracking(self.session_id, state)
+            progress_id = f"orchestration_plan_{plan.id}"
             
             logger.info(
                 "Starting orchestration plan execution",
@@ -271,7 +317,16 @@ class AgentOrchestrator:
             self.execution_history.append(result)
             
             # Complete progress tracking
-            await self.progress_tracker.complete_operation(progress_id)
+            self.progress_tracker.record_workflow_completed(
+                self.session_id, 
+                {
+                    "plan_id": plan.id,
+                    "success": result.success,
+                    "completed_tasks": len(completed_tasks),
+                    "failed_tasks": len(failed_tasks),
+                    "execution_time": result.total_execution_time.total_seconds()
+                }
+            )
             
             # Clean up
             if plan.id in self.active_plans:
@@ -345,11 +400,12 @@ class AgentOrchestrator:
                 else:
                     failed_tasks.append(task)
                 
-                # Update progress
-                await self.progress_tracker.update_progress(
+                # Update progress - using record_item_completed instead
+                self.progress_tracker.record_item_completed(
                     progress_id,
-                    len(completed_tasks) + len(failed_tasks),
-                    f"Completed task: {task.agent_type}"
+                    f"task_{task.id}",
+                    ContentType.ANALYSIS,
+                    result.processing_time if hasattr(result, 'processing_time') else 0.0
                 )
                 
             except Exception as e:
@@ -408,11 +464,12 @@ class AgentOrchestrator:
                 else:
                     failed_tasks.append(task)
                 
-                # Update progress
-                await self.progress_tracker.update_progress(
+                # Update progress - using record_item_completed instead
+                self.progress_tracker.record_item_completed(
                     progress_id,
-                    len(completed_tasks) + len(failed_tasks),
-                    f"Completed parallel task: {task.agent_type}"
+                    f"task_{task.id}",
+                    ContentType.ANALYSIS,
+                    result.processing_time if hasattr(result, 'processing_time') else 0.0
                 )
         
         return completed_tasks, failed_tasks
@@ -451,11 +508,17 @@ class AgentOrchestrator:
             # Execute with timeout if specified
             if task.timeout:
                 result = await asyncio.wait_for(
-                    task.agent_instance.execute_with_context(task.context),
+                    task.agent_instance.execute_with_context(
+                        task.context.input_data if task.context else {},
+                        task.context
+                    ),
                     timeout=task.timeout.total_seconds()
                 )
             else:
-                result = await task.agent_instance.execute_with_context(task.context)
+                result = await task.agent_instance.execute_with_context(
+                    task.context.input_data if task.context else {},
+                    task.context
+                )
             
             task.result = result
             task.status = ProcessingStatus.COMPLETED if result.success else ProcessingStatus.FAILED
@@ -491,9 +554,9 @@ class AgentOrchestrator:
             
             return AgentResult(
                 success=False,
-                data={},
-                error="Task execution timed out",
-                execution_time=task.timeout or timedelta(seconds=0)
+                output_data={},
+                error_message="Task execution timed out",
+                processing_time=(task.timeout or timedelta(seconds=0)).total_seconds()
             )
             
         except Exception as e:
@@ -510,9 +573,9 @@ class AgentOrchestrator:
             
             return AgentResult(
                 success=False,
-                data={},
-                error=str(e),
-                execution_time=datetime.now() - task.started_at
+                output_data={},
+                error_message=str(e),
+                processing_time=(datetime.now() - task.started_at).total_seconds()
             )
     
     def _sort_tasks_by_dependencies(self, tasks: List[AgentTask]) -> List[AgentTask]:
@@ -735,14 +798,14 @@ async def execute_cv_generation_workflow(
     # Create contexts for different agents
     analysis_context = AgentExecutionContext(
         session_id=session_id or str(uuid.uuid4()),
-        input_data={"cv_data": cv_data, "job_requirements": job_requirements},
+        input_data={"cv_data": cv_data, "job_description": job_requirements},
         content_type=ContentType.ANALYSIS,
         processing_options={"analyze_fit": True, "suggest_improvements": True}
     )
     
     content_context = AgentExecutionContext(
         session_id=session_id or str(uuid.uuid4()),
-        input_data={"cv_data": cv_data, "job_requirements": job_requirements},
+        input_data={"cv_data": cv_data, "job_description": job_requirements},
         content_type=ContentType.EXPERIENCE,
         processing_options={"optimize_for_job": True}
     )

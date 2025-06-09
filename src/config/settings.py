@@ -21,10 +21,6 @@ except ImportError:
 class LLMConfig:
     """Configuration for LLM models and API settings."""
     
-    # API Configuration
-    groq_api_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
-    groq_base_url: str = "https://api.groq.com/openai/v1"
-    
     # Gemini API Configuration
     gemini_api_key_primary: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
     gemini_api_key_fallback: str = "AIzaSyAvaPMYEVKCSKOfSf4wPIDYIjYAG4QC8us"
@@ -47,11 +43,11 @@ class LLMConfig:
     
     def __post_init__(self):
         """Validate configuration after initialization."""
-        # Check if at least one API key is available (primary or fallback)
-        if not self.groq_api_key and not self.gemini_api_key_primary and not self.gemini_api_key_fallback:
+        # Check if at least one Gemini API key is available (primary or fallback)
+        if not self.gemini_api_key_primary and not self.gemini_api_key_fallback:
             raise ValueError(
-                "At least one API key is required. "
-                "Please set GROQ_API_KEY or GEMINI_API_KEY environment variable, "
+                "At least one Gemini API key is required. "
+                "Please set GEMINI_API_KEY environment variable, "
                 "or ensure fallback key is configured."
             )
 

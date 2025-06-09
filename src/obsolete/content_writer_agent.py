@@ -64,13 +64,21 @@ class PromptLoader:
     This fulfills REQ-FUNC-GEN-1 from the SRS.
     """
 
-    def __init__(self, prompts_dir="prompts_folder"):
+    def __init__(self, prompts_dir=None):
         """
         Initialize the PromptLoader.
 
         Args:
             prompts_dir: Path to the directory containing prompt templates.
         """
+        if prompts_dir is None:
+            # Use the absolute path to the data/prompts directory
+            import os
+
+            base_dir = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            )
+            prompts_dir = os.path.join(base_dir, "data", "prompts")
         self.prompts_dir = prompts_dir
         self.cache = {}  # Cache loaded prompts to avoid repeated disk reads
 
@@ -373,6 +381,14 @@ class ContentWriterAgent(AgentBase):
         Returns:
             The updated StructuredCV with regenerated content.
         """
+        # Defensive check: prevent accidental iteration over StructuredCV
+        if hasattr(structured_cv, "__iter__") and not isinstance(
+            structured_cv, (list, tuple, dict)
+        ):
+            raise TypeError(
+                "StructuredCV is not iterable. Use structured_cv.sections instead."
+            )
+
         for item_id in item_ids:
             item, section, subsection = structured_cv.find_item_by_id(item_id)
             if not item:
@@ -414,6 +430,14 @@ class ContentWriterAgent(AgentBase):
             The updated StructuredCV with generated content.
         """
         print("\n>>>>> USING ENHANCED DYNAMIC CONTENT GENERATION FLOW <<<<<")
+
+        # Defensive check: prevent accidental iteration over StructuredCV
+        if hasattr(structured_cv, "__iter__") and not isinstance(
+            structured_cv, (list, tuple, dict)
+        ):
+            raise TypeError(
+                "StructuredCV is not iterable. Use structured_cv.sections instead."
+            )
 
         # First, ensure essential sections exist
         self._ensure_essential_sections(structured_cv)
@@ -1581,7 +1605,7 @@ class ContentWriterAgent(AgentBase):
             f"Job Title: {job_description_data.get('title', 'Not specified')}\n"
         )
         job_context += f"Skills Required: {', '.join(skills)}\n"
-        job_context += f"Responsibilities: {'. '.join(responsibilities)}\n"
+        job_context += f"Responsibilities: {'.'.join(responsibilities)}\n"
         if "industry_terms" in job_description_data:
             job_context += f"Industry Terms: {', '.join(job_description_data.get('industry_terms', []))}\n"
         if "company_values" in job_description_data:
@@ -1800,7 +1824,7 @@ class ContentWriterAgent(AgentBase):
         You are an expert CV writer. Create content for the following section:
 
         Section: {section.name}
-        Type: {item.item_type.value}
+        Type: {item.item_type}
 
         Job Context:
         {job_context}
@@ -2019,7 +2043,7 @@ def generate_structured_content(
         job_skills = job_description_data.skills
         job_responsibilities = job_description_data.responsibilities
 
-    job_context = f"Skills: {', '.join(job_skills)}\nResponsibilities: {'. '.join(job_responsibilities)}"
+    job_context = f"Skills: {', '.join(job_skills)}\nResponsibilities: {'.'.join(job_responsibilities)}"
 
     # Generate content for each item
     for item in items_to_regenerate:

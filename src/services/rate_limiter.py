@@ -63,7 +63,9 @@ class RateLimiter:
             self.model_states[model] = RateLimitState(
                 model_name=model,
                 requests_per_minute=0,
-                tokens_per_minute=0
+                tokens_per_minute=0,
+                max_requests_per_minute=self.config.requests_per_minute,
+                max_tokens_per_minute=self.config.tokens_per_minute
             )
         return self.model_states[model]
     
@@ -202,6 +204,26 @@ class RateLimiter:
             self.config.max_backoff_seconds,
             self.config.base_backoff_seconds * (2 ** state.consecutive_failures)
         )
+    
+    def _calculate_backoff_delay(self, retry_attempt: int) -> float:
+        """Calculate backoff delay with optional jitter."""
+        import random
+        
+        # Calculate base exponential backoff
+        base_delay = self.config.base_backoff_seconds * (2 ** retry_attempt)
+        delay = min(base_delay, self.config.max_backoff_seconds)
+        
+        # Add jitter if enabled (but keep within bounds)
+        if self.config.jitter:
+            # Add random jitter between 0% and 10% of the delay
+            # But ensure we never exceed the maximum allowed
+            max_jitter = min(delay * 0.1, self.config.max_backoff_seconds - delay)
+            if max_jitter > 0:
+                jitter_amount = max_jitter * random.random()
+                delay += jitter_amount
+        
+        # Ensure we never exceed the maximum
+        return min(delay, self.config.max_backoff_seconds)
 
 
 class RetryableRateLimiter(RateLimiter):

@@ -1,336 +1,453 @@
-#!/usr/bin/env python3
-"""
-Pytest Configuration and Fixtures
+"""Pytest configuration and fixtures for CV Generator tests.
 
-This module provides shared fixtures and configuration for all tests in the project.
-It includes setup for mocking, test data, and environment configuration.
+Provides shared fixtures, markers, and configuration for both
+unit and integration tests.
 """
 
 import pytest
-import os
-import sys
 import tempfile
 import shutil
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+import os
+import asyncio
+from unittest.mock import Mock, AsyncMock
 from typing import Dict, Any, Generator
+from datetime import datetime
 
-# Add project root to Python path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# Add project root to path
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-# Import after path setup
-from src.config.environment import AppConfig, Environment, LoggingConfig, DatabaseConfig
-from src.config.logging_config import setup_logging
-from src.core.state_manager import StateManager, CVData, JobDescriptionData
-from src.services.llm import LLM
+from src.core.state_manager import JobDescriptionData, WorkflowStage
+from src.services.rate_limiter import RateLimitConfig
+from src.services.session_manager import SessionManager
+from src.core.state_manager import StateManager
 
-
-@pytest.fixture(scope="session")
-def test_config() -> AppConfig:
-    """Provide test configuration for all tests."""
-    config = AppConfig(
-        environment=Environment.TESTING,
-        debug=True,
-        testing=True
+# Try to import from models if available, otherwise use core
+try:
+    from src.models.data_models import (
+        CVGenerationState, ContentItem, ContentType, 
+        ProcessingMetadata, ProcessingStatus
     )
+except ImportError:
+    # Define minimal versions for testing if models don't exist
+    from enum import Enum
+    from dataclasses import dataclass
+    from datetime import datetime
+    from typing import Dict, Any, Optional
     
-    # Override for testing
-    config.logging.log_to_console = False
-    config.logging.log_to_file = False
-    config.database.backup_enabled = False
-    config.performance.enable_caching = False
+    class ContentType(Enum):
+        EXPERIENCE = "experience"
+        EDUCATION = "education"
+        SKILLS = "skills"
+        PROJECTS = "projects"
     
-    return config
-
-
-@pytest.fixture(scope="session")
-def temp_dir() -> Generator[Path, None, None]:
-    """Provide a temporary directory for test files."""
-    temp_path = Path(tempfile.mkdtemp())
-    yield temp_path
-    shutil.rmtree(temp_path, ignore_errors=True)
-
-
-@pytest.fixture
-def mock_llm():
-    """Provide a mocked LLM service."""
-    with patch('src.services.llm.LLM') as mock:
-        llm_instance = MagicMock()
-        llm_instance.generate_content.return_value = "Mocked LLM response"
-        llm_instance.generate_structured_content.return_value = {"key": "value"}
-        mock.return_value = llm_instance
-        yield llm_instance
-
-
-@pytest.fixture
-def mock_vector_db():
-    """Provide a mocked vector database."""
-    with patch('src.services.vector_db.VectorDB') as mock:
-        db_instance = MagicMock()
-        db_instance.search.return_value = [{"content": "test", "score": 0.9}]
-        db_instance.add_documents.return_value = True
-        mock.return_value = db_instance
-        yield db_instance
-
-
-@pytest.fixture
-def sample_job_description() -> JobDescriptionData:
-    """Provide sample job description data for testing."""
-    return JobDescriptionData(
-        raw_text="""Software Engineer Position
-        
-        We are looking for a skilled software engineer with experience in Python, 
-        machine learning, and web development. The ideal candidate will have:
-        
-        - 3+ years of Python development experience
-        - Experience with machine learning frameworks
-        - Knowledge of web frameworks like Django or Flask
-        - Strong problem-solving skills
-        - Bachelor's degree in Computer Science or related field
-        
-        Responsibilities:
-        - Develop and maintain software applications
-        - Collaborate with cross-functional teams
-        - Write clean, maintainable code
-        - Participate in code reviews
-        """,
-        skills=["Python", "Machine Learning", "Web Development", "Django", "Flask"],
-        experience_level="Mid-level (3+ years)",
-        responsibilities=[
-            "Develop and maintain software applications",
-            "Collaborate with cross-functional teams",
-            "Write clean, maintainable code",
-            "Participate in code reviews"
-        ],
-        industry_terms=["Software Engineering", "Technology", "Development"],
-        company_values=["Innovation", "Collaboration", "Quality"]
-    )
-
-
-@pytest.fixture
-def sample_cv_data() -> CVData:
-    """Provide sample CV data for testing."""
-    return CVData(
-        name="John Doe",
-        email="john.doe@example.com",
-        phone="+1-555-0123",
-        linkedin="https://linkedin.com/in/johndoe",
-        github="https://github.com/johndoe",
-        summary="Experienced software engineer with 5+ years in Python development.",
-        skills=[
-            "Python", "JavaScript", "React", "Django", "PostgreSQL",
-            "Machine Learning", "Docker", "AWS", "Git", "Agile"
-        ],
-        experience=[
-            {
-                "title": "Senior Software Engineer",
-                "company": "Tech Corp",
-                "duration": "2021-Present",
-                "description": "Lead development of web applications using Python and React."
-            },
-            {
-                "title": "Software Engineer",
-                "company": "StartupXYZ",
-                "duration": "2019-2021",
-                "description": "Developed machine learning models and web APIs."
-            }
-        ],
-        education=[
-            {
-                "degree": "Bachelor of Science in Computer Science",
-                "institution": "University of Technology",
-                "year": "2019"
-            }
-        ],
-        projects=[
-            {
-                "name": "AI CV Generator",
-                "description": "Built an AI-powered CV generation tool using Python and Streamlit.",
-                "technologies": ["Python", "Streamlit", "OpenAI", "Docker"]
-            }
-        ],
-        certifications=[
-            "AWS Certified Developer",
-            "Python Institute PCAP"
-        ],
-        languages=["English (Native)", "Spanish (Conversational)"]
-    )
-
-
-@pytest.fixture
-def mock_state_manager(sample_cv_data, sample_job_description):
-    """Provide a mocked state manager with sample data."""
-    with patch('src.core.state_manager.StateManager') as mock:
-        manager_instance = MagicMock()
-        manager_instance.get_cv_data.return_value = sample_cv_data
-        manager_instance.get_job_description.return_value = sample_job_description
-        manager_instance.save_session.return_value = True
-        manager_instance.load_session.return_value = True
-        mock.return_value = manager_instance
-        yield manager_instance
-
-
-@pytest.fixture
-def mock_streamlit():
-    """Mock Streamlit components for testing."""
-    with patch('streamlit.write') as mock_write, \
-         patch('streamlit.error') as mock_error, \
-         patch('streamlit.warning') as mock_warning, \
-         patch('streamlit.info') as mock_info, \
-         patch('streamlit.success') as mock_success:
-        
-        yield {
-            'write': mock_write,
-            'error': mock_error,
-            'warning': mock_warning,
-            'info': mock_info,
-            'success': mock_success
-        }
-
-
-@pytest.fixture
-def mock_file_operations(temp_dir):
-    """Mock file operations with temporary directory."""
-    original_cwd = os.getcwd()
-    os.chdir(temp_dir)
+    class ProcessingStatus(Enum):
+        PENDING = "pending"
+        PROCESSING = "processing"
+        COMPLETED = "completed"
+        FAILED = "failed"
     
-    # Create test directory structure
-    (temp_dir / "data").mkdir(exist_ok=True)
-    (temp_dir / "logs").mkdir(exist_ok=True)
-    (temp_dir / "src" / "templates").mkdir(parents=True, exist_ok=True)
+    @dataclass
+    class ProcessingMetadata:
+        item_id: str
+        status: ProcessingStatus
+        created_at: Optional[datetime] = None
+        updated_at: Optional[datetime] = None
     
-    yield temp_dir
+    @dataclass
+    class ContentItem:
+        content_type: ContentType
+        original_content: str
+        generated_content: Optional[str] = None
+        metadata: Optional[ProcessingMetadata] = None
     
-    os.chdir(original_cwd)
+    @dataclass
+    class CVGenerationState:
+        session_id: str
+        job_description: JobDescriptionData
+        cv_data: Dict[str, Any]
+        current_stage: WorkflowStage
+        created_at: datetime
+        updated_at: datetime
 
 
-@pytest.fixture
-def sample_test_files(temp_dir):
-    """Create sample test files."""
-    files = {
-        "cv.txt": "John Doe\nSoftware Engineer\nPython, JavaScript, React",
-        "job_description.txt": "Looking for a Python developer with web experience",
-        "template.md": "# {{name}}\n## Skills\n{{skills}}"
-    }
-    
-    created_files = {}
-    for filename, content in files.items():
-        file_path = temp_dir / filename
-        file_path.write_text(content, encoding='utf-8')
-        created_files[filename] = file_path
-    
-    return created_files
-
-
-@pytest.fixture(autouse=True)
-def setup_test_environment(test_config):
-    """Automatically set up test environment for all tests."""
-    # Set environment variables for testing
-    os.environ['APP_ENV'] = 'testing'
-    os.environ['TESTING'] = 'true'
-    os.environ['DEBUG'] = 'true'
-    
-    # Setup minimal logging for tests
-    setup_logging(
-        log_level=test_config.logging.get_log_level(),
-        log_to_file=False,
-        log_to_console=False
-    )
-    
-    yield
-    
-    # Cleanup
-    for key in ['APP_ENV', 'TESTING', 'DEBUG']:
-        os.environ.pop(key, None)
-
-
-@pytest.fixture
-def mock_api_responses():
-    """Provide mock API responses for external services."""
-    return {
-        "groq_success": {
-            "choices": [{
-                "message": {
-                    "content": "This is a successful API response"
-                }
-            }]
-        },
-        "groq_error": {
-            "error": {
-                "message": "API rate limit exceeded",
-                "type": "rate_limit_error"
-            }
-        }
-    }
-
-
-class TestHelpers:
-    """Helper methods for testing."""
-    
-    @staticmethod
-    def create_mock_response(content: str, status_code: int = 200):
-        """Create a mock HTTP response."""
-        mock_response = MagicMock()
-        mock_response.text = content
-        mock_response.status_code = status_code
-        mock_response.json.return_value = {"content": content}
-        return mock_response
-    
-    @staticmethod
-    def assert_log_contains(caplog, level: str, message: str):
-        """Assert that a log message was recorded."""
-        for record in caplog.records:
-            if record.levelname == level.upper() and message in record.message:
-                return True
-        pytest.fail(f"Log message '{message}' with level '{level}' not found")
-    
-    @staticmethod
-    def create_test_session_data() -> Dict[str, Any]:
-        """Create test session data."""
-        return {
-            "session_id": "test-session-123",
-            "timestamp": "2024-01-01T00:00:00",
-            "cv_data": {
-                "name": "Test User",
-                "email": "test@example.com"
-            },
-            "job_description": {
-                "raw_text": "Test job description"
-            }
-        }
-
-
-@pytest.fixture
-def test_helpers():
-    """Provide test helper methods."""
-    return TestHelpers
-
-
-# Pytest configuration
+# Test markers
 def pytest_configure(config):
-    """Configure pytest with custom markers."""
+    """Configure pytest markers."""
     config.addinivalue_line(
-        "markers", "integration: mark test as integration test"
+        "markers", "unit: mark test as a unit test"
+    )
+    config.addinivalue_line(
+        "markers", "integration: mark test as an integration test"
     )
     config.addinivalue_line(
         "markers", "slow: mark test as slow running"
     )
     config.addinivalue_line(
-        "markers", "api: mark test as requiring API access"
+        "markers", "requires_llm: mark test as requiring LLM service"
     )
     config.addinivalue_line(
-        "markers", "unit: mark test as unit test"
+        "markers", "requires_persistence: mark test as requiring persistence services"
     )
 
 
-def pytest_collection_modifyitems(config, items):
-    """Modify test collection to add markers based on test location."""
-    for item in items:
-        # Add integration marker for tests in integration directory
-        if "integration" in str(item.fspath):
-            item.add_marker(pytest.mark.integration)
+# Async test support
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for the test session."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+# Temporary directory fixtures
+@pytest.fixture
+def temp_dir() -> Generator[str, None, None]:
+    """Provide a temporary directory for test files."""
+    temp_path = tempfile.mkdtemp()
+    yield temp_path
+    shutil.rmtree(temp_path, ignore_errors=True)
+
+
+@pytest.fixture
+def session_storage_dir(temp_dir: str) -> str:
+    """Provide a temporary directory for session storage."""
+    session_dir = os.path.join(temp_dir, "sessions")
+    os.makedirs(session_dir, exist_ok=True)
+    return session_dir
+
+
+@pytest.fixture
+def state_storage_dir(temp_dir: str) -> str:
+    """Provide a temporary directory for state storage."""
+    state_dir = os.path.join(temp_dir, "state")
+    os.makedirs(state_dir, exist_ok=True)
+    return state_dir
+
+
+# Mock fixtures
+@pytest.fixture
+def mock_llm_client():
+    """Provide a mock LLM client for testing."""
+    client = Mock()
+    client.generate_content = AsyncMock()
+    
+    # Default successful response
+    client.generate_content.return_value = {
+        "content": "Generated test content",
+        "tokens_used": 25,
+        "model": "gpt-4"
+    }
+    
+    return client
+
+
+@pytest.fixture
+def mock_progress_tracker():
+    """Provide a mock progress tracker for testing."""
+    tracker = Mock()
+    tracker.update_progress = Mock()
+    tracker.get_progress = Mock(return_value=0.5)
+    tracker.reset_progress = Mock()
+    return tracker
+
+
+@pytest.fixture
+def mock_error_recovery():
+    """Provide a mock error recovery service for testing."""
+    recovery = Mock()
+    recovery.should_retry = Mock(return_value=True)
+    recovery.get_retry_delay = Mock(return_value=0.1)
+    recovery.get_backoff_delay = Mock(return_value=0.1)
+    recovery.max_retries = 3
+    recovery.base_delay = 0.1
+    return recovery
+
+
+# Configuration fixtures
+@pytest.fixture
+def rate_limit_config() -> RateLimitConfig:
+    """Provide a test rate limit configuration."""
+    return RateLimitConfig(
+        requests_per_minute=10,
+        requests_per_hour=100,
+        tokens_per_minute=1000,
+        tokens_per_hour=10000,
+        base_backoff_seconds=1.0,
+        max_backoff_seconds=60.0,
+        jitter_enabled=True
+    )
+
+
+# Data model fixtures
+@pytest.fixture
+def sample_job_description() -> JobDescriptionData:
+    """Provide a sample job description for testing."""
+    return JobDescriptionData(
+        title="Senior Software Engineer",
+        company="TechCorp Inc",
+        description="We are seeking a senior software engineer with expertise in Python and web development...",
+        requirements=[
+            "5+ years of Python development experience",
+            "Experience with Django or Flask",
+            "Knowledge of RESTful APIs",
+            "Familiarity with cloud platforms (AWS, GCP, Azure)"
+        ],
+        responsibilities=[
+            "Design and develop scalable web applications",
+            "Collaborate with cross-functional teams",
+            "Mentor junior developers",
+            "Participate in code reviews"
+        ],
+        skills=[
+            "Python", "Django", "Flask", "PostgreSQL", "Redis",
+            "AWS", "Docker", "Git", "REST APIs", "JavaScript"
+        ]
+    )
+
+
+@pytest.fixture
+def sample_cv_data() -> Dict[str, Any]:
+    """Provide sample CV data for testing."""
+    return {
+        "personal_info": {
+            "name": "John Doe",
+            "email": "john.doe@example.com",
+            "phone": "+1-555-0123",
+            "location": "San Francisco, CA",
+            "linkedin": "https://linkedin.com/in/johndoe",
+            "github": "https://github.com/johndoe"
+        },
+        "experience": [
+            {
+                "title": "Software Engineer",
+                "company": "Previous Corp",
+                "duration": "2020-2023",
+                "location": "San Francisco, CA",
+                "description": "Developed and maintained web applications using Python and Django. Collaborated with product teams to deliver features for 100k+ users."
+            },
+            {
+                "title": "Junior Developer",
+                "company": "StartupXYZ",
+                "duration": "2018-2020",
+                "location": "Palo Alto, CA",
+                "description": "Built RESTful APIs and frontend components. Participated in agile development processes."
+            }
+        ],
+        "projects": [
+            {
+                "name": "E-commerce Platform",
+                "description": "Built a scalable e-commerce platform serving 10k+ daily users",
+                "technologies": ["Python", "Django", "PostgreSQL", "Redis", "AWS"],
+                "url": "https://github.com/johndoe/ecommerce"
+            },
+            {
+                "name": "Analytics Dashboard",
+                "description": "Real-time analytics dashboard with interactive visualizations",
+                "technologies": ["React", "Node.js", "MongoDB", "D3.js"],
+                "url": "https://github.com/johndoe/analytics"
+            }
+        ],
+        "education": [
+            {
+                "degree": "Bachelor of Science in Computer Science",
+                "institution": "University of California, Berkeley",
+                "year": "2018",
+                "gpa": "3.8"
+            }
+        ],
+        "skills": {
+            "programming_languages": ["Python", "JavaScript", "Java", "SQL"],
+            "frameworks": ["Django", "Flask", "React", "Node.js"],
+            "databases": ["PostgreSQL", "MongoDB", "Redis"],
+            "tools": ["Git", "Docker", "AWS", "Jenkins"]
+        },
+        "certifications": [
+            {
+                "name": "AWS Certified Developer",
+                "issuer": "Amazon Web Services",
+                "year": "2022"
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def sample_content_item() -> ContentItem:
+    """Provide a sample content item for testing."""
+    return ContentItem(
+        content_type=ContentType.EXPERIENCE,
+        original_content="Software Engineer at Previous Corp (2020-2023)",
+        metadata=ProcessingMetadata(
+            item_id="exp-001",
+            status=ProcessingStatus.PENDING
+        )
+    )
+
+
+@pytest.fixture
+def sample_cv_generation_state(sample_job_description: JobDescriptionData, sample_cv_data: Dict[str, Any]) -> CVGenerationState:
+    """Provide a sample CV generation state for testing."""
+    return CVGenerationState(
+        session_id="test-session-001",
+        job_description=sample_job_description,
+        cv_data=sample_cv_data,
+        current_stage=WorkflowStage.INITIALIZATION,
+        created_at=datetime.now(),
+        updated_at=datetime.now()
+    )
+
+
+# Service fixtures
+@pytest.fixture
+def session_manager(session_storage_dir: str) -> SessionManager:
+    """Provide a session manager with temporary storage."""
+    return SessionManager(storage_path=session_storage_dir)
+
+
+@pytest.fixture
+def state_manager(state_storage_dir: str) -> StateManager:
+    """Provide a state manager with temporary storage."""
+    return StateManager(storage_path=state_storage_dir)
+
+
+# Progress tracking fixture
+@pytest.fixture
+def progress_updates() -> list:
+    """Provide a list to capture progress updates during testing."""
+    return []
+
+
+@pytest.fixture
+def progress_callback(progress_updates: list):
+    """Provide a progress callback that captures updates."""
+    def callback(update: Dict[str, Any]):
+        progress_updates.append(update)
+    return callback
+
+
+# Test data generators
+@pytest.fixture
+def content_item_factory():
+    """Provide a factory for creating content items."""
+    def create_content_item(
+        content_type: ContentType = ContentType.EXPERIENCE,
+        original_content: str = "Test content",
+        generated_content: str = None,
+        status: ProcessingStatus = ProcessingStatus.PENDING,
+        item_id: str = None
+    ) -> ContentItem:
+        return ContentItem(
+            content_type=content_type,
+            original_content=original_content,
+            generated_content=generated_content,
+            metadata=ProcessingMetadata(
+                item_id=item_id or f"{content_type.value}-test",
+                status=status
+            )
+        )
+    return create_content_item
+
+
+@pytest.fixture
+def job_description_factory():
+    """Provide a factory for creating job descriptions."""
+    def create_job_description(
+        title: str = "Software Engineer",
+        company: str = "Test Company",
+        description: str = "Test job description",
+        requirements: list = None,
+        responsibilities: list = None,
+        skills: list = None
+    ) -> JobDescriptionData:
+        return JobDescriptionData(
+            title=title,
+            company=company,
+            description=description,
+            requirements=requirements or ["Test requirement"],
+            responsibilities=responsibilities or ["Test responsibility"],
+            skills=skills or ["Test skill"]
+        )
+    return create_job_description
+
+
+# Cleanup fixtures
+@pytest.fixture(autouse=True)
+def cleanup_async_tasks():
+    """Automatically cleanup async tasks after each test."""
+    yield
+    # Cancel any remaining tasks
+    try:
+        loop = asyncio.get_event_loop()
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+    except Exception:
+        pass  # Ignore cleanup errors
+
+
+# Performance testing fixtures
+@pytest.fixture
+def performance_timer():
+    """Provide a timer for performance testing."""
+    import time
+    
+    class Timer:
+        def __init__(self):
+            self.start_time = None
+            self.end_time = None
         
-        # Add unit marker for tests in unit directory
-        if "unit" in str(item.fspath):
-            item.add_marker(pytest.mark.unit)
+        def start(self):
+            self.start_time = time.time()
+        
+        def stop(self):
+            self.end_time = time.time()
+        
+        @property
+        def elapsed(self) -> float:
+            if self.start_time and self.end_time:
+                return self.end_time - self.start_time
+            return 0.0
+    
+    return Timer()
+
+
+# Integration test specific fixtures
+@pytest.fixture
+def integration_test_config():
+    """Provide configuration for integration tests."""
+    return {
+        "timeout": 30.0,  # Default timeout for async operations
+        "max_retries": 3,
+        "retry_delay": 0.1,
+        "rate_limit_requests_per_minute": 10,
+        "rate_limit_tokens_per_minute": 1000
+    }
+
+
+# Mock response generators
+@pytest.fixture
+def llm_response_generator():
+    """Provide a generator for LLM responses."""
+    def generate_response(
+        content: str = "Generated content",
+        tokens_used: int = 25,
+        model: str = "gpt-4",
+        delay: float = 0.0
+    ):
+        async def response(*args, **kwargs):
+            if delay > 0:
+                await asyncio.sleep(delay)
+            return {
+                "content": content,
+                "tokens_used": tokens_used,
+                "model": model
+            }
+        return response
+    
+    return generate_response

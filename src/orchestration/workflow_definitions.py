@@ -321,10 +321,15 @@ class WorkflowBuilder:
         # Create tasks from workflow steps
         tasks = []
         for i, step in enumerate(workflow.steps):
+            # Adapt input data for content writer agents
+            adapted_input = self._adapt_input_data_for_agent(
+                input_data, step["agent_type"], step["content_types"][0]
+            )
+            
             # Create execution context
             context = AgentExecutionContext(
                 session_id=session_id,
-                input_data=input_data,
+                input_data=adapted_input,
                 content_type=step["content_types"][0],  # Primary content type
                 processing_options={
                     **step.get("options", {}),
@@ -410,6 +415,48 @@ class WorkflowBuilder:
         
         self.register_workflow(workflow)
         return workflow
+    
+    def _adapt_input_data_for_agent(
+        self, 
+        input_data: Dict[str, Any], 
+        agent_type: str, 
+        content_type: ContentType
+    ) -> Dict[str, Any]:
+        """Adapt workflow input data for specific agent types."""
+        if agent_type == "content_writer":
+            return self._adapt_for_content_writer(input_data, content_type)
+        # For other agent types, return input data as-is
+        return input_data
+    
+    def _adapt_for_content_writer(
+        self, 
+        input_data: Dict[str, Any], 
+        content_type: ContentType
+    ) -> Dict[str, Any]:
+        """Adapt input data for content writer agents."""
+        # Extract components from workflow input
+        personal_info = input_data.get("personal_info", {})
+        experience = input_data.get("experience", [])
+        job_description = input_data.get("job_description", {})
+        
+        # Structure data as expected by EnhancedContentWriterAgent
+        adapted_data = {
+            "job_description_data": job_description,
+            "content_item": {
+                "type": content_type.value,
+                "data": {
+                    "roles": experience,
+                    "personal_info": personal_info
+                }
+            },
+            "context": {
+                "workflow_type": "job_tailored_cv",
+                "content_type": content_type.value,
+                "personal_info": personal_info
+            }
+        }
+        
+        return adapted_data
 
 
 # Global workflow builder instance

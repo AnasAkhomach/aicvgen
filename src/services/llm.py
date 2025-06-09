@@ -46,7 +46,8 @@ class EnhancedLLMService:
         self, 
         timeout: int = 30, 
         rate_limiter: Optional[EnhancedRateLimiter] = None,
-        error_recovery = None
+        error_recovery = None,
+        user_api_key: Optional[str] = None
     ):
         """
         Initialize the enhanced LLM service.
@@ -55,26 +56,36 @@ class EnhancedLLMService:
             timeout: Maximum time in seconds to wait for LLM response
             rate_limiter: Optional rate limiter instance
             error_recovery: Optional error recovery service
+            user_api_key: Optional user-provided API key (takes priority)
         """
         self.settings = get_config()
         self.timeout = timeout
         
-        # Configure API keys with fallback support
+        # Configure API keys with user key priority and fallback support
+        self.user_api_key = user_api_key
         self.primary_api_key = self.settings.llm.gemini_api_key_primary
         self.fallback_api_key = self.settings.llm.gemini_api_key_fallback
         
-        if not self.primary_api_key and not self.fallback_api_key:
-            raise ValueError("No Gemini API key found. Set GEMINI_API_KEY environment variable or ensure fallback key is configured.")
+        # Prioritize user-provided key, then primary, then fallback
+        if self.user_api_key:
+            api_key = self.user_api_key
+            self.using_user_key = True
+        elif self.primary_api_key:
+            api_key = self.primary_api_key
+            self.using_user_key = False
+        elif self.fallback_api_key:
+            api_key = self.fallback_api_key
+            self.using_user_key = False
+        else:
+            raise ValueError("No Gemini API key found. Please provide your API key or set GEMINI_API_KEY environment variable.")
         
-        # Use primary key first, fallback if not available
-        api_key = self.primary_api_key or self.fallback_api_key
         self.current_api_key = api_key
 
         # Initialize the model
         genai.configure(api_key=api_key)
         self.model_name = "gemini-2.0-flash"
         self.llm = genai.GenerativeModel(self.model_name)
-        self.using_fallback = not bool(self.primary_api_key)
+        self.using_fallback = not bool(self.user_api_key or self.primary_api_key)
         
         # Enhanced services
         self.rate_limiter = rate_limiter or EnhancedRateLimiter()
@@ -89,6 +100,7 @@ class EnhancedLLMService:
             "Enhanced LLM service initialized",
             model=self.model_name,
             timeout=timeout,
+            using_user_key=self.using_user_key,
             using_fallback_key=self.using_fallback
         )
     
@@ -190,7 +202,7 @@ class EnhancedLLMService:
         while retry_count <= max_retries:
             try:
                 # Apply rate limiting
-                await self.rate_limiter.acquire()
+                await self.rate_limiter.wait_if_needed(self.model_name)
                 
                 # Log the attempt
                 logger.info(
@@ -360,8 +372,31 @@ class LLM(EnhancedLLMService):
     def generate_content(self, prompt: str) -> str:
         """Legacy method that returns string content directly."""
         import asyncio
+        import concurrent.futures
         
-        # Run the async method synchronously
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_running_loop()
+            # If we're in an async context, run in a thread pool
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(self._sync_generate_content, prompt)
+                return future.result(timeout=self.timeout)
+        except RuntimeError:
+            # No event loop running, safe to create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                response = loop.run_until_complete(
+                    super().generate_content(prompt)
+                )
+                return response.content
+            finally:
+                loop.close()
+    
+    def _sync_generate_content(self, prompt: str) -> str:
+        """Helper method to run async generate_content in a new thread."""
+        import asyncio
+        
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:

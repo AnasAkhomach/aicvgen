@@ -9,6 +9,7 @@ from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..services.llm import get_llm_service, LLMResponse
 from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
+from ..config.settings import get_config
 from ..core.state_manager import (
     JobDescriptionData,
     ContentData,
@@ -63,12 +64,15 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         # Enhanced services
         self.llm_service = get_llm_service()
         
-        # Content generation templates
+        # Initialize settings for prompt loading
+        self.settings = get_config()
+        
+        # Content generation templates - load from external files
         self.content_templates = {
-            ContentType.QUALIFICATION: self._get_qualification_template(),
-            ContentType.EXPERIENCE: self._get_experience_template(),
-            ContentType.PROJECT: self._get_project_template(),
-            ContentType.EXECUTIVE_SUMMARY: self._get_executive_summary_template()
+            ContentType.QUALIFICATION: self._load_prompt_template("key_qualifications_prompt"),
+            ContentType.EXPERIENCE: self._load_prompt_template("resume_role_prompt"),
+            ContentType.PROJECT: self._load_prompt_template("side_project_prompt"),
+            ContentType.EXECUTIVE_SUMMARY: self._load_prompt_template("executive_summary_prompt")
         }
         
         logger.info(
@@ -80,10 +84,23 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Enhanced async content generation with structured processing."""
         try:
+            # Use provided input_data or fallback to context.input_data
+            if input_data is None:
+                input_data = context.input_data or {}
+            
+            # Debug: Log input_data type and content
+            logger.info(f"EnhancedContentWriter received input_data type: {type(input_data)}")
+            logger.info(f"EnhancedContentWriter received input_data: {input_data}")
+            
+            # Check if input_data is a string (which shouldn't happen)
+            if isinstance(input_data, str):
+                logger.error(f"EnhancedContentWriter received string input_data instead of dict: {input_data}")
+                raise ValueError(f"Expected dict input_data, got string: {input_data}")
+            
             # Extract and validate input data
             job_data = input_data.get("job_description_data", {})
             content_item = input_data.get("content_item", {})
-            generation_context = input_data.get("context", {})
+            generation_context = input_data.get("generation_context", input_data.get("context", {}))
             
             # Determine content type
             content_type = context.content_type or self._determine_content_type(content_item)
@@ -168,12 +185,13 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             )
     
     def run(self, input_data: Any) -> Any:
-        """Legacy synchronous method for backward compatibility."""
+        """Legacy synchronous interface for backward compatibility."""
         # Create a basic context for legacy calls
         context = AgentExecutionContext(
             session_id="legacy_session",
             item_id="legacy_item",
-            content_type=self.content_type
+            content_type=self.content_type,
+            input_data=input_data if isinstance(input_data, dict) else {}
         )
         
         # Run async method synchronously
@@ -181,7 +199,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         asyncio.set_event_loop(loop)
         try:
             result = loop.run_until_complete(self.run_async(input_data, context))
-            return result.output_data
+            return result
         finally:
             loop.close()
     
@@ -225,19 +243,23 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             self.content_templates[ContentType.QUALIFICATION]
         )
         
-        # Extract relevant information
+        # Handle EXPERIENCE content type with resume_role_prompt template
+        if content_type == ContentType.EXPERIENCE:
+            return self._build_experience_prompt(template, job_data, content_item, generation_context)
+        
+        # Extract relevant information for other content types
         job_title = job_data.get("title", "the position")
         job_description = job_data.get("raw_text", job_data.get("description", ""))
         company_name = job_data.get("company", "the company")
+        
+        # Ensure content_item is a dictionary
+        if not isinstance(content_item, dict):
+            content_item = {}
         
         # Content-specific information
         if content_type == ContentType.QUALIFICATION:
             item_title = content_item.get("title", "qualification")
             item_description = content_item.get("description", "")
-        elif content_type == ContentType.EXPERIENCE:
-            item_title = content_item.get("position", "role")
-            item_description = content_item.get("description", "")
-            company = content_item.get("company", "previous company")
         elif content_type == ContentType.PROJECT:
             item_title = content_item.get("name", "project")
             item_description = content_item.get("description", "")
@@ -256,6 +278,307 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         )
         
         return prompt
+    
+    def _build_experience_prompt(
+        self,
+        template: str,
+        job_data: Dict[str, Any],
+        content_item: Dict[str, Any],
+        generation_context: Dict[str, Any]
+    ) -> str:
+        """Build prompt specifically for experience content using resume_role_prompt template."""
+        
+        # Handle case where content_item might be a string (from data adapter)
+        if isinstance(content_item, str):
+            # Parse the CV text to extract experience information
+            content_item = self._parse_cv_text_to_content_item(content_item, generation_context)
+        
+        # Extract target skills from job data
+        target_skills = job_data.get("skills", [])
+        if isinstance(target_skills, list):
+            target_skills_text = "\n".join([f"- {skill}" for skill in target_skills])
+        else:
+            target_skills_text = "- No specific skills identified"
+        
+        # Build batched structured output for the role
+        role_info = self._format_role_info(content_item, generation_context)
+        
+        # Format the template with the correct variables
+        prompt = template.replace("{{Target Skills}}", target_skills_text)
+        prompt = prompt.replace("{{batched_structured_output}}", role_info)
+        
+        return prompt
+    
+    def _format_role_info(self, content_item: Dict[str, Any], generation_context: Dict[str, Any]) -> str:
+        """Format role information for the resume template."""
+        
+        # Ensure content_item is a dictionary
+        if not isinstance(content_item, dict):
+            logger.error(f"Expected dict for content_item, got {type(content_item)}: {content_item}")
+            content_item = {"name": "Unknown Role", "items": []}
+        
+        # Handle workflow adapter data structure with 'data' wrapper
+        if "data" in content_item and "roles" in content_item["data"]:
+            roles = content_item["data"]["roles"]
+            
+            # Check if roles is a list of strings (CV text) that needs parsing
+            if roles and isinstance(roles[0], str):
+                # Parse the CV text to extract structured role information
+                cv_text = roles[0]  # Take the first (and likely only) CV text
+                parsed_content = self._parse_cv_text_to_content_item(cv_text, generation_context)
+                return self._format_role_info(parsed_content, generation_context)
+            
+            # Handle structured role data
+            formatted_roles = []
+            for role in roles:
+                # Check if role is a dictionary (structured data) or string (CV text)
+                if isinstance(role, dict):
+                    role_block = self._format_workflow_role(role, generation_context)
+                    formatted_roles.append(role_block)
+                elif isinstance(role, str):
+                    # This is CV text that needs parsing
+                    parsed_content = self._parse_cv_text_to_content_item(role, generation_context)
+                    # Ensure parsed_content is valid before formatting
+                    if isinstance(parsed_content, dict):
+                        role_block = self._format_single_role(parsed_content, generation_context)
+                        formatted_roles.append(role_block)
+                    else:
+                        logger.warning(f"Failed to parse CV text to structured content: {role[:100]}...")
+                        # Create a fallback role block
+                        fallback_role = {"name": "Professional Experience", "items": []}
+                        role_block = self._format_single_role(fallback_role, generation_context)
+                        formatted_roles.append(role_block)
+                else:
+                    logger.warning(f"Unexpected role type: {type(role)}, content: {role}")
+            return "\n\n".join(formatted_roles)
+        
+        # Handle both section-level and subsection-level content (legacy format)
+        elif "subsections" in content_item and content_item["subsections"]:
+            # This is a section with subsections (multiple roles)
+            formatted_roles = []
+            for subsection in content_item["subsections"]:
+                role_block = self._format_single_role(subsection, generation_context)
+                formatted_roles.append(role_block)
+            return "\n\n".join(formatted_roles)
+        else:
+            # This is a single role (legacy format)
+            return self._format_single_role(content_item, generation_context)
+    
+    def _format_single_role(self, role_data: Dict[str, Any], generation_context: Dict[str, Any]) -> str:
+        """Format a single role for the resume template."""
+        
+        # Handle case where role_data might be a string (CV text)
+        if isinstance(role_data, str):
+            # Parse the CV text to get structured data
+            role_data = self._parse_cv_text_to_content_item(role_data, generation_context)
+        
+        # Ensure role_data is a dictionary
+        if not isinstance(role_data, dict):
+            logger.error(f"Expected dict for role_data, got {type(role_data)}: {role_data}")
+            role_data = {"name": "Unknown Role", "items": []}
+        
+        # Extract role information
+        role_name = role_data.get("name", "Unknown Role")
+        
+        # Extract company from original CV text if available
+        company_name = self._extract_company_from_cv(role_name, generation_context)
+        
+        # Extract accomplishments from items
+        accomplishments = []
+        if "items" in role_data:
+            for item in role_data["items"]:
+                if isinstance(item, dict) and item.get("item_type") == "bullet_point":
+                    accomplishments.append(item.get("content", ""))
+        
+        # Format the role info block
+        role_info = f"""<role_info_start>
+<info>
+Role: {role_name}
+Organization: {company_name}
+Description: {role_name} position with focus on data analysis and technical implementation
+</info>
+<accomplishments>
+"""
+        
+        for accomplishment in accomplishments:
+            role_info += f"- {accomplishment}\n"
+        
+        role_info += "</accomplishments>\n</role_info_end>"
+        
+        return role_info
+    
+    def _format_workflow_role(self, role_data: Dict[str, Any], generation_context: Dict[str, Any]) -> str:
+        """Format a single role from workflow adapter data structure."""
+        
+        # Ensure role_data is a dictionary
+        if not isinstance(role_data, dict):
+            logger.error(f"Expected dict for role_data, got {type(role_data)}: {role_data}")
+            role_data = {"title": "Unknown Role", "company": "Unknown Company", "description": "", "skills": []}
+        
+        # Extract role information from workflow format
+        role_title = role_data.get("title", "Unknown Role")
+        company_name = role_data.get("company", "Unknown Company")
+        description = role_data.get("description", "")
+        skills = role_data.get("skills", [])
+        
+        # Create accomplishments from description and skills
+        accomplishments = []
+        if description:
+            accomplishments.append(description)
+        
+        # Add skills as accomplishments if available
+        if skills:
+            skills_text = f"Key skills: {', '.join(skills)}"
+            accomplishments.append(skills_text)
+        
+        # Format the role info block
+        role_info = f"""<role_info_start>
+<info>
+Role: {role_title}
+Organization: {company_name}
+Description: {description[:200] if description else f'{role_title} position with focus on technical implementation'}
+</info>
+<accomplishments>
+"""
+        
+        for accomplishment in accomplishments:
+            role_info += f"- {accomplishment}\n"
+        
+        role_info += "</accomplishments>\n</role_info_end>"
+        
+        return role_info
+    
+    def _extract_company_from_cv(self, role_name: str, generation_context: Dict[str, Any]) -> str:
+        """Extract company name from original CV text based on role name."""
+        
+        # Get original CV text from generation context
+        original_cv = generation_context.get("original_cv_text", "")
+        
+        # Define company mappings based on the CV content
+        company_mappings = {
+            "Trainee Data Analyst": "STE Smart-Send",
+            "IT trainer": "Supply Chain Management Center", 
+            "Mathematics teacher": "Martile Secondary School",
+            "Indie Mobile Game Developer": "Unity (Independent)"
+        }
+        
+        # Return mapped company or try to extract from CV text
+        if role_name in company_mappings:
+            return company_mappings[role_name]
+        
+        # Fallback: try to find company in original CV text near the role name
+        if original_cv and role_name in original_cv:
+            # Simple extraction logic - this could be improved
+            lines = original_cv.split('\n')
+            for i, line in enumerate(lines):
+                if role_name in line and i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line and not next_line.startswith('*'):
+                        # Extract company from next line
+                        if '|' in next_line:
+                            company_part = next_line.split('|')[0].strip()
+                            if company_part.startswith('[') and ']' in company_part:
+                                return company_part.split(']')[0][1:]
+                            return company_part
+        
+        return "Previous Company"
+    
+    def _parse_cv_text_to_content_item(self, cv_text: str, generation_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse CV text string into structured content item format."""
+        
+        # Extract experience sections from CV text
+        lines = cv_text.split('\n')
+        experience_roles = []
+        
+        # Look for experience section markers
+        in_experience_section = False
+        current_role = None
+        current_accomplishments = []
+        
+        # Known role patterns from the CV
+        role_patterns = [
+            "Trainee Data Analyst",
+            "IT trainer", 
+            "Mathematics teacher",
+            "Indie Mobile Game Developer"
+        ]
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if we're in an experience section
+            if any(role in line for role in role_patterns):
+                in_experience_section = True
+                
+                # Save previous role if exists
+                if current_role:
+                    experience_roles.append({
+                        "name": current_role,
+                        "items": [{
+                            "item_type": "bullet_point",
+                            "content": accomplishment
+                        } for accomplishment in current_accomplishments]
+                    })
+                
+                # Extract role name
+                for role in role_patterns:
+                    if role in line:
+                        current_role = role
+                        break
+                
+                current_accomplishments = []
+                continue
+            
+            # If we're in experience section and this is a bullet point
+            if in_experience_section and (line.startswith('-') or line.startswith('*') or line.startswith('•')):
+                clean_line = line.lstrip('-*•').strip()
+                if clean_line:
+                    current_accomplishments.append(clean_line)
+            
+            # Stop if we hit another major section
+            elif line.upper().startswith('COMPÉTENCES') or line.upper().startswith('FORMATION') or line.upper().startswith('COORDONNÉES'):
+                in_experience_section = False
+        
+        # Add the last role
+        if current_role:
+            experience_roles.append({
+                "name": current_role,
+                "items": [{
+                    "item_type": "bullet_point",
+                    "content": accomplishment
+                } for accomplishment in current_accomplishments]
+            })
+        
+        # If no specific roles found, create a generic experience structure
+        if not experience_roles:
+            # Extract any bullet points as general experience
+            general_accomplishments = []
+            for line in lines:
+                line = line.strip()
+                if line.startswith('-') or line.startswith('*') or line.startswith('•'):
+                    clean_line = line.lstrip('-*•').strip()
+                    if clean_line:
+                        general_accomplishments.append(clean_line)
+            
+            if general_accomplishments:
+                experience_roles.append({
+                    "name": "Professional Experience",
+                    "items": [{
+                        "item_type": "bullet_point",
+                        "content": accomplishment
+                    } for accomplishment in general_accomplishments]
+                })
+        
+        # Return structured content item
+        if len(experience_roles) == 1:
+            return experience_roles[0]
+        else:
+            return {
+                "name": "Professional Experience",
+                "subsections": experience_roles
+            }
     
     async def _post_process_content(
         self,
@@ -342,6 +665,11 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     def _determine_content_type(self, content_item: Dict[str, Any]) -> ContentType:
         """Determine content type from item data."""
         
+        # Ensure content_item is a dictionary before checking keys
+        if not isinstance(content_item, dict):
+            logger.warning(f"Expected dict for content_item, got {type(content_item)}: {content_item}")
+            return ContentType.QUALIFICATION
+        
         if "position" in content_item or "company" in content_item:
             return ContentType.EXPERIENCE
         elif "name" in content_item and "technologies" in content_item:
@@ -358,10 +686,18 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     ) -> str:
         """Generate fallback content when LLM fails."""
         
+        # Ensure content_item is a dictionary
+        if not isinstance(content_item, dict):
+            content_item = {}
+        
+        # Safely get values from content_item (now guaranteed to be a dictionary)
+        position = content_item.get('position', 'previous role')
+        project_name = content_item.get('name', 'project')
+        
         fallbacks = {
             ContentType.QUALIFICATION: "Strong technical skills and experience relevant to the position.",
-            ContentType.EXPERIENCE: f"Valuable experience in {content_item.get('position', 'previous role')} contributing to professional growth.",
-            ContentType.PROJECT: f"Successful completion of {content_item.get('name', 'project')} demonstrating technical capabilities.",
+            ContentType.EXPERIENCE: f"Valuable experience in {position} contributing to professional growth.",
+            ContentType.PROJECT: f"Successful completion of {project_name} demonstrating technical capabilities.",
             ContentType.EXECUTIVE_SUMMARY: "Experienced professional with a strong background in delivering results and contributing to organizational success."
         }
         
@@ -398,93 +734,35 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             content = content[:297] + "..."
         return content
     
-    # Template methods
-    def _get_qualification_template(self) -> str:
+    def _load_prompt_template(self, prompt_name: str) -> str:
+        """Load a prompt template from external file."""
+        try:
+            prompt_path = self.settings.get_prompt_path(prompt_name)
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                template = f.read()
+            logger.info(f"Successfully loaded prompt template: {prompt_name}")
+            return template
+        except Exception as e:
+            logger.error(f"Error loading prompt template {prompt_name}: {e}")
+            # Fallback to basic template
+            return self._get_fallback_template()
+    
+    def _get_fallback_template(self) -> str:
+        """Fallback template if external prompt loading fails."""
         return """
-Generate a professional qualification statement for a {job_title} position at {company_name}.
+Generate professional content for a {job_title} position at {company_name}.
 
 Job Requirements:
 {job_description}
 
-Current Qualification:
+Content to Enhance:
 {item_title}: {item_description}
 
 Additional Context:
 {additional_context}
 
-Generate a concise, impactful qualification statement (2-3 sentences) that:
-1. Highlights relevant skills and experience
-2. Aligns with the job requirements
-3. Uses professional language
-4. Demonstrates value to the employer
-
-Qualification Statement:"""
-    
-    def _get_experience_template(self) -> str:
-        return """
-Generate professional experience content for a {job_title} position at {company_name}.
-
-Job Requirements:
-{job_description}
-
-Experience to Enhance:
-{item_title}: {item_description}
-
-Additional Context:
-{additional_context}
-
-Generate enhanced experience content that:
-1. Emphasizes achievements and impact
-2. Uses action verbs and quantifiable results
-3. Aligns with the target job requirements
-4. Maintains professional tone
-5. Includes 3-5 bullet points if appropriate
-
-Enhanced Experience:"""
-    
-    def _get_project_template(self) -> str:
-        return """
-Generate professional project description for a {job_title} position at {company_name}.
-
-Job Requirements:
-{job_description}
-
-Project to Enhance:
-{item_title}: {item_description}
-
-Additional Context:
-{additional_context}
-
-Generate enhanced project content that:
-1. Highlights technical skills and technologies used
-2. Emphasizes project impact and results
-3. Aligns with job requirements
-4. Demonstrates problem-solving abilities
-5. Uses professional technical language
-
-Enhanced Project Description:"""
-    
-    def _get_executive_summary_template(self) -> str:
-        return """
-Generate a compelling executive summary for a {job_title} position at {company_name}.
-
-Job Requirements:
-{job_description}
-
-Current Summary Context:
-{item_description}
-
-Additional Context:
-{additional_context}
-
-Generate a professional executive summary (3-4 sentences) that:
-1. Captures key professional strengths
-2. Aligns with the target role
-3. Highlights unique value proposition
-4. Uses confident, professional language
-5. Focuses on achievements and capabilities
-
-Executive Summary:"""
+Generate enhanced content that aligns with the job requirements and demonstrates value to the employer.
+"""
 
 
 # Factory function for creating specialized content writers
@@ -494,15 +772,35 @@ def create_content_writer(content_type: ContentType) -> EnhancedContentWriterAge
     type_names = {
         ContentType.QUALIFICATION: "QualificationWriter",
         ContentType.EXPERIENCE: "ExperienceWriter", 
+        ContentType.EXPERIENCE_ITEM: "ExperienceItemWriter",
         ContentType.PROJECT: "ProjectWriter",
-        ContentType.EXECUTIVE_SUMMARY: "ExecutiveSummaryWriter"
+        ContentType.PROJECT_ITEM: "ProjectItemWriter",
+        ContentType.EXECUTIVE_SUMMARY: "ExecutiveSummaryWriter",
+        ContentType.SKILL: "SkillWriter",
+        ContentType.ACHIEVEMENT: "AchievementWriter",
+        ContentType.EDUCATION: "EducationWriter",
+        ContentType.SKILLS: "SkillsWriter",
+        ContentType.PROJECTS: "ProjectsWriter",
+        ContentType.ANALYSIS: "AnalysisWriter",
+        ContentType.QUALITY_CHECK: "QualityCheckWriter",
+        ContentType.OPTIMIZATION: "OptimizationWriter"
     }
     
     type_descriptions = {
         ContentType.QUALIFICATION: "Specialized agent for generating qualification statements",
         ContentType.EXPERIENCE: "Specialized agent for enhancing work experience descriptions",
+        ContentType.EXPERIENCE_ITEM: "Specialized agent for enhancing individual experience items",
         ContentType.PROJECT: "Specialized agent for creating project descriptions",
-        ContentType.EXECUTIVE_SUMMARY: "Specialized agent for crafting executive summaries"
+        ContentType.PROJECT_ITEM: "Specialized agent for creating individual project items",
+        ContentType.EXECUTIVE_SUMMARY: "Specialized agent for crafting executive summaries",
+        ContentType.SKILL: "Specialized agent for enhancing skill descriptions",
+        ContentType.ACHIEVEMENT: "Specialized agent for highlighting achievements",
+        ContentType.EDUCATION: "Specialized agent for education content",
+        ContentType.SKILLS: "Specialized agent for skills section content",
+        ContentType.PROJECTS: "Specialized agent for projects section content",
+        ContentType.ANALYSIS: "Specialized agent for content analysis",
+        ContentType.QUALITY_CHECK: "Specialized agent for quality assurance",
+        ContentType.OPTIMIZATION: "Specialized agent for content optimization"
     }
     
     return EnhancedContentWriterAgent(

@@ -12,16 +12,13 @@ import traceback
 import sys
 import time
 
-# Add parent directory to import path
-sys.path.append("..")
-
 # Import core components
 from src.core.state_manager import StateManager, ItemStatus
-from src.core.orchestrator import Orchestrator
+from src.core.enhanced_orchestrator import EnhancedOrchestrator
 from src.services.llm import LLM
 from src.agents.parser_agent import ParserAgent
 from src.agents.research_agent import ResearchAgent
-from src.agents.content_writer_agent import ContentWriterAgent
+from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.formatter_agent import FormatterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.utils.template_renderer import TemplateRenderer
@@ -41,10 +38,10 @@ logger = get_logger(__name__)
 app = FastAPI(title="CV Tailoring AI API")
 
 # Setup templates
-templates = Jinja2Templates(directory="app/frontend/templates")
+templates = Jinja2Templates(directory="src/frontend/templates")
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="app/frontend/static"), name="static")
+app.mount("/static", StaticFiles(directory="src/frontend/static"), name="static")
 
 # Global state dictionary to store session data
 sessions = {}
@@ -78,11 +75,9 @@ def initialize_components():
             vector_db=vector_db,
         )
         tools_agent = ToolsAgent(name="ToolsAgent", description="Agent for content processing.")
-        content_writer_agent = ContentWriterAgent(
-            name="ContentWriterAgent",
-            description="Agent for generating tailored CV content.",
-            llm=model,
-            tools_agent=tools_agent,
+        enhanced_content_writer = EnhancedContentWriterAgent(
+            name="EnhancedContentWriterAgent",
+            description="Enhanced agent for generating tailored CV content."
         )
         research_agent = ResearchAgent(
             name="ResearchAgent",
@@ -99,26 +94,17 @@ def initialize_components():
             name="QualityAssuranceAgent",
             description="Agent for quality assurance checks.",
         )
-        orchestrator = Orchestrator(
-            parser_agent,
-            template_renderer,
-            vector_store_agent,
-            content_writer_agent,
-            research_agent,
-            cv_analyzer_agent,
-            tools_agent,
-            formatter_agent,
-            quality_assurance_agent,
-            model,
+        orchestrator = EnhancedOrchestrator(
+            llm_client=model
         )
-        return orchestrator
+        return orchestrator, parser_agent
     except Exception as e:
         logger.error(f"Error initializing components: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to initialize AI components")
 
 
 # Create orchestrator instance
-orchestrator = initialize_components()
+orchestrator, parser_agent = initialize_components()
 
 
 # Pydantic models for API
@@ -190,7 +176,7 @@ async def parse_cv(request: CVInput):
         sessions[session_id] = state_manager
 
         # Parse the input
-        parse_result = orchestrator.parser_agent.run(
+        parse_result = parser_agent.run(
             {
                 "job_description": request.job_description,
                 "cv_text": request.cv_text or "",
@@ -310,12 +296,12 @@ async def regenerate_items(request: RegenerateRequest):
         raise HTTPException(status_code=404, detail="CV data not found")
 
     try:
-        # Call the content writer agent to regenerate specific items
-        result = orchestrator.content_writer_agent.run(
+        # Call the enhanced content writer to regenerate specific items
+        result = orchestrator.enhanced_content_writer.run(
             {
                 "structured_cv": structured_cv,
                 "regenerate_item_ids": request.item_ids,
-                "job_description_data": orchestrator.parser_agent.get_job_data(),
+                "job_description_data": parser_agent.get_job_data(),
                 "research_results": (
                     orchestrator.research_agent.get_research_results()
                     if hasattr(orchestrator.research_agent, "get_research_results")

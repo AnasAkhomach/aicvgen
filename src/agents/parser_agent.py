@@ -10,6 +10,9 @@ from src.core.state_manager import (
     ItemStatus,
     ItemType,
 )
+from src.config.logging_config import get_logger
+from src.config.settings import get_config
+from src.services.llm import LLMResponse
 import json  # Import json for parsing LLM output
 from typing import List, Optional, Dict, Any, Union
 import re  # For regex parsing of Markdown
@@ -39,6 +42,9 @@ class ParserAgent(AgentBase):
         self.name = name
         self.description = description
         self.llm = llm
+        
+        # Initialize settings for prompt loading
+        self.settings = get_config()
 
     def run(self, input: dict) -> Dict[str, Any]:
         """
@@ -97,24 +103,22 @@ class ParserAgent(AgentBase):
             self._job_data = job_data
             return job_data
 
-        # Update prompt to explicitly request JSON output
-        prompt = f"""
-        You will extract key information from the job description below:
-
-        -----BEGIN JOB DESCRIPTION-----
-        {raw_text}
-        -----END JOB DESCRIPTION-----
-
-        Extract and return the following in a structured JSON format:
-        1. A list of specific skills or technologies required (e.g. Python, React, AWS).
-        2. The experience level required (e.g. Entry-level, Mid-level, Senior, etc.).
-        3. A list of key responsibilities or tasks from the job.
-        4. A list of industry-specific terms or keywords.
-        5. A list of mentions of company values or culture.
-
-        Format your response STRICTLY as a JSON object with these keys: skills, experience_level, responsibilities, industry_terms, company_values.
-        Ensure the output is properly formatted and valid JSON. Do not include anything except the JSON response.
-        """
+        # Load prompt template from external file
+        try:
+            prompt_path = self.settings.get_prompt_path("job_description_parsing_prompt")
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                prompt_template = f.read()
+            logger.info("Successfully loaded job description parsing prompt template")
+        except Exception as e:
+            logger.error(f"Error loading job description parsing prompt template: {e}")
+            # Fallback to basic prompt
+            prompt_template = """
+            Extract key information from the job description: {raw_text}
+            Return as JSON with keys: skills, experience_level, responsibilities, industry_terms, company_values
+            """
+        
+        # Format the prompt with actual data
+        prompt = prompt_template.format(raw_text=raw_text)
 
         try:
             # Generate response using the LLM

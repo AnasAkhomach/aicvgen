@@ -453,6 +453,13 @@ class Section:
         )
 
 
+class EnumEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, enum.Enum):
+            return obj.value
+        return super().default(obj)
+
+
 @dataclass
 class StructuredCV:
     """
@@ -493,7 +500,7 @@ class StructuredCV:
 
         # Save to file
         with open(f"{directory}/{self.id}/state.json", "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
+            json.dump(self.to_dict(), f, indent=2, cls=EnumEncoder)
 
         return f"{directory}/{self.id}/state.json"
 
@@ -586,44 +593,21 @@ class StructuredCV:
 
     def update_section_content(self, section_id, new_content_structure):
         """
-        Update the content of a section (more complex, as a section can have items and subsections).
+        Update the content of a section
 
         Args:
-            section_id: ID of the section to update
-            new_content_structure: A dictionary with structure matching Section schema
+            section_id: ID of the section
+            new_content_structure: Dictionary with updated content
 
         Returns:
             bool: Success or failure
         """
-        section = self.find_section_by_id(section_id)
-        if not section:
-            return False
-
-        # For simplicity in MVP, we're just updating text content, not the structure
-        # This is primarily useful for the UI where text areas are edited directly
-        # A more complex implementation would update the full structure
-
-        # Update items directly in the section
-        if "items" in new_content_structure:
-            for i, item_content in enumerate(new_content_structure["items"]):
-                if i < len(section.items):
-                    section.items[i].content = item_content
-
-        # Update items in subsections
-        if "subsections" in new_content_structure:
-            for i, subsection_data in enumerate(new_content_structure["subsections"]):
-                if i < len(section.subsections):
-                    # Update subsection name if provided
-                    if "name" in subsection_data:
-                        section.subsections[i].name = subsection_data["name"]
-
-                    # Update items in this subsection
-                    if "items" in subsection_data:
-                        for j, item_content in enumerate(subsection_data["items"]):
-                            if j < len(section.subsections[i].items):
-                                section.subsections[i].items[j].content = item_content
-
-        return True
+        if self._structured_cv:
+            success = self._structured_cv.update_section_content(section_id, new_content_structure)
+            if success:
+                self.save_state()
+            return success
+        return False
 
     def update_section_status(self, section_id, new_status):
         """
@@ -631,333 +615,460 @@ class StructuredCV:
 
         Args:
             section_id: ID of the section
-            new_status: New status to set (ItemStatus or string)
+            new_status: New status to set
 
         Returns:
             bool: Success or failure
         """
-        section = self.find_section_by_id(section_id)
-        if not section:
-            return False
+        if self._structured_cv:
+            section = self._structured_cv.find_section_by_id(section_id)
+            if section:
+                old_status = section.status
+                success = self._structured_cv.update_section_status(section_id, new_status)
+                if success:
+                    self._log_section_state_change(section_id, old_status, new_status)
+                    self.save_state()
+                return success
+        return False
 
-        # Convert string status to enum if needed
-        if isinstance(new_status, str):
-            try:
-                new_status = ItemStatus(new_status)
-            except ValueError:
-                new_status = ItemStatus.INITIAL
-
-        old_status = section.status
-        section.status = new_status
-
-        # Also update status of all items in the section for consistency
-        for item in section.items:
-            item.status = new_status
-
-        for subsection in section.subsections:
-            for item in subsection.items:
-                item.status = new_status
-
-        return True
+    def _log_section_state_change(self, section_id, old_status, new_status):
+        """Log a change in section status for debugging and analytics"""
+        section = self._structured_cv.find_section_by_id(section_id)
+        if section:
+            section_name = section.name
+            logger.info(
+                f"Section status change: {section_id} ({section_name}) from {old_status} to {new_status}"
+            )
+        else:
+            logger.info(
+                f"Section status change: {section_id} (unknown) from {old_status} to {new_status}"
+            )
 
     def get_sections_by_status(self, status):
-        """
-        Get all sections with a specific status
+        """Get all sections with a specific status"""
+        if self._structured_cv:
+            return self._structured_cv.get_sections_by_status(status)
+        return []
 
-        Args:
-            status: Status to filter by (ItemStatus or string)
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """
+        Get diagnostic information about the current state.
 
         Returns:
-            list: List of matching Section objects
+            A dictionary containing diagnostic information.
         """
-        if isinstance(status, str):
-            try:
-                status = ItemStatus(status)
-            except ValueError:
-                status = ItemStatus.INITIAL
+        if not self._structured_cv:
+            return {"status": "No CV data loaded"}
 
-        return [section for section in self.sections if section.status == status]
+        sections = self._structured_cv.sections
+        items_by_status = {}
+        total_items = 0
+
+        for section in sections:
+            for item in section.items:
+                status = str(item.status)
+                items_by_status[status] = items_by_status.get(status, 0) + 1
+                total_items += 1
+            for subsection in section.subsections:
+                for item in subsection.items:
+                    status = str(item.status)
+                    items_by_status[status] = items_by_status.get(status, 0) + 1
+                    total_items += 1
+
+        return {
+            "session_id": self.session_id,
+            "last_save": self._last_save_time,
+            "total_sections": len(sections),
+            "total_items": total_items,
+            "items_by_status": items_by_status,
+            "state_changes": len(self._state_changes),
+        }
 
     def to_content_data(self):
-        """Convert StructuredCV to ContentData for backward compatibility"""
-        content_data = ContentData()
-
-        # Try to extract personal info from metadata
-        content_data["name"] = self.metadata.get("name", "")
-        content_data["email"] = self.metadata.get("email", "")
-        content_data["phone"] = self.metadata.get("phone", "")
-        content_data["linkedin"] = self.metadata.get("linkedin", "")
-        content_data["github"] = self.metadata.get("github", "")
-
-        # Get summary
-        summary_section = (
-            self.get_section_by_name("Executive Summary")
-            or self.get_section_by_name("Professional profile:")
-            or self.get_section_by_name("Professional profile")
-            or self.get_section_by_name("Professional Profile")
-        )
-        if summary_section and summary_section.items:
-            for item in summary_section.items:
-                if item.content and item.content.strip():
-                    content_data["summary"] = item.content
-                    break
-            if not content_data.get("summary"):
-                content_data["summary"] = ""
-
-        experience_bullets = []
-        experience_section = (
-            self.get_section_by_name("Professional Experience")
-            or self.get_section_by_name("**Professional experience:**")
-            or self.get_section_by_name("**Professional Experience:**")
-        )
-        if experience_section:
-            for subsection in experience_section.subsections:
-                position = subsection.name or ""
-                company = subsection.metadata.get("company", "")
-                location = subsection.metadata.get("location", "")
-                period = subsection.metadata.get("period", "")
-
-                bullets = []
-                for item in subsection.items:
-                    if item.content and item.content.strip():
-                        bullet_content = item.content
-                        if bullet_content.startswith("-") or bullet_content.startswith("*"):
-                            bullet_content = bullet_content[1:].strip()
-                        bullets.append(bullet_content)
-
-                if position or bullets:
-                    experience_bullets.append(
-                        {
-                            "position": position,
-                            "company": company,
-                            "location": location,
-                            "period": period,
-                            "bullets": bullets,
-                        }
-                    )
-
-            if not experience_section.subsections and experience_section.items:
-                simple_bullets = []
-                for item in experience_section.items:
-                    if item.content and item.content.strip():
-                        simple_bullets.append(item.content)
-
-                if simple_bullets:
-                    experience_bullets.append({"position": "Experience", "bullets": simple_bullets})
-
-        content_data["experience_bullets"] = experience_bullets
-
-        skills_section = (
-            self.get_section_by_name("Key Qualifications")
-            or self.get_section_by_name("**Key Qualifications:**")
-            or self.get_section_by_name("Skills")
-            or self.get_section_by_name("Core Competencies")
-        )
-        if skills_section and skills_section.items:
-            skills = []
-            for item in skills_section.items:
-                if item.content and item.content.strip():
-                    skill_content = item.content
-                    if skill_content.startswith("-") or skill_content.startswith("*"):
-                        skill_content = skill_content[1:].strip()
-                    skills.append(skill_content)
-
-            if skills:
-                content_data["skills_section"] = " | ".join(skills)
-            else:
-                content_data["skills_section"] = ""
-
-        projects = []
-        projects_section = (
-            self.get_section_by_name("Project Experience")
-            or self.get_section_by_name("**Project experience:**")
-            or self.get_section_by_name("Projects")
-            or self.get_section_by_name("Personal Projects")
-        )
-        if projects_section:
-            for subsection in projects_section.subsections:
-                technologies = subsection.metadata.get("technologies", [])
-                project_name = subsection.name or "Project"
-
-                if "|" in project_name:
-                    parts = project_name.split("|", 1)
-                    project_name = parts[0].strip()
-                    tech_part = parts[1].strip()
-                    if tech_part and not technologies:
-                        technologies = [tech.strip() for tech in tech_part.split(",")]
-
-                description = subsection.metadata.get("description", "")
-
-                project_bullets = []
-                for item in subsection.items:
-                    if item.content and item.content.strip():
-                        bullet_content = item.content
-                        if bullet_content.startswith("-") or bullet_content.startswith("*"):
-                            bullet_content = bullet_content[1:].strip()
-                        project_bullets.append(bullet_content)
-
-                if project_name or project_bullets:
-                    projects.append(
-                        {
-                            "name": project_name,
-                            "description": description,
-                            "technologies": technologies,
-                            "bullets": project_bullets,
-                        }
-                    )
-
-            if not projects_section.subsections and projects_section.items:
-                simple_bullets = []
-                for item in projects_section.items:
-                    if item.content and item.content.strip():
-                        simple_bullets.append(item.content)
-
-                if simple_bullets:
-                    projects.append(
-                        {
-                            "name": "Project Experience",
-                            "description": "",
-                            "technologies": [],
-                            "bullets": simple_bullets,
-                        }
-                    )
-
-        content_data["projects"] = projects
-
-        education = []
-        education_section = self.get_section_by_name("Education") or self.get_section_by_name(
-            "**Education:**"
-        )
-        if education_section:
-            if education_section.subsections:
-                for subsection in education_section.subsections:
-                    edu_entry = {
-                        "degree": subsection.name or "",
-                        "institution": subsection.metadata.get("institution", ""),
-                        "location": subsection.metadata.get("location", ""),
-                        "period": subsection.metadata.get("period", ""),
-                        "details": [],
-                    }
-
-                    if "|" in edu_entry["degree"]:
-                        parts = edu_entry["degree"].split("|")
-                        edu_entry["degree"] = parts[0].strip()
-
-                        for part in parts[1:]:
-                            part = part.strip()
-                            if "[" in part and "](" in part:
-                                edu_entry["institution"] = part
-                            elif "," in part or part.count(" ") <= 2:
-                                edu_entry["location"] = part
-
-                    for item in subsection.items:
-                        if item.content and item.content.strip():
-                            detail_content = item.content
-                            if detail_content.startswith("-") or detail_content.startswith("*"):
-                                detail_content = detail_content[1:].strip()
-                            edu_entry["details"].append(detail_content)
-
-                    education.append(edu_entry)
-            elif education_section.items:
-                for item in education_section.items:
-                    if item.content and item.content.strip():
+        """
+        Convert the StructuredCV to ContentData format.
+        
+        Returns:
+            ContentData instance containing the CV content.
+        """
+        # Initialize content dictionary with default values
+        content = {
+            "summary": "",
+            "experience_bullets": [],
+            "skills_section": "",
+            "projects": [],
+            "education": [],
+            "certifications": [],
+            "languages": [],
+            "name": self.metadata.get("name", ""),
+            "email": self.metadata.get("email", ""),
+            "phone": self.metadata.get("phone", ""),
+            "linkedin": self.metadata.get("linkedin", ""),
+            "github": self.metadata.get("github", "")
+        }
+        
+        # Extract content from sections
+        for section in self.sections:
+            section_name = section.name.lower()
+            
+            if section_name in ["summary", "executive summary", "professional summary"]:
+                # Get summary content from items
+                summary_items = []
+                for item in section.items:
+                    if isinstance(item.content, str):
+                        summary_items.append(item.content)
+                    elif isinstance(item.content, dict) and "text" in item.content:
+                        summary_items.append(item.content["text"])
+                content["summary"] = "\n".join(summary_items)
+                
+            elif section_name in ["experience", "work experience", "professional experience"]:
+                # Get experience bullets
+                experience_bullets = []
+                for item in section.items:
+                    if isinstance(item.content, str):
+                        experience_bullets.append(item.content)
+                    elif isinstance(item.content, dict):
+                        if "bullets" in item.content:
+                            experience_bullets.extend(item.content["bullets"])
+                        elif "text" in item.content:
+                            experience_bullets.append(item.content["text"])
+                content["experience_bullets"] = experience_bullets
+                
+            elif section_name in ["skills", "technical skills", "core competencies"]:
+                # Get skills section content
+                skills_items = []
+                for item in section.items:
+                    if isinstance(item.content, str):
+                        skills_items.append(item.content)
+                    elif isinstance(item.content, dict) and "text" in item.content:
+                        skills_items.append(item.content["text"])
+                content["skills_section"] = "\n".join(skills_items)
+                
+            elif section_name in ["projects", "key projects", "notable projects"]:
+                # Get projects
+                projects = []
+                for item in section.items:
+                    if isinstance(item.content, dict):
+                        projects.append(item.content)
+                    elif isinstance(item.content, str):
+                        projects.append({"title": item.name or "Project", "description": item.content})
+                content["projects"] = projects
+                
+            elif section_name in ["education", "academic background"]:
+                # Get education
+                education = []
+                for item in section.items:
+                    if isinstance(item.content, dict):
                         education.append(item.content)
-        content_data["education"] = education
+                    elif isinstance(item.content, str):
+                        education.append({"degree": item.name or "Degree", "description": item.content})
+                content["education"] = education
+                
+            elif section_name in ["certifications", "certificates"]:
+                # Get certifications
+                certifications = []
+                for item in section.items:
+                    if isinstance(item.content, dict):
+                        certifications.append(item.content)
+                    elif isinstance(item.content, str):
+                        certifications.append({"name": item.name or "Certification", "description": item.content})
+                content["certifications"] = certifications
+                
+            elif section_name in ["languages"]:
+                # Get languages
+                languages = []
+                for item in section.items:
+                    if isinstance(item.content, dict):
+                        languages.append(item.content)
+                    elif isinstance(item.content, str):
+                        languages.append({"language": item.name or "Language", "proficiency": item.content})
+                content["languages"] = languages
+        
+        # Create and return ContentData instance
+        from src.core.state_manager import ContentData
+        return ContentData(**content)
 
-        certifications = []
-        certifications_section = (
-            self.get_section_by_name("Certifications")
-            or self.get_section_by_name("**Certifications:**")
-            or self.get_section_by_name("Certificates")
-        )
-        if certifications_section:
-            for item in certifications_section.items:
-                if item.content and item.content.strip():
-                    content = item.content
-                    if content.startswith("-") or content.startswith("*"):
-                        content = content[1:].strip()
+    @property
+    def cv_data(self):
+        """
+        Get the CV data in a format compatible with the main application.
+        
+        Returns:
+            Dictionary containing CV data or None if no CV exists.
+        """
+        if not self._structured_cv:
+            return None
+        
+        # Convert StructuredCV to a dictionary format expected by main.py
+        content_data = self.convert_to_content_data()
+        if content_data:
+            return {
+                "content": dict(content_data),
+                "sections": [{
+                    "id": section.id,
+                    "name": section.name,
+                    "status": str(section.status)
+                } for section in self._structured_cv.sections]
+            }
+        return None
 
-                    try:
-                        if "[" in content and "](" in content:
-                            name_part = content.split("[")[1].split("]")[0]
-                            url_part = content.split("](")[1].split(")")[0]
+    def update_cv_data(self, new_content):
+        """
+        Update the CV data with new content.
+        
+        Args:
+            new_content: The new content to update the CV with.
+            
+        Returns:
+            bool: True if update was successful, False otherwise.
+        """
+        try:
+            if isinstance(new_content, dict):
+                # If we don't have a structured CV yet, create one
+                if not self._structured_cv:
+                    self.create_new_cv()
+                
+                # Handle different content formats
+                if "content" in new_content:
+                    # Format: {"content": {...}}
+                    content_dict = new_content["content"]
+                    # Filter to only include valid ContentData arguments
+                    filtered_content = self._filter_content_data_args(content_dict)
+                    content_data = ContentData(**filtered_content)
+                    # Actually populate the structured CV with the content
+                    self._populate_structured_cv_from_content(content_data)
+                    logger.info(f"Updated CV data with wrapped content")
+                    self.save_state()
+                    return True
+                else:
+                    # Format: direct content dictionary
+                    # This is the actual CV content structure being passed
+                    # Filter to only include valid ContentData arguments
+                    filtered_content = self._filter_content_data_args(new_content)
+                    content_data = ContentData(**filtered_content)
+                    # Actually populate the structured CV with the content
+                    self._populate_structured_cv_from_content(content_data)
+                    logger.info(f"Updated CV data with direct content structure")
+                    # Store the content in the structured CV
+                    # The new_content is already the CV content structure
+                    self.save_state()
+                    return True
+                    
+            logger.warning(f"Invalid content format for CV update: {type(new_content)}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to update CV data: {str(e)}")
+            logger.error(f"Content keys: {list(new_content.keys()) if isinstance(new_content, dict) else 'Not a dict'}")
+            return False
 
-                            extra_info = ""
-                            if ")" in content and content.index(")") < len(content) - 1:
-                                extra_info = content[content.index(")") + 1 :].strip()
-                                if extra_info.startswith("-"):
-                                    extra_info = extra_info[1:].strip()
+    def _filter_content_data_args(self, content_dict: dict) -> dict:
+        """
+        Filter content dictionary to only include valid ContentData arguments.
+        
+        Args:
+            content_dict: Dictionary containing content data
+            
+        Returns:
+            Filtered dictionary with only valid ContentData arguments
+        """
+        # Valid ContentData constructor arguments
+        valid_args = {
+            'summary', 'experience_bullets', 'skills_section', 'projects',
+            'other_content', 'name', 'email', 'phone', 'linkedin', 'github',
+            'education', 'certifications', 'languages'
+        }
+        
+        # Filter the content to only include valid arguments
+        filtered = {k: v for k, v in content_dict.items() if k in valid_args}
+        
+        # Log what was filtered out for debugging
+        filtered_out = {k: v for k, v in content_dict.items() if k not in valid_args}
+        if filtered_out:
+            logger.info(f"Filtered out non-ContentData arguments: {list(filtered_out.keys())}")
+        
+        return filtered
 
-                            issuer = ""
-                            date = ""
-                            if extra_info:
-                                if "," in extra_info:
-                                    parts = extra_info.split(",", 1)
-                                    issuer = parts[0].strip()
-                                    date = parts[1].strip() if len(parts) > 1 else ""
-                                else:
-                                    issuer = extra_info
-
-                            certifications.append(
-                                {
-                                    "name": name_part,
-                                    "url": url_part,
-                                    "issuer": issuer,
-                                    "date": date,
-                                }
-                            )
-                        else:
-                            certifications.append(content)
-                    except:
-                        certifications.append(content)
-        content_data["certifications"] = certifications
-
-        languages = []
-        languages_section = (
-            self.get_section_by_name("Languages")
-            or self.get_section_by_name("**Languages:**")
-            or self.get_section_by_name("Language Skills")
-        )
-        if languages_section:
-            for item in languages_section.items:
-                if item.content and item.content.strip():
-                    content = item.content
-                    if content.startswith("-") or content.startswith("*"):
-                        content = content[1:].strip()
-
-                    try:
-                        if "**" in content:
-                            content = content.replace("**", "")
-
-                        if "(" in content and ")" in content:
-                            parts = content.split("(")
-                            name = parts[0].strip()
-                            level = parts[1].split(")")[0].strip()
-                            languages.append({"name": name, "level": level})
-                        elif ":" in content:
-                            parts = content.split(":", 1)
-                            name = parts[0].strip()
-                            level = parts[1].strip()
-                            languages.append({"name": name, "level": level})
-                        elif "|" in content:
-                            lang_parts = content.split("|")
-                            for lang_part in lang_parts:
-                                lang_part = lang_part.strip()
-                                if lang_part:
-                                    languages.append(lang_part)
-                        else:
-                            languages.append(content)
-                    except:
-                        languages.append(content)
-        content_data["languages"] = languages
-
-        if not content_data.get("summary"):
-            content_data["summary"] = ""
-        if not content_data.get("skills_section"):
-            content_data["skills_section"] = ""
-
-        return content_data
-
+    def _populate_structured_cv_from_content(self, content_data: ContentData):
+        """
+        Populate the StructuredCV with content from ContentData.
+        
+        Args:
+            content_data: ContentData instance containing the CV content
+        """
+        if not self._structured_cv:
+            logger.error("Cannot populate: No StructuredCV instance exists")
+            return
+            
+        # Clear existing sections
+        self._structured_cv.sections = []
+        
+        # Add Executive Summary section
+        if content_data.get("summary"):
+            summary_section = Section(
+                id="executive_summary",
+                name="Executive Summary",
+                status=ItemStatus.GENERATED
+            )
+            summary_item = Item(
+                id="summary_item",
+                content=content_data.get("summary", ""),
+                status=ItemStatus.GENERATED
+            )
+            summary_section.items.append(summary_item)
+            self._structured_cv.sections.append(summary_section)
+            
+        # Add Professional Experience section
+        if content_data.get("experience_bullets"):
+            experience_section = Section(
+                id="professional_experience",
+                name="Professional Experience",
+                status=ItemStatus.GENERATED
+            )
+            
+            for i, exp in enumerate(content_data.get("experience_bullets", [])):
+                if isinstance(exp, dict):
+                    # Structured experience entry
+                    exp_subsection = Subsection(
+                        id=f"experience_{i}",
+                        name=exp.get("position", f"Experience {i+1}"),
+                        metadata={
+                            "company": exp.get("company", ""),
+                            "location": exp.get("location", ""),
+                            "period": exp.get("period", "")
+                        }
+                    )
+                    
+                    # Add bullets as items
+                    for j, bullet in enumerate(exp.get("bullets", [])):
+                        bullet_item = Item(
+                            id=f"experience_{i}_bullet_{j}",
+                            content=bullet,
+                            status=ItemStatus.GENERATED
+                        )
+                        exp_subsection.items.append(bullet_item)
+                    
+                    experience_section.subsections.append(exp_subsection)
+                else:
+                    # Simple string experience
+                    exp_item = Item(
+                        id=f"experience_item_{i}",
+                        content=str(exp),
+                        status=ItemStatus.GENERATED
+                    )
+                    experience_section.items.append(exp_item)
+                    
+            self._structured_cv.sections.append(experience_section)
+            
+        # Add Key Qualifications/Skills section
+        if content_data.get("skills_section"):
+            skills_section = Section(
+                id="key_qualifications",
+                name="Key Qualifications",
+                status=ItemStatus.GENERATED
+            )
+            skills_item = Item(
+                id="skills_item",
+                content=content_data.get("skills_section", ""),
+                status=ItemStatus.GENERATED
+            )
+            skills_section.items.append(skills_item)
+            self._structured_cv.sections.append(skills_section)
+            
+        # Add Projects section
+        if content_data.get("projects"):
+            projects_section = Section(
+                id="project_experience",
+                name="Project Experience",
+                status=ItemStatus.GENERATED
+            )
+            
+            for i, project in enumerate(content_data.get("projects", [])):
+                if isinstance(project, dict):
+                    project_subsection = Subsection(
+                        id=f"project_{i}",
+                        name=project.get("name", f"Project {i+1}"),
+                        metadata={
+                            "description": project.get("description", ""),
+                            "technologies": project.get("technologies", [])
+                        }
+                    )
+                    
+                    # Add project bullets as items
+                    for j, bullet in enumerate(project.get("bullets", [])):
+                        bullet_item = Item(
+                            id=f"project_{i}_bullet_{j}",
+                            content=bullet,
+                            status=ItemStatus.GENERATED
+                        )
+                        project_subsection.items.append(bullet_item)
+                    
+                    projects_section.subsections.append(project_subsection)
+                else:
+                    # Simple string project
+                    project_item = Item(
+                        id=f"project_item_{i}",
+                        content=str(project),
+                        status=ItemStatus.GENERATED
+                    )
+                    projects_section.items.append(project_item)
+                    
+            self._structured_cv.sections.append(projects_section)
+            
+        # Add Education section
+        if content_data.get("education"):
+            education_section = Section(
+                id="education",
+                name="Education",
+                status=ItemStatus.GENERATED
+            )
+            
+            for i, edu in enumerate(content_data.get("education", [])):
+                if isinstance(edu, dict):
+                    edu_subsection = Subsection(
+                        id=f"education_{i}",
+                        name=edu.get("degree", f"Education {i+1}"),
+                        metadata={
+                            "institution": edu.get("institution", ""),
+                            "location": edu.get("location", ""),
+                            "period": edu.get("period", "")
+                        }
+                    )
+                    
+                    # Add education details as items
+                    for j, detail in enumerate(edu.get("details", [])):
+                        detail_item = Item(
+                            id=f"education_{i}_detail_{j}",
+                            content=detail,
+                            status=ItemStatus.GENERATED
+                        )
+                        edu_subsection.items.append(detail_item)
+                    
+                    education_section.subsections.append(edu_subsection)
+                else:
+                    # Simple string education
+                    edu_item = Item(
+                        id=f"education_item_{i}",
+                        content=str(edu),
+                        status=ItemStatus.GENERATED
+                    )
+                    education_section.items.append(edu_item)
+                    
+            self._structured_cv.sections.append(education_section)
+            
+        # Update personal info in metadata
+        if not self._structured_cv.metadata:
+            self._structured_cv.metadata = {}
+            
+        self._structured_cv.metadata.update({
+            "name": content_data.get("name", ""),
+            "email": content_data.get("email", ""),
+            "phone": content_data.get("phone", ""),
+            "linkedin": content_data.get("linkedin", ""),
+            "github": content_data.get("github", "")
+        })
+        
+        logger.info(f"Populated StructuredCV with {len(self._structured_cv.sections)} sections")
 
 class StateManager:
     """
@@ -1041,7 +1152,7 @@ class StateManager:
 
             state_file = f"data/sessions/{self._structured_cv.id}/state.json"
             with open(state_file, "w") as f:
-                json.dump(self._structured_cv.to_dict(), f, indent=2)
+                json.dump(self._structured_cv.to_dict(), f, indent=2, cls=EnumEncoder)
 
             log_file = f"data/sessions/{self._structured_cv.id}/state_changes.json"
             with open(log_file, "w") as f:
@@ -1161,112 +1272,18 @@ class StateManager:
             return self._structured_cv.find_section_by_id(section_id)
         return None
 
-    def update_section_content(self, section_id, new_content_structure):
-        """
-        Update the content of a section
-
-        Args:
-            section_id: ID of the section
-            new_content_structure: Dictionary with updated content
-
-        Returns:
-            bool: Success or failure
-        """
-        if self._structured_cv:
-            success = self._structured_cv.update_section_content(section_id, new_content_structure)
-            if success:
-                self.save_state()
-            return success
-        return False
-
-    def update_section_status(self, section_id, new_status):
-        """
-        Update the status of an entire section
-
-        Args:
-            section_id: ID of the section
-            new_status: New status to set
-
-        Returns:
-            bool: Success or failure
-        """
-        if self._structured_cv:
-            section = self._structured_cv.find_section_by_id(section_id)
-            if section:
-                old_status = section.status
-                success = self._structured_cv.update_section_status(section_id, new_status)
-                if success:
-                    self._log_section_state_change(section_id, old_status, new_status)
-                    self.save_state()
-                return success
-        return False
-
-    def _log_section_state_change(self, section_id, old_status, new_status):
-        """Log a change in section status for debugging and analytics"""
-        section = self._structured_cv.find_section_by_id(section_id)
-        if section:
-            section_name = section.name
-            logger.info(
-                f"Section status change: {section_id} ({section_name}) from {old_status} to {new_status}"
-            )
-        else:
-            logger.info(
-                f"Section status change: {section_id} (unknown) from {old_status} to {new_status}"
-            )
-
-    def get_sections_by_status(self, status):
-        """Get all sections with a specific status"""
-        if self._structured_cv:
-            return self._structured_cv.get_sections_by_status(status)
-        return []
-
-    def get_diagnostics(self) -> Dict[str, Any]:
-        """
-        Get diagnostic information about the current state.
-
-        Returns:
-            A dictionary containing diagnostic information.
-        """
-        if not self._structured_cv:
-            return {"status": "No CV data loaded"}
-
-        sections = self._structured_cv.sections
-        items_by_status = {}
-        total_items = 0
-
-        for section in sections:
-            for item in section.items:
-                status = str(item.status)
-                items_by_status[status] = items_by_status.get(status, 0) + 1
-                total_items += 1
-            for subsection in section.subsections:
-                for item in subsection.items:
-                    status = str(item.status)
-                    items_by_status[status] = items_by_status.get(status, 0) + 1
-                    total_items += 1
-
-        return {
-            "session_id": self.session_id,
-            "last_save": self._last_save_time,
-            "total_sections": len(sections),
-            "total_items": total_items,
-            "items_by_status": items_by_status,
-            "state_changes": len(self._state_changes),
-        }
-
     def convert_to_content_data(self):
         """
-        Convert the current StructuredCV to ContentData for compatibility with existing code.
+        Convert the current StructuredCV to ContentData format.
 
         Returns:
-            A ContentData instance, or None if conversion failed.
+            ContentData instance or None if no CV exists.
         """
         if not self._structured_cv:
-            logger.error("Cannot convert to ContentData: No StructuredCV instance exists.")
             return None
-
+        
         return self._structured_cv.to_content_data()
-    
+
     @property
     def cv_data(self):
         """
@@ -1290,7 +1307,7 @@ class StateManager:
                 } for section in self._structured_cv.sections]
             }
         return None
-    
+
     def update_cv_data(self, new_content):
         """
         Update the CV data with new content.
@@ -1307,13 +1324,29 @@ class StateManager:
                 if not self._structured_cv:
                     self.create_new_cv()
                 
-                # Update the structured CV with the new content
-                # This is a simplified implementation - you may need to adjust based on your data structure
+                # Handle different content formats
                 if "content" in new_content:
-                    content_data = ContentData(**new_content["content"])
-                    # Update the structured CV with this content
-                    # Note: This is a basic implementation and may need refinement
-                    logger.info(f"Updated CV data with new content")
+                    # Format: {"content": {...}}
+                    content_dict = new_content["content"]
+                    # Filter to only include valid ContentData arguments
+                    filtered_content = self._filter_content_data_args(content_dict)
+                    content_data = ContentData(**filtered_content)
+                    # Actually populate the structured CV with the content
+                    self._populate_structured_cv_from_content(content_data)
+                    logger.info(f"Updated CV data with wrapped content")
+                    self.save_state()
+                    return True
+                else:
+                    # Format: direct content dictionary
+                    # This is the actual CV content structure being passed
+                    # Filter to only include valid ContentData arguments
+                    filtered_content = self._filter_content_data_args(new_content)
+                    content_data = ContentData(**filtered_content)
+                    # Actually populate the structured CV with the content
+                    self._populate_structured_cv_from_content(content_data)
+                    logger.info(f"Updated CV data with direct content structure")
+                    # Store the content in the structured CV
+                    # The new_content is already the CV content structure
                     self.save_state()
                     return True
                     
@@ -1322,4 +1355,213 @@ class StateManager:
             
         except Exception as e:
             logger.error(f"Failed to update CV data: {str(e)}")
+            logger.error(f"Content keys: {list(new_content.keys()) if isinstance(new_content, dict) else 'Not a dict'}")
             return False
+
+    def _filter_content_data_args(self, content_dict: dict) -> dict:
+        """
+        Filter content dictionary to only include valid ContentData arguments.
+        
+        Args:
+            content_dict: Dictionary containing content data
+            
+        Returns:
+            Filtered dictionary with only valid ContentData arguments
+        """
+        # Valid ContentData constructor arguments
+        valid_args = {
+            'summary', 'experience_bullets', 'skills_section', 'projects',
+            'other_content', 'name', 'email', 'phone', 'linkedin', 'github',
+            'education', 'certifications', 'languages'
+        }
+        
+        # Filter the content to only include valid arguments
+        filtered = {k: v for k, v in content_dict.items() if k in valid_args}
+        
+        # Log what was filtered out for debugging
+        filtered_out = {k: v for k, v in content_dict.items() if k not in valid_args}
+        if filtered_out:
+            logger.info(f"Filtered out non-ContentData arguments: {list(filtered_out.keys())}")
+        
+        return filtered
+
+    def _populate_structured_cv_from_content(self, content_data: ContentData):
+        """
+        Populate the StructuredCV with content from ContentData.
+        
+        Args:
+            content_data: ContentData instance containing the CV content
+        """
+        if not self._structured_cv:
+            logger.error("Cannot populate: No StructuredCV instance exists")
+            return
+            
+        # Clear existing sections
+        self._structured_cv.sections = []
+        
+        # Add Executive Summary section
+        if content_data.get("summary"):
+            summary_section = Section(
+                id="executive_summary",
+                name="Executive Summary",
+                status=ItemStatus.GENERATED
+            )
+            summary_item = Item(
+                id="summary_item",
+                content=content_data.get("summary", ""),
+                status=ItemStatus.GENERATED
+            )
+            summary_section.items.append(summary_item)
+            self._structured_cv.sections.append(summary_section)
+            
+        # Add Professional Experience section
+        if content_data.get("experience_bullets"):
+            experience_section = Section(
+                id="professional_experience",
+                name="Professional Experience",
+                status=ItemStatus.GENERATED
+            )
+            
+            for i, exp in enumerate(content_data.get("experience_bullets", [])):
+                if isinstance(exp, dict):
+                    # Structured experience entry
+                    exp_subsection = Subsection(
+                        id=f"experience_{i}",
+                        name=exp.get("position", f"Experience {i+1}"),
+                        metadata={
+                            "company": exp.get("company", ""),
+                            "location": exp.get("location", ""),
+                            "period": exp.get("period", "")
+                        }
+                    )
+                    
+                    # Add bullets as items
+                    for j, bullet in enumerate(exp.get("bullets", [])):
+                        bullet_item = Item(
+                            id=f"experience_{i}_bullet_{j}",
+                            content=bullet,
+                            status=ItemStatus.GENERATED
+                        )
+                        exp_subsection.items.append(bullet_item)
+                    
+                    experience_section.subsections.append(exp_subsection)
+                else:
+                    # Simple string experience
+                    exp_item = Item(
+                        id=f"experience_item_{i}",
+                        content=str(exp),
+                        status=ItemStatus.GENERATED
+                    )
+                    experience_section.items.append(exp_item)
+                    
+            self._structured_cv.sections.append(experience_section)
+            
+        # Add Key Qualifications/Skills section
+        if content_data.get("skills_section"):
+            skills_section = Section(
+                id="key_qualifications",
+                name="Key Qualifications",
+                status=ItemStatus.GENERATED
+            )
+            skills_item = Item(
+                id="skills_item",
+                content=content_data.get("skills_section", ""),
+                status=ItemStatus.GENERATED
+            )
+            skills_section.items.append(skills_item)
+            self._structured_cv.sections.append(skills_section)
+            
+        # Add Projects section
+        if content_data.get("projects"):
+            projects_section = Section(
+                id="project_experience",
+                name="Project Experience",
+                status=ItemStatus.GENERATED
+            )
+            
+            for i, project in enumerate(content_data.get("projects", [])):
+                if isinstance(project, dict):
+                    project_subsection = Subsection(
+                        id=f"project_{i}",
+                        name=project.get("name", f"Project {i+1}"),
+                        metadata={
+                            "description": project.get("description", ""),
+                            "technologies": project.get("technologies", [])
+                        }
+                    )
+                    
+                    # Add project bullets as items
+                    for j, bullet in enumerate(project.get("bullets", [])):
+                        bullet_item = Item(
+                            id=f"project_{i}_bullet_{j}",
+                            content=bullet,
+                            status=ItemStatus.GENERATED
+                        )
+                        project_subsection.items.append(bullet_item)
+                    
+                    projects_section.subsections.append(project_subsection)
+                else:
+                    # Simple string project
+                    project_item = Item(
+                        id=f"project_item_{i}",
+                        content=str(project),
+                        status=ItemStatus.GENERATED
+                    )
+                    projects_section.items.append(project_item)
+                    
+            self._structured_cv.sections.append(projects_section)
+            
+        # Add Education section
+        if content_data.get("education"):
+            education_section = Section(
+                id="education",
+                name="Education",
+                status=ItemStatus.GENERATED
+            )
+            
+            for i, edu in enumerate(content_data.get("education", [])):
+                if isinstance(edu, dict):
+                    edu_subsection = Subsection(
+                        id=f"education_{i}",
+                        name=edu.get("degree", f"Education {i+1}"),
+                        metadata={
+                            "institution": edu.get("institution", ""),
+                            "location": edu.get("location", ""),
+                            "period": edu.get("period", "")
+                        }
+                    )
+                    
+                    # Add education details as items
+                    for j, detail in enumerate(edu.get("details", [])):
+                        detail_item = Item(
+                            id=f"education_{i}_detail_{j}",
+                            content=detail,
+                            status=ItemStatus.GENERATED
+                        )
+                        edu_subsection.items.append(detail_item)
+                    
+                    education_section.subsections.append(edu_subsection)
+                else:
+                    # Simple string education
+                    edu_item = Item(
+                        id=f"education_item_{i}",
+                        content=str(edu),
+                        status=ItemStatus.GENERATED
+                    )
+                    education_section.items.append(edu_item)
+                    
+            self._structured_cv.sections.append(education_section)
+            
+        # Update personal info in metadata
+        if not self._structured_cv.metadata:
+            self._structured_cv.metadata = {}
+            
+        self._structured_cv.metadata.update({
+            "name": content_data.get("name", ""),
+            "email": content_data.get("email", ""),
+            "phone": content_data.get("phone", ""),
+            "linkedin": content_data.get("linkedin", ""),
+            "github": content_data.get("github", "")
+        })
+        
+        logger.info(f"Populated StructuredCV with {len(self._structured_cv.sections)} sections")

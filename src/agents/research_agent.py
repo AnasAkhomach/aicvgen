@@ -9,6 +9,9 @@ from src.core.state_manager import (
     Item,
 )
 from src.services.vector_db import VectorDB
+from src.config.logging_config import get_logger
+from src.config.settings import get_config
+from src.services.llm import LLMResponse
 from typing import Dict, Any, List, Optional
 import time
 import logging
@@ -66,6 +69,9 @@ class ResearchAgent(AgentBase):
         )
         self.llm = llm
         self.vector_db = vector_db
+        
+        # Initialize settings for prompt loading
+        self.settings = get_config()
 
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -350,29 +356,30 @@ class ResearchAgent(AgentBase):
             Dictionary with detailed job requirements analysis
         """
         try:
-            # Create a prompt for the LLM to analyze the job requirements
-            prompt = f"""
-            Analyze the following job description and provide a structured analysis.
-            Extract the following information:
-
-            1. Core technical skills required (list the top 5-7 most important)
-            2. Soft skills that would be valuable (list the top 3-5)
-            3. Key performance metrics mentioned or implied
-            4. Project types the candidate would likely work on
-            5. Working environment characteristics (team size, collaboration style, etc.)
-
-            Format your response as a JSON object with these 5 keys.
-
-            Job Description:
-            {raw_jd}
-
-            Additional context:
-            - Skills already identified: {', '.join(skills)}
-            - Responsibilities: {', '.join(responsibilities)}
-            - Experience level: {experience_level}
-
-            IMPORTANT: Respond ONLY with a valid JSON object.
-            """
+            # Load prompt template from external file
+            try:
+                prompt_path = self.settings.get_prompt_path("job_research_analysis_prompt")
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    prompt_template = f.read()
+                logger.info("Successfully loaded job research analysis prompt template")
+            except Exception as e:
+                logger.error(f"Error loading job research analysis prompt template: {e}")
+                # Fallback to basic prompt
+                prompt_template = """
+                Analyze the job description: {raw_jd}
+                Skills context: {skills}
+                Responsibilities: {responsibilities}
+                Experience level: {experience_level}
+                Return analysis as JSON.
+                """
+            
+            # Format the prompt with actual data
+            prompt = prompt_template.format(
+                raw_jd=raw_jd,
+                skills=', '.join(skills),
+                responsibilities=', '.join(responsibilities),
+                experience_level=experience_level
+            )
 
             response = self.llm.generate_content(prompt)
 
