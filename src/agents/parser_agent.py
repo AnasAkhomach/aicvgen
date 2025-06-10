@@ -409,7 +409,270 @@ class ParserAgent(AgentBase):
                                 )
                             )
 
+        # Apply LLM-powered parsing for specific sections
+        self._enhance_sections_with_llm(structured_cv, cv_text)
+        
         return structured_cv
+
+    def _enhance_sections_with_llm(self, structured_cv: StructuredCV, cv_text: str) -> None:
+        """
+        Enhance specific sections using LLM-powered parsing.
+        
+        Args:
+            structured_cv: The structured CV to enhance
+            cv_text: The original CV text for context
+        """
+        # Find and enhance Professional Experience section
+        experience_section = next(
+            (section for section in structured_cv.sections if section.name == "Professional Experience"),
+            None,
+        )
+        if experience_section:
+            enhanced_experience = self._parse_experience_section_with_llm(cv_text)
+            if enhanced_experience:
+                # Replace the basic parsed content with LLM-enhanced structure
+                experience_section.subsections = enhanced_experience
+                logger.info(f"Enhanced Professional Experience section with {len(enhanced_experience)} roles")
+        
+        # Find and enhance Project Experience section
+        project_section = next(
+            (section for section in structured_cv.sections if section.name == "Project Experience"),
+            None,
+        )
+        if project_section:
+            enhanced_projects = self._parse_projects_section_with_llm(cv_text)
+            if enhanced_projects:
+                # Replace the basic parsed content with LLM-enhanced structure
+                project_section.subsections = enhanced_projects
+                logger.info(f"Enhanced Project Experience section with {len(enhanced_projects)} projects")
+
+    def _parse_experience_section_with_llm(self, cv_text: str) -> List[Subsection]:
+        """
+        Parse the Professional Experience section using LLM to extract structured role information.
+        
+        Args:
+            cv_text: The complete CV text
+            
+        Returns:
+            List of Subsection objects representing individual roles
+        """
+        try:
+            # Extract the experience section from the CV text
+            experience_text = self._extract_section_text(cv_text, "Professional Experience")
+            if not experience_text:
+                logger.warning("No Professional Experience section found in CV text")
+                return []
+            
+            # Create prompt for LLM to parse experience
+            prompt = f"""
+            Parse the following Professional Experience section and extract structured information for each role.
+            
+            Experience Text:
+            {experience_text}
+            
+            Please return a JSON array where each object represents a role with the following structure:
+            {{
+                "title": "Job Title",
+                "company": "Company Name",
+                "duration": "Start Date - End Date",
+                "location": "City, State/Country (if available)",
+                "responsibilities": ["responsibility 1", "responsibility 2", "responsibility 3"]
+            }}
+            
+            Extract all roles found in the text. If some information is missing, use reasonable defaults or leave empty strings.
+            Return only the JSON array, no additional text.
+            """
+            
+            # Generate response using LLM
+            response = self.llm.generate_content(prompt)
+            
+            if not response:
+                logger.error("Empty response from LLM for experience parsing")
+                return []
+            
+            # Parse JSON response
+            json_start = response.find("[")
+            json_end = response.rfind("]") + 1
+            if json_start == -1 or json_end == 0:
+                logger.error("No valid JSON array found in LLM response")
+                return []
+            
+            json_str = response[json_start:json_end]
+            parsed_roles = json.loads(json_str)
+            
+            # Convert to Subsection objects
+            subsections = []
+            for role in parsed_roles:
+                # Create subsection name from title and company
+                title = role.get("title", "Position")
+                company = role.get("company", "Company")
+                duration = role.get("duration", "")
+                location = role.get("location", "")
+                
+                # Format subsection name
+                subsection_name = f"{title} at {company}"
+                if duration:
+                    subsection_name += f" ({duration})"
+                if location:
+                    subsection_name += f" - {location}"
+                
+                subsection = Subsection(name=subsection_name)
+                
+                # Add responsibilities as items
+                responsibilities = role.get("responsibilities", [])
+                for responsibility in responsibilities:
+                    if responsibility.strip():
+                        item = Item(
+                            content=responsibility.strip(),
+                            status=ItemStatus.INITIAL,
+                            item_type=ItemType.BULLET_POINT
+                        )
+                        subsection.items.append(item)
+                
+                subsections.append(subsection)
+            
+            logger.info(f"Successfully parsed {len(subsections)} roles from Professional Experience")
+            return subsections
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response for experience: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error in _parse_experience_section_with_llm: {e}")
+            return []
+
+    def _parse_projects_section_with_llm(self, cv_text: str) -> List[Subsection]:
+        """
+        Parse the Project Experience section using LLM to extract structured project information.
+        
+        Args:
+            cv_text: The complete CV text
+            
+        Returns:
+            List of Subsection objects representing individual projects
+        """
+        try:
+            # Extract the projects section from the CV text
+            projects_text = self._extract_section_text(cv_text, "Project Experience")
+            if not projects_text:
+                logger.warning("No Project Experience section found in CV text")
+                return []
+            
+            # Create prompt for LLM to parse projects
+            prompt = f"""
+            Parse the following Project Experience section and extract structured information for each project.
+            
+            Projects Text:
+            {projects_text}
+            
+            Please return a JSON array where each object represents a project with the following structure:
+            {{
+                "name": "Project Name",
+                "technologies": "Technologies/Tools used (if available)",
+                "duration": "Project duration or timeframe (if available)",
+                "description": ["key point 1", "key point 2", "key point 3"]
+            }}
+            
+            Extract all projects found in the text. Focus on technical achievements, technologies used, and impact.
+            If some information is missing, use reasonable defaults or leave empty strings.
+            Return only the JSON array, no additional text.
+            """
+            
+            # Generate response using LLM
+            response = self.llm.generate_content(prompt)
+            
+            if not response:
+                logger.error("Empty response from LLM for projects parsing")
+                return []
+            
+            # Parse JSON response
+            json_start = response.find("[")
+            json_end = response.rfind("]") + 1
+            if json_start == -1 or json_end == 0:
+                logger.error("No valid JSON array found in LLM response")
+                return []
+            
+            json_str = response[json_start:json_end]
+            parsed_projects = json.loads(json_str)
+            
+            # Convert to Subsection objects
+            subsections = []
+            for project in parsed_projects:
+                # Create subsection name from project name and technologies
+                name = project.get("name", "Project")
+                technologies = project.get("technologies", "")
+                duration = project.get("duration", "")
+                
+                # Format subsection name
+                subsection_name = name
+                if technologies:
+                    subsection_name += f" ({technologies})"
+                if duration:
+                    subsection_name += f" - {duration}"
+                
+                subsection = Subsection(name=subsection_name)
+                
+                # Add description points as items
+                description_points = project.get("description", [])
+                for point in description_points:
+                    if point.strip():
+                        item = Item(
+                            content=point.strip(),
+                            status=ItemStatus.INITIAL,
+                            item_type=ItemType.BULLET_POINT
+                        )
+                        subsection.items.append(item)
+                
+                subsections.append(subsection)
+            
+            logger.info(f"Successfully parsed {len(subsections)} projects from Project Experience")
+            return subsections
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response for projects: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error in _parse_projects_section_with_llm: {e}")
+            return []
+
+    def _extract_section_text(self, cv_text: str, section_name: str) -> str:
+        """
+        Extract the text content of a specific section from the CV using LLM.
+        
+        Args:
+            cv_text: The complete CV text
+            section_name: The name of the section to extract
+            
+        Returns:
+            The text content of the section, or empty string if not found
+        """
+        try:
+            # Create prompt for LLM to extract the specific section
+            prompt = f"""
+            Extract the "{section_name}" section from the following CV text.
+            
+            CV Text:
+            {cv_text}
+            
+            Please return ONLY the content of the "{section_name}" section, without the section header.
+            If the section is not found, return "SECTION_NOT_FOUND".
+            Do not include any other text or explanations.
+            
+            The section content should include all subsections, bullet points, and details that belong to "{section_name}".
+            """
+            
+            # Generate response using LLM
+            response = self.llm.generate_content(prompt)
+            
+            if not response or response.strip() == "SECTION_NOT_FOUND":
+                logger.warning(f"Section '{section_name}' not found in CV text")
+                return ""
+            
+            return response.strip()
+            
+        except Exception as e:
+            logger.error(f"Error extracting section '{section_name}' with LLM: {e}")
+            return ""
 
     def create_empty_cv_structure(self, job_data: JobDescriptionData) -> StructuredCV:
         """

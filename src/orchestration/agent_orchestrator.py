@@ -170,6 +170,7 @@ class AgentOrchestrator:
         self.agent_factories.update({
             "content_writer": lambda: EnhancedContentWriterAgent(),
             "cv_analysis": lambda: get_agent("cv_analysis"),
+            "cv_parser": lambda: get_agent("cv_parser"),
             "content_optimization": lambda: get_agent("content_optimization"),
             "quality_assurance": lambda: get_agent("quality_assurance")
         })

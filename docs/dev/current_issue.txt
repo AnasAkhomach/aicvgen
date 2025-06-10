@@ -1,247 +1,31 @@
-PS C:\Users\Nitro\Desktop\aicvgen> streamlit run app.py
+## Current Status Analysis
+From the logs in c:\Users\Nitro\Desktop\aicvgen\logs\app.log , I can see:
 
-  You can now view your Streamlit app in your browser.
+### ✅ What's Working:
+- Parser Agent Integration : The /api/cv/parse endpoint is working successfully (HTTP 200 OK)
+- LLM Processing : Job description parsing is completing successfully with Gemini model
+- Session Management : State is being saved properly
+- Basic API Endpoints : /api/cv/structure and /api/cv/export are responding
+### ❌ Current Issues:
+1. Result Structure Invalid : The logs show Result structure invalid: success=False at line 236
+2. Server Crashes : The server is still exiting with non-zero exit code 5999
+3. Workflow Execution : While parsing works, there seem to be issues in the downstream workflow processing
+## The Real Problem
+The parser agent integration is working correctly - the issue is in the workflow execution and result processing that happens after parsing. The application can successfully:
 
-  Local URL: http://localhost:8501
-  Network URL: http://192.168.100.53:8501
+- Parse job descriptions ✅
+- Parse CV text ✅
+- Save session state ✅
+But it's failing when trying to:
 
-2025-06-09 22:40:08,488 - INFO - Logging initialized - Level: INFO
-2025-06-09 22:40:08,488 - INFO - Log files location: C:\Users\Nitro\Desktop\aicvgen\logs
-2025-06-09 22:40:08,489 - INFO - Initialized StateManager with session ID: None
-2025-06-09 22:40:44,163 - INFO - Initializing enhanced CV system components | {"extra": {"mode": "production", "config": {"mode": "production", "enable_vector_db": true, "enable_orchestration": true, "enable_templates": true, "enable_specialized_agents": true, "vector_db_path": null, "template_cache_size": 100, "orchestration_timeout": 1800.0, "max_concurrent_agents": 5, "enable_performance_monitoring": true, "enable_error_recovery": true, "debug_mode": false, "api_key": "AIzaSyA7o8aq_BthwDiJfzmpMFuWmPOTK97B-Lg", "enable_caching": true, "enable_monitoring": true}}}
-2025-06-09 22:40:44,165 - INFO - Content template manager initialized | {"template_count": 16}
-2025-06-09 22:40:44,165 - INFO - Template manager initialized
-2025-06-09 22:40:44,166 - INFO - Enhanced VectorDB initialized | {"config_dimension": 768, "index_type": "IndexFlatL2", "enhanced_documents": 0, "legacy_documents": 0}
-2025-06-09 22:40:44,167 - INFO - Vector database initialized
-2025-06-09 22:40:44,168 - INFO - Agent initialized | {"agent_name": "EnhancedContentWriter", "content_type": "qualification", "description": "Enhanced agent for generating tailored CV content with advanced error handling and progress tracking"}
-2025-06-09 22:40:44,169 - INFO - Enhanced LLM service initialized | {"model": "gemini-2.0-flash", "timeout": 30, "using_user_key": false, "using_fallback_key": false}
-2025-06-09 22:40:44,171 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,172 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,174 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,175 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,175 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "EnhancedContentWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,176 - INFO - Agent orchestrator initialized | {"session_id": "a8a66e99-4c75-471b-b417-64222e34ab48", "available_agents": ["content_writer"]}
-2025-06-09 22:40:44,176 - INFO - Orchestration components initialized
-2025-06-09 22:40:44,176 - INFO - Agent initialized | {"agent_name": "EnhancedContentWriter", "content_type": "qualification", "description": "Enhanced agent for generating tailored CV content with advanced error handling and progress tracking"}
-2025-06-09 22:40:44,178 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,179 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,180 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,182 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,183 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "EnhancedContentWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,184 - INFO - Agent initialized | {"agent_name": "CVAnalysisAgent", "content_type": null, "description": "Analyzes CV content and job requirements to provide optimization recommendations"}
-2025-06-09 22:40:44,185 - INFO - Agent initialized | {"agent_name": "ContentOptimizationAgent", "content_type": null, "description": "Optimizes existing CV content for better impact and relevance"}
-2025-06-09 22:40:44,188 - INFO - Agent initialized | {"agent_name": "QualificationWriter", "content_type": "qualification", "description": "Specialized agent for generating qualification statements"}
-2025-06-09 22:40:44,189 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,190 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,191 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,196 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,198 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "QualificationWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,198 - INFO - Agent initialized | {"agent_name": "ExperienceWriter", "content_type": "experience", "description": "Specialized agent for enhancing work experience descriptions"}
-2025-06-09 22:40:44,199 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,201 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,203 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,205 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,206 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ExperienceWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,208 - INFO - Agent initialized | {"agent_name": "ExperienceItemWriter", "content_type": "experience_item", "description": "Specialized agent for enhancing individual experience items"}
-2025-06-09 22:40:44,212 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,216 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,218 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,222 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,225 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ExperienceItemWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,226 - INFO - Agent initialized | {"agent_name": "ProjectWriter", "content_type": "project", "description": "Specialized agent for creating project descriptions"}
-2025-06-09 22:40:44,229 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,231 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,232 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,234 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,234 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ProjectWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,235 - INFO - Agent initialized | {"agent_name": "ProjectItemWriter", "content_type": "project_item", "description": "Specialized agent for creating individual project items"}
-2025-06-09 22:40:44,236 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,237 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,238 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,238 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,239 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ProjectItemWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,239 - INFO - Agent initialized | {"agent_name": "ProjectsWriter", "content_type": "projects", "description": "Specialized agent for projects section content"}
-2025-06-09 22:40:44,244 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,249 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,250 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,253 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,257 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ProjectsWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,260 - INFO - Agent initialized | {"agent_name": "ExecutiveSummaryWriter", "content_type": "executive_summary", "description": "Specialized agent for crafting executive summaries"}
-2025-06-09 22:40:44,264 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,274 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,291 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,311 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,315 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ExecutiveSummaryWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,319 - INFO - Agent initialized | {"agent_name": "SkillWriter", "content_type": "skill", "description": "Specialized agent for enhancing skill descriptions"}
-2025-06-09 22:40:44,323 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,324 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,326 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,327 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,328 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "SkillWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,329 - INFO - Agent initialized | {"agent_name": "AchievementWriter", "content_type": "achievement", "description": "Specialized agent for highlighting achievements"}
-2025-06-09 22:40:44,332 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,334 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,337 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,339 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,339 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "AchievementWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,340 - INFO - Agent initialized | {"agent_name": "EducationWriter", "content_type": "education", "description": "Specialized agent for education content"}
-2025-06-09 22:40:44,342 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,343 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,345 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,346 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,346 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "EducationWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,347 - INFO - Agent initialized | {"agent_name": "SkillsWriter", "content_type": "skills", "description": "Specialized agent for skills section content"}
-2025-06-09 22:40:44,348 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,348 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,350 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,351 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,353 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "SkillsWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,353 - INFO - Agent initialized | {"agent_name": "AnalysisWriter", "content_type": "analysis", "description": "Specialized agent for content analysis"}
-2025-06-09 22:40:44,354 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,356 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,357 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,358 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,358 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "AnalysisWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,361 - INFO - Agent initialized | {"agent_name": "QualityCheckWriter", "content_type": "quality_check", "description": "Specialized agent for quality assurance"}
-2025-06-09 22:40:44,362 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,364 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,365 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,367 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,368 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "QualityCheckWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,370 - INFO - Agent initialized | {"agent_name": "OptimizationWriter", "content_type": "optimization", "description": "Specialized agent for content optimization"}
-2025-06-09 22:40:44,370 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,371 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,372 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,373 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,373 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "OptimizationWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,374 - INFO - Agent initialized | {"agent_name": "QualityAssuranceAgent", "content_type": null, "description": "Performs quality assurance checks on generated CV content"}
-2025-06-09 22:40:44,374 - INFO - Agents initialized | {"extra": {"agent_count": 4, "agent_types": ["enhanced_content_writer", "cv_analysis", "content_optimization", "quality_assurance"]}}
-2025-06-09 22:40:44,374 - INFO - Specialized agents initialized
-2025-06-09 22:40:44,375 - INFO - Enhanced CV system integration initialized successfully
-2025-06-09 22:40:44,377 - INFO - Executing workflow | {"extra": {"workflow_type": "job_tailored_cv", "session_id": null, "input_keys": ["personal_info", "experience", "job_description"]}}
-2025-06-09 22:40:44,378 - INFO - Agent initialized | {"agent_name": "CVAnalysisAgent", "content_type": null, "description": "Analyzes CV content and job requirements to provide optimization recommendations"}
-2025-06-09 22:40:44,379 - INFO - Agent initialized | {"agent_name": "ContentOptimizationAgent", "content_type": null, "description": "Optimizes existing CV content for better impact and relevance"}
-2025-06-09 22:40:44,380 - INFO - Agent initialized | {"agent_name": "QualificationWriter", "content_type": "qualification", "description": "Specialized agent for generating qualification statements"}
-2025-06-09 22:40:44,381 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,382 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,387 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,388 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,389 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "QualificationWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,390 - INFO - Agent initialized | {"agent_name": "ExperienceWriter", "content_type": "experience", "description": "Specialized agent for enhancing work experience descriptions"}
-2025-06-09 22:40:44,391 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,392 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,393 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,395 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,395 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ExperienceWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,396 - INFO - Agent initialized | {"agent_name": "ExperienceItemWriter", "content_type": "experience_item", "description": "Specialized agent for enhancing individual experience items"}
-2025-06-09 22:40:44,397 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,398 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,401 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,403 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,403 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ExperienceItemWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,404 - INFO - Agent initialized | {"agent_name": "ProjectWriter", "content_type": "project", "description": "Specialized agent for creating project descriptions"}
-2025-06-09 22:40:44,405 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,406 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,408 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,408 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,409 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ProjectWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,409 - INFO - Agent initialized | {"agent_name": "ProjectItemWriter", "content_type": "project_item", "description": "Specialized agent for creating individual project items"}
-2025-06-09 22:40:44,410 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,411 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,412 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,414 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,415 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ProjectItemWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,416 - INFO - Agent initialized | {"agent_name": "ProjectsWriter", "content_type": "projects", "description": "Specialized agent for projects section content"}
-2025-06-09 22:40:44,416 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,417 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,418 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,419 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,419 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ProjectsWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,420 - INFO - Agent initialized | {"agent_name": "ExecutiveSummaryWriter", "content_type": "executive_summary", "description": "Specialized agent for crafting executive summaries"}
-2025-06-09 22:40:44,421 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,422 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,424 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,426 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,427 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "ExecutiveSummaryWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,428 - INFO - Agent initialized | {"agent_name": "SkillWriter", "content_type": "skill", "description": "Specialized agent for enhancing skill descriptions"}
-2025-06-09 22:40:44,429 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,430 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,431 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,431 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,432 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "SkillWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,435 - INFO - Agent initialized | {"agent_name": "AchievementWriter", "content_type": "achievement", "description": "Specialized agent for highlighting achievements"}
-2025-06-09 22:40:44,436 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,437 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,438 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,439 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,440 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "AchievementWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,440 - INFO - Agent initialized | {"agent_name": "EducationWriter", "content_type": "education", "description": "Specialized agent for education content"}
-2025-06-09 22:40:44,441 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,442 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,444 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,451 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,452 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "EducationWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,453 - INFO - Agent initialized | {"agent_name": "SkillsWriter", "content_type": "skills", "description": "Specialized agent for skills section content"}
-2025-06-09 22:40:44,455 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,456 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,461 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,463 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,464 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "SkillsWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,464 - INFO - Agent initialized | {"agent_name": "AnalysisWriter", "content_type": "analysis", "description": "Specialized agent for content analysis"}
-2025-06-09 22:40:44,465 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,466 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,471 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,473 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,474 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "AnalysisWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,475 - INFO - Agent initialized | {"agent_name": "QualityCheckWriter", "content_type": "quality_check", "description": "Specialized agent for quality assurance"}
-2025-06-09 22:40:44,476 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,480 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,481 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,483 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,483 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "QualityCheckWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,486 - INFO - Agent initialized | {"agent_name": "OptimizationWriter", "content_type": "optimization", "description": "Specialized agent for content optimization"}
-2025-06-09 22:40:44,487 - INFO - Successfully loaded prompt template: key_qualifications_prompt
-2025-06-09 22:40:44,487 - INFO - Successfully loaded prompt template: resume_role_prompt
-2025-06-09 22:40:44,488 - INFO - Successfully loaded prompt template: side_project_prompt
-2025-06-09 22:40:44,489 - INFO - Successfully loaded prompt template: executive_summary_prompt
-2025-06-09 22:40:44,493 - INFO - Enhanced Content Writer Agent initialized | {"agent_name": "OptimizationWriter", "supported_content_types": ["qualification", "experience", "project", "executive_summary"]}
-2025-06-09 22:40:44,496 - INFO - Agent initialized | {"agent_name": "QualityAssuranceAgent", "content_type": null, "description": "Performs quality assurance checks on generated CV content"}
-2025-06-09 22:40:44,496 - INFO - Orchestration plan created | {"plan_id": "36947a41-9843-4e7f-a291-5f5ddb0399ac", "strategy": "pipeline", "task_count": 4}
-2025-06-09 22:40:44,501 - INFO - Progress event: workflow_started | {"session_id": "a8a66e99-4c75-471b-b417-64222e34ab48", "event_data": {"total_items": 0, "initial_stage": "initialization"}}
-2025-06-09 22:40:44,502 - INFO - Started progress tracking | {"session_id": "a8a66e99-4c75-471b-b417-64222e34ab48", "total_items": 0}
-2025-06-09 22:40:44,504 - INFO - Starting orchestration plan execution | {"plan_id": "36947a41-9843-4e7f-a291-5f5ddb0399ac", "strategy": "pipeline", "task_count": 4}
-2025-06-09 22:40:44,505 - INFO - Executing agent task | {"task_id": "f5b066ed-c5d0-4f1d-a50d-b0f119b4124f", "agent_type": "cv_analysis", "priority": "HIGH"}
-2025-06-09 22:40:44,505 - INFO - Agent execution started | {"agent_name": "CVAnalysisAgent", "session_id": null, "item_id": null, "content_type": "analysis", "retry_count": 0}
-2025-06-09 22:40:44,506 - INFO - CVAnalysisAgent received input_data type: <class 'dict'>
-2025-06-09 22:40:44,506 - INFO - CVAnalysisAgent received input_data: {'personal_info': {}, 'experience': ['# Nouha KARIM\n\n## ETUDIANTE EN M2 OPTION GÉNIE DES SYSTÈMES INDUSTRIELS\n\n## COORDONNÉES\n\nnouhakarim305@gmail.com | +33 765732271\n\nReims | Permis B\n\n## COMPÉTENCES TECHNIQUES\n\n- EXCEL/WORD/POWER POINT\n- POWER BI\n- VBA\n- PYTHON\n- SYLOB\n- SAP BUSINESS ONE\n\n## COMPÉTENCES PROFESSIONNELLES\n\n- Gestion d\'achat et d\'approvisionnement\n- Gestion de la chaîne de production\n- Gestion du stock\n- Gestion de la maintenance\n- Management de la qual
-2025-06-09 22:40:44,507 - INFO - Extracted cv_data type: <class 'dict'>, job_description type: <class 'str'>
-2025-06-09 22:40:44,513 - INFO - Successfully loaded CV assessment prompt template
-2025-06-09 22:40:44,513 - INFO - Starting LLM generation | {"session_id": null, "item_id": null, "content_type": "qualification", "prompt_length": 2103, "retry_count": 0}
-2025-06-09 22:40:47,380 - INFO - LLM call completed successfully | {"session_id": null, "model": "gemini-2.0-flash", "prompt_length": 2103, "response_length": 1959}
-2025-06-09 22:40:47,383 - INFO - LLM generation completed successfully | {"session_id": null, "item_id": null, "processing_time": 2.8681695461273193, "tokens_used": 566, "response_length": 1959}
-2025-06-09 22:40:47,384 - INFO - Agent execution completed successfully | {"agent_name": "CVAnalysisAgent", "session_id": null, "item_id": null, "processing_time": 2.878171, "confidence_score": 0.8, "retry_count": 0}
-2025-06-09 22:40:47,385 - INFO - Agent task completed | {"task_id": "f5b066ed-c5d0-4f1d-a50d-b0f119b4124f", "agent_type": "cv_analysis", "success": true, "execution_time": 2.879171}
-2025-06-09 22:40:47,385 - INFO - Progress event: item_completed | {"session_id": "orchestration_plan_36947a41-9843-4e7f-a291-5f5ddb0399ac", "event_data": {"item_id": "task_f5b066ed-c5d0-4f1d-a50d-b0f119b4124f", "item_type": "analysis", "processing_time": 2.878171, "tokens_used": 0}}
-2025-06-09 22:40:47,385 - INFO - Executing agent task | {"task_id": "7abc3b14-f94a-495e-a588-11df00b10c85", "agent_type": "content_writer", "priority": "HIGH"}
-2025-06-09 22:40:47,386 - INFO - Agent execution started | {"agent_name": "EnhancedContentWriter", "session_id": null, "item_id": null, "content_type": "experience", "retry_count": 0}
-2025-06-09 22:40:47,387 - INFO - EnhancedContentWriter received input_data type: <class 'dict'>
-2025-06-09 22:40:47,390 - INFO - EnhancedContentWriter received input_data: {'job_description_data': "Job Description\nJob Description\n\nJob Title\nSupply Chain Apprentice M/F\nPurpose of the position\nAs a Supply Chain Apprentice, and under the supervision of the Supply Chain Analyst, you contribute to the design, improvement and support of tools, systems and processes.\nMissions\nBuild, implement and monitor indicators;\nAnalyze performance (service rate, adherence rate, late deliveries, etc.);\nPropose and participate in the implementation of organizational changes to the Supply Chain;\nBe a stakeholder in process improvement projects in collaboration with field teams;\nParticipate in the construction of the S&OP process;\nBuild simulation and optimization models.\nDesired profile\nYou are preparing a Master's degree in operations management and wish to discover the industrial environment;\nYou are organized and rigorous;\nYou have analytical skills and an ability to interpret data;\nYou are comfortable with oral and written communication;\nEssential mastery of office tools.\nCONTRACT\nApprentice\nContract duration\n24 months\nTravel\nOne-off (potentially monthly)\nCandidate criteria\n\nMinimum education level required\n3- License\nMinimum experience level required\nBeginner\nLocation of the position\n\nRegion, Department\nNormandy, Manche (50)\nCommune\nSAINT PAIR SUR MER\n\nGeneral information\n\nAttached entity\nFor 30 years, we have been designing and manufacturing luxury clothing in France for the finest fashion houses.\n\nWe strive to share our expertise, promote job creation, and develop career opportunities in our region.\n\nOur clients are experiencing strong growth and place their trust in us. To support them and expand our business, we are continuing our structuring approach and recruiting across all our professions.\n\n1,100 employees, spread across our 15 workshops, contribute every day to promoting excellent French craftsmanship. What if it were you?\nReference\n2025-278\n\nAttached entity\nFor 30 years, we have been designing and manufacturing luxury clothing in France for the finest fashion houses.\n\nWe strive to share our expertise, promote job creation, and develop career opportunities in our region.\n\nOur clients are experiencing strong growth and place their trust in us. To support them and expand our business, we are continuing our structuring approach and recruiting across all our professions.\n\n1,100 employees, spread across our 15 workshops, contribute every day to promoting excellent French craftsmanship. What if it were you?", 'content_item': {'type': 'experience', 'data': {'roles': ['# Nouha KARIM\n\n## ETUDIANTE EN M2 OPTION GÉNIE DES SYSTÈMES INDUSTRIELS\n\n## COORDONNÉES\n\nnouhakarim305@gmail.com | +33 765732271\n\nReims | Permis B\n\n## COMPÉTENCES TECHNIQUES\n\n- EXCEL/WORD/POWER POINT\n- POWER BI\n- VBA\n- PYTHON\n- SYLOB\n- SAP BUSINESS ONE\n\n## COMPÉTENCES PROFESSIONNELLES\n\n- Gestion d\'achat et d\'approvisionnement\n- Gestion de la chaîne de production\n- Gestion du stock\n- Gestion de la maintenance\n- Management de la qualité\n- Transport international\n\n## COMPÉTENCES PERSONNELLES\n\n- Travail en équipe\n- Adaptation au changement\n- Gestion du temps\n\n## ACTIVITÉS PARASCOLAIRES\n\n- Organisatrice de la journée du don du sang\n- Participante au réaménagement d\'une école\n- Participante dans une caravane médicale dans les régions de Tétouan, Maroc\n\n## LANGUES\n\n- Français : Professionnelle\n- Anglais : Professionnelle\n- Espagnol : Intermédiaire\n\n## CENTRES D\'INTÉRÊT\n\n- Natation\n- Travail Associatif\n- Lecture\n- Randonnée\n\n## EXPÉRIENCES PROFESSIONNELLES\n\n### Stage de fin d\'études\n\n**Samvardhana Motherson Reydel Autotecc, Tanger** | Novembre 2022 - Juillet 2023\n**Sujet** : Création et mise en place d\'outils dynamiques d\'accès à l\'information dans l\'ERP Sylob.\n\n- Suivi quotidien de l\'état et de la valeur du stock\n- Passer les commandes et suivre leur acheminement\n- Prendre en charge la relation avec les transporteurs\n\n### Assistante en Service Achat et Approvisionnement\n\n**Samvardhana Motherson Reydel Autotecc, Tanger** | Novembre 2022 - Juillet 2023\n\n- Suivi quotidien de l\'état et de la valeur du stock\n- Passer les commandes et suivre leur acheminement\n- Prendre en charge la relation avec les transporteurs\n- Optimiser au maximum les programmes de livraison\n\n### Stage de fin d\'études dans le secteur de l\'automobile\n\n**Lear Corporation, Tanger, Maroc** | Février - Juin 2022\n**Sujet** : Amélioration de la performance du service planning à l\'aide de la visualisation de données avec un tableau de bord et de l\'élaboration d\'un guide sur la méthode de travail du service et ses différentes fonctionnalités.\n\n### Stage d\'application dans le secteur de la grande distribution\n\n**Marjane Holding, Tétouan, Maroc** | Août - Octobre 2021\n**Sujet** : Gestion des stocks et politiques d\'approvisionnement dans la grande distribution "Cas de Marjane Tétouan"\n\n### Stage d\'observation en achat et approvisionnement\n\n**Amendis, Tétouan, Maroc** | Juillet 2020\n\n- Gestion des fournisseurs et du stock\n\n## FORMATION\n\n### Master en Génie des Systèmes Industriels\n\n**Université de Lorraine, Sarreguemines, France**\n\n### Ingénieure d\'État en Supply Chain Management\n\n**École Nationale des Sciences Appliquées, Tétouan, Maroc**\n\n### Baccalauréat option Sciences Physiques\n\n**Lycée des Amis de Sciences, Tétouan, Maroc**\n\n## PROJETS ACADÉMIQUES\n\n- Création d\'un manuel d\'utilisation du module ADMINISTRATION du progiciel SAP BUSINESS ONE\n- Création d\'une application web pour l\'ordonnancement des blocs opératoires en utilisant la méthode de la recherche tabou\n'], 'personal_info': {}}}, 'context': {'workflow_type': 'job_tailored_cv', 'content_type': 'experience', 'personal_info': {}}}
-2025-06-09 22:40:47,391 - INFO - Starting content generation for experience | {"agent_name": "EnhancedContentWriter", "session_id": null, "item_id": null}
-2025-06-09 22:40:47,392 - ERROR - Content generation failed | {"session_id": null, "item_id": null, "error": "'str' object has no attribute 'get'", "agent_name": "EnhancedContentWriter"}
-2025-06-09 22:40:47,394 - ERROR - Error recorded: unknown_error | {"session_id": null, "item_id": "unknown", "error_message": "'str' object has no attribute 'get'", "retry_count": 0}
-2025-06-09 22:40:47,396 - INFO - Error recovery action determined: exponential_backoff | {"session_id": null, "item_id": "unknown", "error_type": "unknown_error", "retry_count": 0, "delay_seconds": 5.0}
-2025-06-09 22:40:47,397 - ERROR - Agent execution failed after retries | {"agent_name": "EnhancedContentWriter", "session_id": null, "item_id": null, "error": "'str' object has no attribute 'get'", "retry_count": 0, "processing_time": 0.007008}
-2025-06-09 22:40:47,398 - INFO - Agent task completed | {"task_id": "7abc3b14-f94a-495e-a588-11df00b10c85", "agent_type": "content_writer", "success": false, "execution_time": 0.013487}
-2025-06-09 22:40:47,398 - INFO - Progress event: item_completed | {"session_id": "orchestration_plan_36947a41-9843-4e7f-a291-5f5ddb0399ac", "event_data": {"item_id": "task_7abc3b14-f94a-495e-a588-11df00b10c85", "item_type": "analysis", "processing_time": 0.007008, "tokens_used": 0}}
-2025-06-09 22:40:47,400 - WARNING - Task dependencies not satisfied, skipping | {"task_id": "22c1162b-10e4-42d2025-06-09 22:40:47,401 - WARNING - Task dependencies not satisfied, skipping | {"task_id": "2c1c9089-9abd-4c01-bfd3-e57cdc80d8ef", "dependencies": ["22c1162b-10e4-42df-94cd-07538cf87145"]}
-2025-06-09 22:40:47,402 - INFO - Progress event: workflow_completed | {"session_id": "a8a66e99-4c75-471b-b417-64222e34ab48", "event_data": {"plan_id": "36947a41-9843-4e7f-a291-5f5ddb0399ac", "success": false, "completed_tasks": 1, "failed_tasks": 3, "execution_time": 2.900162}}
-2025-06-09 22:40:47,403 - INFO - Orchestration plan execution completed | {"plan_id": "36947a41-9843-4e7f-a291-5f5ddb0399ac", "success": false, "completed_tasks": 1, "failed_tasks": 3, "execution_time": 2.900162}
-2025-06-09 22:40:47,404 - INFO - Workflow completed | {"extra": {"workflow_type": "job_tailored_cv", "session_id": null, "processing_time": 3.02691, "success": false, "tasks_completed": 1}}
-2025-06-09 22:40:47,405 - INFO - Raw result type: <class 'dict'>
-2025-06-09 22:40:47,405 - INFO - Raw result keys: dict_keys(['success', 'results', 'metadata', 'processing_time', 'errors'])
-2025-06-09 22:40:47,407 - INFO - Cleaned result type: <class 'dict'>
-2025-06-09 22:40:47,411 - INFO - Result serialization test passed
-2025-06-09 22:40:47,413 - INFO - Raw result type: <class 'dict'>
-2025-06-09 22:40:47,414 - INFO - Raw result keys: ['success', 'results', 'metadata', 'processing_time', 'errors']
-2025-06-09 22:40:47,415 - INFO - Result successfully cleaned and serializable
-2025-06-09 22:40:47,428 - ERROR - Result structure invalid: success=False
+- Process the complete workflow ❌
+- Generate the final CV content ❌
+- Return valid results to the frontend ❌
+## Next Steps Needed
+To fully resolve this, we need to:
+
+1. Investigate the workflow execution errors in the result processing
+2. Check the content generation pipeline after parsing
+3. Debug the result structure validation that's failing
+4. Examine the complete CV generation workflow integration
+The parser agent fix was successful, but there are deeper workflow integration issues that need to be addressed for the complete CV generation process to work end-to-end.

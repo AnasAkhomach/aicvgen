@@ -5,12 +5,12 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
 
-from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..services.llm import get_llm_service, LLMResponse
-from ..models.data_models import ContentType, ProcessingStatus
-from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
-from ..core.state_manager import (
+from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from src.services.llm import get_llm_service, LLMResponse
+from src.models.data_models import ContentType, ProcessingStatus
+from src.config.logging_config import get_structured_logger
+from src.config.settings import get_config
+from src.core.state_manager import (
     JobDescriptionData,
     ContentData,
     AgentIO,
@@ -165,8 +165,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             )
             
             # Return error result with fallback content
+            content_item = input_data.get("content_item", {})
+            # Ensure content_item is a dictionary for fallback generation
+            if not isinstance(content_item, dict):
+                content_item = {}
             fallback_content = self._generate_fallback_content(
-                input_data.get("content_item", {}),
+                content_item,
                 context.content_type or ContentType.QUALIFICATION
             )
             
@@ -312,6 +316,17 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     def _format_role_info(self, content_item: Dict[str, Any], generation_context: Dict[str, Any]) -> str:
         """Format role information for the resume template."""
         
+        # Handle case where content_item itself is a string (CV text)
+        if isinstance(content_item, str):
+            logger.info("Received CV text as content_item, parsing to structured format")
+            parsed_content = self._parse_cv_text_to_content_item(content_item, generation_context)
+            if isinstance(parsed_content, dict):
+                return self._format_role_info(parsed_content, generation_context)
+            else:
+                # Fallback if parsing fails
+                logger.warning("Failed to parse CV text, using fallback structure")
+                content_item = {"name": "Professional Experience", "items": []}
+        
         # Ensure content_item is a dictionary
         if not isinstance(content_item, dict):
             logger.error(f"Expected dict for content_item, got {type(content_item)}: {content_item}")
@@ -320,6 +335,17 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         # Handle workflow adapter data structure with 'data' wrapper
         if "data" in content_item and "roles" in content_item["data"]:
             roles = content_item["data"]["roles"]
+            
+            # Validate roles is a list
+            if not isinstance(roles, list):
+                logger.error(f"Expected list for roles, got {type(roles)}: {roles}")
+                roles = []
+            
+            # Check if roles is empty
+            if not roles:
+                logger.warning("Empty roles list, creating fallback structure")
+                fallback_role = {"name": "Professional Experience", "items": []}
+                return self._format_single_role(fallback_role, generation_context)
             
             # Check if roles is a list of strings (CV text) that needs parsing
             if roles and isinstance(roles[0], str):
@@ -330,35 +356,69 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             
             # Handle structured role data
             formatted_roles = []
-            for role in roles:
-                # Check if role is a dictionary (structured data) or string (CV text)
-                if isinstance(role, dict):
-                    role_block = self._format_workflow_role(role, generation_context)
-                    formatted_roles.append(role_block)
-                elif isinstance(role, str):
-                    # This is CV text that needs parsing
-                    parsed_content = self._parse_cv_text_to_content_item(role, generation_context)
-                    # Ensure parsed_content is valid before formatting
-                    if isinstance(parsed_content, dict):
-                        role_block = self._format_single_role(parsed_content, generation_context)
+            for i, role in enumerate(roles):
+                try:
+                    # Check if role is a dictionary (structured data) or string (CV text)
+                    if isinstance(role, dict):
+                        role_block = self._format_workflow_role(role, generation_context)
                         formatted_roles.append(role_block)
+                    elif isinstance(role, str):
+                        # This is CV text that needs parsing
+                        parsed_content = self._parse_cv_text_to_content_item(role, generation_context)
+                        # Ensure parsed_content is valid before formatting
+                        if isinstance(parsed_content, dict):
+                            role_block = self._format_single_role(parsed_content, generation_context)
+                            formatted_roles.append(role_block)
+                        else:
+                            logger.warning(f"Failed to parse CV text to structured content: {role[:100]}...")
+                            # Create a fallback role block
+                            fallback_role = {"name": "Professional Experience", "items": []}
+                            role_block = self._format_single_role(fallback_role, generation_context)
+                            formatted_roles.append(role_block)
                     else:
-                        logger.warning(f"Failed to parse CV text to structured content: {role[:100]}...")
-                        # Create a fallback role block
-                        fallback_role = {"name": "Professional Experience", "items": []}
+                        logger.warning(f"Unexpected role type at index {i}: {type(role)}, content: {role}")
+                        # Create a fallback role block for unexpected types
+                        fallback_role = {"name": f"Role {i+1}", "items": []}
                         role_block = self._format_single_role(fallback_role, generation_context)
                         formatted_roles.append(role_block)
-                else:
-                    logger.warning(f"Unexpected role type: {type(role)}, content: {role}")
+                except Exception as e:
+                    logger.error(f"Error processing role at index {i}: {e}")
+                    # Create a fallback role block for errors
+                    fallback_role = {"name": f"Role {i+1}", "items": []}
+                    role_block = self._format_single_role(fallback_role, generation_context)
+                    formatted_roles.append(role_block)
+            
+            # Ensure we have at least one role
+            if not formatted_roles:
+                logger.warning("No roles were successfully formatted, creating fallback")
+                fallback_role = {"name": "Professional Experience", "items": []}
+                role_block = self._format_single_role(fallback_role, generation_context)
+                formatted_roles.append(role_block)
+            
             return "\n\n".join(formatted_roles)
         
         # Handle both section-level and subsection-level content (legacy format)
         elif "subsections" in content_item and content_item["subsections"]:
             # This is a section with subsections (multiple roles)
             formatted_roles = []
-            for subsection in content_item["subsections"]:
-                role_block = self._format_single_role(subsection, generation_context)
+            for i, subsection in enumerate(content_item["subsections"]):
+                try:
+                    role_block = self._format_single_role(subsection, generation_context)
+                    formatted_roles.append(role_block)
+                except Exception as e:
+                    logger.error(f"Error processing subsection at index {i}: {e}")
+                    # Create a fallback role block
+                    fallback_role = {"name": f"Role {i+1}", "items": []}
+                    role_block = self._format_single_role(fallback_role, generation_context)
+                    formatted_roles.append(role_block)
+            
+            # Ensure we have at least one role
+            if not formatted_roles:
+                logger.warning("No subsections were successfully formatted, creating fallback")
+                fallback_role = {"name": "Professional Experience", "items": []}
+                role_block = self._format_single_role(fallback_role, generation_context)
                 formatted_roles.append(role_block)
+            
             return "\n\n".join(formatted_roles)
         else:
             # This is a single role (legacy format)
@@ -484,101 +544,155 @@ Description: {description[:200] if description else f'{role_title} position with
         return "Previous Company"
     
     def _parse_cv_text_to_content_item(self, cv_text: str, generation_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse CV text string into structured content item format."""
+        """Parse CV text to extract content item structure."""
         
-        # Extract experience sections from CV text
-        lines = cv_text.split('\n')
-        experience_roles = []
+        if not cv_text or not isinstance(cv_text, str):
+            logger.warning(f"Invalid CV text input: {type(cv_text)}")
+            return {"name": "Professional Experience", "items": []}
         
-        # Look for experience section markers
-        in_experience_section = False
-        current_role = None
-        current_accomplishments = []
+        import re
         
-        # Known role patterns from the CV
+        # Define enhanced role patterns to look for
         role_patterns = [
-            "Trainee Data Analyst",
-            "IT trainer", 
-            "Mathematics teacher",
-            "Indie Mobile Game Developer"
+            # More comprehensive patterns
+            r'(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+?)\s*\(([^)]+)\)',  # Title - Company (Duration)
+            r'(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+?)\s*\(([^)]+)\)',  # Title at Company (Duration)
+            r'(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+?)\s*[,|]\s*([A-Za-z\s0-9-]+)',  # Title - Company, Duration
+            r'(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+?)\s*[,|]\s*([A-Za-z\s0-9-]+)',  # Title at Company, Duration
+            r'(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+)',  # Title - Company
+            r'(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+)',  # Title at Company
+            r'(?i)^\s*([A-Za-z\s,.-]+?)\s*\|\s*([A-Za-z\s&,.()-]+)',  # Title | Company
+            r'(?i)^\s*([A-Za-z\s,.-]{3,})$',  # Single line that could be a role title
         ]
         
+        # Split text into lines and clean them
+        lines = [line.strip() for line in cv_text.strip().split('\n') if line.strip()]
+        
+        if not lines:
+            logger.warning("No content found in CV text")
+            return {"name": "Professional Experience", "items": []}
+        
+        roles = []
+        current_role = None
+        
         for i, line in enumerate(lines):
-            line = line.strip()
-            if not line:
+            # Skip very short lines that are unlikely to be role titles
+            if len(line) < 3:
                 continue
-            
-            # Check if we're in an experience section
-            if any(role in line for role in role_patterns):
-                in_experience_section = True
                 
+            # Check if this line matches a role pattern
+            role_match = None
+            matched_pattern_index = -1
+            
+            for pattern_index, pattern in enumerate(role_patterns):
+                try:
+                    match = re.match(pattern, line)
+                    if match:
+                        role_match = match
+                        matched_pattern_index = pattern_index
+                        break
+                except re.error as e:
+                    logger.warning(f"Regex error with pattern {pattern_index}: {e}")
+                    continue
+            
+            if role_match:
                 # Save previous role if exists
+                if current_role and current_role.get("items"):
+                    roles.append(current_role)
+                
+                # Start new role based on matched pattern
+                groups = role_match.groups()
+                
+                if matched_pattern_index <= 3 and len(groups) >= 2:  # Patterns with company info
+                    title = groups[0].strip()
+                    company = groups[1].strip()
+                    duration = groups[2].strip() if len(groups) > 2 else ""
+                    
+                    role_name = f"{title} at {company}"
+                    if duration:
+                        role_name += f" ({duration})"
+                        
+                    current_role = {
+                        "name": role_name,
+                        "items": []
+                    }
+                elif matched_pattern_index <= 6 and len(groups) >= 2:  # Simple Title - Company patterns
+                    title = groups[0].strip()
+                    company = groups[1].strip()
+                    current_role = {
+                        "name": f"{title} at {company}",
+                        "items": []
+                    }
+                else:  # Single line role title
+                    current_role = {
+                        "name": groups[0].strip(),
+                        "items": []
+                    }
+                    
+            elif line.startswith(('•', '-', '*', '◦', '▪', '▫')) or re.match(r'^\s*\d+[.)].', line):
+                # This is a bullet point/accomplishment
                 if current_role:
-                    experience_roles.append({
-                        "name": current_role,
-                        "items": [{
+                    # Clean the accomplishment text
+                    accomplishment = re.sub(r'^[•\-*◦▪▫\d+.)\s]+', '', line).strip()
+                    if accomplishment and len(accomplishment) > 5:  # Filter out very short items
+                        current_role["items"].append({
                             "item_type": "bullet_point",
                             "content": accomplishment
-                        } for accomplishment in current_accomplishments]
-                    })
-                
-                # Extract role name
-                for role in role_patterns:
-                    if role in line:
-                        current_role = role
-                        break
-                
-                current_accomplishments = []
-                continue
-            
-            # If we're in experience section and this is a bullet point
-            if in_experience_section and (line.startswith('-') or line.startswith('*') or line.startswith('•')):
-                clean_line = line.lstrip('-*•').strip()
-                if clean_line:
-                    current_accomplishments.append(clean_line)
-            
-            # Stop if we hit another major section
-            elif line.upper().startswith('COMPÉTENCES') or line.upper().startswith('FORMATION') or line.upper().startswith('COORDONNÉES'):
-                in_experience_section = False
+                        })
+                elif not roles:  # No current role but we have accomplishments
+                    # Create a generic role for orphaned accomplishments
+                    current_role = {
+                        "name": "Professional Experience",
+                        "items": []
+                    }
+                    accomplishment = re.sub(r'^[•\-*◦▪▫\d+.)\s]+', '', line).strip()
+                    if accomplishment and len(accomplishment) > 5:
+                        current_role["items"].append({
+                            "item_type": "bullet_point",
+                            "content": accomplishment
+                        })
+            else:
+                # Check if this could be a continuation of an accomplishment
+                if current_role and current_role.get("items") and not role_match:
+                    # If the line doesn't look like a new role and we have a current role,
+                    # it might be a continuation of the previous accomplishment
+                    if len(line) > 10 and not line.isupper():  # Avoid headers
+                        current_role["items"].append({
+                            "item_type": "bullet_point",
+                            "content": line
+                        })
         
         # Add the last role
-        if current_role:
-            experience_roles.append({
-                "name": current_role,
-                "items": [{
-                    "item_type": "bullet_point",
-                    "content": accomplishment
-                } for accomplishment in current_accomplishments]
-            })
+        if current_role and (current_role.get("items") or not roles):
+            roles.append(current_role)
         
-        # If no specific roles found, create a generic experience structure
-        if not experience_roles:
-            # Extract any bullet points as general experience
-            general_accomplishments = []
+        # If no roles were found, try to extract any meaningful content
+        if not roles:
+            # Look for any bullet points or numbered lists in the text
+            accomplishments = []
             for line in lines:
-                line = line.strip()
-                if line.startswith('-') or line.startswith('*') or line.startswith('•'):
-                    clean_line = line.lstrip('-*•').strip()
-                    if clean_line:
-                        general_accomplishments.append(clean_line)
+                if line.startswith(('•', '-', '*', '◦', '▪', '▫')) or re.match(r'^\s*\d+[.)].', line):
+                    accomplishment = re.sub(r'^[•\-*◦▪▫\d+.)\s]+', '', line).strip()
+                    if accomplishment and len(accomplishment) > 5:
+                        accomplishments.append({
+                            "item_type": "bullet_point",
+                            "content": accomplishment
+                        })
             
-            if general_accomplishments:
-                experience_roles.append({
-                    "name": "Professional Experience",
-                    "items": [{
-                        "item_type": "bullet_point",
-                        "content": accomplishment
-                    } for accomplishment in general_accomplishments]
-                })
-        
-        # Return structured content item
-        if len(experience_roles) == 1:
-            return experience_roles[0]
-        else:
             return {
                 "name": "Professional Experience",
-                "subsections": experience_roles
+                "items": accomplishments if accomplishments else [{"item_type": "bullet_point", "content": "No specific accomplishments extracted"}]
             }
+        
+        # If only one role, return it directly
+        if len(roles) == 1:
+            return roles[0]
+        
+        # Multiple roles, return as subsections
+        return {
+            "name": "Professional Experience",
+            "subsections": roles
+        }
     
     async def _post_process_content(
         self,

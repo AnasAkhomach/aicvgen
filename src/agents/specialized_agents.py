@@ -7,6 +7,7 @@ import json
 
 from .enhanced_content_writer import EnhancedContentWriterAgent, create_content_writer
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from .parser_agent import ParserAgent
 from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
@@ -598,9 +599,105 @@ def create_quality_assurance_agent() -> QualityAssuranceAgent:
     return QualityAssuranceAgent()
 
 
+def create_enhanced_parser_agent() -> EnhancedAgentBase:
+    """Create an enhanced parser agent that wraps the original ParserAgent."""
+    return EnhancedParserAgent()
+
+
+class EnhancedParserAgent(EnhancedAgentBase):
+    """Enhanced wrapper for ParserAgent that integrates with the new infrastructure."""
+    
+    def __init__(self):
+        super().__init__(
+            name="EnhancedParserAgent",
+            description="Enhanced agent for parsing CVs and job descriptions into structured formats",
+            input_schema={
+                "cv_text": str,
+                "job_description": str,
+                "start_from_scratch": bool
+            },
+            output_schema={
+                "structured_cv": Dict[str, Any],
+                "job_description_data": Dict[str, Any]
+            }
+        )
+        # Initialize the original parser agent
+        llm_service = get_llm_service()
+        self.parser_agent = ParserAgent(
+            name="ParserAgent",
+            description="Parses CVs and job descriptions",
+            llm=llm_service
+        )
+    
+    def run(self, input_data: Any) -> Any:
+        """Synchronous run method for backward compatibility."""
+        try:
+            # Convert input data to the format expected by ParserAgent
+            parser_input = {}
+            
+            if isinstance(input_data, dict):
+                # Handle structured input
+                if "cv_text" in input_data:
+                    parser_input["cv_text"] = input_data["cv_text"]
+                if "job_description" in input_data:
+                    parser_input["job_description"] = input_data["job_description"]
+                if "start_from_scratch" in input_data:
+                    parser_input["start_from_scratch"] = input_data["start_from_scratch"]
+            elif isinstance(input_data, str):
+                # Handle string input as CV text
+                parser_input["cv_text"] = input_data
+            
+            # Run the parser agent synchronously
+            result = self.parser_agent.run(parser_input)
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Enhanced parser agent failed: {str(e)}")
+            return {"error": str(e)}
+    
+    async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
+        """Run the parser agent asynchronously."""
+        try:
+            # Convert input data to the format expected by ParserAgent
+            parser_input = {}
+            
+            if isinstance(input_data, dict):
+                # Handle structured input
+                if "cv_text" in input_data:
+                    parser_input["cv_text"] = input_data["cv_text"]
+                if "job_description" in input_data:
+                    parser_input["job_description"] = input_data["job_description"]
+                if "start_from_scratch" in input_data:
+                    parser_input["start_from_scratch"] = input_data["start_from_scratch"]
+            elif isinstance(input_data, str):
+                # Handle string input as CV text
+                parser_input["cv_text"] = input_data
+            
+            # Run the parser agent synchronously (it doesn't have async support)
+            result = self.parser_agent.run(parser_input)
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "enhanced_parser"}
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Enhanced parser agent failed: {str(e)}")
+            return AgentResult(
+                success=False,
+                output_data={},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "enhanced_parser"}
+            )
+
+
 # Agent registry for easy access
 AGENT_REGISTRY = {
     "cv_analysis": create_cv_analysis_agent,
+    "cv_parser": create_enhanced_parser_agent,
     "content_optimization": create_content_optimization_agent,
     "quality_assurance": create_quality_assurance_agent,
     "qualification_writer": lambda: create_content_writer(ContentType.QUALIFICATION),

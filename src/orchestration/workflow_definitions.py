@@ -89,7 +89,7 @@ class WorkflowBuilder:
             strategy=OrchestrationStrategy.PIPELINE,
             steps=[
                 {
-                    "agent_type": "cv_analysis",
+                    "agent_type": "cv_parser",
                     "priority": AgentPriority.HIGH,
                     "content_types": [ContentType.ANALYSIS],
                     "timeout": timedelta(minutes=3),
@@ -138,7 +138,7 @@ class WorkflowBuilder:
             strategy=OrchestrationStrategy.PARALLEL,
             steps=[
                 {
-                    "agent_type": "cv_analysis",
+                    "agent_type": "cv_parser",
                     "priority": AgentPriority.HIGH,
                     "content_types": [ContentType.ANALYSIS],
                     "timeout": timedelta(minutes=3),
@@ -176,7 +176,7 @@ class WorkflowBuilder:
             strategy=OrchestrationStrategy.ADAPTIVE,
             steps=[
                 {
-                    "agent_type": "cv_analysis",
+                    "agent_type": "cv_parser",
                     "priority": AgentPriority.HIGH,
                     "content_types": [ContentType.ANALYSIS],
                     "timeout": timedelta(minutes=4),
@@ -437,7 +437,51 @@ class WorkflowBuilder:
         # Extract components from workflow input
         personal_info = input_data.get("personal_info", {})
         experience = input_data.get("experience", [])
+        projects = input_data.get("projects", [])
         job_description = input_data.get("job_description", {})
+        
+        # Check if we have parser results with structured CV data
+        parser_results = input_data.get("parser_results")
+        if parser_results and isinstance(parser_results, dict):
+            structured_cv = parser_results.get("structured_cv")
+            job_description_data = parser_results.get("job_description_data")
+            
+            if structured_cv:
+                # Extract structured experience and projects
+                experience = self._extract_structured_experience(structured_cv)
+                projects = self._extract_structured_projects(structured_cv)
+                
+            # Use parsed job description data if available
+            if job_description_data:
+                adapted_data = {
+                    "job_description_data": job_description_data,
+                    "content_item": {
+                        "type": content_type.value,
+                        "data": {
+                            "roles": experience,
+                            "projects": projects,
+                            "personal_info": personal_info
+                        }
+                    },
+                    "context": {
+                        "workflow_type": "job_tailored_cv",
+                        "content_type": content_type.value,
+                        "personal_info": personal_info
+                    }
+                }
+                return adapted_data
+        
+        # Extract structured data from StructuredCV if available (fallback)
+        structured_cv = input_data.get("structured_cv")
+        if structured_cv:
+            experience = self._extract_structured_experience(structured_cv)
+            projects = self._extract_structured_projects(structured_cv)
+        
+        # Validate and clean experience data
+        experience = self._validate_experience_data(experience)
+        
+        # Validate and clean projects data
+        projects = self._validate_projects_data(projects)
         
         # Structure data as expected by EnhancedContentWriterAgent
         adapted_data = {
@@ -446,6 +490,7 @@ class WorkflowBuilder:
                 "type": content_type.value,
                 "data": {
                     "roles": experience,
+                    "projects": projects,
                     "personal_info": personal_info
                 }
             },
@@ -457,6 +502,161 @@ class WorkflowBuilder:
         }
         
         return adapted_data
+    
+    def _extract_structured_experience(self, structured_cv) -> List[Dict[str, Any]]:
+        """Extract experience data from StructuredCV object."""
+        experience_data = []
+        
+        # Find Professional Experience section
+        for section in structured_cv.sections:
+            if section.name == "Professional Experience":
+                for subsection in section.subsections:
+                    # Parse subsection name to extract role info
+                    role_info = self._parse_role_subsection_name(subsection.name)
+                    
+                    # Extract responsibilities from items
+                    responsibilities = []
+                    for item in subsection.items:
+                        if item.content.strip():
+                            responsibilities.append(item.content.strip())
+                    
+                    role_data = {
+                        "title": role_info.get("title", "Position"),
+                        "company": role_info.get("company", "Company"),
+                        "duration": role_info.get("duration", ""),
+                        "location": role_info.get("location", ""),
+                        "responsibilities": responsibilities
+                    }
+                    experience_data.append(role_data)
+                break
+        
+        return experience_data
+    
+    def _extract_structured_projects(self, structured_cv) -> List[Dict[str, Any]]:
+        """Extract projects data from StructuredCV object."""
+        projects_data = []
+        
+        # Find Project Experience section
+        for section in structured_cv.sections:
+            if section.name == "Project Experience":
+                for subsection in section.subsections:
+                    # Parse subsection name to extract project info
+                    project_info = self._parse_project_subsection_name(subsection.name)
+                    
+                    # Extract description points from items
+                    description = []
+                    for item in subsection.items:
+                        if item.content.strip():
+                            description.append(item.content.strip())
+                    
+                    project_data = {
+                        "name": project_info.get("name", "Project"),
+                        "technologies": project_info.get("technologies", ""),
+                        "duration": project_info.get("duration", ""),
+                        "description": description
+                    }
+                    projects_data.append(project_data)
+                break
+        
+        return projects_data
+    
+    def _parse_role_subsection_name(self, subsection_name: str) -> Dict[str, str]:
+        """Parse role subsection name to extract structured information."""
+        # Expected format: "Title at Company (Duration) - Location"
+        import re
+        
+        role_info = {"title": "", "company": "", "duration": "", "location": ""}
+        
+        # Extract location (after last dash)
+        location_match = re.search(r" - ([^-]+)$", subsection_name)
+        if location_match:
+            role_info["location"] = location_match.group(1).strip()
+            subsection_name = subsection_name[:location_match.start()]
+        
+        # Extract duration (in parentheses)
+        duration_match = re.search(r"\(([^)]+)\)", subsection_name)
+        if duration_match:
+            role_info["duration"] = duration_match.group(1).strip()
+            subsection_name = re.sub(r"\s*\([^)]+\)", "", subsection_name)
+        
+        # Extract title and company (split by " at ")
+        if " at " in subsection_name:
+            parts = subsection_name.split(" at ", 1)
+            role_info["title"] = parts[0].strip()
+            role_info["company"] = parts[1].strip()
+        else:
+            role_info["title"] = subsection_name.strip()
+        
+        return role_info
+    
+    def _parse_project_subsection_name(self, subsection_name: str) -> Dict[str, str]:
+        """Parse project subsection name to extract structured information."""
+        # Expected format: "Project Name (Technologies) - Duration"
+        import re
+        
+        project_info = {"name": "", "technologies": "", "duration": ""}
+        
+        # Extract duration (after last dash)
+        duration_match = re.search(r" - ([^-]+)$", subsection_name)
+        if duration_match:
+            project_info["duration"] = duration_match.group(1).strip()
+            subsection_name = subsection_name[:duration_match.start()]
+        
+        # Extract technologies (in parentheses)
+        tech_match = re.search(r"\(([^)]+)\)", subsection_name)
+        if tech_match:
+            project_info["technologies"] = tech_match.group(1).strip()
+            subsection_name = re.sub(r"\s*\([^)]+\)", "", subsection_name)
+        
+        # Remaining text is the project name
+        project_info["name"] = subsection_name.strip()
+        
+        return project_info
+    
+    def _validate_experience_data(self, experience_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Validate and clean experience data."""
+        validated_data = []
+        
+        for role in experience_data:
+            if isinstance(role, dict):
+                # Ensure required fields exist
+                validated_role = {
+                    "title": role.get("title", "Position"),
+                    "company": role.get("company", "Company"),
+                    "duration": role.get("duration", ""),
+                    "location": role.get("location", ""),
+                    "responsibilities": role.get("responsibilities", [])
+                }
+                
+                # Ensure responsibilities is a list
+                if not isinstance(validated_role["responsibilities"], list):
+                    validated_role["responsibilities"] = []
+                
+                validated_data.append(validated_role)
+        
+        return validated_data
+    
+    def _validate_projects_data(self, projects_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Validate and clean projects data."""
+        validated_data = []
+        
+        for project in projects_data:
+            if isinstance(project, dict):
+                # Ensure required fields exist
+                validated_project = {
+                    "name": project.get("name", "Project"),
+                    "technologies": project.get("technologies", ""),
+                    "duration": project.get("duration", ""),
+                    "description": project.get("description", [])
+                }
+                
+                # Ensure description is a list
+                if not isinstance(validated_project["description"], list):
+                    validated_project["description"] = []
+                
+                validated_data.append(validated_project)
+        
+        return validated_data
 
 
 # Global workflow builder instance

@@ -1,0 +1,41 @@
+{
+  "id": "955cb316-3cca-4dbc-bd38-95a86ad1622f",
+  "sections": [],
+  "metadata": {
+    "job_description": {
+      "raw_text": "Software Engineer\n\nWe are looking for a skilled Software Engineer to join our development team. The ideal candidate will have:\n\n- 3+ years of experience in Python development\n- Experience with web frameworks like FastAPI or Django\n- Knowledge of database systems (PostgreSQL, MongoDB)\n- Familiarity with cloud platforms (AWS, Azure)\n- Strong problem-solving skills\n- Experience with version control (Git)\n\nResponsibilities:\n- Develop and maintain web applications\n- Write clean, efficient code\n- Collaborate with cross-functional teams\n- Participate in code reviews\n- Debug and troubleshoot issues",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "Django",
+        "PostgreSQL",
+        "MongoDB",
+        "AWS",
+        "Azure",
+        "Git"
+      ],
+      "experience_level": "Mid-level",
+      "responsibilities": [
+        "Develop and maintain web applications",
+        "Write clean, efficient code",
+        "Collaborate with cross-functional teams",
+        "Participate in code reviews",
+        "Debug and troubleshoot issues"
+      ],
+      "industry_terms": [
+        "Software Engineer",
+        "Web applications",
+        "Web frameworks",
+        "Database systems",
+        "Cloud platforms",
+        "Version control",
+        "Code reviews",
+        "Debug",
+        "Troubleshoot"
+      ],
+      "company_values": [],
+      "error": null
+    },
+    "original_cv_text": "John Smith\nSoftware Developer\nEmail: john.smith@email.com\nPhone: (555) 123-4567\n\nEXPERIENCE:\n\nSenior Python Developer | TechCorp Inc. | 2021-2024\n- Developed web applications using Django and FastAPI\n- Implemented RESTful APIs serving 10,000+ daily requests\n- Optimized database queries reducing response time by 40%\n- Led a team of 3 junior developers\n- Technologies: Python, Django, PostgreSQL, Redis, AWS\n\nSoftware Engineer | StartupXYZ | 2019-2021\n- Built microservices architecture using Python and Docker\n- Integrated third-party APIs and payment systems\n- Implemented automated testing with pytest\n- Collaborated with frontend team using React\n- Technologies: Python, Flask, MongoDB, Docker, Jenkins\n\nJunior Developer | WebSolutions | 2018-2019\n- Developed web applications using Python and JavaScript\n- Maintained legacy systems and fixed bugs\n- Participated in agile development process\n- Technologies: Python, JavaScript, MySQL, Git\n\nEDUCATION:\nBachelor of Science in Computer Science\nUniversity of Technology | 2014-2018\n\nSKILLS:\n- Programming: Python, JavaScript, SQL\n- Frameworks: Django, FastAPI, Flask, React\n- Databases: PostgreSQL, MongoDB, MySQL, Redis\n- Cloud: AWS, Docker, Kubernetes\n- Tools: Git, Jenkins, pytest, Linux"
+  }
+}
