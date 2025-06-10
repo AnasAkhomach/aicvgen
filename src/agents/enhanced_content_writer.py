@@ -97,10 +97,104 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
                 logger.error(f"EnhancedContentWriter received string input_data instead of dict: {input_data}")
                 raise ValueError(f"Expected dict input_data, got string: {input_data}")
             
-            # Extract and validate input data
+            # Extract and validate input data with enhanced defensive programming
             job_data = input_data.get("job_description_data", {})
+            
+            # Enhanced type checking and validation for job_data parameter
+            if isinstance(job_data, str):
+                logger.warning(
+                    f"DATA STRUCTURE MISMATCH: job_description_data is a string instead of dict. "
+                    f"String length: {len(job_data)}, Preview: {job_data[:100]}..."
+                )
+                # Convert string job description to a structured JobDescriptionData format
+                job_data = {
+                    "raw_text": job_data,
+                    "skills": [],
+                    "experience_level": "N/A",
+                    "responsibilities": [],
+                    "industry_terms": [],
+                    "company_values": []
+                }
+                logger.info("Successfully converted string job_description_data to structured format")
+            elif isinstance(job_data, dict):
+                # Validate required fields and add missing ones with detailed logging
+                required_fields = ["raw_text", "skills", "experience_level", "responsibilities", "industry_terms", "company_values"]
+                missing_fields = [field for field in required_fields if field not in job_data]
+                
+                if missing_fields:
+                    logger.warning(
+                        f"DATA STRUCTURE INCOMPLETE: job_description_data missing fields: {missing_fields}. "
+                        f"Available fields: {list(job_data.keys())}"
+                    )
+                    # Add missing fields with default values
+                    for field in missing_fields:
+                        if field == "raw_text":
+                            job_data[field] = job_data.get("description", "")
+                        elif field == "experience_level":
+                            job_data[field] = "N/A"
+                        else:
+                            job_data[field] = []
+                    logger.info(f"Added missing fields to job_description_data: {missing_fields}")
+                else:
+                    logger.debug("job_description_data structure validation passed")
+            elif job_data is None:
+                logger.error("DATA STRUCTURE ERROR: job_description_data is None")
+                job_data = {
+                    "raw_text": "",
+                    "skills": [],
+                    "experience_level": "N/A",
+                    "responsibilities": [],
+                    "industry_terms": [],
+                    "company_values": []
+                }
+            else:
+                logger.error(
+                    f"DATA STRUCTURE ERROR: job_description_data has unexpected type {type(job_data)}. "
+                    f"Value: {job_data}. Converting to empty structured format."
+                )
+                job_data = {
+                    "raw_text": str(job_data) if job_data else "",
+                    "skills": [],
+                    "experience_level": "N/A",
+                    "responsibilities": [],
+                    "industry_terms": [],
+                    "company_values": []
+                }
+            
+            # Enhanced validation for content_item with detailed error logging
             content_item = input_data.get("content_item", {})
+            if not isinstance(content_item, dict):
+                logger.error(
+                    f"DATA STRUCTURE ERROR: content_item has unexpected type {type(content_item)}. "
+                    f"Value: {content_item}. Converting to empty dict."
+                )
+                content_item = {}
+            
+            # Validate content_item structure
+            if content_item:
+                required_content_fields = ["type", "data"]
+                missing_content_fields = [field for field in required_content_fields if field not in content_item]
+                if missing_content_fields:
+                    logger.warning(
+                        f"DATA STRUCTURE INCOMPLETE: content_item missing fields: {missing_content_fields}. "
+                        f"Available fields: {list(content_item.keys())}"
+                    )
+                    # Add missing fields with defaults
+                    if "type" not in content_item:
+                        content_item["type"] = "unknown"
+                    if "data" not in content_item:
+                        content_item["data"] = {}
+                else:
+                    logger.debug("content_item structure validation passed")
+            
+            # Enhanced validation for generation_context
             generation_context = input_data.get("generation_context", input_data.get("context", {}))
+            if not isinstance(generation_context, dict):
+                logger.error(
+                    f"DATA STRUCTURE ERROR: context has unexpected type {type(generation_context)}. "
+                    f"Value: {generation_context}. Converting to empty dict."
+                )
+                generation_context = {}
             
             # Determine content type
             content_type = context.content_type or self._determine_content_type(content_item)
@@ -108,7 +202,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             # Log generation start
             self.log_decision(
                 f"Starting content generation for {content_type.value}",
-                context
+                context if hasattr(context, 'session_id') else None
             )
             
             # Generate content using LLM service
@@ -144,7 +238,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             
             self.log_decision(
                 f"Content generation completed successfully for {content_type.value}",
-                context
+                context if hasattr(context, 'session_id') else None
             )
             
             return AgentResult(
@@ -158,8 +252,8 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         except Exception as e:
             logger.error(
                 "Content generation failed",
-                session_id=context.session_id,
-                item_id=context.item_id,
+                session_id=getattr(context, 'session_id', None),
+                item_id=getattr(context, 'item_id', None),
                 error=str(e),
                 agent_name=self.name
             )
@@ -169,16 +263,17 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             # Ensure content_item is a dictionary for fallback generation
             if not isinstance(content_item, dict):
                 content_item = {}
+            content_type_fallback = getattr(context, 'content_type', None) or ContentType.QUALIFICATION
             fallback_content = self._generate_fallback_content(
                 content_item,
-                context.content_type or ContentType.QUALIFICATION
+                content_type_fallback
             )
             
             return AgentResult(
                 success=False,
                 output_data={
                     "content": fallback_content,
-                    "content_type": (context.content_type or ContentType.QUALIFICATION).value,
+                    "content_type": content_type_fallback.value,
                     "confidence_score": 0.1,
                     "error": str(e),
                     "fallback_used": True
@@ -226,8 +321,8 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         response = await self.llm_service.generate_content(
             prompt=prompt,
             content_type=content_type,
-            session_id=context.session_id,
-            item_id=context.item_id,
+            session_id=getattr(context, 'session_id', None),
+            item_id=getattr(context, 'item_id', None),
             max_retries=3
         )
         

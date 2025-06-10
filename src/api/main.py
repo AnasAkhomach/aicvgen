@@ -175,14 +175,33 @@ async def parse_cv(request: CVInput):
         state_manager = StateManager(session_id=session_id)
         sessions[session_id] = state_manager
 
-        # Parse the input
-        parse_result = parser_agent.run(
-            {
+        # Parse the input using proper async execution
+        from src.agents.agent_base import AgentExecutionContext
+        from src.models.data_models import ContentType
+        
+        parse_context = AgentExecutionContext(
+            session_id=session_id,
+            input_data={
                 "job_description": request.job_description,
                 "cv_text": request.cv_text or "",
                 "start_from_scratch": request.start_from_scratch,
-            }
+            },
+            content_type=ContentType.ANALYSIS,
+            processing_options={"parse_mode": "full"}
         )
+        
+        # Execute parser agent with proper context
+        parse_agent_result = await parser_agent.execute_with_context(
+            parse_context.input_data, parse_context
+        )
+        
+        if not parse_agent_result.success:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Parsing failed: {parse_agent_result.error_message}"
+            )
+            
+        parse_result = parse_agent_result.output_data
 
         # Store results in state manager
         job_data = parse_result["job_description_data"]
@@ -296,9 +315,13 @@ async def regenerate_items(request: RegenerateRequest):
         raise HTTPException(status_code=404, detail="CV data not found")
 
     try:
-        # Call the enhanced content writer to regenerate specific items
-        result = orchestrator.enhanced_content_writer.run(
-            {
+        # Create execution context for the enhanced content writer
+        from src.agents.agent_base import AgentExecutionContext
+        from src.models.data_models import ContentType
+        
+        context = AgentExecutionContext(
+            session_id=request.session_id,
+            input_data={
                 "structured_cv": structured_cv,
                 "regenerate_item_ids": request.item_ids,
                 "job_description_data": parser_agent.get_job_data(),
@@ -307,8 +330,20 @@ async def regenerate_items(request: RegenerateRequest):
                     if hasattr(orchestrator.research_agent, "get_research_results")
                     else {}
                 ),
-            }
+            },
+            content_type=ContentType.EXPERIENCE,  # Default content type
+            processing_options={"regenerate_items": True}
         )
+        
+        # Call the enhanced content writer using proper orchestration
+        agent_result = await orchestrator.enhanced_content_writer.execute_with_context(
+            context.input_data, context
+        )
+        
+        if not agent_result.success:
+            raise Exception(agent_result.error_message or "Content generation failed")
+            
+        result = agent_result.output_data
 
         # Update the state manager with the modified structured CV
         state_manager._structured_cv = result

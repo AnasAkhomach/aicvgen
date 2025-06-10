@@ -647,9 +647,15 @@ class EnhancedParserAgent(EnhancedAgentBase):
                 # Handle string input as CV text
                 parser_input["cv_text"] = input_data
             
-            # Run the parser agent synchronously
-            result = self.parser_agent.run(parser_input)
-            return result
+            # Run the parser agent using asyncio since it's now async
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(self.parser_agent.run(parser_input))
+                return result
+            finally:
+                loop.close()
             
         except Exception as e:
             self.logger.error(f"Enhanced parser agent failed: {str(e)}")
@@ -673,8 +679,8 @@ class EnhancedParserAgent(EnhancedAgentBase):
                 # Handle string input as CV text
                 parser_input["cv_text"] = input_data
             
-            # Run the parser agent synchronously (it doesn't have async support)
-            result = self.parser_agent.run(parser_input)
+            # Run the parser agent asynchronously (now has async support)
+            result = await self.parser_agent.run(parser_input)
             
             return AgentResult(
                 success=True,

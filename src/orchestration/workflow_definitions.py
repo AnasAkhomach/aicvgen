@@ -12,6 +12,9 @@ from .agent_orchestrator import (
     AgentOrchestrator, AgentTask, OrchestrationPlan, OrchestrationStrategy,
     AgentPriority, OrchestrationResult
 )
+from ..config.logging_config import get_structured_logger
+
+logger = get_structured_logger(__name__)
 
 
 class WorkflowType(Enum):
@@ -46,6 +49,7 @@ class WorkflowBuilder:
     
     def __init__(self, orchestrator: Optional[AgentOrchestrator] = None):
         self.orchestrator = orchestrator
+        self.logger = logger  # Make logger accessible within class methods
         self.workflows: Dict[WorkflowType, WorkflowDefinition] = {}
         self._register_default_workflows()
     
@@ -316,7 +320,8 @@ class WorkflowBuilder:
         # Get or create orchestrator
         if not self.orchestrator:
             from .agent_orchestrator import get_agent_orchestrator
-            self.orchestrator = get_agent_orchestrator(session_id)
+            # Always get the default orchestrator instance to ensure agents are registered
+            self.orchestrator = get_agent_orchestrator()
         
         # Create tasks from workflow steps
         tasks = []
@@ -483,9 +488,43 @@ class WorkflowBuilder:
         # Validate and clean projects data
         projects = self._validate_projects_data(projects)
         
+        # Ensure job_description is properly structured as JobDescriptionData
+        if isinstance(job_description, str):
+            # Convert raw string to structured JobDescriptionData format
+            job_description_data = {
+                "raw_text": job_description,
+                "skills": [],
+                "experience_level": "N/A",
+                "responsibilities": [],
+                "industry_terms": [],
+                "company_values": []
+            }
+            self.logger.warning(f"Converting raw job description string to structured format")
+        elif isinstance(job_description, dict):
+            # Validate and ensure all required fields are present
+            job_description_data = {
+                "raw_text": job_description.get("raw_text", ""),
+                "skills": job_description.get("skills", []),
+                "experience_level": job_description.get("experience_level", "N/A"),
+                "responsibilities": job_description.get("responsibilities", []),
+                "industry_terms": job_description.get("industry_terms", []),
+                "company_values": job_description.get("company_values", [])
+            }
+        else:
+            # Fallback for unexpected types
+            self.logger.error(f"Unexpected job_description type: {type(job_description)}")
+            job_description_data = {
+                "raw_text": str(job_description) if job_description else "",
+                "skills": [],
+                "experience_level": "N/A",
+                "responsibilities": [],
+                "industry_terms": [],
+                "company_values": []
+            }
+        
         # Structure data as expected by EnhancedContentWriterAgent
         adapted_data = {
-            "job_description_data": job_description,
+            "job_description_data": job_description_data,
             "content_item": {
                 "type": content_type.value,
                 "data": {

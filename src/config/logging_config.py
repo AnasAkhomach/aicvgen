@@ -9,6 +9,16 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, asdict
 
+# Import security utilities for credential redaction
+try:
+    from src.utils.security_utils import redact_sensitive_data, redact_log_message
+except ImportError:
+    # Fallback if security utils not available
+    def redact_sensitive_data(data):
+        return data
+    def redact_log_message(message):
+        return message
+
 
 @dataclass
 class LLMCallLog:
@@ -56,10 +66,13 @@ class StructuredLogger:
             "data": asdict(call_data)
         }
         
+        # Redact sensitive data before logging
+        safe_log_entry = redact_sensitive_data(log_entry)
+        
         if call_data.success:
-            self.llm_logger.info(json.dumps(log_entry))
+            self.llm_logger.info(json.dumps(safe_log_entry))
         else:
-            self.llm_logger.error(json.dumps(log_entry))
+            self.llm_logger.error(json.dumps(safe_log_entry))
     
     def log_rate_limit(self, rate_data: RateLimitLog):
         """Log rate limit tracking information."""
@@ -76,26 +89,34 @@ class StructuredLogger:
     def info(self, message: str, **kwargs):
         """Log info message with optional structured data."""
         if kwargs:
-            message = f"{message} | {json.dumps(kwargs)}"
-        self.logger.info(message)
+            safe_kwargs = redact_sensitive_data(kwargs)
+            message = f"{message} | {json.dumps(safe_kwargs)}"
+        safe_message = redact_log_message(message)
+        self.logger.info(safe_message)
     
     def error(self, message: str, **kwargs):
         """Log error message with optional structured data."""
         if kwargs:
-            message = f"{message} | {json.dumps(kwargs)}"
-        self.logger.error(message)
+            safe_kwargs = redact_sensitive_data(kwargs)
+            message = f"{message} | {json.dumps(safe_kwargs)}"
+        safe_message = redact_log_message(message)
+        self.logger.error(safe_message)
     
     def warning(self, message: str, **kwargs):
         """Log warning message with optional structured data."""
         if kwargs:
-            message = f"{message} | {json.dumps(kwargs)}"
-        self.logger.warning(message)
+            safe_kwargs = redact_sensitive_data(kwargs)
+            message = f"{message} | {json.dumps(safe_kwargs)}"
+        safe_message = redact_log_message(message)
+        self.logger.warning(safe_message)
     
     def debug(self, message: str, **kwargs):
         """Log debug message with optional structured data."""
         if kwargs:
-            message = f"{message} | {json.dumps(kwargs)}"
-        self.logger.debug(message)
+            safe_kwargs = redact_sensitive_data(kwargs)
+            message = f"{message} | {json.dumps(safe_kwargs)}"
+        safe_message = redact_log_message(message)
+        self.logger.debug(safe_message)
 
 
 def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True, config=None):

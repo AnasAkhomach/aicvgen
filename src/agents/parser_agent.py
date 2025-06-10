@@ -46,7 +46,7 @@ class ParserAgent(AgentBase):
         # Initialize settings for prompt loading
         self.settings = get_config()
 
-    def run(self, input: dict) -> Dict[str, Any]:
+    async def run(self, input: dict) -> Dict[str, Any]:
         """
         Main entry point for the agent.
 
@@ -56,30 +56,76 @@ class ParserAgent(AgentBase):
         Returns:
             A dictionary containing the parsed job description and/or parsed CV.
         """
-        result = {}
+        try:
+            result = {}
 
-        # Process job description if provided
-        if "job_description" in input and input["job_description"]:
-            job_data = self.parse_job_description(input["job_description"])
-            result["job_description_data"] = job_data
+            # Process job description if provided
+            if "job_description" in input and input["job_description"]:
+                job_data = await self.parse_job_description(input["job_description"])
+                
+                # Ensure job_data is properly structured as a dictionary for workflow compatibility
+                if hasattr(job_data, '__dict__'):
+                    # Convert JobDescriptionData object to dictionary
+                    job_data_dict = {
+                        "raw_text": job_data.raw_text,
+                        "skills": job_data.skills,
+                        "experience_level": job_data.experience_level,
+                        "responsibilities": job_data.responsibilities,
+                        "industry_terms": job_data.industry_terms,
+                        "company_values": job_data.company_values
+                    }
+                    result["job_description_data"] = job_data_dict
+                    logger.info(f"Job description parsed and converted to structured dictionary format")
+                else:
+                    # Fallback if job_data is already a dict
+                    result["job_description_data"] = job_data
+                    logger.info(f"Job description parsed successfully")
 
-        # Process CV if provided
-        if "cv_text" in input and input["cv_text"]:
-            # Get job data from the result if we just parsed it, or from input
-            job_data = result.get("job_description_data", input.get("job_description_data", None))
-            structured_cv = self.parse_cv_text(input["cv_text"], job_data)
-            result["structured_cv"] = structured_cv
+            # Process CV if provided
+            if "cv_text" in input and input["cv_text"]:
+                # Get job data from the result if we just parsed it, or from input
+                job_data = result.get("job_description_data", input.get("job_description_data", None))
+                structured_cv = self.parse_cv_text(input["cv_text"], job_data)
+                result["structured_cv"] = structured_cv
 
-        # Create empty CV structure if user chose "start from scratch"
-        if "start_from_scratch" in input and input["start_from_scratch"]:
-            # Get job data from the result if we just parsed it, or from input
-            job_data = result.get("job_description_data", input.get("job_description_data", None))
-            structured_cv = self.create_empty_cv_structure(job_data)
-            result["structured_cv"] = structured_cv
+            # Create empty CV structure if user chose "start from scratch"
+            if "start_from_scratch" in input and input["start_from_scratch"]:
+                # Get job data from the result if we just parsed it, or from input
+                job_data = result.get("job_description_data", input.get("job_description_data", None))
+                structured_cv = self.create_empty_cv_structure(job_data)
+                result["structured_cv"] = structured_cv
 
-        return result
+            return result
+        except Exception as e:
+            logger.error(f"Error in ParserAgent.run: {str(e)}")
+            # Re-raise the exception to ensure proper error propagation
+            raise e
+    
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """Async run method for consistency with enhanced agent interface."""
+        from .agent_base import AgentResult
+        
+        try:
+            # Use the existing run method for the actual processing
+            result = await self.run(input_data)
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "parser"}
+            )
+            
+        except Exception as e:
+            return AgentResult(
+                success=False,
+                output_data={},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "parser"}
+            )
 
-    def parse_job_description(self, raw_text: str) -> JobDescriptionData:
+    async def parse_job_description(self, raw_text: str) -> JobDescriptionData:
         """
         Parses a raw job description using an LLM and extracts key information.
 
@@ -122,7 +168,7 @@ class ParserAgent(AgentBase):
 
         try:
             # Generate response using the LLM
-            response = self.llm.generate_content(prompt)
+            response = await self.llm.generate_content(prompt)
 
             # Try to parse the JSON response
             # Handle potential non-JSON prefix by looking for the first {
@@ -160,18 +206,8 @@ class ParserAgent(AgentBase):
 
         except Exception as e:
             logger.error(f"Error in parse_job_description: {str(e)}")
-            # Return a default object for exceptions
-            job_data = JobDescriptionData(
-                raw_text=raw_text,
-                skills=[],
-                experience_level="N/A",
-                responsibilities=[],
-                industry_terms=[],
-                company_values=[],
-                error=f"Error: {str(e)}",
-            )
-            self._job_data = job_data
-            return job_data
+            # Re-raise the exception to ensure proper error propagation
+            raise e
 
     def parse_cv_text(self, cv_text: str, job_data: JobDescriptionData) -> StructuredCV:
         """

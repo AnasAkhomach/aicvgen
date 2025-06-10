@@ -238,3 +238,27 @@ class CVAnalyzerAgent(AgentBase):
                 'job_description': ''
             }
             return self.analyze_cv(formatted_input)
+    
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """Async run method for consistency with enhanced agent interface."""
+        from .agent_base import AgentResult
+        
+        try:
+            # Use the existing run method for the actual processing
+            result = self.run(input_data)
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "cv_analyzer"}
+            )
+            
+        except Exception as e:
+            return AgentResult(
+                success=False,
+                output_data={},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "cv_analyzer"}
+            )

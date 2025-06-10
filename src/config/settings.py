@@ -23,7 +23,7 @@ class LLMConfig:
     
     # Gemini API Configuration
     gemini_api_key_primary: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    gemini_api_key_fallback: str = "AIzaSyAvaPMYEVKCSKOfSf4wPIDYIjYAG4QC8us"
+    gemini_api_key_fallback: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY_FALLBACK", ""))
     
     # Model Configuration
     generation_model: str = "deepseek-r1-distill-llama-70b"
@@ -47,7 +47,8 @@ class LLMConfig:
         if not self.gemini_api_key_primary and not self.gemini_api_key_fallback:
             raise ValueError(
                 "At least one Gemini API key is required. "
-                "Please set GEMINI_API_KEY environment variable, "
+                "Please set GEMINI_API_KEY or GEMINI_API_KEY_FALLBACK environment variables. "
+                "CRITICAL SECURITY NOTE: Never hardcode API keys in source code!"
                 "or ensure fallback key is configured."
             )
 

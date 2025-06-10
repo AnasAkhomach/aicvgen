@@ -383,7 +383,7 @@ class EnhancedCVIntegration:
                     item_type=ContentType.EXECUTIVE_SUMMARY,  # Default content type for workflow errors
                     session_id=session_id or "default",
                     context={
-                        "workflow_type": workflow_type,
+                        "workflow_type": workflow_type.value,  # Convert enum to string
                         "input_data": input_data
                     }
                 )

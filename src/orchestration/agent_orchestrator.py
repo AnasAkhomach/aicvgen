@@ -1,10 +1,12 @@
 """Agent orchestration system for coordinating multiple agents."""
 
 import asyncio
+import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable, Union
+from typing import Dict, List, Optional, Any, Callable, Union, Set
 from dataclasses import dataclass, field
 from enum import Enum
+import time
 import uuid
 
 from ..models.data_models import ContentType, ProcessingStatus
@@ -18,6 +20,11 @@ from ..agents.specialized_agents import (
     CVAnalysisAgent, ContentOptimizationAgent, QualityAssuranceAgent,
     get_agent, list_available_agents
 )
+from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity, ErrorContext
+from ..core.agent_lifecycle_manager import (
+    get_agent_lifecycle_manager, AgentLifecycleManager, ManagedAgent, AgentPoolConfig, AgentPoolStrategy
+)
+from ..core.dependency_injection import get_container, LifecycleScope
 
 logger = get_structured_logger(__name__)
 
@@ -133,13 +140,24 @@ class AgentOrchestrator:
     
     def __init__(self, session_id: Optional[str] = None):
         self.session_id = session_id or str(uuid.uuid4())
-        self.session_manager = get_session_manager()
-        self.error_recovery = get_error_recovery_service()
-        self.progress_tracker = get_progress_tracker()
+        self.container = get_container()
+        self.lifecycle_manager = get_agent_lifecycle_manager()
+        self.error_handler = ErrorHandler()
         
-        # Agent registry
-        self.agents: Dict[str, EnhancedAgentBase] = {}
-        self.agent_factories: Dict[str, Callable[[], EnhancedAgentBase]] = {}
+        # Get services from DI container
+        from ..services.session_manager import SessionManager
+        from ..services.error_recovery import ErrorRecoveryService
+        from ..services.progress_tracker import ProgressTracker
+        
+        self.session_manager = self.container.get_or_create(
+            SessionManager, "session_manager", factory=lambda: get_session_manager()
+        )
+        self.error_recovery = self.container.get_or_create(
+            ErrorRecoveryService, "error_recovery", factory=lambda: get_error_recovery_service()
+        )
+        self.progress_tracker = self.container.get_or_create(
+            ProgressTracker, "progress_tracker", factory=lambda: get_progress_tracker()
+        )
         
         # Execution state
         self.active_plans: Dict[str, OrchestrationPlan] = {}
@@ -155,53 +173,148 @@ class AgentOrchestrator:
             "error_count_by_type": {}
         }
         
-        # Initialize with default agents
-        self._register_default_agents()
+        # Initialize agent pools
+        self._register_agent_pools()
         
         logger.info(
             "Agent orchestrator initialized",
             session_id=self.session_id,
-            available_agents=list(self.agents.keys())
+            lifecycle_manager_stats=self.lifecycle_manager.get_statistics()
         )
     
-    def _register_default_agents(self):
-        """Register default agents and their factories."""
-        # Register agent factories
-        self.agent_factories.update({
-            "content_writer": lambda: EnhancedContentWriterAgent(),
-            "cv_analysis": lambda: get_agent("cv_analysis"),
-            "cv_parser": lambda: get_agent("cv_parser"),
-            "content_optimization": lambda: get_agent("content_optimization"),
-            "quality_assurance": lambda: get_agent("quality_assurance")
-        })
+    def _register_agent_pools(self):
+        """Register agent pools with the lifecycle manager."""
+        from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
         
-        # Pre-instantiate commonly used agents
-        self.agents["content_writer"] = self.agent_factories["content_writer"]()
+        # Register content writer with eager strategy (commonly used)
+        self.lifecycle_manager.register_agent_type(
+            "content_writer",
+            lambda: EnhancedContentWriterAgent(),
+            AgentPoolConfig(
+                agent_type="content_writer",
+                factory=lambda: EnhancedContentWriterAgent(),
+                min_instances=1,
+                max_instances=3,
+                strategy=AgentPoolStrategy.EAGER,
+                warmup_on_startup=True,
+                content_types=[ContentType.EXECUTIVE_SUMMARY, ContentType.EXPERIENCE],
+                priority=1
+            )
+        )
+        
+        # Register CV analysis agent with adaptive strategy
+        self.lifecycle_manager.register_agent_type(
+            "cv_analysis",
+            lambda: get_agent("cv_analysis"),
+            AgentPoolConfig(
+                agent_type="cv_analysis",
+                factory=lambda: get_agent("cv_analysis"),
+                min_instances=0,
+                max_instances=2,
+                strategy=AgentPoolStrategy.ADAPTIVE,
+                content_types=[ContentType.ANALYSIS],
+                priority=2
+            )
+        )
+        
+        # Register CV parser with lazy strategy
+        self.lifecycle_manager.register_agent_type(
+            "cv_parser",
+            lambda: get_agent("cv_parser"),
+            AgentPoolConfig(
+                agent_type="cv_parser",
+                factory=lambda: get_agent("cv_parser"),
+                min_instances=0,
+                max_instances=2,
+                strategy=AgentPoolStrategy.LAZY,
+                content_types=[ContentType.ANALYSIS],
+                priority=3
+            )
+        )
+        
+        # Register content optimization agent
+        self.lifecycle_manager.register_agent_type(
+            "content_optimization",
+            lambda: get_agent("content_optimization"),
+            AgentPoolConfig(
+                agent_type="content_optimization",
+                factory=lambda: get_agent("content_optimization"),
+                min_instances=0,
+                max_instances=2,
+                strategy=AgentPoolStrategy.ADAPTIVE,
+                content_types=[ContentType.SKILLS, ContentType.ACHIEVEMENT],
+                priority=2
+            )
+        )
+        
+        # Register quality assurance agent
+        self.lifecycle_manager.register_agent_type(
+            "quality_assurance",
+            lambda: get_agent("quality_assurance"),
+            AgentPoolConfig(
+                agent_type="quality_assurance",
+                factory=lambda: get_agent("quality_assurance"),
+                min_instances=0,
+                max_instances=1,
+                strategy=AgentPoolStrategy.LAZY,
+                content_types=[ContentType.QUALITY_CHECK],
+                priority=4
+            )
+        )
+        
+        # Warm up pools for eager agents
+        self.lifecycle_manager.warmup_pools()
     
     def register_agent(
         self,
         agent_type: str,
         agent_factory: Callable[[], EnhancedAgentBase],
-        preinstantiate: bool = False
+        config: Optional[AgentPoolConfig] = None
     ):
-        """Register a new agent type."""
-        self.agent_factories[agent_type] = agent_factory
+        """Register a new agent type with the lifecycle manager."""
+        if config is None:
+            config = AgentPoolConfig(
+                agent_type=agent_type,
+                factory=agent_factory,
+                strategy=AgentPoolStrategy.LAZY
+            )
         
-        if preinstantiate:
-            self.agents[agent_type] = agent_factory()
-        
-        logger.info("Agent registered", agent_type=agent_type, preinstantiated=preinstantiate)
+        self.lifecycle_manager.register_agent_type(agent_type, agent_factory, config)
+        logger.info("Agent registered", agent_type=agent_type, strategy=config.strategy.value)
     
-    def get_agent(self, agent_type: str) -> Optional[EnhancedAgentBase]:
-        """Get an agent instance, creating it if necessary."""
-        if agent_type not in self.agents:
-            if agent_type in self.agent_factories:
-                self.agents[agent_type] = self.agent_factories[agent_type]()
+    def get_agent(self, agent_type: str, content_type: Optional[ContentType] = None) -> Optional[ManagedAgent]:
+        """Get a managed agent instance from the lifecycle manager."""
+        try:
+            managed_agent = self.lifecycle_manager.get_agent(
+                agent_type=agent_type,
+                session_id=self.session_id,
+                content_type=content_type
+            )
+            
+            if managed_agent:
+                # Update usage statistics
+                if agent_type not in self.stats["agent_usage_count"]:
+                    self.stats["agent_usage_count"][agent_type] = 0
+                self.stats["agent_usage_count"][agent_type] += 1
+                
+                logger.debug("Agent retrieved", agent_type=agent_type, 
+                           session_id=self.session_id, content_type=content_type)
+                return managed_agent
             else:
-                logger.error("Unknown agent type", agent_type=agent_type)
+                logger.warning("No available agent", agent_type=agent_type)
                 return None
-        
-        return self.agents[agent_type]
+                
+        except Exception as e:
+            self.error_handler.handle_error(
+                f"Failed to get agent {agent_type}: {str(e)}",
+                ErrorCategory.AGENT_LIFECYCLE,
+                ErrorSeverity.MEDIUM,
+                context=ErrorContext(
+                    session_id=self.session_id,
+                    additional_data={"agent_type": agent_type}
+                )
+            )
+            return None
     
     def create_task(
         self,
@@ -210,16 +323,17 @@ class AgentOrchestrator:
         priority: AgentPriority = AgentPriority.NORMAL,
         dependencies: Optional[List[str]] = None,
         timeout: Optional[timedelta] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        content_type: Optional[ContentType] = None
     ) -> AgentTask:
         """Create a new agent task."""
-        agent = self.get_agent(agent_type)
-        if not agent:
-            raise ValueError(f"Cannot create task for unknown agent type: {agent_type}")
+        managed_agent = self.get_agent(agent_type, content_type)
+        if not managed_agent:
+            raise ValueError(f"Cannot create task for agent type: {agent_type}")
         
         task = AgentTask(
             agent_type=agent_type,
-            agent_instance=agent,
+            agent_instance=managed_agent.instance,
             context=context,
             priority=priority,
             dependencies=dependencies or [],
@@ -227,14 +341,42 @@ class AgentOrchestrator:
             metadata=metadata or {}
         )
         
+        # Store managed agent reference for cleanup
+        task.metadata["managed_agent"] = managed_agent
+        
         logger.debug(
             "Agent task created",
             task_id=task.id,
             agent_type=agent_type,
-            priority=priority.name
+            priority=priority.name,
+            content_type=content_type
         )
         
         return task
+    
+    def return_agent(self, managed_agent: ManagedAgent):
+        """Return a managed agent to the pool after use."""
+        try:
+            self.lifecycle_manager.return_agent(managed_agent)
+            logger.debug("Agent returned to pool", agent_type=managed_agent.config.agent_type)
+        except Exception as e:
+            self.error_handler.handle_error(
+                f"Failed to return agent to pool: {str(e)}",
+                ErrorCategory.AGENT_LIFECYCLE,
+                ErrorSeverity.LOW,
+                context=ErrorContext(
+                    additional_data={"agent_type": managed_agent.config.agent_type}
+                )
+            )
+    
+    def cleanup_task_agents(self, tasks: List[AgentTask]):
+        """Clean up agents used by completed tasks."""
+        for task in tasks:
+            managed_agent = task.metadata.get("managed_agent")
+            if managed_agent and isinstance(managed_agent, ManagedAgent):
+                self.return_agent(managed_agent)
+                # Remove reference to prevent memory leaks
+                task.metadata.pop("managed_agent", None)
     
     def create_plan(
         self,
@@ -329,7 +471,11 @@ class AgentOrchestrator:
                 }
             )
             
-            # Clean up
+            # Clean up agents
+            all_tasks = completed_tasks + failed_tasks
+            self.cleanup_task_agents(all_tasks)
+            
+            # Clean up plan
             if plan.id in self.active_plans:
                 del self.active_plans[plan.id]
             
@@ -367,7 +513,10 @@ class AgentOrchestrator:
             
             self.execution_history.append(result)
             
-            # Clean up
+            # Clean up agents from failed tasks
+            self.cleanup_task_agents(plan.tasks)
+            
+            # Clean up plan
             if plan.id in self.active_plans:
                 del self.active_plans[plan.id]
             
@@ -724,13 +873,47 @@ class AgentOrchestrator:
     
     def get_orchestrator_stats(self) -> Dict[str, Any]:
         """Get orchestrator performance statistics."""
+        lifecycle_stats = self.lifecycle_manager.get_statistics()
+        
         return {
             **self.stats,
             "active_plans": len(self.active_plans),
             "execution_history_count": len(self.execution_history),
-            "available_agents": list(self.agents.keys()),
-            "registered_agent_types": list(self.agent_factories.keys())
+            "lifecycle_manager_stats": lifecycle_stats,
+            "container_stats": self.container.get_statistics()
         }
+    
+    def shutdown(self):
+        """Shutdown the orchestrator and clean up resources."""
+        try:
+            # Clean up any active tasks
+            for plan in self.active_plans.values():
+                self.cleanup_task_agents(plan.tasks)
+            
+            # Dispose session agents
+            self.lifecycle_manager.dispose_session_agents(self.session_id)
+            
+            # Clear active plans
+            self.active_plans.clear()
+            
+            logger.info("Agent orchestrator shutdown completed", session_id=self.session_id)
+            
+        except Exception as e:
+            self.error_handler.handle_error(
+                f"Error during orchestrator shutdown: {str(e)}",
+                ErrorCategory.AGENT_LIFECYCLE,
+                ErrorSeverity.MEDIUM,
+                context=ErrorContext(
+                    session_id=self.session_id
+                )
+            )
+    
+    def __del__(self):
+        """Destructor to ensure cleanup."""
+        try:
+            self.shutdown()
+        except Exception:
+            pass  # Ignore errors during destruction
     
     async def cancel_plan(self, plan_id: str) -> bool:
         """Cancel an active orchestration plan."""
