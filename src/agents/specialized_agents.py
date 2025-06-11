@@ -60,7 +60,34 @@ class CVAnalysisAgent(EnhancedAgentBase):
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Analyze CV content against job requirements."""
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
         try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('cv_analyzer', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                self.logger.info("Input validation passed for CVAnalysisAgent")
+            except ValidationError as ve:
+                self.logger.error(f"Input validation failed for CVAnalysisAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"analysis_type": "cv_job_match", "validation_error": True}
+                )
+            except Exception as e:
+                self.logger.error(f"Input validation error for CVAnalysisAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"analysis_type": "cv_job_match", "validation_error": True}
+                )
+            
             # Debug logging to understand the input_data type and content
             self.logger.info(f"CVAnalysisAgent received input_data type: {type(input_data)}")
             self.logger.info(f"CVAnalysisAgent received input_data: {str(input_data)[:500]}")
@@ -307,7 +334,35 @@ class ContentOptimizationAgent(EnhancedAgentBase):
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Optimize content items for better performance."""
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
         try:
+            # Validate input data using Pydantic schemas
+            try:
+                # Use enhanced_content_writer schema as it's the closest match for content optimization
+                validated_input = validate_agent_input('enhanced_content_writer', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for ContentOptimizationAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for ContentOptimizationAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"optimization_type": "content", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for ContentOptimizationAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"optimization_type": "content", "validation_error": True}
+                )
+            
             content_items = input_data.get("content_items", [])
             job_requirements = input_data.get("job_requirements", {})
             optimization_goals = input_data.get("optimization_goals", [])
@@ -468,7 +523,35 @@ class QualityAssuranceAgent(EnhancedAgentBase):
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Perform quality assurance on content items."""
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
         try:
+            # Validate input data using Pydantic schemas
+            try:
+                # Use quality_assurance_agent schema for validation
+                validated_input = validate_agent_input('quality_assurance_agent', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for QualityAssuranceAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for QualityAssuranceAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"qa_type": "specialized", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for QualityAssuranceAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"qa_type": "specialized", "validation_error": True}
+                )
+            
             content_items = input_data.get("content_items", [])
             quality_criteria = input_data.get("quality_criteria", {})
             
@@ -663,7 +746,35 @@ class EnhancedParserAgent(EnhancedAgentBase):
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Run the parser agent asynchronously."""
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
         try:
+            # Validate input data using Pydantic schemas
+            try:
+                # Use parser_agent schema for validation
+                validated_input = validate_agent_input('parser_agent', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for EnhancedParserAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for EnhancedParserAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "enhanced_parser", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for EnhancedParserAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "enhanced_parser", "validation_error": True}
+                )
+            
             # Convert input data to the format expected by ParserAgent
             parser_input = {}
             

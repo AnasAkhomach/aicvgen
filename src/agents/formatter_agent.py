@@ -98,6 +98,53 @@ class FormatterAgent(AgentBase):
 
         print("Completed: %s (Simulated Formatting)", self.name)
         return {"formatted_cv_text": formatted_text}
+    
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """Async run method for consistency with enhanced agent interface."""
+        from .agent_base import AgentResult
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
+        try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('formatter', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+            except ValidationError as ve:
+                return AgentResult(
+                    success=False,
+                    output_data={"formatted_cv_text": "# Validation Error\n\nInput data validation failed."},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "formatter", "validation_error": True}
+                )
+            except Exception as e:
+                return AgentResult(
+                    success=False,
+                    output_data={"formatted_cv_text": "# Validation Error\n\nInput data validation failed."},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "formatter", "validation_error": True}
+                )
+            
+            # Use the existing run method for the actual processing
+            result = self.run(input_data)
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "formatter"}
+            )
+            
+        except Exception as e:
+            return AgentResult(
+                success=False,
+                output_data={"formatted_cv_text": "# Error formatting CV\n\nAn error occurred during formatting."},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "formatter"}
+            )
 
     def format_content(
         self, content_data: ContentData, specifications: Optional[Dict[str, Any]] = None

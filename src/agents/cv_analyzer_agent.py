@@ -1,5 +1,6 @@
 from src.agents.agent_base import AgentBase
-from src.core.state_manager import AgentIO, CVData, JobDescriptionData
+from src.core.state_manager import AgentIO, CVData
+from src.models.data_models import JobDescriptionData
 from typing import Dict, Any, List
 from src.services.llm import LLM  # Import LLM
 from src.config.logging_config import get_logger
@@ -242,8 +243,34 @@ class CVAnalyzerAgent(AgentBase):
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
+        from src.models.validation_schemas import validate_agent_input, ValidationError
         
         try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('cv_analyzer', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for CVAnalyzerAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for CVAnalyzerAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "cv_analyzer", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for CVAnalyzerAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "cv_analyzer", "validation_error": True}
+                )
+            
             # Use the existing run method for the actual processing
             result = self.run(input_data)
             

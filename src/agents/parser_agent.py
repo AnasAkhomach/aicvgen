@@ -1,7 +1,7 @@
 from src.agents.agent_base import AgentBase
 from src.services.llm import LLM
-from src.core.state_manager import (
-    AgentIO,
+from src.core.state_manager import AgentIO
+from src.models.data_models import (
     JobDescriptionData,
     StructuredCV,
     Section,
@@ -104,8 +104,34 @@ class ParserAgent(AgentBase):
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
+        from src.models.validation_schemas import validate_agent_input, ValidationError
         
         try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('parser', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for ParserAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for ParserAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "parser", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for ParserAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "parser", "validation_error": True}
+                )
+            
             # Use the existing run method for the actual processing
             result = await self.run(input_data)
             
@@ -172,10 +198,10 @@ class ParserAgent(AgentBase):
 
             # Try to parse the JSON response
             # Handle potential non-JSON prefix by looking for the first {
-            if response and "{" in response:
-                json_start = response.find("{")
-                json_end = response.rfind("}") + 1
-                json_str = response[json_start:json_end]
+            if response and response.content and "{" in response.content:
+                json_start = response.content.find("{")
+                json_end = response.content.rfind("}") + 1
+                json_str = response.content[json_start:json_end]
                 parsed_data = json.loads(json_str)
 
                 # Create JobDescriptionData from parsed JSON
@@ -190,7 +216,7 @@ class ParserAgent(AgentBase):
                 self._job_data = job_data
                 return job_data
             else:
-                logger.error("Failed to parse LLM response as JSON: " + response[:200] + "...")
+                logger.error("Failed to parse LLM response as JSON: " + (response.content[:200] if response and response.content else "No content") + "...")
                 # Return a default object for failed parsing
                 job_data = JobDescriptionData(
                     raw_text=raw_text,
@@ -206,8 +232,19 @@ class ParserAgent(AgentBase):
 
         except Exception as e:
             logger.error(f"Error in parse_job_description: {str(e)}")
-            # Re-raise the exception to ensure proper error propagation
-            raise e
+            # Return a default JobDescriptionData object instead of raising exception
+            # to prevent downstream AttributeError in EnhancedContentWriterAgent
+            job_data = JobDescriptionData(
+                raw_text=raw_text,
+                skills=[],
+                experience_level="N/A",
+                responsibilities=[],
+                industry_terms=[],
+                company_values=[],
+                error=f"Parsing failed: {str(e)}",
+            )
+            self._job_data = job_data
+            return job_data
 
     def parse_cv_text(self, cv_text: str, job_data: JobDescriptionData) -> StructuredCV:
         """

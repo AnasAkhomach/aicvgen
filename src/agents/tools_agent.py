@@ -32,13 +32,67 @@ class ToolsAgent(AgentBase):
             ),
         )
 
-    def run(self, input: Any) -> Any:
-        """
-        The main run method for the agent (might not be used directly if methods are called).
-        """
-        raise NotImplementedError(
-            "ToolsAgent methods should be called directly (e.g., format_text, validate_content)."
-        )
+    def run(self, input_data: Any) -> Dict[str, Any]:
+        """Run the tools agent."""
+        raise NotImplementedError("ToolsAgent.run() must be implemented by subclasses")
+    
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """Async run method for consistency with enhanced agent interface."""
+        from .agent_base import AgentResult
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
+        try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('tools', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for ToolsAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for ToolsAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "tools", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for ToolsAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "tools", "validation_error": True}
+                )
+            
+            # Use the existing run method for the actual processing
+            result = self.run(input_data)
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "tools"}
+            )
+            
+        except NotImplementedError as e:
+            return AgentResult(
+                success=False,
+                output_data={"error": "ToolsAgent not implemented"},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "tools"}
+            )
+        except Exception as e:
+            return AgentResult(
+                success=False,
+                output_data={"error": "Tools agent execution failed"},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "tools"}
+            )
 
     def format_text(self, text: str, format_type: str = "markdown") -> str:
         """

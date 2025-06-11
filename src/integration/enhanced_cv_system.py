@@ -15,6 +15,7 @@ from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..services.error_recovery import get_error_recovery_service, RecoveryStrategy
+from ..utils.security_utils import redact_sensitive_data
 
 # Enhanced CV system imports
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
@@ -119,9 +120,11 @@ class EnhancedCVIntegration:
     def _initialize_components(self):
         """Initialize all enhanced CV system components."""
         try:
+            # Redact sensitive data from config before logging
+            redacted_config = redact_sensitive_data(self.config.to_dict())
             self.logger.info("Initializing enhanced CV system components", extra={
                 "mode": self.config.mode.value,
-                "config": self.config.to_dict()
+                "config": redacted_config
             })
 
             # Initialize template manager

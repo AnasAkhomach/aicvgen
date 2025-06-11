@@ -11,11 +11,13 @@ from src.models.data_models import ContentType, ProcessingStatus
 from src.config.logging_config import get_structured_logger
 from src.config.settings import get_config
 from src.core.state_manager import (
-    JobDescriptionData,
     ContentData,
     AgentIO,
     ExperienceEntry,
     CVData,
+)
+from src.models.data_models import (
+    JobDescriptionData,
     StructuredCV,
     Section,
     Subsection,
@@ -83,19 +85,41 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Enhanced async content generation with structured processing."""
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
         try:
             # Use provided input_data or fallback to context.input_data
             if input_data is None:
                 input_data = context.input_data or {}
             
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('enhanced_content_writer', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for EnhancedContentWriter")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for EnhancedContentWriter: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": "Input validation failed"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "enhanced_content_writer", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for EnhancedContentWriter: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"error": "Input validation error"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "enhanced_content_writer", "validation_error": True}
+                )
+            
             # Debug: Log input_data type and content
             logger.info(f"EnhancedContentWriter received input_data type: {type(input_data)}")
             logger.info(f"EnhancedContentWriter received input_data: {input_data}")
-            
-            # Check if input_data is a string (which shouldn't happen)
-            if isinstance(input_data, str):
-                logger.error(f"EnhancedContentWriter received string input_data instead of dict: {input_data}")
-                raise ValueError(f"Expected dict input_data, got string: {input_data}")
             
             # Extract and validate input data with enhanced defensive programming
             job_data = input_data.get("job_description_data", {})
@@ -337,6 +361,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     ) -> str:
         """Build a specialized prompt based on content type."""
         
+        # Defensive programming: Ensure job_data is a dictionary
+        if not isinstance(job_data, dict):
+            logger.error(f"Expected job_data to be a dict, but got {type(job_data)}. Input (first 200 chars): {str(job_data)[:200]}")
+            # Fallback to an empty dictionary to prevent AttributeError and allow graceful degradation
+            job_data = {}
+        
         template = self.content_templates.get(
             content_type, 
             self.content_templates[ContentType.QUALIFICATION]
@@ -386,6 +416,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         generation_context: Dict[str, Any]
     ) -> str:
         """Build prompt specifically for experience content using resume_role_prompt template."""
+        
+        # Defensive programming: Ensure job_data is a dictionary
+        if not isinstance(job_data, dict):
+            logger.error(f"Expected job_data to be a dict, but got {type(job_data)}. Input (first 200 chars): {str(job_data)[:200]}")
+            # Fallback to an empty dictionary to prevent AttributeError and allow graceful degradation
+            job_data = {}
         
         # Handle case where content_item might be a string (from data adapter)
         if isinstance(content_item, str):

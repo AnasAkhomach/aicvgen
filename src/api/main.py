@@ -13,7 +13,8 @@ import sys
 import time
 
 # Import core components
-from src.core.state_manager import StateManager, ItemStatus
+from src.core.state_manager import StateManager
+from src.models.data_models import ItemStatus
 from src.core.enhanced_orchestrator import EnhancedOrchestrator
 from src.services.llm import LLM
 from src.agents.parser_agent import ParserAgent

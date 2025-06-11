@@ -133,6 +133,105 @@ class QualityAssuranceAgent(AgentBase):
             "quality_check_results": check_results,
             "updated_structured_cv": structured_cv,
         }
+    
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """Async run method for consistency with enhanced agent interface."""
+        from .agent_base import AgentResult
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
+        try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('quality_assurance', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for QualityAssuranceAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for QualityAssuranceAgent: {ve.message}")
+                fallback_result = {
+                    "quality_check_results": {
+                        "error": f"Input validation failed: {ve.message}",
+                        "item_checks": [],
+                        "section_checks": [],
+                        "overall_checks": [],
+                        "summary": {
+                            "total_items": 0,
+                            "passed_items": 0,
+                            "warning_items": 0,
+                            "failed_items": 0,
+                        }
+                    },
+                    "updated_structured_cv": None
+                }
+                return AgentResult(
+                    success=False,
+                    output_data=fallback_result,
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "quality_assurance", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for QualityAssuranceAgent: {str(e)}")
+                fallback_result = {
+                    "quality_check_results": {
+                        "error": f"Input validation error: {str(e)}",
+                        "item_checks": [],
+                        "section_checks": [],
+                        "overall_checks": [],
+                        "summary": {
+                            "total_items": 0,
+                            "passed_items": 0,
+                            "warning_items": 0,
+                            "failed_items": 0,
+                        }
+                    },
+                    "updated_structured_cv": None
+                }
+                return AgentResult(
+                    success=False,
+                    output_data=fallback_result,
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "quality_assurance", "validation_error": True}
+                )
+            
+            # Use the existing run method for the actual processing
+            result = self.run(input_data)
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "quality_assurance"}
+            )
+            
+        except Exception as e:
+            logger.error(f"QualityAssuranceAgent error: {str(e)}")
+            
+            # Return error result with fallback empty results
+            fallback_result = {
+                "quality_check_results": {
+                    "error": str(e),
+                    "item_checks": [],
+                    "section_checks": [],
+                    "overall_checks": [],
+                    "summary": {
+                        "total_items": 0,
+                        "passed_items": 0,
+                        "warning_items": 0,
+                        "failed_items": 0,
+                    }
+                },
+                "updated_structured_cv": input_data.get("structured_cv") if isinstance(input_data, dict) else None
+            }
+            
+            return AgentResult(
+                success=False,
+                output_data=fallback_result,
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "quality_assurance"}
+            )
 
     def _extract_key_terms(self, job_description_data: Dict[str, Any]) -> Dict[str, List[str]]:
         """

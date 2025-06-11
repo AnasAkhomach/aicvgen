@@ -168,6 +168,93 @@ class ResearchAgent(AgentBase):
 
         self._latest_research_results = research_results
         return research_results
+    
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """Async run method for consistency with enhanced agent interface."""
+        from .agent_base import AgentResult
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
+        try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('research', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for ResearchAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for ResearchAgent: {ve.message}")
+                fallback_result = {
+                    "research_results": {
+                        "error": f"Input validation failed: {ve.message}",
+                        "company_info": {},
+                        "industry_trends": [],
+                        "role_insights": {},
+                        "skill_requirements": [],
+                        "market_data": {}
+                    },
+                    "enhanced_job_description": None
+                }
+                return AgentResult(
+                    success=False,
+                    output_data=fallback_result,
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "research", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for ResearchAgent: {str(e)}")
+                fallback_result = {
+                    "research_results": {
+                        "error": f"Input validation error: {str(e)}",
+                        "company_info": {},
+                        "industry_trends": [],
+                        "role_insights": {},
+                        "skill_requirements": [],
+                        "market_data": {}
+                    },
+                    "enhanced_job_description": None
+                }
+                return AgentResult(
+                    success=False,
+                    output_data=fallback_result,
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "research", "validation_error": True}
+                )
+            
+            # Use the existing run method for the actual processing
+            result = self.run(input_data)
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "research"}
+            )
+            
+        except Exception as e:
+            logger.error(f"ResearchAgent error: {str(e)}")
+            
+            # Return error result with fallback empty results
+            fallback_result = {
+                "research_results": {
+                    "error": str(e),
+                    "company_info": {},
+                    "industry_trends": [],
+                    "role_insights": {},
+                    "skill_requirements": [],
+                    "market_data": {}
+                },
+                "enhanced_job_description": input_data.get("job_description") if isinstance(input_data, dict) else None
+            }
+            
+            return AgentResult(
+                success=False,
+                output_data=fallback_result,
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "research"}
+            )
 
     def get_research_results(self) -> Dict[str, Any]:
         """

@@ -136,3 +136,59 @@ class VectorStoreAgent(AgentBase):
         """
         # Ignore thread_id parameter as we're just using a simple in-memory state
         return self.last_saved_state
+    
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """Async run method for consistency with enhanced agent interface."""
+        from .agent_base import AgentResult
+        from src.models.validation_schemas import validate_agent_input, ValidationError
+        
+        try:
+            # Validate input data using Pydantic schemas
+            try:
+                validated_input = validate_agent_input('vector_store', input_data)
+                # Convert validated Pydantic model back to dict for processing
+                input_data = validated_input.model_dump()
+                logger.info("Input validation passed for VectorStoreAgent")
+            except ValidationError as ve:
+                logger.error(f"Input validation failed for VectorStoreAgent: {ve.message}")
+                return AgentResult(
+                    success=False,
+                    output_data={"status": "error", "vector_store_initialized": False, "error": f"Input validation failed: {ve.message}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation failed: {ve.message}",
+                    metadata={"agent_type": "vector_store", "validation_error": True}
+                )
+            except Exception as e:
+                logger.error(f"Input validation error for VectorStoreAgent: {str(e)}")
+                return AgentResult(
+                    success=False,
+                    output_data={"status": "error", "vector_store_initialized": False, "error": f"Input validation error: {str(e)}"},
+                    confidence_score=0.0,
+                    error_message=f"Input validation error: {str(e)}",
+                    metadata={"agent_type": "vector_store", "validation_error": True}
+                )
+            
+            # VectorStoreAgent doesn't have a traditional run method
+            # Instead, it provides search and storage functionality
+            # We'll return a success result indicating the agent is ready
+            result = {
+                "status": "ready",
+                "vector_store_initialized": True,
+                "available_operations": ["search", "add_experiences", "search_experiences"]
+            }
+            
+            return AgentResult(
+                success=True,
+                output_data=result,
+                confidence_score=1.0,
+                metadata={"agent_type": "vector_store"}
+            )
+            
+        except Exception as e:
+            return AgentResult(
+                success=False,
+                output_data={"status": "error", "vector_store_initialized": False},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "vector_store"}
+            )

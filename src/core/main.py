@@ -100,7 +100,12 @@ from src.core.state_manager import (
     CVData,
     WorkflowState,
     StateManager,
+)
+from src.models.data_models import (
+    JobDescriptionData,
+    StructuredCV,
     Section,
+    Subsection,
     Item,
 )
 from src.services.llm import LLM

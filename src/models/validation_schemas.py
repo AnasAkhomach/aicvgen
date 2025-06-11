@@ -229,6 +229,96 @@ class ContentWriterInputSchema(AgentInputSchema):
     research_results: Optional[Dict[str, Any]] = Field(None, description="Research results")
 
 
+class EnhancedContentWriterInputSchema(AgentInputSchema):
+    """Validation schema for Enhanced Content Writer Agent inputs."""
+    job_description_data: Dict[str, Any] = Field(..., description="Job description data")
+    content_item: Dict[str, Any] = Field(..., description="Content item to process")
+    context: Dict[str, Any] = Field(default_factory=dict, description="Additional context")
+
+    @field_validator('job_description_data')
+    @classmethod
+    def validate_job_description_data(cls, v):
+        """Validate job description data structure."""
+        if isinstance(v, str):
+            return {"raw_text": v, "skills": [], "experience_level": "N/A", 
+                   "responsibilities": [], "industry_terms": [], "company_values": []}
+        elif isinstance(v, dict):
+            required_fields = ["raw_text", "skills", "experience_level", "responsibilities", "industry_terms", "company_values"]
+            for field in required_fields:
+                if field not in v:
+                    if field == "raw_text":
+                        v[field] = v.get("description", "")
+                    elif field == "experience_level":
+                        v[field] = "N/A"
+                    else:
+                        v[field] = []
+        return v
+
+    @field_validator('content_item')
+    @classmethod
+    def validate_content_item(cls, v):
+        """Validate content item structure."""
+        if not isinstance(v, dict):
+            raise ValueError("Content item must be a dictionary")
+        required_fields = ["id", "type", "content"]
+        for field in required_fields:
+            if field not in v:
+                raise ValueError(f"Content item missing required field: {field}")
+        return v
+
+
+class FormatterAgentInputSchema(AgentInputSchema):
+    """Validation schema for Formatter Agent inputs."""
+    content_data: Dict[str, Any] = Field(..., description="Content data to format")
+    format_specifications: Optional[Dict[str, Any]] = Field(None, description="Formatting specifications")
+
+    @field_validator('content_data')
+    @classmethod
+    def validate_content_data(cls, v):
+        """Validate content data structure."""
+        if not isinstance(v, dict):
+            raise ValueError("Content data must be a dictionary")
+        return v
+
+
+class QualityAssuranceAgentInputSchema(AgentInputSchema):
+    """Validation schema for Quality Assurance Agent inputs."""
+    content_data: Dict[str, Any] = Field(..., description="Content data to review")
+    quality_criteria: Optional[Dict[str, Any]] = Field(None, description="Quality criteria")
+    job_description_data: Optional[Dict[str, Any]] = Field(None, description="Job description for context")
+
+
+class ResearchAgentInputSchema(AgentInputSchema):
+    """Validation schema for Research Agent inputs."""
+    query: str = Field(..., min_length=1, description="Research query")
+    context: Optional[Dict[str, Any]] = Field(None, description="Research context")
+    max_results: Optional[int] = Field(10, ge=1, le=100, description="Maximum number of results")
+
+
+class ToolsAgentInputSchema(AgentInputSchema):
+    """Validation schema for Tools Agent inputs."""
+    tool_name: str = Field(..., min_length=1, description="Name of tool to execute")
+    tool_parameters: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters")
+    execution_context: Optional[Dict[str, Any]] = Field(None, description="Execution context")
+
+
+class VectorStoreAgentInputSchema(AgentInputSchema):
+    """Validation schema for Vector Store Agent inputs."""
+    operation: str = Field(..., description="Operation to perform (search, store, update, delete)")
+    data: Optional[Dict[str, Any]] = Field(None, description="Data for the operation")
+    query: Optional[str] = Field(None, description="Query for search operations")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata for operations")
+
+    @field_validator('operation')
+    @classmethod
+    def validate_operation(cls, v):
+        """Validate operation type."""
+        valid_operations = ["search", "store", "update", "delete"]
+        if v.lower() not in valid_operations:
+            raise ValueError(f"Operation must be one of: {valid_operations}")
+        return v.lower()
+
+
 class AgentResultSchema(BaseModel):
     """Validation schema for agent results."""
     success: bool = Field(..., description="Whether the operation was successful")
@@ -316,7 +406,12 @@ def validate_agent_input(agent_type: str, input_data: Any) -> BaseModel:
         'parser': ParserAgentInputSchema,
         'cv_analyzer': CVAnalyzerInputSchema,
         'content_writer': ContentWriterInputSchema,
-        'enhanced_content_writer': ContentWriterInputSchema,
+        'enhanced_content_writer': EnhancedContentWriterInputSchema,
+        'formatter': FormatterAgentInputSchema,
+        'quality_assurance': QualityAssuranceAgentInputSchema,
+        'research': ResearchAgentInputSchema,
+        'tools': ToolsAgentInputSchema,
+        'vector_store': VectorStoreAgentInputSchema,
     }
     
     schema_class = schema_mapping.get(agent_type.lower())

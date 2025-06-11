@@ -86,37 +86,69 @@ class StructuredLogger:
         else:
             self.rate_limit_logger.info(json.dumps(log_entry))
     
-    def info(self, message: str, **kwargs):
+    def info(self, message: str, extra=None, **kwargs):
         """Log info message with optional structured data."""
+        # Handle both extra parameter and kwargs
+        log_data = {}
+        if extra:
+            log_data.update(extra)
         if kwargs:
-            safe_kwargs = redact_sensitive_data(kwargs)
-            message = f"{message} | {json.dumps(safe_kwargs)}"
-        safe_message = redact_log_message(message)
-        self.logger.info(safe_message)
+            log_data.update(kwargs)
+        
+        if log_data:
+            safe_log_data = redact_sensitive_data(log_data)
+            self.logger.info(message, extra=safe_log_data)
+        else:
+            safe_message = redact_log_message(message)
+            self.logger.info(safe_message)
     
-    def error(self, message: str, **kwargs):
+    def error(self, message: str, extra=None, **kwargs):
         """Log error message with optional structured data."""
+        # Handle both extra parameter and kwargs
+        log_data = {}
+        if extra:
+            log_data.update(extra)
         if kwargs:
-            safe_kwargs = redact_sensitive_data(kwargs)
-            message = f"{message} | {json.dumps(safe_kwargs)}"
-        safe_message = redact_log_message(message)
-        self.logger.error(safe_message)
+            log_data.update(kwargs)
+        
+        if log_data:
+            safe_log_data = redact_sensitive_data(log_data)
+            self.logger.error(message, extra=safe_log_data)
+        else:
+            safe_message = redact_log_message(message)
+            self.logger.error(safe_message)
     
-    def warning(self, message: str, **kwargs):
+    def warning(self, message: str, extra=None, **kwargs):
         """Log warning message with optional structured data."""
+        # Handle both extra parameter and kwargs
+        log_data = {}
+        if extra:
+            log_data.update(extra)
         if kwargs:
-            safe_kwargs = redact_sensitive_data(kwargs)
-            message = f"{message} | {json.dumps(safe_kwargs)}"
-        safe_message = redact_log_message(message)
-        self.logger.warning(safe_message)
+            log_data.update(kwargs)
+        
+        if log_data:
+            safe_log_data = redact_sensitive_data(log_data)
+            self.logger.warning(message, extra=safe_log_data)
+        else:
+            safe_message = redact_log_message(message)
+            self.logger.warning(safe_message)
     
-    def debug(self, message: str, **kwargs):
+    def debug(self, message: str, extra=None, **kwargs):
         """Log debug message with optional structured data."""
+        # Handle both extra parameter and kwargs
+        log_data = {}
+        if extra:
+            log_data.update(extra)
         if kwargs:
-            safe_kwargs = redact_sensitive_data(kwargs)
-            message = f"{message} | {json.dumps(safe_kwargs)}"
-        safe_message = redact_log_message(message)
-        self.logger.debug(safe_message)
+            log_data.update(kwargs)
+        
+        if log_data:
+            safe_log_data = redact_sensitive_data(log_data)
+            self.logger.debug(message, extra=safe_log_data)
+        else:
+            safe_message = redact_log_message(message)
+            self.logger.debug(safe_message)
 
 
 def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True, config=None):
