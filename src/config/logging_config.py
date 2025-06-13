@@ -20,6 +20,78 @@ except ImportError:
         return message
 
 
+class SensitiveDataFilter(logging.Filter):
+    """Filter to redact sensitive data from log records before they are formatted."""
+    
+    def filter(self, record):
+        """Apply redaction to log record data.
+        
+        Args:
+            record: LogRecord instance
+            
+        Returns:
+            True to allow the record to be logged
+        """
+        # Redact sensitive data in record.args if present
+        if hasattr(record, 'args') and record.args:
+            if isinstance(record.args, (tuple, list)):
+                record.args = tuple(redact_sensitive_data(arg) for arg in record.args)
+            elif isinstance(record.args, dict):
+                record.args = redact_sensitive_data(record.args)
+        
+        # Redact sensitive data in record.extra if present
+        if hasattr(record, 'extra') and record.extra:
+            record.extra = redact_sensitive_data(record.extra)
+        
+        # Redact the message itself if it contains sensitive patterns
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            record.msg = redact_log_message(record.msg)
+        
+        return True
+
+
+class JsonFormatter(logging.Formatter):
+    """Custom JSON formatter for structured logging."""
+    
+    def format(self, record):
+        """Format log record as JSON.
+        
+        Args:
+            record: LogRecord instance
+            
+        Returns:
+            JSON-formatted log string
+        """
+        # Create base log entry
+        log_entry = {
+            'timestamp': self.formatTime(record),
+            'level': record.levelname,
+            'logger': record.name,
+            'message': record.getMessage(),
+            'module': record.module,
+            'function': record.funcName,
+            'line': record.lineno
+        }
+        
+        # Add exception info if present
+        if record.exc_info:
+            log_entry['exception'] = self.formatException(record.exc_info)
+        
+        # Add extra fields if present
+        if hasattr(record, 'extra') and record.extra:
+            log_entry['extra'] = record.extra
+        
+        # Add session_id if available in the record
+        if hasattr(record, 'session_id'):
+            log_entry['session_id'] = record.session_id
+        
+        try:
+            return json.dumps(log_entry, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            # Fallback to string representation if JSON serialization fails
+            return str(log_entry)
+
+
 @dataclass
 class LLMCallLog:
     """Structured log entry for LLM API calls."""
@@ -192,6 +264,10 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
     simple_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s'
     )
+    json_formatter = JsonFormatter()
+    
+    # Create sensitive data filter
+    sensitive_filter = SensitiveDataFilter()
     
     # Get root logger
     root_logger = logging.getLogger()
@@ -205,17 +281,19 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         console_handler = logging.StreamHandler()
         console_handler.setLevel(log_level)
         console_handler.setFormatter(simple_formatter)
+        console_handler.addFilter(sensitive_filter)  # Add filter to console
         root_logger.addHandler(console_handler)
     
     if log_to_file:
-        # Main application log (rotating)
+        # Main application log (rotating) - Use JSON formatting for structured logs
         app_handler = logging.handlers.RotatingFileHandler(
             logs_dir / "app.log",
             maxBytes=10*1024*1024,  # 10MB
             backupCount=5
         )
         app_handler.setLevel(log_level)
-        app_handler.setFormatter(detailed_formatter)
+        app_handler.setFormatter(json_formatter)  # Use JSON formatter for structured logging
+        app_handler.addFilter(sensitive_filter)  # Add sensitive data filter
         root_logger.addHandler(app_handler)
         
         # Error log (for ERROR and CRITICAL only)
@@ -226,6 +304,7 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         )
         error_handler.setLevel(logging.ERROR)
         error_handler.setFormatter(detailed_formatter)
+        error_handler.addFilter(sensitive_filter)  # Add sensitive data filter
         root_logger.addHandler(error_handler)
         
         # Debug log (for DEBUG level, separate file)
@@ -236,6 +315,7 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         )
         debug_handler.setLevel(logging.DEBUG)
         debug_handler.setFormatter(detailed_formatter)
+        debug_handler.addFilter(sensitive_filter)  # Add sensitive data filter
         
         # Only add debug handler if log level is DEBUG
         if log_level <= logging.DEBUG:
@@ -249,28 +329,31 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
                 backupCount=3
             )
             perf_handler.setLevel(logging.INFO)
-            perf_handler.setFormatter(detailed_formatter)
+            perf_handler.setFormatter(json_formatter)  # Use JSON formatter for structured performance logs
+            perf_handler.addFilter(sensitive_filter)  # Add sensitive data filter
             
             # Create performance logger
             perf_logger = logging.getLogger("performance")
             perf_logger.addHandler(perf_handler)
             perf_logger.setLevel(logging.INFO)
         
-        # Security log for authentication and authorization events
+        # Security log for authentication and authorization events - Use JSON formatting
         security_handler = logging.handlers.RotatingFileHandler(
             logs_dir / "security.log",
-            maxBytes=5*1024*1024,  # 5MB
+            maxBytes=10*1024*1024,  # 10MB
             backupCount=5
         )
-        security_handler.setLevel(logging.WARNING)
-        security_handler.setFormatter(detailed_formatter)
+        security_handler.setLevel(logging.INFO)
+        security_handler.setFormatter(json_formatter)  # Use JSON formatter for structured security logs
+        security_handler.addFilter(sensitive_filter)  # Add sensitive data filter
         
         # Create security logger
         security_logger = logging.getLogger("security")
         security_logger.addHandler(security_handler)
-        security_logger.setLevel(logging.WARNING)
+        security_logger.setLevel(logging.INFO)
+        security_logger.propagate = False  # Don't propagate to root logger
         
-        # LLM API calls log (structured JSON)
+        # LLM API calls log (structured JSON) - CRITICAL: Must filter sensitive data
         llm_handler = logging.handlers.RotatingFileHandler(
             logs_dir / "llm" / "llm_calls.log",
             maxBytes=50*1024*1024,  # 50MB
@@ -279,6 +362,7 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         llm_handler.setLevel(logging.INFO)
         llm_formatter = logging.Formatter('%(asctime)s - %(message)s')
         llm_handler.setFormatter(llm_formatter)
+        llm_handler.addFilter(sensitive_filter)  # CRITICAL: Filter API keys and sensitive data
         
         # Add LLM handler to all LLM loggers
         llm_logger = logging.getLogger('llm')
@@ -294,6 +378,7 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         )
         rate_limit_handler.setLevel(logging.INFO)
         rate_limit_handler.setFormatter(llm_formatter)
+        rate_limit_handler.addFilter(sensitive_filter)  # Add sensitive data filter
         
         # Add rate limit handler
         rate_limit_logger = logging.getLogger('rate_limit')

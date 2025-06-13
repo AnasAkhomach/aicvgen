@@ -17,6 +17,8 @@ import time
 import logging
 import json
 import os
+import asyncio
+from src.orchestration.state import AgentState
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -586,3 +588,55 @@ class ResearchAgent(AgentBase):
                 "Customer experience enhancement",
             ],
         }
+    
+    def run_as_node(self, state: AgentState) -> dict:
+        """
+        Executes the research logic as a LangGraph node.
+        
+        Args:
+            state: The current state of the workflow.
+            
+        Returns:
+            A dictionary containing research findings.
+        """
+        logger.info("ResearchAgent node running.")
+        cv = state.structured_cv
+        job_data = state.job_description_data
+        
+        if not cv or not job_data:
+            logger.warning("Research agent called without required CV or job data.")
+            return {}
+        
+        try:
+            # Create execution context for the async method
+            context = AgentExecutionContext(
+                session_id="langraph_session",
+                input_data={
+                    "structured_cv": cv.model_dump(),
+                    "job_description_data": job_data.model_dump()
+                }
+            )
+            
+            # Call the existing async method
+            result = asyncio.run(self.run_async(None, context))
+            
+            if result.success:
+                # Extract research findings
+                research_data = result.output_data.get("research_findings", {})
+                
+                # Store research findings in state
+                current_findings = state.research_findings or {}
+                current_findings.update(research_data)
+                
+                return {"research_findings": current_findings}
+            
+            # If not successful, add error to state
+            error_list = state.error_messages or []
+            error_list.append(f"Research Error: {result.error_message}")
+            return {"error_messages": error_list}
+            
+        except Exception as e:
+            logger.error(f"Error in Research node: {e}", exc_info=True)
+            error_list = state.error_messages or []
+            error_list.append(f"Research Error: {e}")
+            return {"error_messages": error_list}

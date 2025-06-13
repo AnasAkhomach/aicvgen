@@ -28,6 +28,9 @@ class ContentAggregator:
         # Initialize empty ContentData structure
         self.base_structure = {
             'summary': '',
+            'key_qualifications': '',  # Big 10 skills formatted for display
+            'big_10_skills': [],  # Raw Big 10 skills list
+            'big_10_skills_raw_output': '',  # Raw LLM output for transparency
             'experience_bullets': [],
             'skills_section': '',
             'projects': [],
@@ -37,11 +40,12 @@ class ContentAggregator:
             'contact_info': {}
         }
     
-    def aggregate_results(self, task_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def aggregate_results(self, task_results: List[Dict[str, Any]], state_manager=None) -> Dict[str, Any]:
         """Aggregate task results into a complete ContentData structure.
         
         Args:
             task_results: List of task results from various agents
+            state_manager: Optional state manager to get Big 10 skills data
             
         Returns:
             Dictionary containing aggregated CV content in ContentData format
@@ -72,6 +76,10 @@ class ContentAggregator:
             except Exception as e:
                 logger.error(f"Error processing result {i}: {e}")
                 continue
+        
+        # Populate Big 10 skills from state manager if available
+        if state_manager:
+            self._populate_big_10_skills(content_data, state_manager)
         
         if content_found:
             logger.info(f"Content aggregation successful. Fields populated: {[k for k, v in content_data.items() if v]}")
@@ -244,6 +252,37 @@ class ContentAggregator:
             logger.error(f"Error inferring content type: {e}")
         
         return False
+    
+    def _populate_big_10_skills(self, content_data: Dict[str, Any], state_manager) -> None:
+        """Populate Big 10 skills data from the state manager.
+        
+        Args:
+            content_data: Content data structure to populate
+            state_manager: State manager containing Big 10 skills data
+        """
+        try:
+            # Get the structured CV from state manager
+            structured_cv = getattr(state_manager, '_structured_cv', None)
+            
+            if structured_cv and hasattr(structured_cv, 'big_10_skills'):
+                # Populate raw skills list
+                content_data['big_10_skills'] = structured_cv.big_10_skills or []
+                
+                # Populate raw LLM output
+                content_data['big_10_skills_raw_output'] = structured_cv.big_10_skills_raw_output or ''
+                
+                # Format skills for display
+                if structured_cv.big_10_skills:
+                    formatted_skills = '\n'.join([f'• {skill}' for skill in structured_cv.big_10_skills])
+                    content_data['key_qualifications'] = formatted_skills
+                    logger.info(f"Populated {len(structured_cv.big_10_skills)} Big 10 skills")
+                else:
+                    logger.info("No Big 10 skills found in state manager")
+            else:
+                logger.info("No structured CV or Big 10 skills data found in state manager")
+                
+        except Exception as e:
+            logger.error(f"Error populating Big 10 skills: {e}")
     
     def validate_content_data(self, content_data: Dict[str, Any]) -> bool:
         """Validate that the content data has meaningful content.

@@ -25,6 +25,7 @@ from src.models.data_models import (
     ItemStatus,
     ItemType,
 )
+from src.orchestration.state import AgentState
 
 logger = get_structured_logger("enhanced_content_writer")
 
@@ -84,36 +85,21 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         )
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
-        """Enhanced async content generation with structured processing."""
-        from src.models.validation_schemas import validate_agent_input, ValidationError
+        """Enhanced async content generation with structured processing and granular item support."""
         
         try:
             # Use provided input_data or fallback to context.input_data
             if input_data is None:
                 input_data = context.input_data or {}
             
-            # Validate input data using Pydantic schemas
-            try:
-                validated_input = validate_agent_input('enhanced_content_writer', input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-                logger.info("Input validation passed for EnhancedContentWriter")
-            except ValidationError as ve:
-                logger.error(f"Input validation failed for EnhancedContentWriter: {ve.message}")
+            # Basic input validation
+            if not isinstance(input_data, dict):
+                logger.error(f"Input validation failed for EnhancedContentWriter: expected dict, got {type(input_data)}")
                 return AgentResult(
                     success=False,
                     output_data={"error": "Input validation failed"},
                     confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={"agent_type": "enhanced_content_writer", "validation_error": True}
-                )
-            except Exception as e:
-                logger.error(f"Input validation error for EnhancedContentWriter: {str(e)}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": "Input validation error"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
+                    error_message=f"Input validation failed: expected dict, got {type(input_data)}",
                     metadata={"agent_type": "enhanced_content_writer", "validation_error": True}
                 )
             
@@ -123,6 +109,52 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             
             # Extract and validate input data with enhanced defensive programming
             job_data = input_data.get("job_description_data", {})
+            
+            # Check for granular processing mode (Task 3.1)
+            current_item_id = input_data.get('current_item_id')
+            structured_cv_data = input_data.get('structured_cv')
+            
+            if current_item_id and structured_cv_data:
+                logger.info(f"Processing single item: {current_item_id}")
+                return await self._process_single_item(structured_cv_data, job_data, current_item_id)
+            
+            # FIXED: Defensive validation for job_description_data (Fix for CI-003)
+            # This prevents AttributeError by ensuring job_data is always a valid JobDescriptionData structure
+            try:
+                from pydantic import ValidationError
+                from src.models.data_models import JobDescriptionData
+                
+                raw_job_data = input_data.get('job_description_data')
+                if isinstance(raw_job_data, dict):
+                    job_data = JobDescriptionData.model_validate(raw_job_data)
+                    logger.info("job_description_data validation passed")
+                elif isinstance(raw_job_data, JobDescriptionData):
+                    job_data = raw_job_data
+                    logger.info("job_description_data is already a valid JobDescriptionData object")
+                else:
+                    # If it's not a dict or JobDescriptionData, it's malformed. Raise a validation error.
+                    raise ValidationError.from_exception_data(
+                        title='JobDescriptionData',
+                        line_errors=[{'loc': ('job_description_data',), 'input': raw_job_data, 'msg': 'Input should be a valid dictionary or JobDescriptionData object'}]
+                    )
+            except ValidationError as e:
+                logger.error(f"Input validation failed for EnhancedContentWriterAgent: {e}", exc_info=True)
+                return AgentResult(
+                    success=False, 
+                    error_message=f"Invalid job description data structure: {e}",
+                    output_data={"error": f"Invalid job description data structure: {e}"},
+                    confidence_score=0.0,
+                    metadata={"agent_type": "enhanced_content_writer", "validation_error": True}
+                )
+            except Exception as validation_error:
+                logger.error(f"job_description_data validation failed: {str(validation_error)}")
+                return AgentResult(
+                    success=False,
+                    error_message=f"Job description data validation error: {str(validation_error)}",
+                    output_data={"error": f"Job description data validation error: {str(validation_error)}"},
+                    confidence_score=0.0,
+                    metadata={"agent_type": "enhanced_content_writer", "validation_error": True}
+                )
             
             # Enhanced type checking and validation for job_data parameter
             if isinstance(job_data, str):
@@ -350,6 +382,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             max_retries=3
         )
         
+        # Store raw LLM output in content_item if it's an Item model
+        if hasattr(content_item, 'raw_llm_output'):
+            content_item.raw_llm_output = response.content
+        elif isinstance(content_item, dict) and 'raw_llm_output' in content_item:
+            content_item['raw_llm_output'] = response.content
+        
         return response
     
     def _build_prompt(
@@ -385,26 +423,42 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         if not isinstance(content_item, dict):
             content_item = {}
         
-        # Content-specific information
+        # Content-specific information and prompt formatting
         if content_type == ContentType.QUALIFICATION:
-            item_title = content_item.get("title", "qualification")
-            item_description = content_item.get("description", "")
+            # Handle "Big 10" skills generation with updated template variables
+            my_talents = generation_context.get("my_talents", job_data.get("my_talents", "Professional with diverse technical and analytical skills"))
+            
+            # Format the prompt with the updated key_qualifications_prompt variables
+            prompt = template.format(
+                main_job_description_raw=job_description[:2000],  # Increased limit for better analysis
+                my_talents=my_talents
+            )
         elif content_type == ContentType.PROJECT:
             item_title = content_item.get("name", "project")
             item_description = content_item.get("description", "")
+            
+            # Format the prompt
+            prompt = template.format(
+                job_title=job_title,
+                job_description=job_description[:1000],  # Limit length
+                company_name=company_name,
+                item_title=item_title,
+                item_description=item_description,
+                additional_context=generation_context.get("additional_context", "")
+            )
         else:  # EXECUTIVE_SUMMARY
             item_title = "Executive Summary"
             item_description = generation_context.get("cv_summary", "")
-        
-        # Format the prompt
-        prompt = template.format(
-            job_title=job_title,
-            job_description=job_description[:1000],  # Limit length
-            company_name=company_name,
-            item_title=item_title,
-            item_description=item_description,
-            additional_context=generation_context.get("additional_context", "")
-        )
+            
+            # Format the prompt
+            prompt = template.format(
+                job_title=job_title,
+                job_description=job_description[:1000],  # Limit length
+                company_name=company_name,
+                item_title=item_title,
+                item_description=item_description,
+                additional_context=generation_context.get("additional_context", "")
+            )
         
         return prompt
     
@@ -965,6 +1019,41 @@ Description: {description[:200] if description else f'{role_title} position with
             if len(sentences) > 1:
                 content = "\n".join([f"• {sentence.strip()}" for sentence in sentences if sentence.strip()])
         return content
+
+
+    
+    def _build_single_item_prompt(self, subsection: Subsection, section: Section, job_description: Optional[JobDescriptionData]) -> str:
+        """Build a focused prompt for a single subsection/item."""
+        try:
+            # Get the appropriate template for the content type
+            template = self.content_templates.get(section.content_type, self._get_fallback_template())
+            
+            # Prepare context variables
+            context_vars = {
+                "job_title": job_description.job_title if job_description else "Target Position",
+                "company_name": job_description.company_name if job_description else "Target Company",
+                "job_description": job_description.main_job_description_raw if job_description else "No job description provided",
+                "item_title": subsection.title,
+                "item_description": subsection.items[0].content if subsection.items else "No existing content",
+                "additional_context": f"This is for the {section.title} section of a CV"
+            }
+            
+            # Format the template with context variables
+            formatted_prompt = template.format(**context_vars)
+            
+            logger.info(f"Built single item prompt for {subsection.title}")
+            return formatted_prompt
+            
+        except Exception as e:
+            logger.error(f"Error building single item prompt: {str(e)}")
+            return self._get_fallback_template().format(
+                job_title="Target Position",
+                company_name="Target Company",
+                job_description="No job description provided",
+                item_title=subsection.title,
+                item_description="No existing content",
+                additional_context="CV content generation"
+            )
     
     def _format_project_content(self, content: str) -> str:
         """Format project content."""
@@ -1008,6 +1097,464 @@ Additional Context:
 
 Generate enhanced content that aligns with the job requirements and demonstrates value to the employer.
 """
+    
+    def run_as_node(self, state: AgentState) -> dict:
+        """
+        Executes the content generation logic as a LangGraph node.
+        This method will process a single item if `current_item_id` is set in the state.
+        
+        Args:
+            state: The current state of the workflow.
+            
+        Returns:
+            A dictionary containing the updated 'structured_cv'.
+        """
+        logger.info("EnhancedContentWriterAgent node running.")
+        cv = state.structured_cv
+        job_data = state.job_description_data
+        item_id = state.current_item_id
+        
+        if not item_id:
+            logger.warning("Content writer called without a specific item_id. No action taken.")
+            return {}
+        
+        try:
+            # Create execution context for the async method
+            context = AgentExecutionContext(
+                session_id="langraph_session",
+                item_id=item_id,
+                input_data={
+                    "job_description_data": job_data.model_dump(),
+                    "structured_cv": cv.model_dump(),
+                    "current_item_id": item_id
+                }
+            )
+            
+            # Call the existing async method
+            result = asyncio.run(self.run_async(None, context))
+            
+            if result.success:
+                # Extract the updated CV from the result
+                updated_cv_data = result.output_data.get("structured_cv")
+                if updated_cv_data:
+                    # Convert back to StructuredCV model
+                    updated_cv = StructuredCV.model_validate(updated_cv_data)
+                    return {"structured_cv": updated_cv}
+            
+            # If not successful, add error to state
+            error_list = state.error_messages or []
+            error_list.append(f"ContentWriter Error: {result.error_message}")
+            return {"error_messages": error_list}
+            
+        except Exception as e:
+            logger.error(f"Error in Content Writer node for item {item_id}: {e}")
+            error_list = state.error_messages or []
+            error_list.append(f"ContentWriter Error: {e}")
+            return {"error_messages": error_list}
+    
+    def generate_big_10_skills(self, job_description: str, my_talents: str = "") -> Dict[str, Any]:
+        """
+        Generate the "Big 10" skills specifically for Key Qualifications section.
+        Returns a structured response with the skills list and raw LLM output.
+        """
+        try:
+            # Load the key qualifications prompt template
+            template = self._load_prompt_template("key_qualifications_prompt")
+            
+            # Format the prompt with job description and talents
+            prompt = template.format(
+                main_job_description_raw=job_description[:2000],
+                my_talents=my_talents or "Professional with diverse technical and analytical skills"
+            )
+            
+            logger.info("Generating Big 10 skills with enhanced content writer")
+            
+            # Generate content using LLM
+            response = self.llm_client.generate_content(
+                prompt=prompt,
+                max_tokens=500,  # Sufficient for 10 skills
+                temperature=0.7
+            )
+            
+            if not response or not response.strip():
+                logger.warning("Empty response from LLM for Big 10 skills generation")
+                return {
+                    "skills": [],
+                    "raw_llm_output": "",
+                    "success": False,
+                    "error": "Empty response from LLM"
+                }
+            
+            # Parse the response into individual skills
+            skills_list = self._parse_big_10_skills(response)
+            
+            logger.info(f"Successfully generated {len(skills_list)} skills")
+            
+            return {
+                "skills": skills_list,
+                "raw_llm_output": response,
+                "success": True,
+                "formatted_content": self._format_big_10_skills_display(skills_list)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating Big 10 skills: {str(e)}")
+            return {
+                "skills": [],
+                "raw_llm_output": "",
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _parse_big_10_skills(self, llm_response: str) -> List[str]:
+        """
+        Parse the LLM response to extract exactly 10 skills.
+        """
+        try:
+            # Split by newlines and clean up
+            lines = [line.strip() for line in llm_response.split('\n') if line.strip()]
+            
+            # Remove any bullet points, numbers, or formatting
+            skills = []
+            for line in lines:
+                # Remove common prefixes
+                cleaned_line = line
+                for prefix in ['•', '*', '-', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.', '10.']:
+                    if cleaned_line.startswith(prefix):
+                        cleaned_line = cleaned_line[len(prefix):].strip()
+                        break
+                
+                # Remove numbering patterns like "1)", "2)", etc.
+                import re
+                cleaned_line = re.sub(r'^\d+[.):]\s*', '', cleaned_line)
+                
+                if cleaned_line and len(cleaned_line) <= 50:  # Reasonable skill length
+                    skills.append(cleaned_line)
+            
+            # Ensure we have exactly 10 skills
+            if len(skills) > 10:
+                skills = skills[:10]
+            elif len(skills) < 10:
+                # Pad with generic skills if needed
+                generic_skills = [
+                    "Problem Solving",
+                    "Team Collaboration",
+                    "Communication Skills",
+                    "Analytical Thinking",
+                    "Project Management",
+                    "Technical Documentation",
+                    "Quality Assurance",
+                    "Process Improvement",
+                    "Client Relations",
+                    "Strategic Planning"
+                ]
+                while len(skills) < 10 and generic_skills:
+                    skills.append(generic_skills.pop(0))
+            
+            return skills[:10]  # Ensure exactly 10
+            
+        except Exception as e:
+            logger.error(f"Error parsing Big 10 skills: {str(e)}")
+            # Return fallback skills
+            return [
+                "Problem Solving", "Team Collaboration", "Communication Skills",
+                "Analytical Thinking", "Project Management", "Technical Documentation",
+                "Quality Assurance", "Process Improvement", "Client Relations", "Strategic Planning"
+            ]
+    
+    def _format_big_10_skills_display(self, skills: List[str]) -> str:
+        """
+        Format the Big 10 skills for display in the CV.
+        """
+        if not skills:
+            return "No skills generated"
+        
+        # Format as bullet points
+        formatted_skills = "\n".join([f"• {skill}" for skill in skills])
+        return formatted_skills
+
+    def _ensure_job_data_structure(self, job_data: dict) -> dict:
+        """
+        Ensure job_data has all required fields with default values to prevent AttributeError
+        """
+        default_structure = {
+            "title": "",
+            "company": "",
+            "location": "",
+            "experience_level": "",
+            "employment_type": "",
+            "description": "",
+            "requirements": [],
+            "responsibilities": [],
+            "benefits": [],
+            "skills": [],
+            "salary_range": "",
+            "remote_work": False,
+            "industry": "",
+            "department": ""
+        }
+        
+        # Merge provided data with defaults, ensuring all required fields exist
+        for key, default_value in default_structure.items():
+            if key not in job_data or job_data[key] is None:
+                job_data[key] = default_value
+        
+        return job_data
+    
+    def _convert_string_to_job_data(self, job_string: str) -> dict:
+        """
+        Convert a string representation to a structured job_data dictionary
+        """
+        # Basic structure with the string as description
+        return self._ensure_job_data_structure({
+            "description": job_string,
+            "title": "Unknown Position",
+            "company": "Unknown Company"
+        })
+    
+    async def _process_single_item(self, structured_cv_data: Dict[str, Any], job_data: Dict[str, Any], item_id: str) -> AgentResult:
+        """
+        Process a single subsection item for granular workflow (Task 3.1).
+        
+        Args:
+            structured_cv_data: The current CV data structure
+            job_data: Job description data for context
+            item_id: The ID of the specific item to process
+            
+        Returns:
+            AgentResult with the updated CV structure
+        """
+
+        try:
+            # Validate and parse the structured CV data
+            if isinstance(structured_cv_data, dict):
+                structured_cv = StructuredCV.model_validate(structured_cv_data)
+            else:
+                structured_cv = structured_cv_data
+            
+            # Parse job description data
+            job_description = JobDescriptionData.model_validate(job_data) if job_data else None
+            
+            # Find the target subsection by ID
+            target_subsection = None
+            target_section = None
+            
+            for section in structured_cv.sections:
+                for subsection in section.subsections:
+                    if str(subsection.id) == str(item_id):
+                        target_subsection = subsection
+                        target_section = section
+                        break
+                if target_subsection:
+                    break
+            
+            if not target_subsection:
+                logger.error(f"Could not find subsection with ID: {item_id}")
+                return AgentResult(
+                    success=False,
+                    error_message=f"Subsection with ID {item_id} not found",
+                    output_data={"structured_cv": structured_cv.model_dump()}
+                )
+            
+            # Note: Subsections don't have status - items within them do
+            # We'll update item statuses after processing
+            
+            # Build focused prompt for this specific subsection
+            prompt = self._build_single_item_prompt(target_subsection, target_section, job_description)
+            
+            # Generate content using LLM with fallback handling
+            try:
+                response: LLMResponse = await self.llm_service.generate_content(prompt)
+                
+                # Parse the response and update the subsection items
+                if response.success and response.content:
+                    # Store raw LLM output for transparency (REQ-FUNC-UI-6)
+                    raw_output = response.content
+                    
+                    # Parse the generated content into bullet points
+                    bullet_points = self._parse_bullet_points(response.content)
+                    
+                    # Update the subsection items with new content
+                    target_subsection.items = []
+                    for i, bullet_point in enumerate(bullet_points):
+                        item = Item(
+                            content=bullet_point,
+                            item_type=ItemType.BULLET_POINT,
+                            status=ItemStatus.GENERATED,
+                            raw_llm_output=raw_output  # Store raw output in each item
+                        )
+                        target_subsection.items.append(item)
+                    
+                    # Note: Subsections don't have status - only items do
+                    
+                    logger.info(f"Successfully processed subsection: {item_id}")
+                    
+                    return AgentResult(
+                        success=True,
+                        output_data={"structured_cv": structured_cv.model_dump()},
+                        confidence_score=0.8,
+                        metadata={
+                            "processed_item_id": item_id,
+                            "items_generated": len(bullet_points),
+                            "raw_llm_output": raw_output
+                        }
+                    )
+                else:
+                    # LLM failed, use fallback content generation
+                    logger.warning(f"LLM generation failed for item {item_id}, using fallback: {response.error_message}")
+                    fallback_content = self._generate_fallback_content(target_subsection, job_description)
+                    
+                    # Create fallback item with appropriate status
+                    fallback_item = Item(
+                        content=fallback_content,
+                        item_type=ItemType.BULLET_POINT,
+                        status=ItemStatus.GENERATION_FAILED,
+                        raw_llm_output=f"LLM_FAILED: {response.error_message}",
+                        metadata={"fallback_used": True, "error": response.error_message}
+                    )
+                    
+                    target_subsection.items = [fallback_item]
+                    
+                    logger.info(f"Applied fallback content for subsection: {item_id}")
+                    
+                    return AgentResult(
+                        success=True,  # Still successful, just with fallback
+                        output_data={"structured_cv": structured_cv.model_dump()},
+                        confidence_score=0.3,  # Lower confidence for fallback
+                        metadata={
+                            "processed_item_id": item_id,
+                            "fallback_used": True,
+                            "llm_error": response.error_message
+                        }
+                    )
+                    
+            except Exception as llm_error:
+                # Handle any LLM service exceptions
+                logger.error(f"LLM service exception for item {item_id}: {llm_error}")
+                fallback_content = self._generate_fallback_content(target_subsection, job_description)
+                
+                # Create fallback item with appropriate status
+                fallback_item = Item(
+                    content=fallback_content,
+                    item_type=ItemType.BULLET_POINT,
+                    status=ItemStatus.GENERATION_FAILED,
+                    raw_llm_output=f"LLM_EXCEPTION: {str(llm_error)}",
+                    metadata={"fallback_used": True, "error": str(llm_error)}
+                )
+                
+                target_subsection.items = [fallback_item]
+                
+                logger.info(f"Applied fallback content after LLM exception for subsection: {item_id}")
+                
+                return AgentResult(
+                    success=True,  # Still successful, just with fallback
+                    output_data={"structured_cv": structured_cv.model_dump()},
+                    confidence_score=0.3,  # Lower confidence for fallback
+                    metadata={
+                        "processed_item_id": item_id,
+                        "fallback_used": True,
+                        "llm_exception": str(llm_error)
+                    }
+                )
+                
+        except Exception as e:
+            logger.error(f"Error processing single item {item_id}: {e}")
+            return AgentResult(
+                success=False,
+                error_message=str(e),
+                output_data={"structured_cv": structured_cv_data}
+            )
+    
+    def _build_experience_prompt_for_subsection(self, subsection: Subsection, job_data: Dict[str, Any]) -> str:
+        """
+        Build a focused prompt for a single subsection/role.
+        
+        Args:
+            subsection: The subsection to generate content for
+            job_data: Job description data for context
+            
+        Returns:
+            Formatted prompt string
+        """
+        # Get the experience prompt template
+        template = self.content_templates.get(ContentType.EXPERIENCE, "")
+        
+        # Extract job information
+        job_title = job_data.get("title", "the position")
+        job_description = job_data.get("raw_text", job_data.get("description", ""))
+        target_skills = job_data.get("skills", [])
+        
+        # Format target skills
+        if isinstance(target_skills, list):
+            target_skills_text = "\n".join([f"- {skill}" for skill in target_skills])
+        else:
+            target_skills_text = "- No specific skills identified"
+        
+        # Format role information from subsection
+        role_name = subsection.name
+        company = subsection.metadata.get("company", "Unknown Company") if subsection.metadata else "Unknown Company"
+        dates = subsection.metadata.get("dates", "Unknown Dates") if subsection.metadata else "Unknown Dates"
+        
+        # Build role info string
+        role_info = f"Role: {role_name}\nCompany: {company}\nDates: {dates}\n"
+        
+        # Add existing bullet points if any
+        if subsection.items:
+            role_info += "\nCurrent bullet points:\n"
+            for item in subsection.items:
+                role_info += f"- {item.content}\n"
+        
+        # Format the template
+        prompt = template.replace("{{Target Skills}}", target_skills_text)
+        prompt = prompt.replace("{{batched_structured_output}}", role_info)
+        prompt = prompt.replace("{{job_title}}", job_title)
+        prompt = prompt.replace("{{job_description}}", job_description[:1000])  # Limit length
+        
+        return prompt
+    
+    def _parse_bullet_points(self, content: str) -> List[str]:
+        """
+        Parse generated content into individual bullet points.
+        
+        Args:
+            content: Raw LLM output content
+            
+        Returns:
+            List of bullet point strings
+        """
+        lines = content.strip().split('\n')
+        bullet_points = []
+        
+        for line in lines:
+            line = line.strip()
+            if line and (line.startswith('-') or line.startswith('•') or line.startswith('*')):
+                # Remove bullet point markers and clean up
+                clean_line = line.lstrip('-•* ').strip()
+                if clean_line:
+                    bullet_points.append(clean_line)
+            elif line and not any(marker in line for marker in ['Role:', 'Company:', 'Dates:', 'bullet points:']):
+                # Handle lines that might be bullet points without markers
+                if len(line) > 10:  # Avoid very short lines that might be headers
+                    bullet_points.append(line)
+        
+        # Ensure we have at least some content
+        if not bullet_points and content.strip():
+            bullet_points = [content.strip()]
+        
+        return bullet_points[:5]  # Limit to 5 bullet points max
+
+    def _generate_fallback_content(self, subsection: 'Subsection', job_description: Optional['JobDescriptionData']) -> str:
+        """
+        Generate fallback content when LLM fails.
+        
+        Args:
+            subsection: The subsection to generate fallback content for
+            job_description: Job description data for context
+            
+        Returns:
+            Fallback content string with user-friendly message
+        """
+        return "⚠️ The LLM did not respond or the content was not correctly generated. Please wait 10 seconds and try to regenerate!"
 
 
 # Factory function for creating specialized content writers

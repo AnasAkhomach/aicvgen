@@ -140,6 +140,110 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # Helper functions for the UI
+def process_single_item_async(item_id, section, subsection, item, state_manager):
+    """Process a single item using the enhanced orchestrator (Task 3.1)."""
+    try:
+        # Set item status to processing
+        item["status"] = "processing"
+        st.session_state[f"processing_item_{item_id}"] = False
+        
+        # Show processing indicator
+        with st.spinner(f"Regenerating {item.get('title', 'item')}..."):
+            # Get enhanced CV integration
+            if "enhanced_cv_integration_config" not in st.session_state:
+                config = EnhancedCVConfig(
+                    mode=IntegrationMode.STREAMLIT,
+                    enable_caching=True,
+                    enable_monitoring=True,
+                )
+                st.session_state.enhanced_cv_integration_config = config.to_dict()
+            
+            enhanced_cv_integration = get_enhanced_cv_integration(
+                **st.session_state.enhanced_cv_integration_config
+            )
+            
+            # Get the orchestrator
+            orchestrator = enhanced_cv_integration.orchestrator
+            
+            # Process the single item using the new interface
+            async def process_item():
+                try:
+                    # The new orchestrator method takes only item_id and uses state manager internally
+                    updated_cv = await orchestrator.process_single_item(str(item_id))
+                    return {"success": True, "structured_cv": updated_cv}
+                except Exception as e:
+                    logger.error(f"Error processing single item {item_id}: {str(e)}")
+                    return {"success": False, "error": str(e)}
+            
+            # Run the async processing
+            import asyncio
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(process_item())
+            except Exception as e:
+                logger.error(f"Error in processing loop: {str(e)}")
+                result = {"success": False, "error": str(e)}
+            finally:
+                loop.close()
+            
+            # Handle the result
+            if result and result.get("success"):
+                item["status"] = "completed"
+                st.success(f"✅ Successfully regenerated {item.get('title', 'item')}!")
+                
+                # Check for raw LLM output in the updated CV structure (Task 3.2 preparation)
+                updated_cv = result.get("structured_cv")
+                if updated_cv and hasattr(updated_cv, 'model_dump'):
+                    cv_data = updated_cv.model_dump()
+                    # Look for raw output in the specific item that was processed
+                    raw_output = find_raw_output_for_item(cv_data, str(item_id))
+                    if raw_output:
+                        with st.expander("🔍 View Raw LLM Output", expanded=False):
+                            st.code(raw_output, language="text")
+                        
+            else:
+                item["status"] = "error"
+                error_msg = result.get("error", "Unknown error occurred") if result else "No result returned"
+                st.error(f"❌ Failed to regenerate item: {error_msg}")
+                
+    except Exception as e:
+        logger.error(f"Error in process_single_item_async: {str(e)}")
+        item["status"] = "error"
+        st.error(f"❌ Error processing item: {str(e)}")
+    
+    # Force a rerun to update the UI
+    time.sleep(1)
+    st.rerun()
+
+
+def find_raw_output_for_item(cv_data, item_id):
+    """Helper function to find raw LLM output for a specific item in the CV structure."""
+    try:
+        # Recursively search through the CV structure for the item with matching ID
+        def search_for_item(data, target_id):
+            if isinstance(data, dict):
+                # Check if this is an item with the target ID
+                if data.get('id') == target_id:
+                    return data.get('raw_llm_output')
+                # Recursively search in nested structures
+                for key, value in data.items():
+                    result = search_for_item(value, target_id)
+                    if result:
+                        return result
+            elif isinstance(data, list):
+                for item in data:
+                    result = search_for_item(item, target_id)
+                    if result:
+                        return result
+            return None
+        
+        return search_for_item(cv_data, item_id)
+    except Exception as e:
+        logger.error(f"Error finding raw output for item {item_id}: {str(e)}")
+        return None
+
+
 def display_section(section, state_manager):
     """Display a section with its items or subsections in a card-based UI."""
     if not section:
@@ -293,6 +397,12 @@ def display_subsection(subsection, parent_section, state_manager):
         if "items" in subsection:
             for item in subsection["items"]:
                 display_item(item, parent_section, subsection, state_manager)
+                
+                # Handle granular item processing (Task 3.1)
+                item_id = item.get('id', 'unknown')
+                if st.session_state.get(f"processing_item_{item_id}", False):
+                    # Process this specific item
+                    process_single_item_async(item_id, parent_section, subsection, item, state_manager)
         else:
             st.write("*No items in this subsection*")
 
@@ -328,38 +438,43 @@ def display_item(item, section, subsection, state_manager):
                 st.session_state[f"editing_item_{item.get('id', 'unknown')}"] = True
 
         with col3:
-            if st.button(
-                f"🔄",
-                key=f"regen_item_{item.get('id', 'unknown')}",
-                help="Regenerate item",
-            ):
-                st.session_state[f"regenerate_item_{item.get('id', 'unknown')}"] = True
-                st.rerun()
-
-        with col4:
-            # Feedback buttons
-            feedback_col1, feedback_col2 = st.columns(2)
-            with feedback_col1:
+            # Accept/Regenerate buttons for granular processing (Task 3.1)
+            accept_col, regen_col = st.columns(2)
+            with accept_col:
                 if st.button(
-                    f"👍", key=f"like_item_{item.get('id', 'unknown')}", help="Good"
+                    f"✅",
+                    key=f"accept_item_{item.get('id', 'unknown')}",
+                    help="Accept this content",
                 ):
+                    item["status"] = "accepted"
                     item["feedback"] = "positive"
                     state_manager.update_item_feedback(
                         section, subsection, item, "positive"
                     )
-                    st.success("Feedback recorded!")
-
-            with feedback_col2:
+                    st.success("Content accepted!")
+                    st.rerun()
+            
+            with regen_col:
                 if st.button(
-                    f"👎",
-                    key=f"dislike_item_{item.get('id', 'unknown')}",
-                    help="Needs improvement",
+                    f"🔄",
+                    key=f"regen_item_{item.get('id', 'unknown')}",
+                    help="Regenerate this item",
                 ):
-                    item["feedback"] = "negative"
-                    state_manager.update_item_feedback(
-                        section, subsection, item, "negative"
-                    )
-                    st.warning("Feedback recorded. This item will be improved.")
+                    # Set processing state for this specific item
+                    st.session_state[f"processing_item_{item.get('id', 'unknown')}"] = True
+                    st.rerun()
+
+        with col4:
+            # Status indicator
+            status = item.get("status", "pending")
+            if status == "accepted":
+                st.success("✅ Accepted")
+            elif status == "processing":
+                st.info("⏳ Processing...")
+            elif status == "completed":
+                st.info("✨ Generated")
+            else:
+                st.warning("⏸️ Pending")
 
         # Show current feedback if any
         if item.get("feedback"):
@@ -408,6 +523,11 @@ def display_item(item, section, subsection, state_manager):
         else:
             # Display mode
             st.write(item.get("content", "*No content*"))
+            
+            # Raw LLM Output expander (for debugging/transparency)
+            if item.get("raw_llm_output"):
+                with st.expander("🔍 Raw LLM Output", expanded=False):
+                    st.code(item["raw_llm_output"], language="text")
 
         # Close the card container
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1177,7 +1297,7 @@ def main():
                                         
                                         # Create aggregator and process all task results
                                         aggregator = ContentAggregator()
-                                        cv_content = aggregator.aggregate_results(cleaned_result["results"])
+                                        cv_content = aggregator.aggregate_results(cleaned_result["results"], st.session_state.state_manager)
                                         
                                         # Validate aggregated content
                                         if cv_content and aggregator.validate_content_data(cv_content):
@@ -1484,6 +1604,10 @@ def main():
 ## Key Qualifications
 
 {content_data.get('key_qualifications', 'Key qualifications content')}
+
+## Big 10 Skills Analysis
+
+{content_data.get('big_10_skills_raw_output', 'Big 10 skills analysis will appear here')}
 
 ## Professional Experience
 """

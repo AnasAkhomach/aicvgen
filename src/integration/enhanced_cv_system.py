@@ -27,10 +27,10 @@ from ..templates.content_templates import (
     get_template_manager, ContentTemplateManager
 )
 from ..services.vector_db import get_enhanced_vector_db
-from ..orchestration.agent_orchestrator import (
+from ..obsolete.agent_orchestrator import (
     get_agent_orchestrator, AgentOrchestrator
 )
-from ..orchestration.workflow_definitions import (
+from ..obsolete.workflow_definitions import (
     get_workflow_builder, WorkflowBuilder, WorkflowType,
     execute_basic_cv_generation, execute_job_tailored_cv,
     execute_cv_optimization, execute_quality_assurance,

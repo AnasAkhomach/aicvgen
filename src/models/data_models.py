@@ -1,19 +1,131 @@
-"""Enhanced data models for the AI CV Generator MVP.
+"""Core Pydantic models for the AI CV Generator.
 
-This module defines the core data structures for managing CV generation workflow,
-with support for individual item processing to mitigate LLM rate limits.
+This module defines the strict data contracts for the application's primary
+data structures, such as the StructuredCV and JobDescriptionData. These models
+ensure data consistency, validation, and clarity across all components, from
+parsing and generation to state management and API serialization.
 """
 
-from dataclasses import dataclass, field
 from datetime import datetime
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Any, Union
-from uuid import uuid4
-import enum
-import uuid
-import json
-import os
+from dataclasses import field
+from uuid import UUID, uuid4
+from pydantic import HttpUrl
 
+
+class ItemStatus(str, Enum):
+    """Enumeration for the status of a content item."""
+    INITIAL = "initial"
+    GENERATED = "generated"
+    USER_MODIFIED = "user_modified"
+    USER_ACCEPTED = "user_accepted"
+    TO_REGENERATE = "to_regenerate"
+    GENERATION_FAILED = "generation_failed"
+    GENERATED_FALLBACK = "generated_fallback"
+    STATIC = "static"
+
+
+class ItemType(str, Enum):
+    """Enumeration for the type of a content item."""
+    BULLET_POINT = "bullet_point"
+    KEY_QUALIFICATION = "key_qualification"
+    EXECUTIVE_SUMMARY_PARA = "executive_summary_para"
+    EXPERIENCE_ROLE_TITLE = "experience_role_title"
+    PROJECT_DESCRIPTION_BULLET = "project_description_bullet"
+    EDUCATION_ENTRY = "education_entry"
+    CERTIFICATION_ENTRY = "certification_entry"
+    LANGUAGE_ENTRY = "language_entry"
+
+
+class WorkflowStage(str, Enum):
+    """Enumeration for workflow stages."""
+    INITIALIZATION = "initialization"
+    CV_PARSING = "cv_parsing"
+    JOB_ANALYSIS = "job_analysis"
+    CONTENT_GENERATION = "content_generation"
+    REVIEW = "review"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ContentType(str, Enum):
+    """Enumeration for content types."""
+    QUALIFICATION = "qualification"
+    EXPERIENCE = "experience"
+    EXPERIENCE_ITEM = "experience_item"
+    PROJECT = "project"
+    PROJECT_ITEM = "project_item"
+    EXECUTIVE_SUMMARY = "executive_summary"
+    SKILL = "skill"
+    SKILLS = "skills"
+    ACHIEVEMENT = "achievement"
+    EDUCATION = "education"
+    PROJECTS = "projects"
+    ANALYSIS = "analysis"
+    QUALITY_CHECK = "quality_check"
+    OPTIMIZATION = "optimization"
+    PROFESSIONAL_SUMMARY = "professional_summary"
+    WORK_EXPERIENCE = "work_experience"
+    CV_ANALYSIS = "cv_analysis"
+    CV_PARSING = "cv_parsing"
+    ACHIEVEMENTS = "achievements"
+
+
+class Item(BaseModel):
+    """A granular piece of content within the CV (e.g., a bullet point)."""
+    id: UUID = Field(default_factory=uuid4)
+    content: str
+    status: ItemStatus = ItemStatus.INITIAL
+    item_type: ItemType = ItemType.BULLET_POINT
+    raw_llm_output: Optional[str] = None  # REQ-FUNC-UI-6
+    confidence_score: Optional[float] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    user_feedback: Optional[str] = None
+
+
+class Subsection(BaseModel):
+    """A subsection within a section (e.g., a specific job role)."""
+    id: UUID = Field(default_factory=uuid4)
+    name: str  # e.g., "Senior Software Engineer @ TechCorp Inc."
+    items: List[Item] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # e.g., dates, company, location
+
+
+class Section(BaseModel):
+    """A major section of the CV (e.g., "Professional Experience")."""
+    id: UUID = Field(default_factory=uuid4)
+    name: str
+    content_type: str = "DYNAMIC"  # DYNAMIC or STATIC
+    subsections: List[Subsection] = Field(default_factory=list)
+    items: List[Item] = Field(default_factory=list)  # For sections without subsections
+    order: int = 0
+    status: ItemStatus = ItemStatus.INITIAL
+
+
+class StructuredCV(BaseModel):
+    """The main data model representing the entire CV structure."""
+    id: UUID = Field(default_factory=uuid4)
+    sections: List[Section] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class JobDescriptionData(BaseModel):
+    """A structured representation of a parsed job description."""
+    raw_text: str
+    skills: List[str] = Field(default_factory=list)
+    experience_level: Optional[str] = None
+    responsibilities: List[str] = Field(default_factory=list)
+    industry_terms: List[str] = Field(default_factory=list)
+    company_values: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+
+# Legacy models for backward compatibility during transition
+# These will be removed once all components are updated to use the new models
 
 class ProcessingStatus(Enum):
     """Status of processing for individual items or sections."""
@@ -25,430 +137,27 @@ class ProcessingStatus(Enum):
     RATE_LIMITED = "rate_limited"
 
 
-class WorkflowStage(Enum):
-    """Stages in the CV generation workflow."""
-    INITIALIZATION = "initialization"
-    JOB_PARSING = "job_parsing"
-    QUALIFICATION_GENERATION = "qualification_generation"
-    EXPERIENCE_PROCESSING = "experience_processing"
-    PROJECT_PROCESSING = "project_processing"
-    SUMMARY_GENERATION = "summary_generation"
-    CV_ASSEMBLY = "cv_assembly"
-    PDF_GENERATION = "pdf_generation"
-    COMPLETED = "completed"
-    ERROR = "error"
-
-
-class ContentType(Enum):
-    """Types of content that can be generated."""
-    QUALIFICATION = "qualification"
-    EXPERIENCE = "experience"
-    EXPERIENCE_ITEM = "experience_item"
-    PROJECT = "project"
-    PROJECT_ITEM = "project_item"
-    PROJECTS = "projects"
-    EXECUTIVE_SUMMARY = "executive_summary"
-    SKILL = "skill"
-    ACHIEVEMENT = "achievement"
-    EDUCATION = "education"
-    SKILLS = "skills"
-    ANALYSIS = "analysis"
-    QUALITY_CHECK = "quality_check"
-    OPTIMIZATION = "optimization"
-
-
 @dataclass
 class ProcessingMetadata:
-    """Metadata for tracking processing of individual items."""
-    item_id: str = field(default_factory=lambda: str(uuid4()))
-    status: ProcessingStatus = ProcessingStatus.PENDING
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    processing_attempts: int = 0
-    last_error: Optional[str] = None
-    processing_time_seconds: float = 0.0
-    llm_calls_made: int = 0
-    tokens_used: int = 0
-    rate_limit_hits: int = 0
-
-    def update_status(self, new_status: ProcessingStatus, error: Optional[str] = None):
-        """Update the processing status and metadata."""
-        self.status = new_status
-        self.updated_at = datetime.now()
-        if error:
-            self.last_error = error
-            self.processing_attempts += 1
-
-
-@dataclass
-class ContentItem:
-    """Individual content item with processing metadata."""
-    content_type: ContentType
-    original_content: str
-    generated_content: Optional[str] = None
-    metadata: ProcessingMetadata = field(default_factory=ProcessingMetadata)
-    context: Dict[str, Any] = field(default_factory=dict)
-    priority: int = 1  # Higher number = higher priority
-    dependencies: List[str] = field(default_factory=list)  # Item IDs this depends on
-
-    @property
-    def is_ready_for_processing(self) -> bool:
-        """Check if item is ready for processing based on dependencies."""
-        return self.metadata.status == ProcessingStatus.PENDING
-
-    @property
-    def needs_retry(self) -> bool:
-        """Check if item needs retry due to failure or rate limiting."""
-        return self.metadata.status in [ProcessingStatus.FAILED, ProcessingStatus.RATE_LIMITED]
-
-
-@dataclass
-class ExperienceItem(ContentItem):
-    """Professional experience item."""
-    company: str = ""
-    position: str = ""
-    duration: str = ""
-    responsibilities: List[str] = field(default_factory=list)
-    achievements: List[str] = field(default_factory=list)
-    technologies: List[str] = field(default_factory=list)
-    
-    def __post_init__(self):
-        if self.content_type != ContentType.EXPERIENCE_ITEM:
-            self.content_type = ContentType.EXPERIENCE_ITEM
-
-
-@dataclass
-class ProjectItem(ContentItem):
-    """Side project item."""
-    name: str = ""
-    description: str = ""
-    technologies: List[str] = field(default_factory=list)
-    achievements: List[str] = field(default_factory=list)
-    url: Optional[str] = None
-    
-    def __post_init__(self):
-        if self.content_type != ContentType.PROJECT_ITEM:
-            self.content_type = ContentType.PROJECT_ITEM
-
-
-@dataclass
-class QualificationItem(ContentItem):
-    """Key qualification item."""
-    skill_category: str = ""
-    proficiency_level: str = ""
-    years_experience: Optional[int] = None
-    
-    def __post_init__(self):
-        if self.content_type != ContentType.QUALIFICATION:
-            self.content_type = ContentType.QUALIFICATION
-
-
-@dataclass
-class JobDescriptionData:
-    """Parsed job description data with unified field structure."""
-    raw_text: str
-    # Legacy fields for backward compatibility
-    skills: List[str] = field(default_factory=list)
-    experience_level: str = "N/A"
-    responsibilities: List[str] = field(default_factory=list)
-    industry_terms: List[str] = field(default_factory=list)
-    company_values: List[str] = field(default_factory=list)
-    # Enhanced fields for better job description parsing
-    company_name: str = ""
-    position_title: str = ""
-    required_skills: List[str] = field(default_factory=list)
-    preferred_skills: List[str] = field(default_factory=list)
-    qualifications: List[str] = field(default_factory=list)
-    company_culture: List[str] = field(default_factory=list)
-    benefits: List[str] = field(default_factory=list)
-    salary_range: Optional[str] = None
-    location: Optional[str] = None
-    remote_policy: Optional[str] = None
-    parsed_at: datetime = field(default_factory=datetime.now)
-    error: Optional[str] = None  # For error tracking
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert JobDescriptionData to a dictionary for serialization."""
-        return {
-            "raw_text": self.raw_text,
-            "skills": self.skills,
-            "experience_level": self.experience_level,
-            "responsibilities": self.responsibilities,
-            "industry_terms": self.industry_terms,
-            "company_values": self.company_values,
-            "company_name": self.company_name,
-            "position_title": self.position_title,
-            "required_skills": self.required_skills,
-            "preferred_skills": self.preferred_skills,
-            "qualifications": self.qualifications,
-            "company_culture": self.company_culture,
-            "benefits": self.benefits,
-            "salary_range": self.salary_range,
-            "location": self.location,
-            "remote_policy": self.remote_policy,
-            "parsed_at": self.parsed_at.isoformat() if self.parsed_at else None,
-            "error": self.error
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'JobDescriptionData':
-        """Create JobDescriptionData from a dictionary."""
-        parsed_at = data.get("parsed_at")
-        if isinstance(parsed_at, str):
-            try:
-                parsed_at = datetime.fromisoformat(parsed_at)
-            except ValueError:
-                parsed_at = datetime.now()
-        elif parsed_at is None:
-            parsed_at = datetime.now()
-            
-        return cls(
-            raw_text=data.get("raw_text", ""),
-            skills=data.get("skills", []),
-            experience_level=data.get("experience_level", "N/A"),
-            responsibilities=data.get("responsibilities", []),
-            industry_terms=data.get("industry_terms", []),
-            company_values=data.get("company_values", []),
-            company_name=data.get("company_name", ""),
-            position_title=data.get("position_title", ""),
-            required_skills=data.get("required_skills", []),
-            preferred_skills=data.get("preferred_skills", []),
-            qualifications=data.get("qualifications", []),
-            company_culture=data.get("company_culture", []),
-            benefits=data.get("benefits", []),
-            salary_range=data.get("salary_range"),
-            location=data.get("location"),
-            remote_policy=data.get("remote_policy"),
-            parsed_at=parsed_at,
-            error=data.get("error")
-        )
-
-
-class ItemStatus(enum.Enum):
-    """Enumeration for the status of an item in the CV."""
-    INITIAL = "initial"  # Parsed from raw input
-    GENERATED = "generated"  # Generated by ContentWriter
-    USER_EDITED = "user_edited"  # Modified directly by user in UI
-    TO_REGENERATE = "to_regenerate"  # Marked for regeneration by user
-    ACCEPTED = "accepted"  # Approved by user
-    STATIC = "static"  # Content from base CV, not tailored by AI
-
-    def __str__(self):
-        return self.value  # Allows easy string conversion
-
-
-class ItemType(enum.Enum):
-    """Enumeration for the type of an item in the CV."""
-    BULLET_POINT = "bullet_point"
-    KEY_QUAL = "key_qual"
-    SUMMARY_PARAGRAPH = "summary_paragraph"
-    SECTION_TITLE = "section_title"
-    SUBSECTION_TITLE = "subsection_title"
-    EDUCATION_ENTRY = "education_entry"
-    CERTIFICATION_ENTRY = "certification_entry"
-    LANGUAGE_ENTRY = "language_entry"
-
-    def __str__(self):
-        return self.value
-
-
-@dataclass
-class Item:
-    """Represents a granular piece of content in the CV (e.g., a bullet point, a key qualification)."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    content: str = ""
-    status: ItemStatus = ItemStatus.INITIAL
-    item_type: ItemType = ItemType.BULLET_POINT
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    user_feedback: Optional[str] = None
-
-    def to_dict(self):
-        """Helper for serialization"""
-        return {
-            "id": self.id,
-            "content": self.content,
-            "status": (self.status.value if isinstance(self.status, enum.Enum) else self.status),
-            "item_type": (self.item_type.value if isinstance(self.item_type, enum.Enum) else self.item_type),
-            "metadata": self.metadata,
-            "user_feedback": self.user_feedback,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create an Item from a dictionary"""
-        status = data.get("status", "initial")
-        if isinstance(status, str):
-            try:
-                status = ItemStatus(status)
-            except ValueError:
-                status = ItemStatus.INITIAL
-
-        item_type = data.get("item_type", "bullet_point")
-        if isinstance(item_type, str):
-            try:
-                item_type = ItemType(item_type)
-            except ValueError:
-                item_type = ItemType.BULLET_POINT
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            content=data.get("content", ""),
-            status=status,
-            item_type=item_type,
-            metadata=data.get("metadata", {}),
-            user_feedback=data.get("user_feedback"),
-        )
-
-
-@dataclass
-class Subsection:
-    """Represents a subsection within a section (e.g., a specific job role within Professional Experience)."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = ""
-    items: List[Item] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    raw_text: str = ""
-
-    def to_dict(self):
-        """Helper for serialization"""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "items": [item.to_dict() for item in self.items],
-            "metadata": self.metadata,
-            "raw_text": self.raw_text,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create a Subsection from a dictionary"""
-        items = []
-        for item_data in data.get("items", []):
-            items.append(Item.from_dict(item_data))
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            name=data.get("name", ""),
-            items=items,
-            metadata=data.get("metadata", {}),
-            raw_text=data.get("raw_text", ""),
-        )
-
-
-@dataclass
-class Section:
-    """Represents a major section in the CV (e.g., Professional Experience, Key Qualifications)."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = ""
-    content_type: str = "DYNAMIC"
-    subsections: List[Subsection] = field(default_factory=list)
-    items: List[Item] = field(default_factory=list)
-    raw_text: str = ""
-    order: int = 0
-    status: ItemStatus = ItemStatus.INITIAL
-    user_feedback: Optional[str] = None
-
-    def to_dict(self):
-        """Helper for serialization"""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "content_type": self.content_type,
-            "subsections": [subsection.to_dict() for subsection in self.subsections],
-            "items": [item.to_dict() for item in self.items],
-            "raw_text": self.raw_text,
-            "order": self.order,
-            "status": (self.status.value if isinstance(self.status, enum.Enum) else self.status),
-            "user_feedback": self.user_feedback,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create a Section from a dictionary"""
-        subsections = []
-        for subsection_data in data.get("subsections", []):
-            subsections.append(Subsection.from_dict(subsection_data))
-
-        items = []
-        for item_data in data.get("items", []):
-            items.append(Item.from_dict(item_data))
-
-        status = data.get("status", "initial")
-        if isinstance(status, str):
-            try:
-                status = ItemStatus(status)
-            except ValueError:
-                status = ItemStatus.INITIAL
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            name=data.get("name", ""),
-            content_type=data.get("content_type", "DYNAMIC"),
-            subsections=subsections,
-            items=items,
-            raw_text=data.get("raw_text", ""),
-            order=data.get("order", 0),
-            status=status,
-            user_feedback=data.get("user_feedback"),
-        )
-
-
-class EnumEncoder(json.JSONEncoder):
-    """JSON encoder for enum types."""
-    def default(self, obj):
-        if isinstance(obj, enum.Enum):
-            return obj.value
-        return super().default(obj)
-
-
-@dataclass
-class StructuredCV:
-    """The main data model representing a CV with a hierarchical structure."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    sections: List[Section] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self):
-        """Convert the StructuredCV to a dictionary for JSON serialization"""
-        return {
-            "id": self.id,
-            "sections": [section.to_dict() for section in self.sections],
-            "metadata": self.metadata,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create a StructuredCV from a dictionary"""
-        sections = []
-        for section_data in data.get("sections", []):
-            sections.append(Section.from_dict(section_data))
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            sections=sections,
-            metadata=data.get("metadata", {}),
-        )
-
-    def save(self, directory="data/sessions"):
-        """Save the StructuredCV to a JSON file"""
-        os.makedirs(f"{directory}/{self.id}", exist_ok=True)
-        with open(f"{directory}/{self.id}/structured_cv.json", "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, indent=2, cls=EnumEncoder, ensure_ascii=False)
-
+    """Metadata for processing items."""
+    item_id: str
+    status: 'ProcessingStatus'
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 @dataclass
 class ProcessingQueue:
-    """Queue for managing individual item processing."""
-    pending_items: List[ContentItem] = field(default_factory=list)
-    in_progress_items: List[ContentItem] = field(default_factory=list)
-    completed_items: List[ContentItem] = field(default_factory=list)
-    failed_items: List[ContentItem] = field(default_factory=list)
+    """Queue for managing content processing."""
+    pending_items: List[Item] = field(default_factory=list)
+    in_progress_items: List[Item] = field(default_factory=list)
+    completed_items: List[Item] = field(default_factory=list)
+    failed_items: List[Item] = field(default_factory=list)
     
-    def add_item(self, item: ContentItem):
+    def add_item(self, item: Item):
         """Add an item to the pending queue."""
         self.pending_items.append(item)
     
-    def get_next_item(self) -> Optional[ContentItem]:
+    def get_next_item(self) -> Optional[Item]:
         """Get the next item ready for processing."""
         # Sort by priority (higher first) and creation time
         ready_items = [
@@ -471,27 +180,28 @@ class ProcessingQueue:
         
         return item
     
-    def complete_item(self, item: ContentItem, generated_content: str):
+    def complete_item(self, item: Item, generated_content: str):
         """Mark an item as completed."""
-        item.generated_content = generated_content
-        item.metadata.update_status(ProcessingStatus.COMPLETED)
+        item.content = generated_content
+        item.status = ItemStatus.GENERATED
         
         if item in self.in_progress_items:
             self.in_progress_items.remove(item)
         self.completed_items.append(item)
     
-    def fail_item(self, item: ContentItem, error: str):
+    def fail_item(self, item: Item, error: str):
         """Mark an item as failed."""
-        item.metadata.update_status(ProcessingStatus.FAILED, error)
+        item.status = ItemStatus.FAILED
+        item.metadata["error"] = error
         
         if item in self.in_progress_items:
             self.in_progress_items.remove(item)
         self.failed_items.append(item)
     
-    def rate_limit_item(self, item: ContentItem):
+    def rate_limit_item(self, item: Item):
         """Mark an item as rate limited and return to pending."""
-        item.metadata.update_status(ProcessingStatus.RATE_LIMITED)
-        item.metadata.rate_limit_hits += 1
+        item.status = ItemStatus.RATE_LIMITED
+        item.metadata["rate_limit_hits"] = item.metadata.get("rate_limit_hits", 0) + 1
         
         if item in self.in_progress_items:
             self.in_progress_items.remove(item)
@@ -528,10 +238,10 @@ class CVGenerationState:
     project_queue: ProcessingQueue = field(default_factory=ProcessingQueue)
     
     # Generated content
-    key_qualifications: List[QualificationItem] = field(default_factory=list)
-    professional_experiences: List[ExperienceItem] = field(default_factory=list)
-    side_projects: List[ProjectItem] = field(default_factory=list)
-    executive_summary: Optional[ContentItem] = None
+    key_qualifications: List[Item] = field(default_factory=list)
+    professional_experiences: List[Item] = field(default_factory=list)
+    side_projects: List[Item] = field(default_factory=list)
+    executive_summary: Optional[Item] = None
     
     # Workflow metadata
     created_at: datetime = field(default_factory=datetime.now)
@@ -554,10 +264,10 @@ class CVGenerationState:
     def add_qualification_items(self, items: List[str]):
         """Add qualification items to the processing queue."""
         for i, item_text in enumerate(items):
-            qualification = QualificationItem(
-                content_type=ContentType.QUALIFICATION,
-                original_content=item_text,
-                priority=len(items) - i  # Earlier items have higher priority
+            qualification = Item(
+                content=item_text,
+                item_type=ItemType.KEY_QUALIFICATION,
+                metadata={"priority": len(items) - i}  # Earlier items have higher priority
             )
             self.qualification_queue.add_item(qualification)
     

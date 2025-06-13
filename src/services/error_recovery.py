@@ -15,7 +15,7 @@ import json
 
 from ..config.logging_config import get_structured_logger
 from ..models.data_models import (
-    CVGenerationState, ProcessingStatus, ContentType, ContentItem,
+    CVGenerationState, ProcessingStatus, ContentType, Item,
     ProcessingMetadata
 )
 
@@ -458,7 +458,7 @@ class ErrorRecoveryService:
     async def execute_recovery_action(
         self,
         action: RecoveryAction,
-        item: ContentItem,
+        item: Item,
         session_id: str
     ) -> bool:
         """Execute a recovery action."""

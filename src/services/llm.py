@@ -7,9 +7,16 @@ import concurrent.futures
 import threading
 from queue import Queue
 import logging
+import hashlib
+import functools
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from datetime import datetime
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
@@ -18,6 +25,58 @@ from .rate_limiter import RateLimiter as EnhancedRateLimiter
 from .error_recovery import get_error_recovery_service
 
 logger = get_structured_logger("llm_service")
+
+
+# --- Caching Mechanism ---
+# Use LRU (Least Recently Used) cache for LLM responses.
+# maxsize=128 means it will store up to 128 recent unique LLM calls.
+# This is highly effective for regeneration requests where the prompt is identical.
+def create_cache_key(prompt: str, model_name: str, content_type: str = "") -> str:
+    """Creates a consistent hashable key for caching based on the prompt."""
+    # Use a hash of the prompt to keep the key length manageable
+    prompt_hash = hashlib.md5(prompt.encode()).hexdigest()
+    return f"{model_name}:{content_type}:{prompt_hash}"
+
+
+# Global cache for LLM responses
+@functools.lru_cache(maxsize=128)
+def _get_cached_response(cache_key: str) -> Optional[str]:
+    """Internal cache lookup function."""
+    # This function exists to provide a cacheable interface
+    # The actual caching is handled by the decorator
+    return None
+
+
+# Cache storage for actual responses
+_response_cache: Dict[str, Dict[str, Any]] = {}
+_cache_lock = threading.Lock()
+
+
+def get_cached_response(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Get cached response if available."""
+    with _cache_lock:
+        return _response_cache.get(cache_key)
+
+
+def set_cached_response(cache_key: str, response_data: Dict[str, Any]):
+    """Cache a response with LRU eviction."""
+    with _cache_lock:
+        # Simple LRU: if cache is full, remove oldest entry
+        if len(_response_cache) >= 128:
+            # Remove the first (oldest) item
+            oldest_key = next(iter(_response_cache))
+            del _response_cache[oldest_key]
+            logger.debug(f"Cache evicted oldest entry: {oldest_key[:20]}...")
+        
+        _response_cache[cache_key] = response_data
+        logger.debug(f"Response cached with key: {cache_key[:20]}...")
+
+
+def clear_cache():
+    """Clear the entire response cache."""
+    with _cache_lock:
+        _response_cache.clear()
+        logger.info("LLM response cache cleared")
 
 
 @dataclass
@@ -95,6 +154,10 @@ class EnhancedLLMService:
         self.call_count = 0
         self.total_tokens = 0
         self.total_processing_time = 0.0
+        
+        # Cache performance tracking
+        self.cache_hits = 0
+        self.cache_misses = 0
         
         logger.info(
             "Enhanced LLM service initialized",
@@ -181,7 +244,7 @@ class EnhancedLLMService:
         max_retries: int = 3
     ) -> LLMResponse:
         """
-        Generate content using the Gemini model with enhanced error handling.
+        Generate content using the Gemini model with enhanced error handling and caching.
 
         Args:
             prompt: Text prompt to send to the model
@@ -195,6 +258,38 @@ class EnhancedLLMService:
         """
         start_time = time.time()
         retry_count = 0
+        
+        # Create cache key for this request
+        cache_key = create_cache_key(prompt, self.model_name, content_type.value)
+        
+        # Check cache first
+        cached_response = get_cached_response(cache_key)
+        if cached_response:
+            self.cache_hits += 1
+            logger.info(
+                "Cache hit for LLM request",
+                session_id=session_id,
+                item_id=item_id,
+                content_type=content_type.value,
+                cache_key=cache_key[:20] + "..."
+            )
+            
+            # Return cached response with updated metadata
+            cached_response["metadata"]["cache_hit"] = True
+            cached_response["metadata"]["session_id"] = session_id
+            cached_response["metadata"]["item_id"] = item_id
+            cached_response["processing_time"] = 0.001  # Minimal cache lookup time
+            
+            return LLMResponse(**cached_response)
+        
+        # Cache miss - proceed with LLM call
+        self.cache_misses += 1
+        logger.debug(
+            "Cache miss for LLM request",
+            session_id=session_id,
+            item_id=item_id,
+            content_type=content_type.value
+        )
         
         # Update call tracking
         self.call_count += 1
@@ -239,9 +334,27 @@ class EnhancedLLMService:
                         "item_id": item_id,
                         "content_type": content_type.value,
                         "retry_count": retry_count,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": datetime.now().isoformat(),
+                        "cache_hit": False
                     }
                 )
+                
+                # Cache the successful response
+                cache_data = {
+                    "content": response.text,
+                    "tokens_used": tokens_used,
+                    "processing_time": processing_time,
+                    "model_used": self.model_name,
+                    "success": True,
+                    "error_message": None,
+                    "metadata": {
+                        "content_type": content_type.value,
+                        "retry_count": retry_count,
+                        "timestamp": datetime.now().isoformat(),
+                        "cache_hit": False
+                    }
+                }
+                set_cached_response(cache_key, cache_data)
                 
                 # Log successful generation
                 logger.info(
@@ -250,7 +363,8 @@ class EnhancedLLMService:
                     item_id=item_id,
                     processing_time=processing_time,
                     tokens_used=tokens_used,
-                    response_length=len(response.text)
+                    response_length=len(response.text),
+                    cached=True
                 )
                 
                 return llm_response
@@ -340,23 +454,40 @@ class EnhancedLLMService:
                 retry_count += 1
     
     def get_service_stats(self) -> Dict[str, Any]:
-        """Get service performance statistics."""
+        """Get service performance statistics including cache metrics."""
+        total_requests = self.cache_hits + self.cache_misses
+        cache_hit_rate = (self.cache_hits / max(total_requests, 1)) * 100
+        
         return {
             "total_calls": self.call_count,
             "total_tokens": self.total_tokens,
             "total_processing_time": self.total_processing_time,
             "average_processing_time": self.total_processing_time / max(self.call_count, 1),
             "model_name": self.model_name,
-            "rate_limiter_status": self.rate_limiter.get_status() if hasattr(self.rate_limiter, 'get_status') else None
+            "rate_limiter_status": self.rate_limiter.get_status() if hasattr(self.rate_limiter, 'get_status') else None,
+            "cache_performance": {
+                "cache_hits": self.cache_hits,
+                "cache_misses": self.cache_misses,
+                "total_requests": total_requests,
+                "cache_hit_rate_percent": round(cache_hit_rate, 2),
+                "cache_size": len(_response_cache)
+            }
         }
     
     def reset_stats(self):
-        """Reset performance statistics."""
+        """Reset performance statistics including cache metrics."""
         self.call_count = 0
         self.total_tokens = 0
         self.total_processing_time = 0.0
+        self.cache_hits = 0
+        self.cache_misses = 0
         
         logger.info("LLM service statistics reset")
+    
+    def clear_cache(self):
+        """Clear the LLM response cache."""
+        clear_cache()
+        logger.info("LLM service cache cleared")
 
 
 # Legacy compatibility

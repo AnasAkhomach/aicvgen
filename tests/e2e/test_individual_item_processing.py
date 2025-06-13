@@ -1,421 +1,539 @@
-"""End-to-End Test 2: Individual Item Processing
+"""End-to-End test for individual item processing workflow.
 
-Tests the role-by-role generation workflow (MVP requirement) with
-rate limit compliance and user feedback integration.
+Tests the granular processing capabilities where users can
+regenerate individual CV items while preserving others.
 """
 
 import pytest
 import asyncio
-import json
-from datetime import datetime
-from unittest.mock import Mock, AsyncMock, patch
-from typing import Dict, Any, List
+from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
+from uuid import uuid4
 
-# Add project root to path
-import sys
-import os
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from src.core.enhanced_orchestrator import EnhancedOrchestrator
+# Import application components
+from src.orchestration.enhanced_orchestrator import EnhancedOrchestrator
+from src.orchestration.state import AgentState
 from src.models.data_models import (
-    CVGenerationState, WorkflowStage, ProcessingStatus, ContentType,
-    JobDescriptionData, ExperienceItem, ProjectItem, ContentItem,
-    ProcessingMetadata
+    StructuredCV, Section, Subsection, Item, ItemStatus, ItemType,
+    JobDescriptionData
 )
-from src.services.rate_limiter import RateLimitConfig
-from src.services.session_manager import SessionManager
-from src.services.progress_tracker import ProgressTracker
+from src.services.state_manager import StateManager
+from src.services.llm import LLMService
+from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 
 
 @pytest.mark.e2e
-@pytest.mark.slow
+@pytest.mark.asyncio
 class TestIndividualItemProcessing:
-    """End-to-end tests for individual item processing workflow."""
-    
+    """E2E tests for individual item processing workflow."""
+
     @pytest.fixture
-    def sample_experience_items(self) -> List[ExperienceItem]:
-        """Provide sample professional experience items for testing."""
-        return [
-            ExperienceItem(
-                title="Senior Software Engineer",
-                company="DataTech Solutions",
-                duration="2021-2023",
-                responsibilities=[
-                    "Developed scalable data processing pipelines using Python and Apache Spark",
-                    "Implemented machine learning models for customer segmentation",
-                    "Led a team of 3 engineers in building real-time analytics platform",
-                    "Reduced data processing time by 40% through optimization techniques"
-                ],
-                technologies=["Python", "Apache Spark", "Machine Learning", "Analytics"]
-            ),
-            ExperienceItem(
-                title="Machine Learning Engineer",
-                company="StartupAI",
-                duration="2019-2021",
-                responsibilities=[
-                    "Built and deployed deep learning models for computer vision applications",
-                    "Designed MLOps infrastructure using Docker and Kubernetes",
-                    "Collaborated with product team to integrate ML features into mobile app",
-                    "Achieved 95% accuracy in image classification models"
-                ],
-                technologies=["Deep Learning", "Computer Vision", "Docker", "Kubernetes", "MLOps"]
-            ),
-            ExperienceItem(
-                title="Software Developer",
-                company="TechStart Inc.",
-                duration="2017-2019",
-                responsibilities=[
-                    "Developed web applications using Python Flask and React",
-                    "Implemented RESTful APIs for mobile and web clients",
-                    "Worked with PostgreSQL and Redis for data storage",
-                    "Participated in agile development processes"
-                ],
-                technologies=["Python", "Flask", "React", "PostgreSQL", "Redis"]
-            )
-        ]
-    
-    @pytest.fixture
-    def ai_engineer_job_description(self) -> JobDescriptionData:
-        """Provide AI Engineer job description for testing."""
-        return JobDescriptionData(
-            title="AI Engineer - Machine Learning Platform",
-            company="TechCorp Inc.",
-            description="We are seeking an experienced AI Engineer to join our ML Platform team.",
-            requirements=[
-                "3+ years of experience in machine learning engineering",
-                "Strong proficiency in Python, TensorFlow/PyTorch",
-                "Experience with cloud platforms (AWS, GCP, or Azure)",
-                "Knowledge of containerization (Docker, Kubernetes)"
+    def sample_structured_cv_with_items(self):
+        """Sample structured CV with multiple items for testing."""
+        return StructuredCV(
+            sections=[
+                Section(
+                    name="Professional Experience",
+                    subsections=[
+                        Subsection(
+                            name="Senior Software Engineer @ TechCorp",
+                            items=[
+                                Item(
+                                    id=uuid4(),
+                                    content="Developed scalable web applications using Python and Django",
+                                    status=ItemStatus.GENERATED,
+                                    item_type=ItemType.BULLET_POINT,
+                                    confidence_score=0.8,
+                                    raw_llm_output="Original LLM response for item 1"
+                                ),
+                                Item(
+                                    id=uuid4(),
+                                    content="Implemented REST APIs for mobile applications",
+                                    status=ItemStatus.GENERATED,
+                                    item_type=ItemType.BULLET_POINT,
+                                    confidence_score=0.75,
+                                    raw_llm_output="Original LLM response for item 2"
+                                ),
+                                Item(
+                                    id=uuid4(),
+                                    content="Led cross-functional team of 5 developers",
+                                    status=ItemStatus.GENERATED,
+                                    item_type=ItemType.BULLET_POINT,
+                                    confidence_score=0.9,
+                                    raw_llm_output="Original LLM response for item 3"
+                                )
+                            ]
+                        ),
+                        Subsection(
+                            name="Software Engineer @ StartupXYZ",
+                            items=[
+                                Item(
+                                    id=uuid4(),
+                                    content="Built frontend components using React and TypeScript",
+                                    status=ItemStatus.GENERATED,
+                                    item_type=ItemType.BULLET_POINT,
+                                    confidence_score=0.85,
+                                    raw_llm_output="Original LLM response for startup item 1"
+                                ),
+                                Item(
+                                    id=uuid4(),
+                                    content="Participated in agile development processes",
+                                    status=ItemStatus.GENERATED,
+                                    item_type=ItemType.BULLET_POINT,
+                                    confidence_score=0.7,
+                                    raw_llm_output="Original LLM response for startup item 2"
+                                )
+                            ]
+                        )
+                    ]
+                ),
+                Section(
+                    name="Key Qualifications",
+                    items=[
+                        Item(
+                            id=uuid4(),
+                            content="5+ years of software engineering experience",
+                            status=ItemStatus.GENERATED,
+                            item_type=ItemType.KEY_QUALIFICATION,
+                            confidence_score=0.95,
+                            raw_llm_output="Key qualification LLM response 1"
+                        ),
+                        Item(
+                            id=uuid4(),
+                            content="Expert in Python, JavaScript, and cloud technologies",
+                            status=ItemStatus.GENERATED,
+                            item_type=ItemType.KEY_QUALIFICATION,
+                            confidence_score=0.88,
+                            raw_llm_output="Key qualification LLM response 2"
+                        )
+                    ]
+                )
             ],
-            responsibilities=[
-                "Design and implement machine learning models for recommendation systems",
-                "Develop and maintain ML pipelines using Python, TensorFlow, and PyTorch",
-                "Optimize model performance and scalability in cloud environments",
-                "Implement MLOps practices for continuous model deployment"
-            ],
-            skills=[
-                "Python", "TensorFlow", "PyTorch", "AWS", "Docker", "Kubernetes",
-                "Machine Learning", "MLOps", "Data Engineering"
+            big_10_skills=[
+                "Python Programming",
+                "Web Development",
+                "API Design",
+                "Team Leadership",
+                "Agile Methodologies"
             ]
         )
-    
+
     @pytest.fixture
-    def mock_rate_limited_llm_client(self):
-        """Provide a mock LLM client that simulates rate limiting."""
-        mock_client = Mock()
-        mock_client.generate_content = AsyncMock()
-        
-        # Track call count for rate limiting simulation
-        call_count = {'count': 0}
-        
-        async def rate_limited_generate(*args, **kwargs):
-            call_count['count'] += 1
-            
-            # Simulate rate limit after 5 calls
-            if call_count['count'] > 5:
-                await asyncio.sleep(0.1)  # Simulate rate limit delay
-            
-            # Return tailored content based on input
-            prompt = kwargs.get('prompt', '') or (args[0] if args else '')
-            
-            if 'senior software engineer' in prompt.lower():
-                return {
-                    "content": json.dumps({
-                        "tailored_bullets": [
-                            "Architected scalable ML data pipelines processing 10TB+ daily using Python and Apache Spark, enabling real-time model training",
-                            "Led cross-functional team of 5 engineers to build production ML platform, reducing model deployment time by 70%",
-                            "Implemented advanced customer segmentation models achieving 25% improvement in targeting accuracy"
-                        ]
-                    }),
-                    "tokens_used": 120,
-                    "model": "gpt-4"
-                }
-            elif 'machine learning engineer' in prompt.lower():
-                return {
-                    "content": json.dumps({
-                        "tailored_bullets": [
-                            "Developed and deployed computer vision models achieving 95% accuracy for production mobile app with 1M+ users",
-                            "Built comprehensive MLOps infrastructure using Docker/Kubernetes, enabling continuous model deployment and A/B testing",
-                            "Collaborated with product teams to integrate ML features, resulting in 30% increase in user engagement"
-                        ]
-                    }),
-                    "tokens_used": 115,
-                    "model": "gpt-4"
-                }
-            else:
-                return {
-                    "content": json.dumps({
-                        "tailored_bullets": [
-                            "Enhanced web application performance and scalability using modern Python frameworks",
-                            "Implemented robust RESTful APIs serving mobile and web clients with 99.9% uptime",
-                            "Optimized database operations and caching strategies for improved response times"
-                        ]
-                    }),
-                    "tokens_used": 100,
-                    "model": "gpt-4"
-                }
-        
-        mock_client.generate_content.side_effect = rate_limited_generate
-        return mock_client
-    
-    @pytest.fixture
-    def orchestrator_with_rate_limiting(self, mock_rate_limited_llm_client, temp_dir):
-        """Provide an orchestrator configured for rate limiting tests."""
-        # Mock services
-        mock_progress_tracker = Mock(spec=ProgressTracker)
-        mock_session_manager = Mock(spec=SessionManager)
-        
-        # Create orchestrator with rate limiting
-        orchestrator = EnhancedOrchestrator(
-            llm_client=mock_rate_limited_llm_client,
-            progress_tracker=mock_progress_tracker,
-            session_manager=mock_session_manager
+    def sample_job_description_data(self):
+        """Sample job description data for testing."""
+        return JobDescriptionData(
+            required_skills=["Python", "Django", "REST APIs", "Leadership"],
+            responsibilities=["Develop applications", "Lead teams", "Design APIs"],
+            industry_terms=["Software Engineering", "Web Development", "Agile"],
+            company_context="Technology company focused on scalable web applications"
         )
+
+    @pytest.fixture
+    async def orchestrator_with_content_writer_mock(self):
+        """Create orchestrator with mocked content writer for item processing."""
+        # Mock content writer agent
+        mock_content_writer = AsyncMock(spec=EnhancedContentWriterAgent)
+        
+        # Configure mock to return regenerated content
+        async def mock_process_single_item(item_id, job_data, cv_data, section_key=None):
+            return {
+                "success": True,
+                "item": Item(
+                    id=item_id,
+                    content="REGENERATED: Enhanced content with improved metrics and specific achievements",
+                    status=ItemStatus.GENERATED,
+                    item_type=ItemType.BULLET_POINT,
+                    confidence_score=0.92,
+                    raw_llm_output="Regenerated LLM response with enhanced details",
+                    metadata={"regeneration_count": 1, "timestamp": "2024-01-01T12:00:00Z"}
+                ),
+                "metadata": {
+                    "processing_time": 2.5,
+                    "model_used": "gemini-pro",
+                    "regeneration_reason": "user_requested"
+                }
+            }
+        
+        mock_content_writer.process_single_item = mock_process_single_item
+        
+        # Create orchestrator with mocked content writer
+        orchestrator = EnhancedOrchestrator()
+        orchestrator.content_writer_agent = mock_content_writer
         
         return orchestrator
-    
-    @pytest.mark.asyncio
-    async def test_individual_experience_processing(
-        self,
-        orchestrator_with_rate_limiting,
-        sample_experience_items,
-        ai_engineer_job_description,
-        performance_timer
-    ):
-        """Test E2E Test 2: Individual Item Processing workflow.
+
+    async def test_single_item_regeneration(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
+        """Test regenerating a single item while preserving others.
         
-        Input: Single professional experience role
-        Process: Role-by-role generation (MVP requirement)
-        Output: Tailored experience bullets
-        Assertions: Rate limit compliance, user feedback integration
+        Validates:
+        - REQ-FUNC-GEN-3: Individual item processing
+        - REQ-FUNC-GEN-4: User control over regeneration
+        - REQ-FUNC-UI-2: Accept/Regenerate functionality
         """
-        orchestrator = orchestrator_with_rate_limiting
-        performance_timer.start()
+        orchestrator = orchestrator_with_content_writer_mock
+        session_id = str(uuid4())
         
-        # Process each experience item individually
-        processed_items = []
-        processing_times = []
+        # Get the structured CV and select an item to regenerate
+        structured_cv = sample_structured_cv_with_items
+        target_item = structured_cv.sections[0].subsections[0].items[1]  # Second item in first role
+        original_content = target_item.content
+        original_raw_output = target_item.raw_llm_output
         
-        for i, experience_item in enumerate(sample_experience_items):
-            item_start_time = performance_timer.elapsed
-            
-            try:
-                # Process individual experience item
-                result = await orchestrator.process_individual_item(
-                    item=experience_item,
-                    job_description=ai_engineer_job_description,
-                    session_id=f"test-individual-{i}",
-                    item_type=ContentType.EXPERIENCE
-                )
-                
-                item_end_time = performance_timer.elapsed
-                processing_times.append(item_end_time - item_start_time)
-                
-                # Assertions: Individual item processing
-                assert result is not None
-                assert result.get('status') == ProcessingStatus.COMPLETED
-                
-                # Check tailored content
-                tailored_content = result.get('generated_content', {})
-                assert 'tailored_bullets' in tailored_content
-                
-                bullets = tailored_content['tailored_bullets']
-                assert len(bullets) >= 3, f"Expected at least 3 bullets, got {len(bullets)}"
-                
-                # Verify content is tailored to job requirements
-                bullets_text = ' '.join(bullets).lower()
-                job_keywords = ['machine learning', 'python', 'ml', 'data', 'model']
-                keyword_matches = sum(1 for keyword in job_keywords if keyword in bullets_text)
-                assert keyword_matches >= 2, f"Expected job-relevant keywords, found {keyword_matches} matches"
-                
-                processed_items.append(result)
-                
-                print(f"✅ Processed {experience_item.title} in {processing_times[-1]:.2f}s")
-                
-            except Exception as e:
-                pytest.fail(f"Failed to process {experience_item.title}: {str(e)}")
+        # Store original content of other items for comparison
+        other_items = [
+            structured_cv.sections[0].subsections[0].items[0],  # First item
+            structured_cv.sections[0].subsections[0].items[2],  # Third item
+            structured_cv.sections[0].subsections[1].items[0],  # First item in second role
+            structured_cv.sections[0].subsections[1].items[1],  # Second item in second role
+        ]
+        original_other_contents = [item.content for item in other_items]
+        original_other_raw_outputs = [item.raw_llm_output for item in other_items]
         
-        performance_timer.stop()
-        
-        # Assertions: Rate limit compliance
-        total_processing_time = performance_timer.elapsed
-        average_processing_time = sum(processing_times) / len(processing_times)
-        
-        # Should respect rate limits (processing time should increase with more items)
-        assert len(processed_items) == len(sample_experience_items)
-        assert total_processing_time < 60.0, f"Total processing took {total_processing_time:.2f}s, expected < 60s"
-        
-        # Verify rate limiting behavior (later items should take slightly longer)
-        if len(processing_times) > 1:
-            # Allow for some variance but expect general trend
-            later_items_avg = sum(processing_times[1:]) / len(processing_times[1:])
-            first_item_time = processing_times[0]
-            
-            # Later items might be slightly slower due to rate limiting
-            assert later_items_avg <= first_item_time * 2, "Rate limiting causing excessive delays"
-        
-        print(f"✅ Individual item processing test completed in {total_processing_time:.2f}s")
-        print(f"   Average processing time per item: {average_processing_time:.2f}s")
-    
-    @pytest.mark.asyncio
-    async def test_user_feedback_integration(
-        self,
-        orchestrator_with_rate_limiting,
-        sample_experience_items,
-        ai_engineer_job_description
-    ):
-        """Test user feedback integration in individual item processing."""
-        orchestrator = orchestrator_with_rate_limiting
-        
-        # Process first experience item
-        experience_item = sample_experience_items[0]
-        
-        # Initial processing
-        initial_result = await orchestrator.process_individual_item(
-            item=experience_item,
-            job_description=ai_engineer_job_description,
-            session_id="test-feedback-integration",
-            item_type=ContentType.EXPERIENCE
+        # Create agent state
+        agent_state = AgentState(
+            session_id=session_id,
+            structured_cv=structured_cv,
+            job_description_data=sample_job_description_data,
+            current_item_id=str(target_item.id),
+            current_section_key="Professional Experience",
+            user_feedback="Please make this more specific with metrics",
+            research_findings="Company values quantifiable achievements",
+            error_messages=[],
+            final_cv_output_path=None
         )
         
-        assert initial_result.get('status') == ProcessingStatus.COMPLETED
-        initial_bullets = initial_result.get('generated_content', {}).get('tailored_bullets', [])
-        
-        # Simulate user feedback
-        user_feedback = {
-            "feedback_type": "enhancement_request",
-            "feedback": "Please emphasize leadership and team management aspects more",
-            "item_id": initial_result.get('item_id'),
-            "requested_changes": [
-                "Add more quantified leadership achievements",
-                "Highlight team size and management responsibilities"
+        # Mock state manager
+        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+            mock_state_manager = MagicMock()
+            mock_state_manager_class.return_value = mock_state_manager
+            
+            # Configure state manager mocks
+            mock_state_manager.get_structured_cv.return_value = structured_cv
+            mock_state_manager.update_item_status.return_value = True
+            mock_state_manager.save_structured_cv.return_value = True
+            
+            # Execute single item processing
+            result_state = await orchestrator.process_single_item(agent_state)
+            
+            # Validate processing success
+            assert result_state is not None
+            assert len(result_state.error_messages) == 0, f"Processing failed with errors: {result_state.error_messages}"
+            
+            # Validate target item was regenerated
+            updated_cv = result_state.structured_cv
+            updated_target_item = updated_cv.sections[0].subsections[0].items[1]
+            
+            assert updated_target_item.content != original_content, "Target item content should be regenerated"
+            assert "REGENERATED:" in updated_target_item.content, "Target item should contain regenerated content"
+            assert updated_target_item.raw_llm_output != original_raw_output, "Target item raw output should be updated"
+            assert updated_target_item.status == ItemStatus.GENERATED, "Target item status should be GENERATED"
+            assert updated_target_item.confidence_score == 0.92, "Target item should have updated confidence score"
+            
+            # Validate metadata was updated
+            assert "regeneration_count" in updated_target_item.metadata
+            assert updated_target_item.metadata["regeneration_count"] == 1
+            
+            # Validate other items were NOT modified (REQ-FUNC-GEN-3)
+            updated_other_items = [
+                updated_cv.sections[0].subsections[0].items[0],  # First item
+                updated_cv.sections[0].subsections[0].items[2],  # Third item
+                updated_cv.sections[0].subsections[1].items[0],  # First item in second role
+                updated_cv.sections[0].subsections[1].items[1],  # Second item in second role
             ]
-        }
+            
+            for i, (original_content, original_raw, updated_item) in enumerate(zip(
+                original_other_contents, original_other_raw_outputs, updated_other_items
+            )):
+                assert updated_item.content == original_content, f"Other item {i} content should be preserved"
+                assert updated_item.raw_llm_output == original_raw, f"Other item {i} raw output should be preserved"
+                assert updated_item.status != ItemStatus.TO_REGENERATE, f"Other item {i} should not be marked for regeneration"
+            
+            # Validate state manager interactions
+            mock_state_manager.update_item_status.assert_called()
+            mock_state_manager.save_structured_cv.assert_called()
+
+    async def test_multiple_item_regeneration_workflow(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
+        """Test workflow with multiple individual item regenerations.
         
-        # Process with user feedback
-        feedback_result = await orchestrator.process_individual_item_with_feedback(
-            item=experience_item,
-            job_description=ai_engineer_job_description,
-            session_id="test-feedback-integration",
-            item_type=ContentType.EXPERIENCE,
-            user_feedback=user_feedback
-        )
+        Validates:
+        - Sequential item processing
+        - State consistency across multiple operations
+        - User feedback integration
+        """
+        orchestrator = orchestrator_with_content_writer_mock
+        session_id = str(uuid4())
         
-        # Assertions: Feedback integration
-        assert feedback_result.get('status') == ProcessingStatus.COMPLETED
-        feedback_bullets = feedback_result.get('generated_content', {}).get('tailored_bullets', [])
+        structured_cv = sample_structured_cv_with_items
         
-        # Content should be different after feedback
-        assert feedback_bullets != initial_bullets, "Content should change after user feedback"
-        
-        # Should contain leadership-related keywords
-        feedback_text = ' '.join(feedback_bullets).lower()
-        leadership_keywords = ['led', 'team', 'managed', 'leadership', 'engineers']
-        leadership_matches = sum(1 for keyword in leadership_keywords if keyword in feedback_text)
-        assert leadership_matches >= 2, f"Expected leadership emphasis, found {leadership_matches} matches"
-        
-        print("✅ User feedback integration test passed")
-    
-    @pytest.mark.asyncio
-    async def test_batch_individual_processing(
-        self,
-        orchestrator_with_rate_limiting,
-        sample_experience_items,
-        ai_engineer_job_description,
-        performance_timer
-    ):
-        """Test batch processing of individual items with rate limit management."""
-        orchestrator = orchestrator_with_rate_limiting
-        performance_timer.start()
-        
-        # Create content items from experience items
-        content_items = [
-            ContentItem(
-                content_type=ContentType.EXPERIENCE,
-                original_content=json.dumps({
-                    "title": item.title,
-                    "company": item.company,
-                    "duration": item.duration,
-                    "responsibilities": item.responsibilities,
-                    "technologies": item.technologies
-                }),
-                metadata=ProcessingMetadata(
-                    item_id=f"exp-{i}",
-                    status=ProcessingStatus.PENDING
-                )
-            )
-            for i, item in enumerate(sample_experience_items)
+        # Select multiple items to regenerate sequentially
+        target_items = [
+            structured_cv.sections[0].subsections[0].items[0],  # First item in first role
+            structured_cv.sections[0].subsections[1].items[1],  # Second item in second role
+            structured_cv.sections[1].items[0]  # First key qualification
         ]
         
-        # Process batch with rate limiting
-        batch_results = await orchestrator.process_item_batch(
-            items=content_items,
-            job_description=ai_engineer_job_description,
-            session_id="test-batch-individual",
-            max_concurrent=2  # Limit concurrency for rate limiting
+        original_contents = [item.content for item in target_items]
+        
+        # Process each item individually
+        current_cv = structured_cv
+        for i, target_item in enumerate(target_items):
+            # Create agent state for this item
+            agent_state = AgentState(
+                session_id=session_id,
+                structured_cv=current_cv,
+                job_description_data=sample_job_description_data,
+                current_item_id=str(target_item.id),
+                current_section_key="Professional Experience" if i < 2 else "Key Qualifications",
+                user_feedback=f"Regeneration request {i+1}: Make this more specific",
+                research_findings="Company values detailed achievements",
+                error_messages=[],
+                final_cv_output_path=None
+            )
+            
+            # Mock state manager for this iteration
+            with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+                mock_state_manager = MagicMock()
+                mock_state_manager_class.return_value = mock_state_manager
+                
+                mock_state_manager.get_structured_cv.return_value = current_cv
+                mock_state_manager.update_item_status.return_value = True
+                mock_state_manager.save_structured_cv.return_value = True
+                
+                # Execute processing
+                result_state = await orchestrator.process_single_item(agent_state)
+                
+                # Validate processing success
+                assert result_state is not None
+                assert len(result_state.error_messages) == 0
+                
+                # Update current CV for next iteration
+                current_cv = result_state.structured_cv
+        
+        # Validate all target items were regenerated
+        final_cv = current_cv
+        
+        # Check first role, first item
+        updated_item_1 = final_cv.sections[0].subsections[0].items[0]
+        assert updated_item_1.content != original_contents[0]
+        assert "REGENERATED:" in updated_item_1.content
+        
+        # Check second role, second item
+        updated_item_2 = final_cv.sections[0].subsections[1].items[1]
+        assert updated_item_2.content != original_contents[1]
+        assert "REGENERATED:" in updated_item_2.content
+        
+        # Check key qualification
+        updated_item_3 = final_cv.sections[1].items[0]
+        assert updated_item_3.content != original_contents[2]
+        assert "REGENERATED:" in updated_item_3.content
+        
+        # Validate non-target items were preserved
+        preserved_items = [
+            final_cv.sections[0].subsections[0].items[1],  # Second item in first role
+            final_cv.sections[0].subsections[0].items[2],  # Third item in first role
+            final_cv.sections[0].subsections[1].items[0],  # First item in second role
+            final_cv.sections[1].items[1]  # Second key qualification
+        ]
+        
+        for item in preserved_items:
+            assert "REGENERATED:" not in item.content, "Non-target items should not be regenerated"
+            assert item.status == ItemStatus.GENERATED, "Non-target items should maintain original status"
+
+    async def test_item_regeneration_with_user_feedback(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
+        """Test item regeneration incorporates user feedback.
+        
+        Validates:
+        - REQ-FUNC-UI-3: User feedback integration
+        - REQ-FUNC-UI-4: Feedback-driven content improvement
+        """
+        orchestrator = orchestrator_with_content_writer_mock
+        session_id = str(uuid4())
+        
+        structured_cv = sample_structured_cv_with_items
+        target_item = structured_cv.sections[0].subsections[0].items[0]
+        
+        # Test with specific user feedback
+        user_feedback = "Add specific metrics and quantify the impact of the work"
+        
+        agent_state = AgentState(
+            session_id=session_id,
+            structured_cv=structured_cv,
+            job_description_data=sample_job_description_data,
+            current_item_id=str(target_item.id),
+            current_section_key="Professional Experience",
+            user_feedback=user_feedback,
+            research_findings="Company emphasizes data-driven results",
+            error_messages=[],
+            final_cv_output_path=None
         )
         
-        performance_timer.stop()
-        
-        # Assertions: Batch processing
-        assert len(batch_results) == len(content_items)
-        
-        # All items should be processed successfully
-        successful_items = [r for r in batch_results if r.get('status') == ProcessingStatus.COMPLETED]
-        assert len(successful_items) == len(content_items), "All items should be processed successfully"
-        
-        # Rate limiting should keep total time reasonable
-        assert performance_timer.elapsed < 30.0, f"Batch processing took {performance_timer.elapsed:.2f}s, expected < 30s"
-        
-        # Verify content quality across all items
-        for i, result in enumerate(batch_results):
-            tailored_content = result.get('generated_content', {})
-            bullets = tailored_content.get('tailored_bullets', [])
+        # Mock state manager
+        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+            mock_state_manager = MagicMock()
+            mock_state_manager_class.return_value = mock_state_manager
             
-            assert len(bullets) >= 3, f"Item {i} should have at least 3 bullets"
+            mock_state_manager.get_structured_cv.return_value = structured_cv
+            mock_state_manager.update_item_status.return_value = True
+            mock_state_manager.save_structured_cv.return_value = True
             
-            # Each item should be tailored to the job
-            bullets_text = ' '.join(bullets).lower()
-            assert any(keyword in bullets_text for keyword in ['ml', 'data', 'python', 'model']), \
-                f"Item {i} should contain job-relevant keywords"
+            # Execute processing
+            result_state = await orchestrator.process_single_item(agent_state)
+            
+            # Validate processing success
+            assert result_state is not None
+            assert len(result_state.error_messages) == 0
+            
+            # Validate content writer was called with correct parameters
+            orchestrator.content_writer_agent.process_single_item.assert_called_once()
+            call_args = orchestrator.content_writer_agent.process_single_item.call_args
+            
+            # Verify the call included the item ID and job data
+            assert call_args[0][0] == target_item.id  # item_id
+            assert call_args[0][1] == sample_job_description_data  # job_data
+            assert call_args[0][2] == structured_cv  # cv_data
+            
+            # Validate user feedback was preserved in state
+            assert result_state.user_feedback == user_feedback
+            
+            # Validate regenerated item contains enhanced content
+            updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
+            assert "REGENERATED:" in updated_item.content
+            assert updated_item.metadata["regeneration_reason"] == "user_requested"
+
+    async def test_item_regeneration_error_handling(self, sample_structured_cv_with_items, sample_job_description_data):
+        """Test error handling during item regeneration.
         
-        print(f"✅ Batch individual processing test completed in {performance_timer.elapsed:.2f}s")
-        print(f"   Processed {len(successful_items)} items successfully")
-    
-    @pytest.mark.asyncio
-    async def test_rate_limit_recovery(
-        self,
-        orchestrator_with_rate_limiting,
-        sample_experience_items,
-        ai_engineer_job_description
-    ):
-        """Test rate limit detection and recovery mechanisms."""
-        orchestrator = orchestrator_with_rate_limiting
+        Validates:
+        - REQ-NONFUNC-RELIABILITY-1: Graceful error handling
+        - Error recovery mechanisms
+        - State consistency during failures
+        """
+        session_id = str(uuid4())
         
-        # Mock rate limiter to simulate rate limit hit
-        with patch.object(orchestrator.rate_limiter, 'check_rate_limit') as mock_check:
-            with patch.object(orchestrator.rate_limiter, 'wait_for_availability') as mock_wait:
-                
-                # Simulate rate limit on 3rd call
-                mock_check.side_effect = [True, True, False, True, True]
-                mock_wait.return_value = asyncio.sleep(0.1)  # Short wait for testing
-                
-                experience_item = sample_experience_items[0]
-                
-                # This should trigger rate limit handling
-                result = await orchestrator.process_individual_item(
-                    item=experience_item,
-                    job_description=ai_engineer_job_description,
-                    session_id="test-rate-limit-recovery",
-                    item_type=ContentType.EXPERIENCE
-                )
-                
-                # Should still complete successfully after rate limit recovery
-                assert result.get('status') == ProcessingStatus.COMPLETED
-                
-                # Verify rate limit methods were called
-                assert mock_check.called, "Rate limit check should be called"
-                
-                print("✅ Rate limit recovery test passed")
+        # Create orchestrator with failing content writer
+        orchestrator = EnhancedOrchestrator()
+        mock_content_writer = AsyncMock(spec=EnhancedContentWriterAgent)
+        
+        # Configure mock to simulate LLM failure
+        async def mock_failing_process_single_item(item_id, job_data, cv_data, section_key=None):
+            return {
+                "success": False,
+                "item": Item(
+                    id=item_id,
+                    content="⚠️ The LLM did not respond or the content was not correctly generated. Please wait 10 seconds and try to regenerate!",
+                    status=ItemStatus.GENERATION_FAILED,
+                    item_type=ItemType.BULLET_POINT,
+                    confidence_score=0.0,
+                    raw_llm_output="Error: LLM service timeout",
+                    metadata={"error": "LLM service unavailable", "fallback_used": True}
+                ),
+                "metadata": {
+                    "processing_time": 0.1,
+                    "error_type": "llm_timeout",
+                    "fallback_applied": True
+                }
+            }
+        
+        mock_content_writer.process_single_item = mock_failing_process_single_item
+        orchestrator.content_writer_agent = mock_content_writer
+        
+        structured_cv = sample_structured_cv_with_items
+        target_item = structured_cv.sections[0].subsections[0].items[0]
+        original_content = target_item.content
+        
+        agent_state = AgentState(
+            session_id=session_id,
+            structured_cv=structured_cv,
+            job_description_data=sample_job_description_data,
+            current_item_id=str(target_item.id),
+            current_section_key="Professional Experience",
+            user_feedback="Regenerate this item",
+            research_findings="Research data",
+            error_messages=[],
+            final_cv_output_path=None
+        )
+        
+        # Mock state manager
+        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+            mock_state_manager = MagicMock()
+            mock_state_manager_class.return_value = mock_state_manager
+            
+            mock_state_manager.get_structured_cv.return_value = structured_cv
+            mock_state_manager.update_item_status.return_value = True
+            mock_state_manager.save_structured_cv.return_value = True
+            
+            # Execute processing (should handle error gracefully)
+            result_state = await orchestrator.process_single_item(agent_state)
+            
+            # Validate error was handled gracefully
+            assert result_state is not None
+            # Note: Error messages might be present, but workflow should continue
+            
+            # Validate item status reflects the failure
+            updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
+            assert updated_item.status == ItemStatus.GENERATION_FAILED
+            assert "⚠️" in updated_item.content  # Fallback content
+            assert "error" in updated_item.metadata
+            assert updated_item.metadata["fallback_used"] is True
+            
+            # Validate other items were not affected
+            other_items = [
+                result_state.structured_cv.sections[0].subsections[0].items[1],
+                result_state.structured_cv.sections[0].subsections[0].items[2]
+            ]
+            
+            for item in other_items:
+                assert item.status != ItemStatus.GENERATION_FAILED
+                assert "⚠️" not in item.content
+
+    async def test_item_status_transitions(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
+        """Test proper item status transitions during processing.
+        
+        Validates:
+        - Correct status flow: GENERATED -> TO_REGENERATE -> GENERATED
+        - Status persistence
+        - State consistency
+        """
+        orchestrator = orchestrator_with_content_writer_mock
+        session_id = str(uuid4())
+        
+        structured_cv = sample_structured_cv_with_items
+        target_item = structured_cv.sections[0].subsections[0].items[0]
+        
+        # Verify initial status
+        assert target_item.status == ItemStatus.GENERATED
+        
+        # Mark item for regeneration (simulating UI action)
+        target_item.status = ItemStatus.TO_REGENERATE
+        
+        agent_state = AgentState(
+            session_id=session_id,
+            structured_cv=structured_cv,
+            job_description_data=sample_job_description_data,
+            current_item_id=str(target_item.id),
+            current_section_key="Professional Experience",
+            user_feedback="Regenerate this item",
+            research_findings="Research data",
+            error_messages=[],
+            final_cv_output_path=None
+        )
+        
+        # Mock state manager
+        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+            mock_state_manager = MagicMock()
+            mock_state_manager_class.return_value = mock_state_manager
+            
+            mock_state_manager.get_structured_cv.return_value = structured_cv
+            mock_state_manager.update_item_status.return_value = True
+            mock_state_manager.save_structured_cv.return_value = True
+            
+            # Execute processing
+            result_state = await orchestrator.process_single_item(agent_state)
+            
+            # Validate status transition
+            updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
+            assert updated_item.status == ItemStatus.GENERATED, "Item should return to GENERATED status after successful regeneration"
+            
+            # Validate state manager was called to update status
+            mock_state_manager.update_item_status.assert_called()
+            mock_state_manager.save_structured_cv.assert_called()

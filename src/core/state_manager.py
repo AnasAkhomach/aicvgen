@@ -471,6 +471,10 @@ class StructuredCV:
     metadata: Dict[str, Any] = field(
         default_factory=dict
     )  # e.g., original file paths, timestamp, main_jd_text, similar_jd_texts
+    
+    # Big 10 Skills attributes
+    big_10_skills: List[str] = field(default_factory=list)  # Generated Big 10 skills
+    big_10_skills_raw_output: str = field(default="")  # Raw LLM output for transparency
 
     def to_dict(self):
         """Convert the StructuredCV to a dictionary for JSON serialization"""
@@ -478,6 +482,8 @@ class StructuredCV:
             "id": self.id,
             "sections": [section.to_dict() for section in self.sections],
             "metadata": self.metadata,
+            "big_10_skills": self.big_10_skills,
+            "big_10_skills_raw_output": self.big_10_skills_raw_output,
         }
 
     @classmethod
@@ -491,6 +497,8 @@ class StructuredCV:
             id=data.get("id", str(uuid.uuid4())),
             sections=sections,
             metadata=data.get("metadata", {}),
+            big_10_skills=data.get("big_10_skills", []),
+            big_10_skills_raw_output=data.get("big_10_skills_raw_output", ""),
         )
 
     def save(self, directory="data/sessions"):
@@ -643,6 +651,25 @@ class StructuredCV:
             logger.info(
                 f"Section status change: {section_id} (unknown) from {old_status} to {new_status}"
             )
+
+    def update_subsection_status(self, subsection_id: str, new_status) -> bool:
+        """Updates the status of all items within a subsection."""
+        if not self._structured_cv:
+            return False
+        updated = False
+        for section in self._structured_cv.sections:
+            for sub in section.subsections:
+                if str(sub.id) == subsection_id:
+                    sub.status = new_status
+                    for item in sub.items:
+                        item.status = new_status
+                    updated = True
+                    break
+            if updated:
+                break
+        if updated:
+            self.save_state()
+        return updated
 
     def get_sections_by_status(self, status):
         """Get all sections with a specific status"""

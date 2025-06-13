@@ -13,6 +13,9 @@ from src.core.state_manager import (
 from typing import Dict, Any, List, Tuple
 import logging
 import re
+import asyncio
+from src.orchestration.state import AgentState
+from src.models.data_models import StructuredCV as PydanticStructuredCV
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -726,3 +729,64 @@ class QualityAssuranceAgent(AgentBase):
                 )
 
         return overall_checks
+    
+    def run_as_node(self, state: AgentState) -> dict:
+        """
+        Executes the quality assurance logic as a LangGraph node.
+        
+        Args:
+            state: The current state of the workflow.
+            
+        Returns:
+            A dictionary containing quality check results and potentially updated CV.
+        """
+        logger.info("QualityAssuranceAgent node running.")
+        cv = state.structured_cv
+        job_data = state.job_description_data
+        
+        if not cv or not job_data:
+            logger.warning("QA agent called without required CV or job data.")
+            return {}
+        
+        try:
+            # Create execution context for the async method
+            context = AgentExecutionContext(
+                session_id="langraph_session",
+                input_data={
+                    "structured_cv": cv.model_dump(),
+                    "job_description_data": job_data.model_dump()
+                }
+            )
+            
+            # Call the existing async method
+            result = asyncio.run(self.run_async(None, context))
+            
+            if result.success:
+                # Extract quality check results
+                quality_results = result.output_data.get("quality_check_results", {})
+                updated_cv_data = result.output_data.get("updated_structured_cv")
+                
+                response = {}
+                if quality_results:
+                    # Store quality results in user feedback for visibility
+                    feedback_list = state.user_feedback or []
+                    feedback_list.append(f"QA Results: {quality_results}")
+                    response["user_feedback"] = feedback_list
+                
+                if updated_cv_data:
+                    # Convert back to StructuredCV model
+                    updated_cv = PydanticStructuredCV.model_validate(updated_cv_data)
+                    response["structured_cv"] = updated_cv
+                
+                return response
+            
+            # If not successful, add error to state
+            error_list = state.error_messages or []
+            error_list.append(f"QA Error: {result.error_message}")
+            return {"error_messages": error_list}
+            
+        except Exception as e:
+            logger.error(f"Error in QA node: {e}", exc_info=True)
+            error_list = state.error_messages or []
+            error_list.append(f"QA Error: {e}")
+            return {"error_messages": error_list}

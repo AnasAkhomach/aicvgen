@@ -292,18 +292,62 @@ class EnhancedOrchestrator:
     async def _setup_processing_queues(self, user_data: Dict[str, Any]):
         """Setup processing queues with user data."""
         
-        # Add qualifications (generate 10 as per requirements)
-        base_qualifications = user_data.get('qualifications', [])
-        if len(base_qualifications) < self.current_state.target_qualifications_count:
-            # Pad with generic qualifications that will be tailored
-            base_qualifications.extend([
-                "Strong problem-solving and analytical skills",
-                "Excellent communication and teamwork abilities",
-                "Proficient in modern development practices",
-                "Experience with agile methodologies",
-                "Continuous learning and adaptation mindset"
-            ][:self.current_state.target_qualifications_count - len(base_qualifications)])
+        # Generate "Big 10" skills using the enhanced content writer
+        try:
+            from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
+            
+            # Initialize the content writer agent
+            content_writer = EnhancedContentWriterAgent()
+            
+            # Get job description for skills generation
+            job_description = ""
+            if self.current_state.job_description:
+                job_description = self.current_state.job_description.main_job_description_raw
+            
+            # Get user talents if available
+            my_talents = user_data.get('my_talents', "")
+            
+            # Generate the Big 10 skills
+            self.logger.info("Generating Big 10 skills for qualifications")
+            skills_result = content_writer.generate_big_10_skills(job_description, my_talents)
+            
+            if skills_result["success"]:
+                # Use the generated skills
+                base_qualifications = skills_result["skills"]
+                
+                # Store the raw LLM output for display
+                self.current_state.big_10_skills_raw_output = skills_result["raw_llm_output"]
+                self.current_state.big_10_skills = base_qualifications
+                
+                self.logger.info(f"Successfully generated {len(base_qualifications)} skills")
+            else:
+                # Fallback to default qualifications
+                self.logger.warning("Failed to generate Big 10 skills, using fallbacks")
+                base_qualifications = user_data.get('qualifications', [])
+                if len(base_qualifications) < self.current_state.target_qualifications_count:
+                    # Pad with generic qualifications that will be tailored
+                    base_qualifications.extend([
+                        "Strong problem-solving and analytical skills",
+                        "Excellent communication and teamwork abilities",
+                        "Proficient in modern development practices",
+                        "Experience with agile methodologies",
+                        "Continuous learning and adaptation mindset"
+                    ][:self.current_state.target_qualifications_count - len(base_qualifications)])
+        except Exception as e:
+            self.logger.error(f"Error generating Big 10 skills: {str(e)}")
+            # Fallback to default qualifications
+            base_qualifications = user_data.get('qualifications', [])
+            if len(base_qualifications) < self.current_state.target_qualifications_count:
+                # Pad with generic qualifications that will be tailored
+                base_qualifications.extend([
+                    "Strong problem-solving and analytical skills",
+                    "Excellent communication and teamwork abilities",
+                    "Proficient in modern development practices",
+                    "Experience with agile methodologies",
+                    "Continuous learning and adaptation mindset"
+                ][:self.current_state.target_qualifications_count - len(base_qualifications)])
         
+        # Add qualifications to the processing queue
         self.current_state.add_qualification_items(base_qualifications[:self.current_state.target_qualifications_count])
         
         # Add experiences
