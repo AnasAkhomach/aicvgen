@@ -520,3 +520,95 @@ class RateLimitState:
             # Exponential backoff
             backoff_seconds = min(300, 30 * (2 ** self.consecutive_failures))
             self.backoff_until = now + datetime.timedelta(seconds=backoff_seconds)
+
+
+# Missing models that are imported by state_manager.py
+class ContentData(BaseModel):
+    """Data model for CV content used in template rendering and state management."""
+    summary: Optional[str] = None
+    experience_bullets: Optional[List[str]] = Field(default_factory=list)
+    skills_section: Optional[str] = None
+    projects: Optional[List[str]] = Field(default_factory=list)
+    other_content: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    education: Optional[List[str]] = Field(default_factory=list)
+    certifications: Optional[List[str]] = Field(default_factory=list)
+    languages: Optional[List[str]] = Field(default_factory=list)
+
+
+class CVData(BaseModel):
+    """Data model for CV data used in analysis and processing."""
+    raw_text: str
+    parsed_sections: Dict[str, Any] = Field(default_factory=dict)
+    skills: List[str] = Field(default_factory=list)
+    experience: List[str] = Field(default_factory=list)
+    education: List[str] = Field(default_factory=list)
+    projects: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillEntry(BaseModel):
+    """Data model for individual skill entries."""
+    name: str
+    category: Optional[str] = None
+    proficiency_level: Optional[str] = None
+    years_experience: Optional[int] = None
+    is_primary: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ExperienceEntry(BaseModel):
+    """Data model for individual experience entries."""
+    company: str
+    position: str
+    duration: str
+    location: Optional[str] = None
+    description: str
+    responsibilities: List[str] = Field(default_factory=list)
+    achievements: List[str] = Field(default_factory=list)
+    technologies: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowState(BaseModel):
+    """Data model for tracking workflow state."""
+    current_stage: WorkflowStage = WorkflowStage.INITIALIZATION
+    completed_stages: List[WorkflowStage] = Field(default_factory=list)
+    failed_stages: List[WorkflowStage] = Field(default_factory=list)
+    session_id: str = Field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    def advance_to_stage(self, stage: WorkflowStage):
+        """Advance workflow to a new stage."""
+        if self.current_stage not in self.completed_stages:
+            self.completed_stages.append(self.current_stage)
+        self.current_stage = stage
+        self.updated_at = datetime.now()
+    
+    def mark_stage_failed(self, stage: WorkflowStage):
+        """Mark a stage as failed."""
+        if stage not in self.failed_stages:
+            self.failed_stages.append(stage)
+        self.updated_at = datetime.now()
+
+
+class AgentIO(BaseModel):
+    """Data model for agent input/output schema definition."""
+    description: str
+    required_fields: List[str] = Field(default_factory=list)
+    optional_fields: List[str] = Field(default_factory=list)
+    input: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    output: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class VectorStoreConfig(BaseModel):
+    """Configuration for vector store database."""
+    dimension: int = 768
+    index_type: str = "IndexFlatL2"

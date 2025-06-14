@@ -37,20 +37,13 @@ class FormatterAgent(AgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                input={
-                    "content_data": ContentData,  # Takes generated content
-                    "format_specifications": Dict[str, Any],  # Optional formatting specifications
-                },
-                output=Dict[str, str],  # Returns formatted CV text
                 description="Formats the generated CV content according to specifications.",
+                required_fields=["content_data"],
+                optional_fields=["format_specifications"]
             ),
             output_schema=AgentIO(
-                input={
-                    "content_data": ContentData,
-                    "format_specifications": Dict[str, Any],
-                },
-                output=Dict[str, str],
                 description="Formats the generated CV content according to specifications.",
+                required_fields=["formatted_cv", "output_path"]
             ),
         )
 

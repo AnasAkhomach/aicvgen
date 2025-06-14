@@ -90,7 +90,8 @@ class TestErrorRecovery:
         session_id = str(uuid4())
         
         # Create orchestrator with timeout-prone LLM service
-        orchestrator = EnhancedOrchestrator()
+        state_manager = StateManager()
+        orchestrator = EnhancedOrchestrator(state_manager)
         
         # Mock content writer that simulates timeout then recovery
         mock_content_writer = AsyncMock(spec=EnhancedContentWriterAgent)
@@ -124,13 +125,13 @@ class TestErrorRecovery:
             session_id=session_id,
             job_description_data=sample_job_description_data,
             base_cv_content="Base CV content",
-            research_findings="Research data",
+            research_findings={"data": "Research data"},
             error_messages=[],
             final_cv_output_path=None
         )
         
         # Mock state and session managers
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class, \
+        with patch('src.core.state_manager.StateManager') as mock_state_manager_class, \
              patch('src.services.session_manager.SessionManager') as mock_session_manager_class:
             
             mock_state_manager = MagicMock()
@@ -139,7 +140,8 @@ class TestErrorRecovery:
             mock_session_manager_class.return_value = mock_session_manager
             
             # Configure mocks
-            mock_state_manager.save_structured_cv.return_value = True
+            mock_state_manager.save_state.return_value = True
+            mock_state_manager.update_subsection_status.return_value = True
             mock_session_manager.save_session_state.return_value = True
             
             # Execute with retry logic
@@ -192,7 +194,8 @@ class TestErrorRecovery:
         session_id = str(uuid4())
         
         # Create orchestrator
-        orchestrator = EnhancedOrchestrator()
+        state_manager = StateManager()
+        orchestrator = EnhancedOrchestrator(state_manager)
         
         # Create corrupted agent state (missing required fields)
         corrupted_state = AgentState(
@@ -203,7 +206,7 @@ class TestErrorRecovery:
         )
         
         # Mock state manager with validation
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+        with patch('src.core.state_manager.StateManager') as mock_state_manager_class:
             mock_state_manager = MagicMock()
             mock_state_manager_class.return_value = mock_state_manager
             
@@ -222,7 +225,8 @@ class TestErrorRecovery:
                 return state
             
             mock_state_manager.validate_and_repair_state = mock_validate_and_repair_state
-            mock_state_manager.save_structured_cv.return_value = True
+            mock_state_manager.save_state.return_value = True
+            mock_state_manager.update_subsection_status.return_value = True
             
             # Attempt to process with corrupted state
             try:
@@ -253,7 +257,8 @@ class TestErrorRecovery:
         session_id = str(uuid4())
         
         # Create orchestrator
-        orchestrator = EnhancedOrchestrator()
+        state_manager = StateManager()
+        orchestrator = EnhancedOrchestrator(state_manager)
         
         agent_state = AgentState(
             session_id=session_id,
@@ -264,7 +269,7 @@ class TestErrorRecovery:
         )
         
         # Mock state manager with file system errors
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+        with patch('src.core.state_manager.StateManager') as mock_state_manager_class:
             mock_state_manager = MagicMock()
             mock_state_manager_class.return_value = mock_state_manager
             
@@ -284,7 +289,8 @@ class TestErrorRecovery:
                     # Third attempt: successful fallback to memory storage
                     return True
             
-            mock_state_manager.save_structured_cv.side_effect = mock_save_with_fallback
+            mock_state_manager.save_state.side_effect = mock_save_with_fallback
+            mock_state_manager.update_subsection_status.return_value = True
             
             # Attempt to save with error recovery
             max_retries = 3
@@ -293,7 +299,7 @@ class TestErrorRecovery:
             
             for attempt in range(max_retries):
                 try:
-                    result = mock_state_manager.save_structured_cv(agent_state.structured_cv)
+                    result = mock_state_manager.save_state(agent_state.structured_cv)
                     if result:
                         save_successful = True
                         break
@@ -337,7 +343,7 @@ class TestErrorRecovery:
             structured_cv=sample_structured_cv,
             job_description_data=sample_job_description_data,
             current_item_id=str(sample_structured_cv.sections[0].subsections[0].items[0].id),
-            user_feedback="Session 1 feedback",
+            user_feedback={"action": "regenerate", "feedback_text": "Session 1 feedback"},
             error_messages=[],
             final_cv_output_path=None
         )
@@ -347,7 +353,7 @@ class TestErrorRecovery:
             structured_cv=sample_structured_cv,
             job_description_data=sample_job_description_data,
             current_item_id=str(sample_structured_cv.sections[0].subsections[0].items[0].id),
-            user_feedback="Session 2 feedback",
+            user_feedback={"action": "regenerate", "feedback_text": "Session 2 feedback"},
             error_messages=[],
             final_cv_output_path=None
         )
@@ -472,7 +478,7 @@ class TestErrorRecovery:
         )
         
         # Mock memory monitoring
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+        with patch('src.core.state_manager.StateManager') as mock_state_manager_class:
             mock_state_manager = MagicMock()
             mock_state_manager_class.return_value = mock_state_manager
             
@@ -511,7 +517,8 @@ class TestErrorRecovery:
             mock_state_manager.check_memory_usage = mock_check_memory_usage
             mock_state_manager.cleanup_memory_cache = mock_cleanup_memory_cache
             mock_state_manager.optimize_cv_storage = mock_optimize_cv_storage
-            mock_state_manager.save_structured_cv.return_value = True
+            mock_state_manager.save_state.return_value = True
+            mock_state_manager.update_subsection_status.return_value = True
             
             # Test memory pressure handling
             try:
@@ -540,7 +547,7 @@ class TestErrorRecovery:
                                 assert item.raw_llm_output == "[Compressed]"
                     
                     # Save optimized state
-                    save_result = mock_state_manager.save_structured_cv(optimized_cv)
+                    save_result = mock_state_manager.save_state(optimized_cv)
                     assert save_result is True
                     
                     # Add success message to state

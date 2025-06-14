@@ -59,6 +59,9 @@ class EnhancedOrchestrator:
         """
         Initialize the workflow by running the research agent to populate the vector store.
         This should be called before processing any items.
+        
+        Raises:
+            ValueError: If job description data or structured CV data is missing
         """
         try:
             logger.info("Initializing workflow with research agent...")
@@ -67,24 +70,32 @@ class EnhancedOrchestrator:
             job_description_data = self.state_manager.get_job_description_data()
             structured_cv = self.state_manager.get_structured_cv()
 
-            if job_description_data:
-                # Run research agent to populate vector store
-                research_input = {
-                    "job_description_data": job_description_data.model_dump() if hasattr(job_description_data, 'model_dump') else job_description_data,
-                    "structured_cv": structured_cv.model_dump() if structured_cv else {}
-                }
+            # Validate that required data is available before proceeding
+            if not job_description_data:
+                raise ValueError("Job description data is missing. Cannot initialize workflow without job description data.")
+            
+            if not structured_cv:
+                raise ValueError("Structured CV data is missing. Cannot initialize workflow without CV data.")
 
-                research_result = self.research_agent.run(research_input)
+            # Run research agent to populate vector store
+            research_input = {
+                "job_description_data": job_description_data.model_dump() if hasattr(job_description_data, 'model_dump') else job_description_data,
+                "structured_cv": structured_cv.model_dump() if structured_cv else {}
+            }
 
-                if research_result.get("success", False):
-                    logger.info("Research agent successfully populated vector store")
-                else:
-                    logger.warning(f"Research agent completed with warnings: {research_result.get('message', 'Unknown issue')}")
+            research_result = self.research_agent.run(research_input)
+
+            if research_result.get("success", False):
+                logger.info("Research agent successfully populated vector store")
             else:
-                logger.warning("No job description data available for research agent")
+                logger.warning(f"Research agent completed with warnings: {research_result.get('message', 'Unknown issue')}")
 
+        except ValueError as ve:
+            logger.error(f"Validation error during workflow initialization: {str(ve)}")
+            raise  # Re-raise ValueError to prevent workflow from continuing
         except Exception as e:
             logger.error(f"Error initializing workflow with research agent: {e}", exc_info=True)
+            raise  # Re-raise other exceptions to prevent workflow from continuing
 
     async def execute_full_workflow(self) -> AgentState:
         """

@@ -53,20 +53,12 @@ class ResearchAgent(AgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                input={
-                    "job_description_data": Dict[str, Any],  # Takes parsed job description data
-                    "structured_cv": StructuredCV,  # The current StructuredCV
-                },
-                output=Dict[str, Any],  # Outputs research results and relevance matches
                 description="Conducts research on job information and finds relevant CV content.",
+                required_fields=["job_description_data", "structured_cv"]
             ),
             output_schema=AgentIO(
-                input={
-                    "job_description_data": Dict[str, Any],
-                    "structured_cv": StructuredCV,
-                },
-                output=Dict[str, Any],
                 description="Relevant research findings and content matches for tailoring.",
+                required_fields=["research_results", "content_matches"]
             ),
         )
         self.llm = llm

@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
 import enum
 import json
@@ -7,6 +7,12 @@ import os
 import logging
 import time
 from datetime import datetime
+
+# Import standardized Pydantic models
+from src.models.data_models import (
+    JobDescriptionData, StructuredCV, Section, Subsection, Item, ItemStatus, ItemType,
+    ContentData, CVData, SkillEntry, ExperienceEntry, WorkflowState, AgentIO, VectorStoreConfig
+)
 
 # Set up logging
 logging.basicConfig(
@@ -18,439 +24,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class WorkflowStage(TypedDict):
-    """
-    Represents a stage in the workflow.
-    """
-
-    stage_name: str
-    description: str
-    is_completed: bool
-
-
-class AgentIO(TypedDict):
-    """
-    Represents the input and output of an agent.
-    """
-
-    input: Dict[str, Any]  # Input data.
-    output: Any  # Output data.
-    description: str  # Description of what the agent does.
-
-
-class JobDescriptionData:
-    """
-    Represents the parsed data of a job description.
-    """
-
-    def __init__(
-        self,
-        raw_text,
-        skills,
-        experience_level,
-        responsibilities,
-        industry_terms,
-        company_values,
-        error=None,
-    ):
-        self.raw_text = raw_text
-        self.skills = skills
-        self.experience_level = experience_level
-        self.responsibilities = responsibilities
-        self.industry_terms = industry_terms
-        self.company_values = company_values
-        self.error = error  # Optional error field to store error messages
-
-    def __str__(self):
-        return f"JobDescriptionData(raw_text='{self.raw_text}', skills={self.skills}, experience_level='{self.experience_level}', responsibilities={self.responsibilities}, industry_terms={self.industry_terms}, company_values={self.company_values})"
-
-    def to_dict(self):
-        """
-        Convert JobDescriptionData to a dictionary.
-
-        Returns:
-            dict: A dictionary representation of this JobDescriptionData object
-        """
-        return {
-            "raw_text": self.raw_text,
-            "skills": self.skills,
-            "experience_level": self.experience_level,
-            "responsibilities": self.responsibilities,
-            "industry_terms": self.industry_terms,
-            "company_values": self.company_values,
-            "error": self.error,
-        }
-
-
-@dataclass
-class VectorStoreConfig:
-    dimension: int
-    index_type: str  # IndexFlatL2, IndexIVFFlat
-
-
-@dataclass
-class ContentPiece:
-    """
-    Represents a single piece of generated content (e.g., a bullet point, a summary paragraph).
-    """
-
-    content: str
-    section_type: str  # e.g., "summary", "experience", "skill", "project"
-    piece_id: str  # Unique identifier for the piece
-    status: str = (
-        "pending_generation"  # e.g., "pending_generation", "pending_review", "approved", "rejected"
-    )
-    feedback: str = ""  # Feedback from review
-    revision_count: int = 0
-
-
-class CVData(TypedDict):
-    """
-    Represents the data extracted from the user's CV.
-    Now includes fields for extracted raw text and lists of content pieces for different sections.
-    """
-
-    raw_text: str  # The original text of the CV
-    summary: str  # Original summary text from CV, if any
-    experiences: List[str]  # Original experiences list from CV, if any
-    skills: List[str]  # Original skills list from CV, if any
-    education: List[str]  # Original education list from CV, if any
-    projects: List[str]  # Original projects list from CV, if any
-
-
-@dataclass
-class SkillEntry:
-    """
-    Represents a skill entry.
-    """
-
-    text: str
-
-
-@dataclass
-class ExperienceEntry:
-    """
-    Represents an experience entry.
-    """
-
-    text: str
-
-
-class ContentData(Dict):
-    """
-    Represents the assembled tailored CV content for rendering.
-    """
-
-    def __init__(
-        self,
-        summary="",
-        experience_bullets=None,
-        skills_section="",
-        projects=None,
-        other_content=None,
-        name="",
-        email="",
-        phone="",
-        linkedin="",
-        github="",
-        education=None,
-        certifications=None,
-        languages=None,
-    ):
-        super().__init__()
-        self["name"] = name
-        self["email"] = email
-        self["phone"] = phone
-        self["linkedin"] = linkedin
-        self["github"] = github
-        self["summary"] = summary
-        experience_bullets = experience_bullets if experience_bullets is not None else []
-        self["experience_bullets"] = experience_bullets
-        self["skills_section"] = skills_section
-        projects = projects if projects is not None else []
-        self["projects"] = projects
-        education = education if education is not None else []
-        self["education"] = education
-        certifications = certifications if certifications is not None else []
-        self["certifications"] = certifications
-        languages = languages if languages is not None else []
-        self["languages"] = languages
-        other_content = other_content if other_content is not None else {}
-        self["other_content"] = other_content
-
-    @property
-    def name(self):
-        return self.get("name")
-
-    @property
-    def email(self):
-        return self.get("email")
-
-    @property
-    def phone(self):
-        return self.get("phone")
-
-    @property
-    def linkedin(self):
-        return self.get("linkedin")
-
-    @property
-    def github(self):
-        return self.get("github")
-
-    @property
-    def summary(self):
-        return self.get("summary")
-
-    @property
-    def experience_bullets(self):
-        return self.get("experience_bullets")
-
-    @property
-    def skills_section(self):
-        return self.get("skills_section")
-
-    @property
-    def projects(self):
-        return self.get("projects")
-
-    @property
-    def education(self):
-        return self.get("education")
-
-    @property
-    def certifications(self):
-        return self.get("certifications")
-
-    @property
-    def languages(self):
-        return self.get("languages")
-
-    @property
-    def other_content(self):
-        return self.get("other_content")
-
-
-class WorkflowState(TypedDict):
-    """
-    Represents the overall state of the CV tailoring workflow.
-    Now tracks content pieces and their review status for iterative refinement.
-    """
-
-    job_description: Dict  # Parsed job description data
-    user_cv: CVData  # Extracted user CV data
-    extracted_skills: Dict  # Deprecate or refine - skills are now in user_cv
-    generated_content: Dict  # Map of piece_id -> ContentPiece
-    content_pieces: List[ContentPiece]  # List of all content pieces
-    current_content_piece_id: Optional[
-        str
-    ]  # ID of the content piece currently being processed/reviewed
-    content_generation_plan: List[Dict[str, Any]]  # A plan of content pieces to generate/review
-    plan_index: int  # To track progress through the generation plan
-    formatted_cv_text: str  # Final formatted text before rendering
-    rendered_cv: str  # Final rendered output
-    feedback: List[Dict[str, Any]]  # List of feedback entries for transparency
-    revision_history: List[Dict[str, Any]]  # List of revision history entries
-    current_stage: WorkflowStage  # Current stage of the overall workflow
-    workflow_id: str  # Workflow ID
-    relevant_experiences: List[str]  # Relevant experiences from vector search
-    research_results: Dict[str, Any]  # Research results
-    review_status: str  # e.g., "pending", "approved", "rejected"
-    review_feedback: str  # Store feedback comments for the current piece
-
-
-class ItemStatus(enum.Enum):
-    """
-    Enumeration for the status of an item in the CV.
-    """
-
-    INITIAL = "initial"  # Parsed from raw input
-    GENERATED = "generated"  # Generated by ContentWriter
-    USER_EDITED = "user_edited"  # Modified directly by user in UI
-    TO_REGENERATE = "to_regenerate"  # Marked for regeneration by user
-    ACCEPTED = "accepted"  # Approved by user
-    STATIC = "static"  # Content from base CV, not tailored by AI
-
-    def __str__(self):
-        return self.value  # Allows easy string conversion
-
-
-class ItemType(enum.Enum):
-    """
-    Enumeration for the type of an item in the CV.
-    """
-
-    BULLET_POINT = "bullet_point"
-    KEY_QUAL = "key_qual"
-    SUMMARY_PARAGRAPH = "summary_paragraph"
-    SECTION_TITLE = "section_title"
-    SUBSECTION_TITLE = "subsection_title"
-    EDUCATION_ENTRY = "education_entry"
-    CERTIFICATION_ENTRY = "certification_entry"
-    LANGUAGE_ENTRY = "language_entry"
-
-    def __str__(self):
-        return self.value
-
-
-@dataclass
-class Item:
-    """
-    Represents a granular piece of content in the CV (e.g., a bullet point, a key qualification).
-    """
-
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Unique ID for granular access
-    content: str = ""
-    status: ItemStatus = ItemStatus.INITIAL
-    item_type: ItemType = ItemType.BULLET_POINT
-    metadata: Dict[str, Any] = field(
-        default_factory=dict
-    )  # e.g., relevance_score, source_chunk_id, original_line_number
-    user_feedback: Optional[str] = None  # Optional user comment from UI
-
-    def to_dict(self):
-        """Helper for serialization"""
-        return {
-            "id": self.id,
-            "content": self.content,
-            "status": (self.status.value if isinstance(self.status, enum.Enum) else self.status),
-            "item_type": (
-                self.item_type.value if isinstance(self.item_type, enum.Enum) else self.item_type
-            ),
-            "metadata": self.metadata,
-            "user_feedback": self.user_feedback,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create an Item from a dictionary"""
-        # Convert string status/item_type to enum if needed
-        status = data.get("status", "initial")
-        if isinstance(status, str):
-            try:
-                status = ItemStatus(status)
-            except ValueError:
-                status = ItemStatus.INITIAL
-
-        item_type = data.get("item_type", "bullet_point")
-        if isinstance(item_type, str):
-            try:
-                item_type = ItemType(item_type)
-            except ValueError:
-                item_type = ItemType.BULLET_POINT
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            content=data.get("content", ""),
-            status=status,
-            item_type=item_type,
-            metadata=data.get("metadata", {}),
-            user_feedback=data.get("user_feedback"),
-        )
-
-
-@dataclass
-class Subsection:
-    """
-    Represents a subsection within a section (e.g., a specific job role within Professional Experience).
-    """
-
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = ""  # e.g., "Software Engineer at XYZ Inc."
-    items: List[Item] = field(default_factory=list)  # e.g., bullet points under this role/project
-    metadata: Dict[str, Any] = field(default_factory=dict)  # e.g., dates, company, location
-    raw_text: str = ""  # Original text snippet from parsing
-
-    def to_dict(self):
-        """Helper for serialization"""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "items": [item.to_dict() for item in self.items],
-            "metadata": self.metadata,
-            "raw_text": self.raw_text,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create a Subsection from a dictionary"""
-        items = []
-        for item_data in data.get("items", []):
-            items.append(Item.from_dict(item_data))
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            name=data.get("name", ""),
-            items=items,
-            metadata=data.get("metadata", {}),
-            raw_text=data.get("raw_text", ""),
-        )
-
-
-@dataclass
-class Section:
-    """
-    Represents a major section in the CV (e.g., Professional Experience, Key Qualifications).
-    """
-
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = ""  # e.g., "Professional Experience", "Key Qualifications"
-    content_type: str = "DYNAMIC"  # or "STATIC"
-    subsections: List[Subsection] = field(
-        default_factory=list
-    )  # For sections like Experience, Projects
-    items: List[Item] = field(
-        default_factory=list
-    )  # For sections like Key Quals, Education, Languages
-    raw_text: str = ""  # Original text snippet from parsing
-    order: int = 0  # For maintaining section order from the template
-    status: ItemStatus = ItemStatus.INITIAL  # Status of the entire section
-    user_feedback: Optional[str] = None  # Optional user comment for the section
-
-    def to_dict(self):
-        """Helper for serialization"""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "content_type": self.content_type,
-            "subsections": [subsection.to_dict() for subsection in self.subsections],
-            "items": [item.to_dict() for item in self.items],
-            "raw_text": self.raw_text,
-            "order": self.order,
-            "status": (self.status.value if isinstance(self.status, enum.Enum) else self.status),
-            "user_feedback": self.user_feedback,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create a Section from a dictionary"""
-        subsections = []
-        for subsection_data in data.get("subsections", []):
-            subsections.append(Subsection.from_dict(subsection_data))
-
-        items = []
-        for item_data in data.get("items", []):
-            items.append(Item.from_dict(item_data))
-
-        # Convert string status to enum if needed
-        status = data.get("status", "initial")
-        if isinstance(status, str):
-            try:
-                status = ItemStatus(status)
-            except ValueError:
-                status = ItemStatus.INITIAL
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            name=data.get("name", ""),
-            content_type=data.get("content_type", "DYNAMIC"),
-            subsections=subsections,
-            items=items,
-            raw_text=data.get("raw_text", ""),
-            order=data.get("order", 0),
-            status=status,
-            user_feedback=data.get("user_feedback"),
-        )
+# VectorStoreConfig is now imported from standardized data models
+
+
+# ContentPiece is now imported from standardized data models
+
+
+# CVData is now imported from standardized data models
+
+
+# SkillEntry and ExperienceEntry are now imported from standardized data models
+
+
+# ContentData is now imported from standardized data models
+
+
+# WorkflowState is now imported from standardized data models
+
+
+# ItemStatus and ItemType are now imported from standardized data models
+
+
+# Item is now imported from standardized data models
+
+
+# Subsection is now imported from standardized data models
+
+
+# Section is now imported from standardized data models
 
 
 class EnumEncoder(json.JSONEncoder):
@@ -460,46 +61,7 @@ class EnumEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-@dataclass
-class StructuredCV:
-    """
-    The main data model representing a CV with a hierarchical structure.
-    """
-
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # Session ID / CV ID
-    sections: List[Section] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(
-        default_factory=dict
-    )  # e.g., original file paths, timestamp, main_jd_text, similar_jd_texts
-    
-    # Big 10 Skills attributes
-    big_10_skills: List[str] = field(default_factory=list)  # Generated Big 10 skills
-    big_10_skills_raw_output: str = field(default="")  # Raw LLM output for transparency
-
-    def to_dict(self):
-        """Convert the StructuredCV to a dictionary for JSON serialization"""
-        return {
-            "id": self.id,
-            "sections": [section.to_dict() for section in self.sections],
-            "metadata": self.metadata,
-            "big_10_skills": self.big_10_skills,
-            "big_10_skills_raw_output": self.big_10_skills_raw_output,
-        }
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create a StructuredCV from a dictionary"""
-        sections = []
-        for section_data in data.get("sections", []):
-            sections.append(Section.from_dict(section_data))
-
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            sections=sections,
-            metadata=data.get("metadata", {}),
-            big_10_skills=data.get("big_10_skills", []),
-            big_10_skills_raw_output=data.get("big_10_skills_raw_output", ""),
-        )
+# StructuredCV is now imported from standardized data models
 
     def save(self, directory="data/sessions"):
         """Save the StructuredCV to a JSON file"""
@@ -1201,6 +763,26 @@ class StateManager:
             The current StructuredCV instance, or None if it doesn't exist.
         """
         return self._structured_cv
+
+    def get_job_description_data(self) -> Optional[JobDescriptionData]:
+        """
+        Get the current JobDescriptionData from the structured CV's metadata.
+
+        Returns:
+            The current JobDescriptionData instance, or None if it doesn't exist.
+        """
+        if self._structured_cv and self._structured_cv.metadata:
+            job_data = self._structured_cv.metadata.get("job_description")
+            if isinstance(job_data, JobDescriptionData):
+                return job_data
+            elif isinstance(job_data, dict):
+                # Attempt to load from dict if it was serialized
+                try:
+                    return JobDescriptionData.model_validate(job_data)
+                except Exception as e:
+                    logger.error(f"Failed to validate job_data from dict: {e}")
+                    return None
+        return None
 
     def update_item_content(self, item_id, new_content):
         """

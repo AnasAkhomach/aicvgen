@@ -29,18 +29,12 @@ class CVAnalyzerAgent(AgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                input={
-                    "user_cv": CVData,
-                    "job_description": JobDescriptionData,  # May need job description for context
-                    "template_cv_path": str,
-                },
-                output=Dict[str, Any],  # Define a more specific output schema later
                 description="User CV data and optional job description for analysis.",
+                required_fields=["user_cv", "job_description", "template_cv_path"]
             ),
             output_schema=AgentIO(
-                input={"user_cv": CVData, "job_description": JobDescriptionData},
-                output=Dict[str, Any],  # Define a more specific output schema later
                 description="Extracted information from the CV.",
+                required_fields=["analysis_results", "extracted_data"]
             ),
         )
         self.llm = llm  # Store the LLM instance

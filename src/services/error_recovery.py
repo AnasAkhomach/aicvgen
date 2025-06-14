@@ -139,8 +139,8 @@ class ErrorRecoveryService:
                 max_retries=2
             ),
             ErrorType.VALIDATION_ERROR: RecoveryAction(
-                strategy=RecoveryStrategy.FALLBACK_CONTENT,
-                max_retries=1
+                strategy=RecoveryStrategy.MANUAL_INTERVENTION,
+                max_retries=0
             ),
             ErrorType.PARSING_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.FALLBACK_CONTENT,
@@ -201,7 +201,8 @@ class ErrorRecoveryService:
         
         # Validation errors
         if any(keyword in error_message for keyword in [
-            "validation", "invalid input", "bad request", "400"
+            "validation", "invalid input", "bad request", "400", 
+            "data is missing", "cannot initialize workflow", "required to initialize"
         ]):
             return ErrorType.VALIDATION_ERROR
         

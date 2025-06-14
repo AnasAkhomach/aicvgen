@@ -318,14 +318,15 @@ class TestCompleteCVGeneration:
         session_id = str(uuid4())
 
         # Mock state manager
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+        with patch('src.core.state_manager.StateManager') as mock_state_manager_class:
             mock_state_manager = MagicMock()
             mock_state_manager_class.return_value = mock_state_manager
 
             # Configure state manager mocks
             mock_state_manager.get_structured_cv.return_value = None
-            mock_state_manager.save_structured_cv.return_value = True
+            mock_state_manager.save_state.return_value = True
             mock_state_manager.update_item_status.return_value = True
+            mock_state_manager.update_subsection_status.return_value = True
 
             # Create CV generation request
             from src.models.cv_models import CVGenerationRequest

@@ -38,6 +38,21 @@ This document tracks the execution of tasks outlined in the `TASK_BLUEPRINT.txt`
 - **Current Usage:** Actively used in integration layer, E2E tests, and API endpoints
 - **Conclusion:** EnhancedOrchestrator is a necessary abstraction layer following good separation of concerns
 
+### **State Manager Refactoring - Obsolete Class Removal**
+
+- **Date:** Current
+- **Change:** Removed all obsolete local class definitions from `src/core/state_manager.py`
+- **Classes Removed:** `VectorStoreConfig`, `ContentPiece`, `CVData`, `SkillEntry`, `ExperienceEntry`, `ContentData`, `WorkflowState`, `ItemStatus`, `ItemType`, `Item`, `Subsection`, `Section`, `StructuredCV`
+- **Rationale:** These classes were duplicated in `src/models/data_models.py` with standardized Pydantic models. The local definitions were causing maintenance issues and potential inconsistencies
+- **Impact:** 
+  - Updated import statement to use standardized models from `src.models.data_models`
+  - Removed ~200+ lines of obsolete code
+  - Eliminated code duplication and potential version drift
+  - Improved maintainability by centralizing data model definitions
+- **Files Modified:** `src/core/state_manager.py`
+- **Verification:** All imports now reference the centralized data models, ensuring consistency across the codebase
+- **Documentation:** Process documented in `DEBUGGING_LOG.md` as BUG-aicvgen-004
+
 ---
 
 ## **E2E Test Debugging & Resolution**

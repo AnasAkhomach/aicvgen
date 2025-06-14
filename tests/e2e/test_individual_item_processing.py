@@ -134,7 +134,7 @@ class TestIndividualItemProcessing:
         """Create orchestrator with mocked content writer for item processing."""
         # Mock content writer agent
         mock_content_writer = AsyncMock(spec=EnhancedContentWriterAgent)
-        
+
         # Configure mock to return regenerated content
         async def mock_process_single_item(item_id, job_data, cv_data, section_key=None):
             return {
@@ -154,20 +154,28 @@ class TestIndividualItemProcessing:
                     "regeneration_reason": "user_requested"
                 }
             }
-        
+
         mock_content_writer.process_single_item = mock_process_single_item
-        
-        # Create orchestrator with mocked content writer
+
+        # Create orchestrator with mocked content writer and mocked state manager
+        from unittest.mock import MagicMock
         from src.core.state_manager import StateManager
-        state_manager = StateManager()
-        orchestrator = EnhancedOrchestrator(state_manager=state_manager)
+
+        # Create a mock state manager
+        mock_state_manager = MagicMock()
+        mock_state_manager.get_structured_cv.return_value = None
+        mock_state_manager.update_item_status.return_value = True
+        mock_state_manager.save_state.return_value = True
+        mock_state_manager.update_subsection_status.return_value = True
+
+        orchestrator = EnhancedOrchestrator(state_manager=mock_state_manager)
         orchestrator.content_writer_agent = mock_content_writer
-        
+
         return orchestrator
 
     async def test_single_item_regeneration(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
         """Test regenerating a single item while preserving others.
-        
+
         Validates:
         - REQ-FUNC-GEN-3: Individual item processing
         - REQ-FUNC-GEN-4: User control over regeneration
@@ -175,13 +183,13 @@ class TestIndividualItemProcessing:
         """
         orchestrator = orchestrator_with_content_writer_mock
         session_id = str(uuid4())
-        
+
         # Get the structured CV and select an item to regenerate
         structured_cv = sample_structured_cv_with_items
         target_item = structured_cv.sections[0].subsections[0].items[1]  # Second item in first role
         original_content = target_item.content
         original_raw_output = target_item.raw_llm_output
-        
+
         # Store original content of other items for comparison
         other_items = [
             structured_cv.sections[0].subsections[0].items[0],  # First item
@@ -191,7 +199,7 @@ class TestIndividualItemProcessing:
         ]
         original_other_contents = [item.content for item in other_items]
         original_other_raw_outputs = [item.raw_llm_output for item in other_items]
-        
+
         # Create agent state
         agent_state = AgentState(
             session_id=session_id,
@@ -199,43 +207,44 @@ class TestIndividualItemProcessing:
             job_description_data=sample_job_description_data,
             current_item_id=str(target_item.id),
             current_section_key="Professional Experience",
-            user_feedback="Please make this more specific with metrics",
-            research_findings="Company values quantifiable achievements",
+            user_feedback={"action": "regenerate", "feedback_text": "Please make this more specific with metrics"},
+            research_findings={"company_insights": "Company values quantifiable achievements"},
             error_messages=[],
             final_cv_output_path=None
         )
-        
+
         # Mock state manager
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+        with patch('src.core.state_manager.StateManager') as mock_state_manager_class:
             mock_state_manager = MagicMock()
             mock_state_manager_class.return_value = mock_state_manager
-            
+
             # Configure state manager mocks
             mock_state_manager.get_structured_cv.return_value = structured_cv
             mock_state_manager.update_item_status.return_value = True
-            mock_state_manager.save_structured_cv.return_value = True
-            
+            mock_state_manager.save_state.return_value = True
+            mock_state_manager.update_subsection_status.return_value = True
+
             # Execute single item processing
             result_state = await orchestrator.process_single_item(agent_state)
-            
+
             # Validate processing success
             assert result_state is not None
             assert len(result_state.error_messages) == 0, f"Processing failed with errors: {result_state.error_messages}"
-            
+
             # Validate target item was regenerated
             updated_cv = result_state.structured_cv
             updated_target_item = updated_cv.sections[0].subsections[0].items[1]
-            
+
             assert updated_target_item.content != original_content, "Target item content should be regenerated"
             assert "REGENERATED:" in updated_target_item.content, "Target item should contain regenerated content"
             assert updated_target_item.raw_llm_output != original_raw_output, "Target item raw output should be updated"
             assert updated_target_item.status == ItemStatus.GENERATED, "Target item status should be GENERATED"
             assert updated_target_item.confidence_score == 0.92, "Target item should have updated confidence score"
-            
+
             # Validate metadata was updated
             assert "regeneration_count" in updated_target_item.metadata
             assert updated_target_item.metadata["regeneration_count"] == 1
-            
+
             # Validate other items were NOT modified (REQ-FUNC-GEN-3)
             updated_other_items = [
                 updated_cv.sections[0].subsections[0].items[0],  # First item
@@ -243,21 +252,21 @@ class TestIndividualItemProcessing:
                 updated_cv.sections[0].subsections[1].items[0],  # First item in second role
                 updated_cv.sections[0].subsections[1].items[1],  # Second item in second role
             ]
-            
+
             for i, (original_content, original_raw, updated_item) in enumerate(zip(
                 original_other_contents, original_other_raw_outputs, updated_other_items
             )):
                 assert updated_item.content == original_content, f"Other item {i} content should be preserved"
                 assert updated_item.raw_llm_output == original_raw, f"Other item {i} raw output should be preserved"
                 assert updated_item.status != ItemStatus.TO_REGENERATE, f"Other item {i} should not be marked for regeneration"
-            
+
             # Validate state manager interactions
             mock_state_manager.update_item_status.assert_called()
-            mock_state_manager.save_structured_cv.assert_called()
+            mock_state_manager.save_state.assert_called()
 
     async def test_multiple_item_regeneration_workflow(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
         """Test workflow with multiple individual item regenerations.
-        
+
         Validates:
         - Sequential item processing
         - State consistency across multiple operations
@@ -265,18 +274,18 @@ class TestIndividualItemProcessing:
         """
         orchestrator = orchestrator_with_content_writer_mock
         session_id = str(uuid4())
-        
+
         structured_cv = sample_structured_cv_with_items
-        
+
         # Select multiple items to regenerate sequentially
         target_items = [
             structured_cv.sections[0].subsections[0].items[0],  # First item in first role
             structured_cv.sections[0].subsections[1].items[1],  # Second item in second role
             structured_cv.sections[1].items[0]  # First key qualification
         ]
-        
+
         original_contents = [item.content for item in target_items]
-        
+
         # Process each item individually
         current_cv = structured_cv
         for i, target_item in enumerate(target_items):
@@ -288,48 +297,49 @@ class TestIndividualItemProcessing:
                 current_item_id=str(target_item.id),
                 current_section_key="Professional Experience" if i < 2 else "Key Qualifications",
                 user_feedback=f"Regeneration request {i+1}: Make this more specific",
-                research_findings="Company values detailed achievements",
+                research_findings={"company_insights": "Company values detailed achievements"},
                 error_messages=[],
                 final_cv_output_path=None
             )
-            
+
             # Mock state manager for this iteration
-            with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+            with patch('src.core.state_manager.StateManager') as mock_state_manager_class:
                 mock_state_manager = MagicMock()
                 mock_state_manager_class.return_value = mock_state_manager
-                
+
                 mock_state_manager.get_structured_cv.return_value = current_cv
                 mock_state_manager.update_item_status.return_value = True
-                mock_state_manager.save_structured_cv.return_value = True
-                
+                mock_state_manager.save_state.return_value = True
+                mock_state_manager.update_subsection_status.return_value = True
+
                 # Execute processing
                 result_state = await orchestrator.process_single_item(agent_state)
-                
+
                 # Validate processing success
                 assert result_state is not None
                 assert len(result_state.error_messages) == 0
-                
+
                 # Update current CV for next iteration
                 current_cv = result_state.structured_cv
-        
+
         # Validate all target items were regenerated
         final_cv = current_cv
-        
+
         # Check first role, first item
         updated_item_1 = final_cv.sections[0].subsections[0].items[0]
         assert updated_item_1.content != original_contents[0]
         assert "REGENERATED:" in updated_item_1.content
-        
+
         # Check second role, second item
         updated_item_2 = final_cv.sections[0].subsections[1].items[1]
         assert updated_item_2.content != original_contents[1]
         assert "REGENERATED:" in updated_item_2.content
-        
+
         # Check key qualification
         updated_item_3 = final_cv.sections[1].items[0]
         assert updated_item_3.content != original_contents[2]
         assert "REGENERATED:" in updated_item_3.content
-        
+
         # Validate non-target items were preserved
         preserved_items = [
             final_cv.sections[0].subsections[0].items[1],  # Second item in first role
@@ -337,86 +347,84 @@ class TestIndividualItemProcessing:
             final_cv.sections[0].subsections[1].items[0],  # First item in second role
             final_cv.sections[1].items[1]  # Second key qualification
         ]
-        
+
         for item in preserved_items:
             assert "REGENERATED:" not in item.content, "Non-target items should not be regenerated"
             assert item.status == ItemStatus.GENERATED, "Non-target items should maintain original status"
 
     async def test_item_regeneration_with_user_feedback(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
         """Test item regeneration incorporates user feedback.
-        
+
         Validates:
         - REQ-FUNC-UI-3: User feedback integration
         - REQ-FUNC-UI-4: Feedback-driven content improvement
         """
         orchestrator = orchestrator_with_content_writer_mock
         session_id = str(uuid4())
-        
+
         structured_cv = sample_structured_cv_with_items
         target_item = structured_cv.sections[0].subsections[0].items[0]
-        
+
         # Test with specific user feedback
-        user_feedback = "Add specific metrics and quantify the impact of the work"
-        
+        user_feedback = {"feedback_text": "Add specific metrics and quantify the impact of the work"}
+
         agent_state = AgentState(
-            session_id=session_id,
             structured_cv=structured_cv,
             job_description_data=sample_job_description_data,
             current_item_id=str(target_item.id),
             current_section_key="Professional Experience",
             user_feedback=user_feedback,
-            research_findings="Company emphasizes data-driven results",
+            research_findings={"company_insights": "Company emphasizes data-driven results"},
             error_messages=[],
-            final_cv_output_path=None
+            final_output_path=None
         )
-        
-        # Mock state manager
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
-            mock_state_manager = MagicMock()
-            mock_state_manager_class.return_value = mock_state_manager
-            
-            mock_state_manager.get_structured_cv.return_value = structured_cv
-            mock_state_manager.update_item_status.return_value = True
-            mock_state_manager.save_structured_cv.return_value = True
-            
-            # Execute processing
-            result_state = await orchestrator.process_single_item(agent_state)
-            
-            # Validate processing success
-            assert result_state is not None
-            assert len(result_state.error_messages) == 0
-            
-            # Validate content writer was called with correct parameters
-            orchestrator.content_writer_agent.process_single_item.assert_called_once()
-            call_args = orchestrator.content_writer_agent.process_single_item.call_args
-            
-            # Verify the call included the item ID and job data
-            assert call_args[0][0] == target_item.id  # item_id
-            assert call_args[0][1] == sample_job_description_data  # job_data
-            assert call_args[0][2] == structured_cv  # cv_data
-            
-            # Validate user feedback was preserved in state
-            assert result_state.user_feedback == user_feedback
-            
-            # Validate regenerated item contains enhanced content
-            updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
-            assert "REGENERATED:" in updated_item.content
-            assert updated_item.metadata["regeneration_reason"] == "user_requested"
+
+        # Configure the existing state manager mock from fixture
+        orchestrator.state_manager.get_structured_cv.return_value = structured_cv
+        orchestrator.state_manager.get_job_description_data.return_value = sample_job_description_data
+        orchestrator.state_manager.update_item_status.return_value = True
+        orchestrator.state_manager.save_state.return_value = True
+        orchestrator.state_manager.update_subsection_status.return_value = True
+
+        # Execute processing
+        result_state = await orchestrator.process_single_item(str(target_item.id))
+
+        # Validate processing success
+        assert result_state is not None
+        assert len(result_state.error_messages) == 0
+
+        # Validate content writer was called with correct parameters
+        orchestrator.content_writer_agent.process_single_item.assert_called_once()
+        call_args = orchestrator.content_writer_agent.process_single_item.call_args
+
+        # Verify the call included the item ID and job data
+        assert call_args[0][0] == target_item.id  # item_id
+        assert call_args[0][1] == sample_job_description_data  # job_data
+        assert call_args[0][2] == structured_cv  # cv_data
+
+        # Validate user feedback was preserved in state
+        assert result_state.user_feedback == user_feedback
+
+        # Validate regenerated item contains enhanced content
+        updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
+        assert "REGENERATED:" in updated_item.content
+        assert updated_item.metadata["regeneration_reason"] == "user_requested"
 
     async def test_item_regeneration_error_handling(self, sample_structured_cv_with_items, sample_job_description_data):
         """Test error handling during item regeneration.
-        
+
         Validates:
         - REQ-NONFUNC-RELIABILITY-1: Graceful error handling
         - Error recovery mechanisms
         - State consistency during failures
         """
         session_id = str(uuid4())
-        
+
         # Create orchestrator with failing content writer
-        orchestrator = EnhancedOrchestrator()
+        state_manager = StateManager()
+        orchestrator = EnhancedOrchestrator(state_manager)
         mock_content_writer = AsyncMock(spec=EnhancedContentWriterAgent)
-        
+
         # Configure mock to simulate LLM failure
         async def mock_failing_process_single_item(item_id, job_data, cv_data, section_key=None):
             return {
@@ -436,62 +444,61 @@ class TestIndividualItemProcessing:
                     "fallback_applied": True
                 }
             }
-        
+
         mock_content_writer.process_single_item = mock_failing_process_single_item
         orchestrator.content_writer_agent = mock_content_writer
-        
+
         structured_cv = sample_structured_cv_with_items
         target_item = structured_cv.sections[0].subsections[0].items[0]
         original_content = target_item.content
-        
+
         agent_state = AgentState(
-            session_id=session_id,
             structured_cv=structured_cv,
             job_description_data=sample_job_description_data,
             current_item_id=str(target_item.id),
             current_section_key="Professional Experience",
-            user_feedback="Regenerate this item",
-            research_findings="Research data",
+            user_feedback={"action": "regenerate", "feedback_text": "Regenerate this item"},
+            research_findings={"data": "Research data"},
             error_messages=[],
-            final_cv_output_path=None
+            final_output_path=None
         )
-        
+
         # Mock state manager
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
+        with patch('src.core.state_manager.StateManager') as mock_state_manager_class:
             mock_state_manager = MagicMock()
             mock_state_manager_class.return_value = mock_state_manager
-            
+
             mock_state_manager.get_structured_cv.return_value = structured_cv
             mock_state_manager.update_item_status.return_value = True
-            mock_state_manager.save_structured_cv.return_value = True
-            
+            mock_state_manager.save_state.return_value = True
+
             # Execute processing (should handle error gracefully)
             result_state = await orchestrator.process_single_item(agent_state)
-            
+
             # Validate error was handled gracefully
             assert result_state is not None
             # Note: Error messages might be present, but workflow should continue
-            
+
             # Validate item status reflects the failure
             updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
             assert updated_item.status == ItemStatus.GENERATION_FAILED
             assert "⚠️" in updated_item.content  # Fallback content
             assert "error" in updated_item.metadata
             assert updated_item.metadata["fallback_used"] is True
-            
+
             # Validate other items were not affected
             other_items = [
                 result_state.structured_cv.sections[0].subsections[0].items[1],
                 result_state.structured_cv.sections[0].subsections[0].items[2]
             ]
-            
+
             for item in other_items:
                 assert item.status != ItemStatus.GENERATION_FAILED
                 assert "⚠️" not in item.content
 
     async def test_item_status_transitions(self, orchestrator_with_content_writer_mock, sample_structured_cv_with_items, sample_job_description_data):
         """Test proper item status transitions during processing.
-        
+
         Validates:
         - Correct status flow: GENERATED -> TO_REGENERATE -> GENERATED
         - Status persistence
@@ -499,44 +506,41 @@ class TestIndividualItemProcessing:
         """
         orchestrator = orchestrator_with_content_writer_mock
         session_id = str(uuid4())
-        
+
         structured_cv = sample_structured_cv_with_items
         target_item = structured_cv.sections[0].subsections[0].items[0]
-        
+
         # Verify initial status
         assert target_item.status == ItemStatus.GENERATED
-        
+
         # Mark item for regeneration (simulating UI action)
         target_item.status = ItemStatus.TO_REGENERATE
-        
+
         agent_state = AgentState(
             session_id=session_id,
             structured_cv=structured_cv,
             job_description_data=sample_job_description_data,
             current_item_id=str(target_item.id),
             current_section_key="Professional Experience",
-            user_feedback="Regenerate this item",
-            research_findings="Research data",
+            user_feedback={"action": "regenerate", "feedback_text": "Regenerate this item"},
+            research_findings={"data": "Research data"},
             error_messages=[],
             final_cv_output_path=None
         )
-        
-        # Mock state manager
-        with patch('src.services.state_manager.StateManager') as mock_state_manager_class:
-            mock_state_manager = MagicMock()
-            mock_state_manager_class.return_value = mock_state_manager
-            
-            mock_state_manager.get_structured_cv.return_value = structured_cv
-            mock_state_manager.update_item_status.return_value = True
-            mock_state_manager.save_structured_cv.return_value = True
-            
-            # Execute processing
-            result_state = await orchestrator.process_single_item(agent_state)
-            
-            # Validate status transition
-            updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
-            assert updated_item.status == ItemStatus.GENERATED, "Item should return to GENERATED status after successful regeneration"
-            
-            # Validate state manager was called to update status
-            mock_state_manager.update_item_status.assert_called()
-            mock_state_manager.save_structured_cv.assert_called()
+
+        # Configure the existing state manager mock from fixture
+        orchestrator.state_manager.get_structured_cv.return_value = structured_cv
+        orchestrator.state_manager.update_item_status.return_value = True
+        orchestrator.state_manager.save_state.return_value = True
+        orchestrator.state_manager.update_subsection_status.return_value = True
+
+        # Execute processing
+        result_state = await orchestrator.process_single_item(agent_state)
+
+        # Validate status transition
+        updated_item = result_state.structured_cv.sections[0].subsections[0].items[0]
+        assert updated_item.status == ItemStatus.GENERATED, "Item should return to GENERATED status after successful regeneration"
+
+        # Validate state manager was called to update status
+        orchestrator.state_manager.update_item_status.assert_called()
+        orchestrator.state_manager.save_state.assert_called()

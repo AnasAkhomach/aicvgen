@@ -44,22 +44,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                input={
-                    "job_description_data": Dict[str, Any],
-                    "content_item": Dict[str, Any],
-                    "context": Dict[str, Any]
-                },
-                output=Dict[str, Any],
-                description="Generates enhanced CV content with structured logging and error handling"
+                description="Generates enhanced CV content with structured logging and error handling",
+                required_fields=["job_description_data", "content_item", "context"]
             ),
             output_schema=AgentIO(
-                input={
-                    "job_description_data": Dict[str, Any],
-                    "content_item": Dict[str, Any],
-                    "context": Dict[str, Any]
-                },
-                output=Dict[str, Any],
-                description="Generated content with metadata and quality metrics"
+                description="Generated content with metadata and quality metrics",
+                required_fields=["content", "metadata", "quality_metrics"]
             ),
             content_type=content_type
         )
