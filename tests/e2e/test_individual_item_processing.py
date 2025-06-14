@@ -11,14 +11,14 @@ from pathlib import Path
 from uuid import uuid4
 
 # Import application components
-from src.orchestration.enhanced_orchestrator import EnhancedOrchestrator
+from src.core.enhanced_orchestrator import EnhancedOrchestrator
 from src.orchestration.state import AgentState
 from src.models.data_models import (
     StructuredCV, Section, Subsection, Item, ItemStatus, ItemType,
     JobDescriptionData
 )
-from src.services.state_manager import StateManager
-from src.services.llm import LLMService
+from src.core.state_manager import StateManager
+from src.services.llm import EnhancedLLMService as LLMService
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 
 
@@ -122,14 +122,15 @@ class TestIndividualItemProcessing:
     def sample_job_description_data(self):
         """Sample job description data for testing."""
         return JobDescriptionData(
-            required_skills=["Python", "Django", "REST APIs", "Leadership"],
+            raw_text="Senior Software Engineer position at technology company focused on scalable web applications. Develop applications, lead teams, and design APIs using Python, Django, REST APIs, and Leadership skills in Software Engineering, Web Development, and Agile environment.",
+            skills=["Python", "Django", "REST APIs", "Leadership"],
             responsibilities=["Develop applications", "Lead teams", "Design APIs"],
             industry_terms=["Software Engineering", "Web Development", "Agile"],
-            company_context="Technology company focused on scalable web applications"
+            company_values=["Scalability", "Innovation"]
         )
 
     @pytest.fixture
-    async def orchestrator_with_content_writer_mock(self):
+    def orchestrator_with_content_writer_mock(self):
         """Create orchestrator with mocked content writer for item processing."""
         # Mock content writer agent
         mock_content_writer = AsyncMock(spec=EnhancedContentWriterAgent)
@@ -157,7 +158,9 @@ class TestIndividualItemProcessing:
         mock_content_writer.process_single_item = mock_process_single_item
         
         # Create orchestrator with mocked content writer
-        orchestrator = EnhancedOrchestrator()
+        from src.core.state_manager import StateManager
+        state_manager = StateManager()
+        orchestrator = EnhancedOrchestrator(state_manager=state_manager)
         orchestrator.content_writer_agent = mock_content_writer
         
         return orchestrator

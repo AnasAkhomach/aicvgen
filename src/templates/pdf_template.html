@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ cv.metadata.get('name', 'CV') }}</title>
+    <!-- We will inject CSS directly with WeasyPrint, so no link needed here -->
+</head>
+<body>
+    <header>
+        <h1>{{ cv.metadata.get('name', 'Your Name') }}</h1>
+        <p class="contact-info">
+            {% if cv.metadata.get('email') %}{{ cv.metadata.get('email') }}{% endif %}
+            {% if cv.metadata.get('phone') %} | {{ cv.metadata.get('phone') }}{% endif %}
+            {% if cv.metadata.get('linkedin') %} | <a href="{{ cv.metadata.get('linkedin') }}">LinkedIn</a>{% endif %}
+        </p>
+    </header>
+
+    {% for section in cv.sections %}
+    <section class="cv-section">
+        <h2>{{ section.name }}</h2>
+        <hr>
+        {% if section.items %}
+            {% if section.name == 'Key Qualifications' %}
+                <p class="skills">
+                    {% for item in section.items %}{{ item.content }}{% if not loop.last %} | {% endif %}{% endfor %}
+                </p>
+            {% else %}
+                <ul>
+                {% for item in section.items %}
+                    <li>{{ item.content }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+        {% endif %}
+        {% if section.subsections %}
+            {% for sub in section.subsections %}
+            <div class="subsection">
+                <h3>{{ sub.name }}</h3>
+                <p class="metadata">
+                    {% if sub.metadata.get('company') %}{{ sub.metadata.get('company') }}{% endif %}
+                    {% if sub.metadata.get('duration') %} | {{ sub.metadata.get('duration') }}{% endif %}
+                </p>
+                <ul>
+                {% for item in sub.items %}
+                    <li>{{ item.content }}</li>
+                {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        {% endif %}
+    </section>
+    {% endfor %}
+</body>
+</html>

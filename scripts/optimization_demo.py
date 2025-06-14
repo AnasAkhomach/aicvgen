@@ -214,7 +214,7 @@ class OptimizationDemo:
                     min_instances=min_inst,
                     max_instances=max_inst,
                     strategy=strategy,
-                    content_types=[ContentType.PROFESSIONAL_SUMMARY],
+                    content_types=[ContentType.EXECUTIVE_SUMMARY],
                     warmup_on_startup=(strategy == AgentPoolStrategy.EAGER)
                 )
             )
@@ -232,7 +232,7 @@ class OptimizationDemo:
             with time_operation("agent_acquisition"):
                 managed_agent = lifecycle_manager.get_agent(
                     "content_writer",
-                    content_type=ContentType.PROFESSIONAL_SUMMARY
+                    content_type=ContentType.EXECUTIVE_SUMMARY
                 )
             
             if managed_agent:

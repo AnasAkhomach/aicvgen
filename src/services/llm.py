@@ -1,4 +1,3 @@
-import google.generativeai as genai
 import os
 import sys
 import time
@@ -18,6 +17,14 @@ try:
 except ImportError:
     genai = None
 
+# Import tenacity for retry logic with exponential backoff
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type
+)
+
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..models.data_models import ContentType
@@ -25,6 +32,20 @@ from .rate_limiter import RateLimiter as EnhancedRateLimiter
 from .error_recovery import get_error_recovery_service
 
 logger = get_structured_logger("llm_service")
+
+# Define retryable exceptions for LLM API calls
+# NOTE: These exceptions are dependent on the google-generativeai library
+# and may need to be updated if the library changes its exception hierarchy
+RETRYABLE_EXCEPTIONS = (
+    Exception,  # Catch-all for now, will be refined based on actual google.generativeai exceptions
+    # Common network/service exceptions that should be retried:
+    # - ResourceExhausted (rate limits)
+    # - ServiceUnavailable (temporary service issues)
+    # - InternalServerError (server errors)
+    # - DeadlineExceeded (timeout errors)
+    # - TimeoutError (connection timeouts)
+    # - ConnectionError (network issues)
+)
 
 
 # --- Caching Mechanism ---
@@ -194,9 +215,35 @@ class EnhancedLLMService:
             )
             return False
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
+        reraise=True
+    )
+    def _make_llm_api_call(self, prompt: str) -> Any:
+        """
+        Make the actual LLM API call with retry logic using tenacity.
+        
+        This method is decorated with @retry to handle transient errors
+        with exponential backoff. It will retry up to 3 times with
+        exponentially increasing delays (4s, 8s, 10s max).
+        
+        Args:
+            prompt: Text prompt to send to the model
+            
+        Returns:
+            Generated response from the LLM
+            
+        Raises:
+            Various exceptions from the google-generativeai library
+        """
+        return self.llm.generate_content(prompt)
+
     def _generate_with_timeout(self, prompt: str, session_id: str = None) -> Any:
         """
         Generate content with a timeout using ThreadPoolExecutor.
+        Now uses the retry-enabled _make_llm_api_call method.
 
         Args:
             prompt: Text prompt to send to the model
@@ -206,7 +253,7 @@ class EnhancedLLMService:
             Generated text response or raises TimeoutError
         """
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(self.llm.generate_content, prompt)
+            future = executor.submit(self._make_llm_api_call, prompt)
             try:
                 result = future.result(timeout=self.timeout)
                 

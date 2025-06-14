@@ -29,14 +29,15 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.orchestration.enhanced_orchestrator import EnhancedOrchestrator
-from src.data_models.cv_models import CVGenerationRequest, CVGenerationState
+from src.core.enhanced_orchestrator import EnhancedOrchestrator
+from src.api.enhanced_cv_api import CVGenerationRequest
+from src.models.data_models import CVGenerationState
 from src.models.data_models import Item, ProcessingMetadata, ContentType, ItemType, ItemStatus
 from src.services.session_manager import SessionManager
-from src.services.state_manager import StateManager
+from src.core.state_manager import StateManager
 from src.services.progress_tracker import ProgressTracker
-from src.services.error_recovery_service import ErrorRecoveryService
-from src.agents.item_processor import ItemProcessor
+from src.services.error_recovery import ErrorRecoveryService
+from src.services.item_processor import ItemProcessor
 from src.services.rate_limiter import RateLimiter
 from src.services.llm_client import LLMClient
 
@@ -98,8 +99,8 @@ def mock_llm_client():
         """Generate mock responses based on prompt content."""
         prompt_lower = prompt.lower()
         
-        if "professional summary" in prompt_lower:
-            return MOCK_LLM_RESPONSES["professional_summary"]
+        if "executive summary" in prompt_lower or "professional summary" in prompt_lower:
+            return MOCK_LLM_RESPONSES["executive_summary"]
         elif "experience" in prompt_lower and "bullet" in prompt_lower:
             return MOCK_LLM_RESPONSES["experience_bullets"]
         elif "technical skills" in prompt_lower or "skills" in prompt_lower:
@@ -240,7 +241,7 @@ def cv_generation_request(sample_job_description, sample_base_cv):
 def expected_cv_outputs(job_role):
     """Get expected CV outputs for validation."""
     return {
-        "professional_summary": get_expected_output_by_section("professional_summary", job_role),
+        "executive_summary": get_expected_output_by_section("executive_summary", job_role),
         "professional_experience": get_expected_output_by_section("professional_experience", job_role),
         "technical_skills": get_expected_output_by_section("technical_skills", job_role),
         "projects": get_expected_output_by_section("projects", job_role)
@@ -404,7 +405,7 @@ def cv_validator():
             """Extract content for a specific section from CV (simplified implementation)."""
             # This is a simplified implementation - in reality, you'd use proper CV parsing
             section_keywords = {
-                "professional_summary": ["summary", "profile", "objective"],
+                "executive_summary": ["summary", "profile", "objective"],
                 "professional_experience": ["experience", "employment", "work history"],
                 "technical_skills": ["skills", "technical", "technologies"],
                 "projects": ["projects", "portfolio", "key projects"]

@@ -27,15 +27,9 @@ from ..templates.content_templates import (
     get_template_manager, ContentTemplateManager
 )
 from ..services.vector_db import get_enhanced_vector_db
-from ..obsolete.agent_orchestrator import (
-    get_agent_orchestrator, AgentOrchestrator
-)
-from ..obsolete.workflow_definitions import (
-    get_workflow_builder, WorkflowBuilder, WorkflowType,
-    execute_basic_cv_generation, execute_job_tailored_cv,
-    execute_cv_optimization, execute_quality_assurance,
-    execute_comprehensive_cv, execute_quick_update
-)
+from ..core.enhanced_orchestrator import EnhancedOrchestrator
+from ..core.state_manager import StateManager
+from ..models.data_models import WorkflowType
 
 
 class IntegrationMode(Enum):
@@ -101,8 +95,8 @@ class EnhancedCVIntegration:
         # Component instances
         self._template_manager: Optional[ContentTemplateManager] = None
         self._vector_db = None
-        self._orchestrator: Optional[AgentOrchestrator] = None
-        self._workflow_builder: Optional[WorkflowBuilder] = None
+        self._orchestrator: Optional[EnhancedOrchestrator] = None
+        self._state_manager: Optional[StateManager] = None
         self._agents: Dict[str, Any] = {}
 
         # Performance tracking
@@ -139,9 +133,9 @@ class EnhancedCVIntegration:
 
             # Initialize orchestrator
             if self.config.enable_orchestration:
-                self._orchestrator = get_agent_orchestrator()
-                self._workflow_builder = get_workflow_builder(self._orchestrator)
-                self.logger.info("Orchestration components initialized")
+                self._state_manager = StateManager()
+                self._orchestrator = EnhancedOrchestrator(self._state_manager)
+                self.logger.info("Enhanced orchestration components initialized")
 
             # Initialize specialized agents
             if self.config.enable_specialized_agents:
@@ -324,7 +318,7 @@ class EnhancedCVIntegration:
         custom_options: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Execute a predefined workflow."""
-        if not self._workflow_builder:
+        if not self._orchestrator:
             raise RuntimeError("Orchestration not enabled")
 
         start_time = datetime.now()
@@ -340,12 +334,22 @@ class EnhancedCVIntegration:
                 "input_keys": list(input_data.keys())
             })
 
-            result = await self._workflow_builder.execute_workflow(
-                workflow_type=workflow_type,
-                input_data=input_data,
-                session_id=session_id,
-                custom_options=custom_options
-            )
+            # For now, we'll use the enhanced orchestrator's execute_full_workflow method
+            # This is a simplified implementation that can be expanded based on workflow_type
+            if workflow_type in [WorkflowType.BASIC_CV_GENERATION, WorkflowType.JOB_TAILORED_CV]:
+                # Initialize workflow first
+                self._orchestrator.initialize_workflow()
+                
+                # Execute the full workflow
+                result_state = await self._orchestrator.execute_full_workflow()
+                
+                success = not bool(result_state.error_messages)
+                
+            else:
+                # For other workflow types, return a placeholder response
+                self.logger.warning(f"Workflow type {workflow_type.value} not yet implemented in new orchestrator")
+                success = False
+                result_state = None
 
             # Update performance stats
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -356,16 +360,15 @@ class EnhancedCVIntegration:
                 "workflow_type": workflow_type.value,
                 "session_id": session_id,
                 "processing_time": processing_time,
-                "success": result.success,
-                "tasks_completed": len(result.task_results)
+                "success": success
             })
 
             return {
-                "success": result.success,
-                "results": result.task_results,
-                "metadata": result.metadata,
+                "success": success,
+                "results": result_state.model_dump() if result_state else {},
+                "metadata": {"workflow_type": workflow_type.value, "session_id": session_id},
                 "processing_time": processing_time,
-                "errors": result.error_summary
+                "errors": result_state.error_messages if result_state else []
             }
 
         except Exception as e:
@@ -506,8 +509,12 @@ class EnhancedCVIntegration:
 
         if self._orchestrator:
             try:
-                orchestrator_stats = self._orchestrator.get_stats()
-                stats["orchestrator"] = orchestrator_stats
+                # Enhanced orchestrator doesn't have get_stats method
+                # Add basic orchestrator info instead
+                stats["orchestrator"] = {
+                    "type": "enhanced_orchestrator",
+                    "status": "active"
+                }
             except Exception:
                 pass
 
@@ -560,10 +567,10 @@ class EnhancedCVIntegration:
             # Check orchestrator
             if self._orchestrator:
                 try:
-                    orchestrator_stats = self._orchestrator.get_stats()
+                    # Simple health check for the enhanced orchestrator
                     health["components"]["orchestrator"] = {
                         "status": "healthy",
-                        "registered_agents": orchestrator_stats.get("registered_agents", 0)
+                        "type": "enhanced_orchestrator"
                     }
                 except Exception as e:
                     health["components"]["orchestrator"] = {

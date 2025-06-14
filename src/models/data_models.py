@@ -67,11 +67,37 @@ class ContentType(str, Enum):
     ANALYSIS = "analysis"
     QUALITY_CHECK = "quality_check"
     OPTIMIZATION = "optimization"
-    PROFESSIONAL_SUMMARY = "professional_summary"
-    WORK_EXPERIENCE = "work_experience"
+
     CV_ANALYSIS = "cv_analysis"
     CV_PARSING = "cv_parsing"
     ACHIEVEMENTS = "achievements"
+
+
+class UserAction(str, Enum):
+    """Enumeration for user actions in the UI."""
+    ACCEPT = "accept"
+    REGENERATE = "regenerate"
+
+
+class UserFeedback(BaseModel):
+    """User feedback for item review."""
+    action: UserAction
+    item_id: str
+    feedback_text: Optional[str] = None
+    rating: Optional[int] = Field(None, ge=1, le=5)
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class WorkflowType(Enum):
+    """Types of predefined workflows."""
+    BASIC_CV_GENERATION = "basic_cv_generation"
+    JOB_TAILORED_CV = "job_tailored_cv"
+    CV_OPTIMIZATION = "cv_optimization"
+    QUALITY_ASSURANCE = "quality_assurance"
+    COMPREHENSIVE_CV = "comprehensive_cv"
+    QUICK_UPDATE = "quick_update"
+    MULTI_LANGUAGE_CV = "multi_language_cv"
+    INDUSTRY_SPECIFIC = "industry_specific"
 
 
 class Item(BaseModel):
@@ -80,10 +106,57 @@ class Item(BaseModel):
     content: str
     status: ItemStatus = ItemStatus.INITIAL
     item_type: ItemType = ItemType.BULLET_POINT
-    raw_llm_output: Optional[str] = None  # REQ-FUNC-UI-6
+    raw_llm_output: Optional[str] = Field(default=None, description="Raw LLM output for this item for transparency and debugging")  # REQ-FUNC-UI-6
     confidence_score: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     user_feedback: Optional[str] = None
+
+
+# Content Item Classes for Processing
+class ContentItem(BaseModel):
+    """Base class for content items that can be processed."""
+    id: UUID = Field(default_factory=uuid4)
+    content_type: str
+    original_content: str
+    generated_content: Optional[str] = None
+    status: ItemStatus = ItemStatus.INITIAL
+    priority: int = 0
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    
+    @property
+    def is_ready_for_processing(self) -> bool:
+        """Check if item is ready for processing."""
+        return self.status in [ItemStatus.INITIAL, ItemStatus.TO_REGENERATE]
+
+
+class QualificationItem(ContentItem):
+    """Represents a key qualification item for processing."""
+    content_type: str = Field(default="qualification")
+    skill_category: Optional[str] = None
+    relevance_score: Optional[float] = None
+
+
+class ExperienceItem(ContentItem):
+    """Represents a work experience item for processing."""
+    content_type: str = Field(default="experience_item")
+    company: str = ""
+    position: str = ""
+    duration: str = ""
+    responsibilities: List[str] = Field(default_factory=list)
+    achievements: List[str] = Field(default_factory=list)
+    technologies: List[str] = Field(default_factory=list)
+
+
+class ProjectItem(ContentItem):
+    """Represents a project item for processing."""
+    content_type: str = Field(default="project_item")
+    name: str = ""
+    description: str = ""
+    technologies: List[str] = Field(default_factory=list)
+    achievements: List[str] = Field(default_factory=list)
+    url: Optional[str] = None
 
 
 class Subsection(BaseModel):
@@ -110,6 +183,30 @@ class StructuredCV(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     sections: List[Section] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    # New fields for "Big 10" Skills (Task 3.2)
+    big_10_skills: List[str] = Field(default_factory=list, description="Top 10 most relevant skills extracted from CV and job description")
+    big_10_skills_raw_output: Optional[str] = Field(default=None, description="Raw LLM output for Big 10 skills generation for transparency")
+    
+    def find_item_by_id(self, item_id: str) -> tuple[Optional[Item], Optional[Section], Optional[Subsection]]:
+        """Find an item by its ID and return the item along with its parent section and subsection.
+        
+        Returns:
+            tuple: (item, section, subsection) where subsection is None if the item is directly in a section
+        """
+        for section in self.sections:
+            # Check items directly in the section
+            for item in section.items:
+                if str(item.id) == item_id:
+                    return item, section, None
+            
+            # Check items in subsections
+            for subsection in section.subsections:
+                for item in subsection.items:
+                    if str(item.id) == item_id:
+                        return item, section, subsection
+        
+        return None, None, None
 
 
 class JobDescriptionData(BaseModel):

@@ -1098,10 +1098,10 @@ Additional Context:
 Generate enhanced content that aligns with the job requirements and demonstrates value to the employer.
 """
     
-    def run_as_node(self, state: AgentState) -> dict:
+    async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the content generation logic as a LangGraph node.
-        This method will process a single item if `current_item_id` is set in the state.
+        Processes a single item specified by `current_item_id` in the state.
         
         Args:
             state: The current state of the workflow.
@@ -1109,29 +1109,19 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         Returns:
             A dictionary containing the updated 'structured_cv'.
         """
-        logger.info("EnhancedContentWriterAgent node running.")
-        cv = state.structured_cv
-        job_data = state.job_description_data
-        item_id = state.current_item_id
+        logger.info(f"EnhancedContentWriterAgent processing item: {state.current_item_id}")
         
-        if not item_id:
-            logger.warning("Content writer called without a specific item_id. No action taken.")
-            return {}
+        if not state.current_item_id:
+            logger.error("Content writer called without current_item_id")
+            return {"error_messages": (state.error_messages or []) + ["ContentWriter failed: No item ID."]}
         
         try:
-            # Create execution context for the async method
-            context = AgentExecutionContext(
-                session_id="langraph_session",
-                item_id=item_id,
-                input_data={
-                    "job_description_data": job_data.model_dump(),
-                    "structured_cv": cv.model_dump(),
-                    "current_item_id": item_id
-                }
+            # Process the single item using the async method
+            result = await self._process_single_item(
+                state.structured_cv.model_dump(),
+                state.job_description_data.model_dump() if state.job_description_data else {},
+                state.current_item_id
             )
-            
-            # Call the existing async method
-            result = asyncio.run(self.run_async(None, context))
             
             if result.success:
                 # Extract the updated CV from the result
@@ -1139,18 +1129,16 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 if updated_cv_data:
                     # Convert back to StructuredCV model
                     updated_cv = StructuredCV.model_validate(updated_cv_data)
+                    logger.info(f"Successfully processed item {state.current_item_id}")
                     return {"structured_cv": updated_cv}
             
             # If not successful, add error to state
-            error_list = state.error_messages or []
-            error_list.append(f"ContentWriter Error: {result.error_message}")
-            return {"error_messages": error_list}
+            logger.error(f"Failed to process item {state.current_item_id}: {result.error_message}")
+            return {"error_messages": (state.error_messages or []) + [f"ContentWriter Error: {result.error_message}"]}
             
         except Exception as e:
-            logger.error(f"Error in Content Writer node for item {item_id}: {e}")
-            error_list = state.error_messages or []
-            error_list.append(f"ContentWriter Error: {e}")
-            return {"error_messages": error_list}
+            logger.error(f"Exception in Content Writer node for item {state.current_item_id}: {e}")
+            return {"error_messages": (state.error_messages or []) + [f"ContentWriter Exception: {str(e)}"]}
     
     def generate_big_10_skills(self, job_description: str, my_talents: str = "") -> Dict[str, Any]:
         """
@@ -1335,59 +1323,35 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             # Parse job description data
             job_description = JobDescriptionData.model_validate(job_data) if job_data else None
             
-            # Find the target subsection by ID
-            target_subsection = None
-            target_section = None
+            # Find the target item by ID using the built-in method
+            target_item, target_section, target_subsection = structured_cv.find_item_by_id(str(item_id))
             
-            for section in structured_cv.sections:
-                for subsection in section.subsections:
-                    if str(subsection.id) == str(item_id):
-                        target_subsection = subsection
-                        target_section = section
-                        break
-                if target_subsection:
-                    break
-            
-            if not target_subsection:
-                logger.error(f"Could not find subsection with ID: {item_id}")
+            if not target_item:
+                logger.error(f"Could not find item with ID: {item_id}")
                 return AgentResult(
                     success=False,
-                    error_message=f"Subsection with ID {item_id} not found",
+                    error_message=f"Item with ID {item_id} not found",
                     output_data={"structured_cv": structured_cv.model_dump()}
                 )
             
-            # Note: Subsections don't have status - items within them do
-            # We'll update item statuses after processing
-            
-            # Build focused prompt for this specific subsection
-            prompt = self._build_single_item_prompt(target_subsection, target_section, job_description)
+            # Build focused prompt for this specific item
+            prompt = self._build_single_item_prompt(target_item, target_section, target_subsection, job_description)
             
             # Generate content using LLM with fallback handling
             try:
                 response: LLMResponse = await self.llm_service.generate_content(prompt)
                 
-                # Parse the response and update the subsection items
+                # Parse the response and update the specific item
                 if response.success and response.content:
                     # Store raw LLM output for transparency (REQ-FUNC-UI-6)
                     raw_output = response.content
                     
-                    # Parse the generated content into bullet points
-                    bullet_points = self._parse_bullet_points(response.content)
+                    # Update the target item with new content
+                    target_item.content = response.content.strip()
+                    target_item.status = ItemStatus.GENERATED
+                    target_item.raw_llm_output = raw_output
                     
-                    # Update the subsection items with new content
-                    target_subsection.items = []
-                    for i, bullet_point in enumerate(bullet_points):
-                        item = Item(
-                            content=bullet_point,
-                            item_type=ItemType.BULLET_POINT,
-                            status=ItemStatus.GENERATED,
-                            raw_llm_output=raw_output  # Store raw output in each item
-                        )
-                        target_subsection.items.append(item)
-                    
-                    # Note: Subsections don't have status - only items do
-                    
-                    logger.info(f"Successfully processed subsection: {item_id}")
+                    logger.info(f"Successfully processed item: {item_id}")
                     
                     return AgentResult(
                         success=True,
@@ -1395,27 +1359,23 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                         confidence_score=0.8,
                         metadata={
                             "processed_item_id": item_id,
-                            "items_generated": len(bullet_points),
                             "raw_llm_output": raw_output
                         }
                     )
                 else:
                     # LLM failed, use fallback content generation
                     logger.warning(f"LLM generation failed for item {item_id}, using fallback: {response.error_message}")
-                    fallback_content = self._generate_fallback_content(target_subsection, job_description)
+                    fallback_content = self._generate_fallback_content(target_item, target_section, target_subsection, job_description)
                     
-                    # Create fallback item with appropriate status
-                    fallback_item = Item(
-                        content=fallback_content,
-                        item_type=ItemType.BULLET_POINT,
-                        status=ItemStatus.GENERATION_FAILED,
-                        raw_llm_output=f"LLM_FAILED: {response.error_message}",
-                        metadata={"fallback_used": True, "error": response.error_message}
-                    )
+                    # Update the target item with fallback content
+                    target_item.content = fallback_content
+                    target_item.status = ItemStatus.GENERATED_FALLBACK
+                    target_item.raw_llm_output = f"LLM_FAILED: {response.error_message}"
+                    if not target_item.metadata:
+                        target_item.metadata = {}
+                    target_item.metadata.update({"fallback_used": True, "error": response.error_message})
                     
-                    target_subsection.items = [fallback_item]
-                    
-                    logger.info(f"Applied fallback content for subsection: {item_id}")
+                    logger.info(f"Applied fallback content for item: {item_id}")
                     
                     return AgentResult(
                         success=True,  # Still successful, just with fallback
@@ -1431,20 +1391,17 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             except Exception as llm_error:
                 # Handle any LLM service exceptions
                 logger.error(f"LLM service exception for item {item_id}: {llm_error}")
-                fallback_content = self._generate_fallback_content(target_subsection, job_description)
+                fallback_content = self._generate_fallback_content(target_item, target_section, target_subsection, job_description)
                 
-                # Create fallback item with appropriate status
-                fallback_item = Item(
-                    content=fallback_content,
-                    item_type=ItemType.BULLET_POINT,
-                    status=ItemStatus.GENERATION_FAILED,
-                    raw_llm_output=f"LLM_EXCEPTION: {str(llm_error)}",
-                    metadata={"fallback_used": True, "error": str(llm_error)}
-                )
+                # Update the target item with fallback content
+                target_item.content = fallback_content
+                target_item.status = ItemStatus.GENERATED_FALLBACK
+                target_item.raw_llm_output = f"LLM_EXCEPTION: {str(llm_error)}"
+                if not target_item.metadata:
+                    target_item.metadata = {}
+                target_item.metadata.update({"fallback_used": True, "error": str(llm_error)})
                 
-                target_subsection.items = [fallback_item]
-                
-                logger.info(f"Applied fallback content after LLM exception for subsection: {item_id}")
+                logger.info(f"Applied fallback content after LLM exception for item: {item_id}")
                 
                 return AgentResult(
                     success=True,  # Still successful, just with fallback
@@ -1543,12 +1500,14 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         
         return bullet_points[:5]  # Limit to 5 bullet points max
 
-    def _generate_fallback_content(self, subsection: 'Subsection', job_description: Optional['JobDescriptionData']) -> str:
+    def _generate_fallback_content(self, target_item: 'Item', target_section: 'Section', target_subsection: 'Subsection', job_description: Optional['JobDescriptionData']) -> str:
         """
         Generate fallback content when LLM fails.
         
         Args:
-            subsection: The subsection to generate fallback content for
+            target_item: The item to generate fallback content for
+            target_section: The section containing the item
+            target_subsection: The subsection containing the item
             job_description: Job description data for context
             
         Returns:
@@ -1575,7 +1534,10 @@ def create_content_writer(content_type: ContentType) -> EnhancedContentWriterAge
         ContentType.PROJECTS: "ProjectsWriter",
         ContentType.ANALYSIS: "AnalysisWriter",
         ContentType.QUALITY_CHECK: "QualityCheckWriter",
-        ContentType.OPTIMIZATION: "OptimizationWriter"
+        ContentType.OPTIMIZATION: "OptimizationWriter",
+        ContentType.CV_ANALYSIS: "CVAnalysisWriter",
+        ContentType.CV_PARSING: "CVParsingWriter",
+        ContentType.ACHIEVEMENTS: "AchievementsWriter"
     }
     
     type_descriptions = {
@@ -1592,7 +1554,10 @@ def create_content_writer(content_type: ContentType) -> EnhancedContentWriterAge
         ContentType.PROJECTS: "Specialized agent for projects section content",
         ContentType.ANALYSIS: "Specialized agent for content analysis",
         ContentType.QUALITY_CHECK: "Specialized agent for quality assurance",
-        ContentType.OPTIMIZATION: "Specialized agent for content optimization"
+        ContentType.OPTIMIZATION: "Specialized agent for content optimization",
+        ContentType.CV_ANALYSIS: "Specialized agent for CV analysis and assessment",
+        ContentType.CV_PARSING: "Specialized agent for CV parsing and extraction",
+        ContentType.ACHIEVEMENTS: "Specialized agent for achievements section content"
     }
     
     return EnhancedContentWriterAgent(

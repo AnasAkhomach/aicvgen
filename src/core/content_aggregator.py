@@ -17,6 +17,7 @@ class ContentAggregator:
         # Map content types to ContentData fields
         self.content_map = {
             'qualification': 'summary',
+            'executive_summary': 'summary',
             'experience': 'experience_bullets',
             'skills': 'skills_section',
             'project': 'projects',

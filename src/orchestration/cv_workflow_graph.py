@@ -1,7 +1,7 @@
-"""LangGraph-based workflow orchestration for CV generation.
+"""LangGraph-based CV Generation Workflow.
 
 This module defines the state machine workflow using LangGraph's StateGraph.
-It replaces the procedural orchestration logic with a stateful graph approach.
+It implements granular, item-by-item processing with user feedback loops.
 """
 
 import logging
@@ -10,91 +10,278 @@ from langgraph.graph import StateGraph, END
 
 from src.orchestration.state import AgentState
 from src.agents.parser_agent import ParserAgent
-from src.agents.research_agent import ResearchAgent
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
-from src.services.llm_service import LLMService
-from src.services.vector_service import VectorService
-from src.core.config import Config
+from src.agents.research_agent import ResearchAgent
+from src.agents.formatter_agent import FormatterAgent
+from src.services.llm import get_llm_service
+from src.models.data_models import UserAction
 
 logger = logging.getLogger(__name__)
 
+# Define the workflow sequence for sections
+WORKFLOW_SEQUENCE = ["key_qualifications", "professional_experience", "project_experience", "executive_summary"]
+
 # Initialize services and agents
-config = Config()
-llm_service = LLMService(config)
-vector_service = VectorService(config)
+llm_service = get_llm_service()
+parser_agent = ParserAgent(name="ParserAgent", description="Parses CV and JD.", llm=llm_service)
+content_writer_agent = EnhancedContentWriterAgent()
+qa_agent = QualityAssuranceAgent(name="QAAgent", description="Performs quality checks.", llm=llm_service)
+from src.services.vector_db import get_enhanced_vector_db
+vector_db = get_enhanced_vector_db()
+research_agent = ResearchAgent(name="ResearchAgent", description="Conducts research and finds relevant CV content.", llm=llm_service, vector_db=vector_db)
+formatter_agent = FormatterAgent(name="FormatterAgent", description="Generates PDF output from structured CV data.")
 
-# Agent instances
-parser_agent = ParserAgent(llm_service)
-research_agent = ResearchAgent(llm_service, vector_service)
-content_writer_agent = EnhancedContentWriterAgent(llm_service, vector_service)
-qa_agent = QualityAssuranceAgent(llm_service)
-
-# Node wrapper functions to adapt agent methods for LangGraph
-def parse_inputs_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Parse job description and prepare initial state."""
-    logger.info("Executing parse_inputs_node")
+# Node wrapper functions for granular workflow
+async def parser_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse job description and CV. Queue setup is now handled by generate_skills_node."""
+    logger.info("Executing parser_node")
     agent_state = AgentState.model_validate(state)
-    result = parser_agent.run_as_node(agent_state)
+    
+    # Parse inputs using the parser agent
+    result = await parser_agent.run_as_node(agent_state)
+    
     return result
 
-def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Conduct research based on job description."""
+async def content_writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate content for the current item specified in state.current_item_id."""
+    logger.info(f"Executing content_writer_node for item: {state.get('current_item_id')}")
+    agent_state = AgentState.model_validate(state)
+    
+    if not agent_state.current_item_id:
+        logger.error("ContentWriter called without current_item_id")
+        return {"error_messages": agent_state.error_messages + ["ContentWriter failed: No item ID."]}
+    
+    result = await content_writer_agent.run_as_node(agent_state)
+    return result
+
+async def qa_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Perform quality assurance on the generated content."""
+    logger.info(f"Executing qa_node for item: {state.get('current_item_id')}")
+    agent_state = AgentState.model_validate(state)
+    result = await qa_agent.run_as_node(agent_state)
+    return result
+
+async def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Conduct research on job description and find relevant CV content."""
     logger.info("Executing research_node")
     agent_state = AgentState.model_validate(state)
-    result = research_agent.run_as_node(agent_state)
+    result = await research_agent.run_as_node(agent_state)
     return result
 
-def content_writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate or enhance CV content."""
-    logger.info("Executing content_writer_node")
+async def process_next_item_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Pop the next item from the queue and set it as current."""
+    logger.info("Executing process_next_item_node")
     agent_state = AgentState.model_validate(state)
-    result = content_writer_agent.run_as_node(agent_state)
-    return result
+    
+    if not agent_state.items_to_process_queue:
+        logger.warning("No items in queue to process")
+        return {}
+    
+    # Pop the next item from the queue
+    queue_copy = agent_state.items_to_process_queue.copy()
+    next_item_id = queue_copy.pop(0)
+    
+    logger.info(f"Processing next item: {next_item_id}")
+    return {
+        "current_item_id": next_item_id,
+        "items_to_process_queue": queue_copy
+    }
 
-def qa_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Perform quality assurance on generated content."""
-    logger.info("Executing qa_node")
+async def prepare_next_section_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Move to the next section in the workflow sequence."""
+    logger.info("Executing prepare_next_section_node")
     agent_state = AgentState.model_validate(state)
-    result = qa_agent.run_as_node(agent_state)
-    return result
+    
+    try:
+        current_index = WORKFLOW_SEQUENCE.index(agent_state.current_section_key)
+        if current_index + 1 >= len(WORKFLOW_SEQUENCE):
+            logger.info("All sections completed")
+            return {}
+        
+        next_section_key = WORKFLOW_SEQUENCE[current_index + 1]
+        logger.info(f"Moving to next section: {next_section_key}")
+        
+        # Find the next section and populate the queue
+        next_section = None
+        for section in agent_state.structured_cv.sections:
+            if section.name.lower().replace(' ', '_') == next_section_key:
+                next_section = section
+                break
+        
+        if next_section:
+            item_queue = [str(item.id) for item in next_section.items]
+            if next_section.subsections:
+                for subsection in next_section.subsections:
+                    item_queue.extend([str(item.id) for item in subsection.items])
+            
+            return {
+                "current_section_key": next_section_key,
+                "items_to_process_queue": item_queue,
+                "current_item_id": None  # Reset current item
+            }
+    
+    except (ValueError, IndexError) as e:
+        logger.error(f"Error preparing next section: {e}")
+        return {}
+    
+    return {}
+
+async def formatter_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate the final PDF output using FormatterAgent."""
+    logger.info("Executing formatter_node")
+    agent_state = AgentState.model_validate(state)
+    
+    # Use FormatterAgent to generate PDF (formatter agent is synchronous)
+    # Run in executor to avoid blocking the async event loop
+    import asyncio
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, formatter_agent.run_as_node, agent_state)
+    
+    # Update state with the result
+    updated_state = agent_state.model_copy()
+    if "final_output_path" in result:
+        updated_state.final_output_path = result["final_output_path"]
+    if "error_messages" in result:
+        updated_state.error_messages.extend(result["error_messages"])
+    
+    return updated_state.model_dump()
+
+async def generate_skills_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Generates the 'Big 10' skills and updates the CV state."""
+    logger.info("--- Executing Node: generate_skills_node ---")
+    agent_state = AgentState.model_validate(state)
+    
+    my_talents = ""  # Placeholder for now, could be extracted from original CV
+    
+    # Run the synchronous method in executor to avoid blocking
+    import asyncio
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        content_writer_agent.generate_big_10_skills,
+        agent_state.job_description_data.raw_text,
+        my_talents
+    )
+    
+    if result["success"]:
+        updated_cv = agent_state.structured_cv.model_copy(deep=True)
+        updated_cv.big_10_skills = result["skills"]
+        updated_cv.big_10_skills_raw_output = result["raw_llm_output"]
+        
+        # Find the Key Qualifications section to populate it
+        qual_section = None
+        for section in updated_cv.sections:
+            # Normalize section name for matching
+            if section.name.lower().replace(":", "").strip() == "key qualifications":
+                qual_section = section
+                break
+        
+        if not qual_section:
+            error_msg = "Could not find 'Key Qualifications' section to populate skills."
+            logger.error(error_msg)
+            return {"error_messages": agent_state.error_messages + [error_msg]}
+        
+        # Overwrite items with new skills and set up the processing queue for this section
+        from src.models.data_models import Item, ItemStatus, ItemType
+        qual_section.items = [Item(content=skill, status=ItemStatus.GENERATED, item_type=ItemType.KEY_QUALIFICATION) for skill in result["skills"]]
+        item_queue = [str(item.id) for item in qual_section.items]
+        
+        logger.info(f"Populated 'Key Qualifications' with {len(item_queue)} skills and set up queue.")
+        
+        return {
+            "structured_cv": updated_cv, 
+            "items_to_process_queue": item_queue,
+            "current_section_key": "key_qualifications",
+            "is_initial_generation": True
+        }
+    else:
+        return {"error_messages": agent_state.error_messages + [f"Skills generation failed: {result['error']}"]}
+
+async def route_after_review(state: Dict[str, Any]) -> str:
+    """Route based on user feedback and queue status."""
+    agent_state = AgentState.model_validate(state)
+    
+    # Check if there's user feedback requiring regeneration
+    if (agent_state.user_feedback and 
+        agent_state.user_feedback.get("action") == UserAction.REGENERATE):
+        logger.info("User requested regeneration, routing to content_writer")
+        return "regenerate"
+    
+    # Check if there are more items in the current section queue
+    if agent_state.items_to_process_queue:
+        logger.info("More items in queue, processing next item")
+        return "next_item"
+    
+    # Check if there are more sections to process
+    try:
+        current_index = WORKFLOW_SEQUENCE.index(agent_state.current_section_key)
+        if current_index + 1 < len(WORKFLOW_SEQUENCE):
+            logger.info("Moving to next section")
+            return "next_section"
+    except (ValueError, IndexError):
+        pass
+    
+    # All sections and items completed
+    logger.info("All processing completed, routing to formatter")
+    return "complete"
 
 def build_cv_workflow_graph() -> StateGraph:
-    """Build and compile the CV generation workflow graph.
+    """Build and return the granular CV workflow graph."""
     
-    Returns:
-        Compiled StateGraph application ready for execution.
-    """
-    logger.info("Building CV workflow graph")
-    
-    # Create the StateGraph with AgentState as the state schema
+    # Create the state graph
     workflow = StateGraph(AgentState)
     
-    # Add nodes for each agent/step
-    workflow.add_node("parse_inputs", parse_inputs_node)
+    # Add nodes for granular processing
+    workflow.add_node("parser", parser_node)
     workflow.add_node("research", research_node)
-    workflow.add_node("generate_key_qualifications", content_writer_node)
-    workflow.add_node("qa_key_qualifications", qa_node)
-    workflow.add_node("generate_experience_item", content_writer_node)
-    workflow.add_node("qa_experience_item", qa_node)
-    workflow.add_node("generate_summary", content_writer_node)
+    workflow.add_node("generate_skills", generate_skills_node)
+    workflow.add_node("process_next_item", process_next_item_node)
+    workflow.add_node("content_writer", content_writer_node)
+    workflow.add_node("qa", qa_node)
+    workflow.add_node("prepare_next_section", prepare_next_section_node)
+    workflow.add_node("formatter", formatter_node)
     
-    # Define the workflow edges
-    workflow.set_entry_point("parse_inputs")
-    workflow.add_edge("parse_inputs", "research")
-    workflow.add_edge("research", "generate_key_qualifications")
-    workflow.add_edge("generate_key_qualifications", "qa_key_qualifications")
+    # Set entry point
+    workflow.set_entry_point("parser")
     
-    # Conditional logic will be expanded here to handle loops and user feedback
-    # For now, a simplified linear flow is demonstrated.
-    workflow.add_edge("qa_key_qualifications", "generate_experience_item")
-    workflow.add_edge("generate_experience_item", "qa_experience_item")
-    workflow.add_edge("qa_experience_item", "generate_summary")
-    workflow.add_edge("generate_summary", END)
+    # Add edges
+    workflow.add_edge("parser", "research")
+    workflow.add_edge("research", "generate_skills")
+    workflow.add_edge("generate_skills", "process_next_item")
+    workflow.add_edge("process_next_item", "content_writer")
+    workflow.add_edge("content_writer", "qa")
     
-    # Compile the graph into a runnable application
-    logger.info("Compiling CV workflow graph")
-    return workflow.compile()
+    # Add conditional routing after QA/review
+    workflow.add_conditional_edges(
+        "qa",
+        route_after_review,
+        {
+            "regenerate": "content_writer",  # User wants to regenerate current item
+            "next_item": "process_next_item",  # More items in current section
+            "next_section": "prepare_next_section",  # Move to next section
+            "complete": "formatter"  # All processing done
+        }
+    )
+    
+    # After preparing next section, process its first item
+    workflow.add_edge("prepare_next_section", "process_next_item")
+    
+    # Formatter ends the workflow
+    workflow.add_edge("formatter", END)
+    
+    return workflow
 
 # Singleton instance of the compiled graph
-cv_graph_app = build_cv_workflow_graph()
+_workflow_graph = None
+
+def get_cv_workflow_graph():
+    """Get the compiled CV workflow graph (singleton pattern)."""
+    global _workflow_graph
+    if _workflow_graph is None:
+        logger.info("Compiling CV workflow graph")
+        _workflow_graph = build_cv_workflow_graph().compile()
+    return _workflow_graph
+
+# Export the compiled graph app for use in enhanced_orchestrator
+cv_graph_app = get_cv_workflow_graph()

@@ -14,18 +14,18 @@ import tempfile
 import os
 
 # Import application components
-from src.orchestration.enhanced_orchestrator import EnhancedOrchestrator
+from src.core.enhanced_orchestrator import EnhancedOrchestrator
 from src.orchestration.state import AgentState
 from src.models.data_models import (
     StructuredCV, Section, Subsection, Item, ItemStatus, ItemType,
     JobDescriptionData
 )
-from src.services.state_manager import StateManager
+from src.core.state_manager import StateManager
 from src.services.session_manager import SessionManager
-from src.services.llm import LLMService
+from src.services.llm import EnhancedLLMService as LLMService
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.research_agent import ResearchAgent
-from src.agents.qa_agent import QAAgent
+from src.agents.quality_assurance_agent import QualityAssuranceAgent as QAAgent
 
 
 @pytest.mark.e2e
@@ -72,10 +72,11 @@ class TestErrorRecovery:
     def sample_job_description_data(self):
         """Sample job description data."""
         return JobDescriptionData(
-            required_skills=["Python", "Leadership", "API Development"],
+            raw_text="Senior Software Engineer position at technology startup focused on innovation. Lead development and architect solutions using Python, Leadership, and API Development skills in Software Engineering and Agile environment.",
+            skills=["Python", "Leadership", "API Development"],
             responsibilities=["Lead development", "Architect solutions"],
             industry_terms=["Software Engineering", "Agile"],
-            company_context="Technology startup focused on innovation"
+            company_values=["Innovation", "Technology Excellence"]
         )
 
     async def test_llm_service_timeout_recovery(self, sample_structured_cv, sample_job_description_data):

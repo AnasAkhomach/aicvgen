@@ -473,6 +473,8 @@ def display_item(item, section, subsection, state_manager):
                 st.info("⏳ Processing...")
             elif status == "completed":
                 st.info("✨ Generated")
+            elif status == "GENERATED_FALLBACK":
+                st.warning("⚠️ Fallback Content")
             else:
                 st.warning("⏸️ Pending")
 
@@ -1589,6 +1591,13 @@ def main():
             content_data = cv_data.get("content", {})
 
             if content_data:
+                # Add toggle for showing raw LLM output
+                show_raw_output = st.checkbox(
+                    "🔍 Show Raw LLM Output", 
+                    value=False, 
+                    help="Toggle to see the raw LLM responses for transparency"
+                )
+                
                 # Generate rendered Markdown (placeholder for real rendering)
                 rendered_cv = f"""
 # {content_data.get('name', 'Your Name')}
@@ -1605,12 +1614,24 @@ def main():
 
 {content_data.get('key_qualifications', 'Key qualifications content')}
 
-## Big 10 Skills Analysis
-
-{content_data.get('big_10_skills_raw_output', 'Big 10 skills analysis will appear here')}
-
-## Professional Experience
+## 🎯 Big 10 Skills
 """
+                
+                # Add Big 10 skills display
+                big_10_skills = content_data.get('big_10_skills', [])
+                if big_10_skills:
+                    for i, skill in enumerate(big_10_skills, 1):
+                        rendered_cv += f"\n{i}. {skill}"
+                else:
+                    rendered_cv += "\nBig 10 skills will appear here after CV generation."
+                
+                # Add raw output section if toggled
+                if show_raw_output:
+                    raw_output = content_data.get('big_10_skills_raw_output', '')
+                    if raw_output:
+                        rendered_cv += f"\n\n### 🔍 Raw LLM Output for Big 10 Skills\n\n```\n{raw_output}\n```"
+                
+                rendered_cv += "\n\n## Professional Experience\n"
                 # Add experience bullets
                 for bullet in content_data.get("experience_bullets", []):
                     rendered_cv += f"\n* {bullet}"

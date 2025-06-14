@@ -436,6 +436,7 @@ class ParserAgent(AgentBase):
                 "overview": "Executive Summary",
                 "about me": "Executive Summary",
                 "professional profile": "Executive Summary",
+                "professional summary": "Executive Summary",
                 "executive summary": "Executive Summary",
                 "skills": "Key Qualifications",
                 "key skills": "Key Qualifications",
@@ -1000,7 +1001,7 @@ class ParserAgent(AgentBase):
             return self._job_data
         return {}
     
-    def run_as_node(self, state: AgentState) -> dict:
+    async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the parsing logic as a LangGraph node.
         
@@ -1014,7 +1015,7 @@ class ParserAgent(AgentBase):
         
         try:
             # Parse job description using async method
-            job_data = asyncio.run(self.parse_job_description(state.job_description_data.raw_text))
+            job_data = await self.parse_job_description(state.job_description_data.raw_text)
             
             # In a full implementation, CV parsing would happen here too.
             # For now, we pass the existing CV through.

@@ -212,7 +212,7 @@ class StartupOptimizer:
             # Register core agents with balanced configuration
             agent_configs = [
                 ("content_writer", lambda: EnhancedContentWriterAgent(), 
-                 AgentPoolStrategy.EAGER, 1, 2, [ContentType.PROFESSIONAL_SUMMARY]),
+                 AgentPoolStrategy.EAGER, 1, 2, [ContentType.EXECUTIVE_SUMMARY]),
                 ("cv_analysis", lambda: get_agent("cv_analysis"), 
                  AgentPoolStrategy.LAZY, 0, 1, [ContentType.CV_ANALYSIS]),
                 ("quality_assurance", lambda: get_agent("quality_assurance"), 
@@ -296,7 +296,7 @@ class StartupOptimizer:
             # Register all agents with aggressive configuration
             agent_configs = [
                 ("content_writer", lambda: EnhancedContentWriterAgent(), 
-                 AgentPoolStrategy.EAGER, 2, 5, [ContentType.PROFESSIONAL_SUMMARY, ContentType.WORK_EXPERIENCE]),
+                 AgentPoolStrategy.EAGER, 2, 5, [ContentType.EXECUTIVE_SUMMARY, ContentType.EXPERIENCE]),
                 ("cv_analysis", lambda: get_agent("cv_analysis"), 
                  AgentPoolStrategy.EAGER, 1, 3, [ContentType.CV_ANALYSIS]),
                 ("cv_parser", lambda: get_agent("cv_parser"), 
@@ -400,7 +400,7 @@ class StartupOptimizer:
                     min_instances=1,
                     max_instances=2,
                     strategy=AgentPoolStrategy.LAZY,
-                    content_types=[ContentType.PROFESSIONAL_SUMMARY],
+                    content_types=[ContentType.EXECUTIVE_SUMMARY],
                     idle_timeout=timedelta(minutes=5)  # Shorter timeout for development
                 )
             )

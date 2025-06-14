@@ -13,12 +13,11 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from ..models.data_models import ContentType, ProcessingStatus
+from ..models.data_models import ContentType, ProcessingStatus, WorkflowType
 from ..config.logging_config import get_structured_logger
 from ..integration.enhanced_cv_system import (
     get_enhanced_cv_integration, EnhancedCVIntegration, EnhancedCVConfig, IntegrationMode
 )
-from ..orchestration.workflow_definitions import WorkflowType
 
 
 # Pydantic models for API requests/responses

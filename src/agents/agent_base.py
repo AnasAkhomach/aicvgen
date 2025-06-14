@@ -14,6 +14,11 @@ from src.services.error_recovery import get_error_recovery_service
 from src.services.progress_tracker import get_progress_tracker
 from src.services.session_manager import get_session_manager
 
+# Import for type hints - using TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from src.orchestration.state import AgentState
+
 
 @dataclass
 class AgentExecutionContext:
@@ -317,6 +322,22 @@ class EnhancedAgentBase(ABC):
         self.error_count = 0
         
         self.logger.info("Agent statistics reset", agent_name=self.name)
+    
+    def run_as_node(self, state: "AgentState") -> dict:
+        """
+        Standard LangGraph node interface for all agents.
+        This method should be overridden by subclasses to provide
+        agent-specific LangGraph integration logic.
+        
+        Args:
+            state: The current workflow state (AgentState)
+            
+        Returns:
+            dict: Updates to be applied to the state
+        """
+        raise NotImplementedError(
+            f"Agent {self.name} must implement run_as_node method for LangGraph compatibility"
+        )
 
 
 # Legacy compatibility

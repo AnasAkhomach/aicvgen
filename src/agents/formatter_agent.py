@@ -1,6 +1,23 @@
 from src.agents.agent_base import AgentBase
 from src.core.state_manager import AgentIO, ContentData
+from src.orchestration.state import AgentState
+from src.config.settings import get_config
+from src.config.logging_config import get_structured_logger
 from typing import Dict, Any, Optional
+import os
+from jinja2 import Environment, FileSystemLoader
+try:
+    from weasyprint import HTML, CSS
+    WEASYPRINT_AVAILABLE = True
+except (ImportError, OSError) as e:
+    # WeasyPrint requires system dependencies that may not be available
+    HTML = None
+    CSS = None
+    WEASYPRINT_AVAILABLE = False
+    logger = get_structured_logger(__name__)
+    logger.warning(f"WeasyPrint not available: {e}. PDF generation will be disabled.")
+
+logger = get_structured_logger(__name__)
 
 
 class FormatterAgent(AgentBase):
@@ -37,17 +54,68 @@ class FormatterAgent(AgentBase):
             ),
         )
 
+    def run_as_node(self, state: AgentState) -> dict:
+        """
+        Takes the final StructuredCV from the state and renders it as a PDF.
+        This is the primary entry point for this agent in the LangGraph workflow.
+        """
+        logger.info("--- Executing Node: FormatterAgent ---")
+        cv_data = state.structured_cv
+        if not cv_data:
+            return {"error_messages": state.error_messages + ["FormatterAgent: No CV data found in state."]}
+
+        try:
+            config = get_config()
+            template_dir = config.project_root / "src" / "templates"
+            static_dir = config.project_root / "src" / "frontend" / "static"
+            output_dir = config.project_root / "data" / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # 1. Set up Jinja2 environment
+            env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+            template = env.get_template("pdf_template.html")
+
+            # 2. Render HTML from template
+            html_out = template.render(cv=cv_data)
+
+            # 3. Generate PDF using WeasyPrint (if available)
+            if not WEASYPRINT_AVAILABLE:
+                logger.warning("WeasyPrint not available. Saving HTML output instead of PDF.")
+                output_filename = f"CV_{cv_data.id}.html"
+                output_path = output_dir / output_filename
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(html_out)
+                logger.info(f"FormatterAgent: HTML successfully generated at {output_path}")
+                return {"final_output_path": str(output_path)}
+            
+            css_path = static_dir / "css" / "pdf_styles.css"
+            if not css_path.exists():
+                logger.warning(f"CSS file not found at {css_path}. PDF will have no styling.")
+                css_stylesheet = None
+            else:
+                css_stylesheet = CSS(css_path)
+
+            pdf_bytes = HTML(string=html_out, base_url=str(template_dir)).write_pdf(
+                stylesheets=[css_stylesheet] if css_stylesheet else None
+            )
+
+            # 4. Save PDF to file
+            output_filename = f"CV_{cv_data.id}.pdf"
+            output_path = output_dir / output_filename
+            with open(output_path, "wb") as f:
+                f.write(pdf_bytes)
+
+            logger.info(f"FormatterAgent: PDF successfully generated at {output_path}")
+            return {"final_output_path": str(output_path)}
+
+        except Exception as e:
+            logger.error(f"FormatterAgent failed: {e}", exc_info=True)
+            return {"error_messages": state.error_messages + [f"PDF generation failed: {e}"]}
+
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Formats CV content based on the input data and formatting specifications.
-
-        Args:
-            input_data: A dictionary containing:
-                - content_data (ContentData): The content data to format
-                - format_specs (Dict[str, Any], optional): Formatting specifications
-
-        Returns:
-            Dict[str, Any]: A dictionary containing the formatted CV text.
+        Legacy method for backward compatibility.
+        For new workflows, use run_as_node instead.
         """
         # Extract input data
         content_data = input_data.get("content_data")
@@ -63,7 +131,7 @@ class FormatterAgent(AgentBase):
         try:
             formatted_text = self.format_content(content_data, format_specs)
         except Exception as e:
-            print("Error formatting content: %s", str(e))
+            logger.error("Error formatting content: %s", str(e))
             import traceback
 
             traceback.print_exc()
@@ -96,7 +164,7 @@ class FormatterAgent(AgentBase):
                         formatted_text += f"* {exp}\n"
                 formatted_text += "\n---\n\n"
 
-        print("Completed: %s (Simulated Formatting)", self.name)
+        logger.info("Completed: %s (Legacy Formatting)", self.name)
         return {"formatted_cv_text": formatted_text}
     
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':

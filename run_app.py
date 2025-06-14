@@ -22,7 +22,7 @@ if __name__ == "__main__":
     sys.argv = [
         "streamlit",
         "run",
-        str(src_path / "api" / "main.py"),
+        str(project_root / "app.py"),
         "--server.port=8501"
     ]
     

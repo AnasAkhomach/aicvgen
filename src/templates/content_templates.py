@@ -63,6 +63,8 @@ class ContentTemplateManager:
         # Executive summary templates
         self._register_executive_summary_templates()
         
+        # Professional summary templates removed - using executive summary only
+        
         # Format templates
         self._register_format_templates()
         
@@ -371,6 +373,8 @@ Transition Executive Summary:""",
             variables=["job_title", "target_role_description", "current_industry", "transferable_skills", "relevant_experience", "education_training", "motivation", "bridge_elements"],
             description="Executive summary template for career transitions"
         ))
+    
+    # _register_professional_summary_templates method removed - using executive summary only
     
     def _register_format_templates(self):
         """Register formatting templates."""

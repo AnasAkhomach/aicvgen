@@ -589,7 +589,7 @@ class ResearchAgent(AgentBase):
             ],
         }
     
-    def run_as_node(self, state: AgentState) -> dict:
+    async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the research logic as a LangGraph node.
         
@@ -618,7 +618,7 @@ class ResearchAgent(AgentBase):
             )
             
             # Call the existing async method
-            result = asyncio.run(self.run_async(None, context))
+            result = await self.run_async(None, context)
             
             if result.success:
                 # Extract research findings
