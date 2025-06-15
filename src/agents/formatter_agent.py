@@ -1,5 +1,5 @@
 from src.agents.agent_base import AgentBase
-from src.core.state_manager import AgentIO, ContentData
+from src.models.data_models import AgentIO, ContentData
 from src.orchestration.state import AgentState
 from src.config.settings import get_config
 from src.config.logging_config import get_structured_logger
@@ -47,7 +47,7 @@ class FormatterAgent(AgentBase):
             ),
         )
 
-    def run_as_node(self, state: AgentState) -> dict:
+    async def run_as_node(self, state: AgentState) -> dict:
         """
         Takes the final StructuredCV from the state and renders it as a PDF.
         This is the primary entry point for this agent in the LangGraph workflow.
@@ -55,7 +55,9 @@ class FormatterAgent(AgentBase):
         logger.info("--- Executing Node: FormatterAgent ---")
         cv_data = state.structured_cv
         if not cv_data:
-            return {"error_messages": state.error_messages + ["FormatterAgent: No CV data found in state."]}
+            error_list = state.error_messages or []
+            error_list.append("FormatterAgent: No CV data found in state.")
+            return {"error_messages": error_list}
 
         try:
             config = get_config()
@@ -103,7 +105,9 @@ class FormatterAgent(AgentBase):
 
         except Exception as e:
             logger.error(f"FormatterAgent failed: {e}", exc_info=True)
-            return {"error_messages": state.error_messages + [f"PDF generation failed: {e}"]}
+            error_list = state.error_messages or []
+            error_list.append(f"PDF generation failed: {e}")
+            return {"error_messages": error_list}
 
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """

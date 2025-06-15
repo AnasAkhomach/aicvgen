@@ -55,7 +55,7 @@ def fix_test_file_paths(test_dir):
                 'from vector_db import': 'from src.services.vector_db import',
                 'from template_manager import': 'from src.utils.template_manager import',
                 'from template_renderer import': 'from src.utils.template_renderer import',
-                'from orchestrator import': 'from src.core.orchestrator import',
+                'from orchestrator import': 'from src.core.enhanced_orchestrator import',
                 'from state_manager import': 'from src.core.state_manager import',
                 'from main import': 'from src.core.main import',
             }

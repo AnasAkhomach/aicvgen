@@ -15,6 +15,14 @@ from src.agents.research_agent import ResearchAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.services.llm import LLM
 from src.services.vector_db import get_enhanced_vector_db
+from src.utils.exceptions import (
+    WorkflowPreconditionError,
+    LLMResponseParsingError,
+    AgentExecutionError,
+    ConfigurationError,
+    StateManagerError,
+    ValidationError
+)
 
 
 logger = logging.getLogger(__name__)
@@ -61,7 +69,7 @@ class EnhancedOrchestrator:
         This should be called before processing any items.
         
         Raises:
-            ValueError: If job description data or structured CV data is missing
+            WorkflowPreconditionError: If job description data or structured CV data is missing
         """
         try:
             logger.info("Initializing workflow with research agent...")
@@ -72,10 +80,10 @@ class EnhancedOrchestrator:
 
             # Validate that required data is available before proceeding
             if not job_description_data:
-                raise ValueError("Job description data is missing. Cannot initialize workflow without job description data.")
+                raise WorkflowPreconditionError("Job description data is required to initialize workflow.")
             
             if not structured_cv:
-                raise ValueError("Structured CV data is missing. Cannot initialize workflow without CV data.")
+                raise WorkflowPreconditionError("Structured CV data is required to initialize workflow.")
 
             # Run research agent to populate vector store
             research_input = {
@@ -90,9 +98,9 @@ class EnhancedOrchestrator:
             else:
                 logger.warning(f"Research agent completed with warnings: {research_result.get('message', 'Unknown issue')}")
 
-        except ValueError as ve:
-            logger.error(f"Validation error during workflow initialization: {str(ve)}")
-            raise  # Re-raise ValueError to prevent workflow from continuing
+        except WorkflowPreconditionError as wpe:
+            logger.error(f"Workflow precondition error during initialization: {str(wpe)}")
+            raise  # Re-raise WorkflowPreconditionError to prevent workflow from continuing
         except Exception as e:
             logger.error(f"Error initializing workflow with research agent: {e}", exc_info=True)
             raise  # Re-raise other exceptions to prevent workflow from continuing
@@ -116,8 +124,16 @@ class EnhancedOrchestrator:
         )
 
         logger.info("Invoking LangGraph workflow with initial state.")
+        logger.info(f"Initial state keys: {list(initial_state.model_dump().keys())}")
+        logger.info(f"Initial state structured_cv present: {bool(initial_state.structured_cv)}")
+        logger.info(f"Initial state job_description_data present: {bool(initial_state.job_description_data)}")
+        
         # The .ainvoke() method runs the graph asynchronously until it hits an END state or needs input
         final_state_dict = await self.workflow_app.ainvoke(initial_state.model_dump())
+        
+        logger.info(f"Final state dict keys: {list(final_state_dict.keys()) if isinstance(final_state_dict, dict) else 'Not a dict'}")
+        logger.info(f"Final state dict type: {type(final_state_dict)}")
+        
         final_state = AgentState.model_validate(final_state_dict)
 
         # Persist the final state
@@ -182,15 +198,41 @@ class EnhancedOrchestrator:
 
             return final_state
 
-        except Exception as e:
-            logger.error(f"Error in orchestrator processing single item {item_id}: {e}", exc_info=True)
-            # Revert status to show failure
+        except (ValidationError, WorkflowPreconditionError) as ve:
+            logger.error(f"Validation error processing item {item_id}: {ve}")
             self.state_manager.update_subsection_status(item_id, ItemStatus.GENERATION_FAILED)
             return AgentState(
                 structured_cv=self.state_manager.get_structured_cv() or StructuredCV(),
                 job_description_data=self.state_manager.get_job_description_data(),
                 current_item_id=item_id,
-                error_messages=[f"Error processing item {item_id}: {str(e)}"]
+                error_messages=[f"Validation error processing item {item_id}: {str(ve)}"]
+            )
+        except (LLMResponseParsingError, AgentExecutionError) as ae:
+            logger.error(f"Agent execution error processing item {item_id}: {ae}")
+            self.state_manager.update_subsection_status(item_id, ItemStatus.GENERATION_FAILED)
+            return AgentState(
+                structured_cv=self.state_manager.get_structured_cv() or StructuredCV(),
+                job_description_data=self.state_manager.get_job_description_data(),
+                current_item_id=item_id,
+                error_messages=[f"Agent execution error processing item {item_id}: {str(ae)}"]
+            )
+        except (ConfigurationError, StateManagerError) as se:
+            logger.error(f"System error processing item {item_id}: {se}")
+            self.state_manager.update_subsection_status(item_id, ItemStatus.GENERATION_FAILED)
+            return AgentState(
+                structured_cv=self.state_manager.get_structured_cv() or StructuredCV(),
+                job_description_data=self.state_manager.get_job_description_data(),
+                current_item_id=item_id,
+                error_messages=[f"System error processing item {item_id}: {str(se)}"]
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error processing item {item_id}: {e}", exc_info=True)
+            self.state_manager.update_subsection_status(item_id, ItemStatus.GENERATION_FAILED)
+            return AgentState(
+                structured_cv=self.state_manager.get_structured_cv() or StructuredCV(),
+                job_description_data=self.state_manager.get_job_description_data(),
+                current_item_id=item_id,
+                error_messages=[f"Unexpected error processing item {item_id}: {str(e)}"]
             )
 
     def _run_quality_assurance(self, structured_cv: StructuredCV, item_id: str) -> Dict[str, Any]:
@@ -241,9 +283,27 @@ class EnhancedOrchestrator:
 
             return qa_result
 
-        except Exception as e:
-            logger.error(f"Error running quality assurance for item {item_id}: {e}", exc_info=True)
+        except (ValidationError, WorkflowPreconditionError) as ve:
+            logger.error(f"Validation error in quality assurance for item {item_id}: {ve}")
             return {
-                "quality_check_results": {"error": str(e)},
+                "quality_check_results": {"validation_error": str(ve)},
+                "updated_structured_cv": structured_cv
+            }
+        except (LLMResponseParsingError, AgentExecutionError) as ae:
+            logger.error(f"Agent execution error in quality assurance for item {item_id}: {ae}")
+            return {
+                "quality_check_results": {"agent_error": str(ae)},
+                "updated_structured_cv": structured_cv
+            }
+        except (ConfigurationError, StateManagerError) as se:
+            logger.error(f"System error in quality assurance for item {item_id}: {se}")
+            return {
+                "quality_check_results": {"system_error": str(se)},
+                "updated_structured_cv": structured_cv
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error in quality assurance for item {item_id}: {e}", exc_info=True)
+            return {
+                "quality_check_results": {"unexpected_error": str(e)},
                 "updated_structured_cv": structured_cv
             }

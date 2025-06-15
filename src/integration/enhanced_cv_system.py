@@ -7,8 +7,8 @@ vector database, and workflows.
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Union
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Any, Callable, Union
+from dataclasses import dataclass, asdict
 from enum import Enum
 
 from ..models.data_models import ContentType, ProcessingStatus
@@ -20,9 +20,10 @@ from ..utils.security_utils import redact_sensitive_data
 # Enhanced CV system imports
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
 from ..agents.specialized_agents import (
-    CVAnalysisAgent, ContentOptimizationAgent, QualityAssuranceAgent,
+    CVAnalysisAgent, ContentOptimizationAgent,
     get_agent, list_available_agents
 )
+from ..agents.quality_assurance_agent import QualityAssuranceAgent
 from ..templates.content_templates import (
     get_template_manager, ContentTemplateManager
 )
@@ -115,7 +116,7 @@ class EnhancedCVIntegration:
         """Initialize all enhanced CV system components."""
         try:
             # Redact sensitive data from config before logging
-            redacted_config = redact_sensitive_data(self.config.to_dict())
+            redacted_config = redact_sensitive_data(asdict(self.config))
             self.logger.info("Initializing enhanced CV system components", extra={
                 "mode": self.config.mode.value,
                 "config": redacted_config
@@ -147,7 +148,7 @@ class EnhancedCVIntegration:
         except Exception as e:
             self.logger.error("Failed to initialize enhanced CV system components", extra={
                 "error": str(e),
-                "config": self.config.to_dict()
+                "config": redact_sensitive_data(asdict(self.config))
             })
             if self.config.enable_error_recovery:
                 # Note: handle_error is async, but we're in a sync context
@@ -322,6 +323,8 @@ class EnhancedCVIntegration:
             raise RuntimeError("Orchestration not enabled")
 
         start_time = datetime.now()
+        success = False  # Initialize success variable
+        result_state = None  # Initialize result_state variable
 
         try:
             # Convert string to enum if needed
@@ -337,13 +340,93 @@ class EnhancedCVIntegration:
             # For now, we'll use the enhanced orchestrator's execute_full_workflow method
             # This is a simplified implementation that can be expanded based on workflow_type
             if workflow_type in [WorkflowType.BASIC_CV_GENERATION, WorkflowType.JOB_TAILORED_CV]:
-                # Initialize workflow first
-                self._orchestrator.initialize_workflow()
-                
-                # Execute the full workflow
-                result_state = await self._orchestrator.execute_full_workflow()
-                
-                success = not bool(result_state.error_messages)
+                # First, we need to set up the input data in the state manager
+                # The orchestrator expects job description data to be available in state manager
+                if "job_description" in input_data:
+                    # Parse the job description using the parser agent
+                    parser_agent = self.get_agent("parser")
+                    if parser_agent:
+                        # Parse job description to create JobDescriptionData
+                        job_desc_data = input_data["job_description"]
+                        if isinstance(job_desc_data, dict):
+                            job_desc_text = job_desc_data.get("description", job_desc_data.get("raw_text", ""))
+                            if not job_desc_text:
+                                # If no description field, try to extract from other fields
+                                job_desc_text = f"Title: {job_desc_data.get('title', '')}\n"
+                                job_desc_text += f"Company: {job_desc_data.get('company', '')}\n"
+                                job_desc_text += f"Requirements: {job_desc_data.get('requirements', '')}\n"
+                                job_desc_text += f"Responsibilities: {job_desc_data.get('responsibilities', '')}"
+                        else:
+                            # Handle string job description (from Streamlit text area)
+                            job_desc_text = str(job_desc_data).strip()
+                            if not job_desc_text:
+                                self.logger.error("Empty job description provided")
+                                raise ValueError("Job description cannot be empty")
+                        
+                        # Create a basic CV structure from personal info and experience if available
+                        cv_text = ""
+                        if "personal_info" in input_data and "experience" in input_data:
+                            personal_info = input_data["personal_info"]
+                            experience = input_data["experience"]
+                            
+                            # Build a simple CV text from the provided data
+                            cv_text = f"Name: {personal_info.get('name', '')}\n"
+                            cv_text += f"Email: {personal_info.get('email', '')}\n"
+                            cv_text += f"Phone: {personal_info.get('phone', '')}\n\n"
+                            cv_text += "Experience:\n"
+                            for exp in experience:
+                                cv_text += f"- {exp.get('title', '')} at {exp.get('company', '')}\n"
+                                cv_text += f"  {exp.get('description', '')}\n"
+                        
+                        # Use parser agent to process both job description and CV data
+                        parser_input = {
+                            "job_description": job_desc_text
+                        }
+                        
+                        if cv_text:
+                            parser_input["cv_text"] = cv_text
+                        else:
+                            # Create empty CV structure if no CV data provided
+                            parser_input["start_from_scratch"] = True
+                        
+                        parser_result = await parser_agent.run(parser_input)
+                        
+                        # Log the parser result for debugging
+                        self.logger.info(f"Parser result keys: {list(parser_result.keys()) if isinstance(parser_result, dict) else 'Not a dict'}")
+                        self.logger.info(f"Parser result type: {type(parser_result)}")
+                        if isinstance(parser_result, dict):
+                            self.logger.info(f"Parser result content: {parser_result}")
+                        
+                        # Set the parsed data in the state manager
+                        if "job_description_data" in parser_result:
+                            # Convert dict to JobDescriptionData object if needed
+                            job_desc_data = parser_result["job_description_data"]
+                            if isinstance(job_desc_data, dict):
+                                from src.models.data_models import JobDescriptionData
+                                job_desc_obj = JobDescriptionData(**job_desc_data)
+                                self._orchestrator.state_manager.set_job_description_data(job_desc_obj)
+                            else:
+                                self._orchestrator.state_manager.set_job_description_data(job_desc_data)
+                            self.logger.info("Job description data set in state manager")
+                        
+                        if "structured_cv" in parser_result:
+                            self._orchestrator.state_manager.set_structured_cv(parser_result["structured_cv"])
+                            self.logger.info("Structured CV data set in state manager")
+                        
+                        self.logger.info("Job description and CV data processed and set in state manager")
+                        
+                        # Initialize workflow after setting up the data
+                        self._orchestrator.initialize_workflow()
+                        
+                        # Execute the full workflow
+                        result_state = await self._orchestrator.execute_full_workflow()
+                        
+                        # Debug logging for error_messages
+                        self.logger.info(f"Workflow result_state.error_messages: {result_state.error_messages}")
+                        self.logger.info(f"Error messages count: {len(result_state.error_messages) if result_state.error_messages else 0}")
+                        
+                        success = not bool(result_state.error_messages)
+                        self.logger.info(f"Success determined as: {success} (based on error_messages: {bool(result_state.error_messages)})")
                 
             else:
                 # For other workflow types, return a placeholder response
@@ -363,12 +446,16 @@ class EnhancedCVIntegration:
                 "success": success
             })
 
+            # Debug logging for final return structure
+            final_errors = result_state.error_messages if result_state else []
+            self.logger.info(f"Final return structure - success: {success}, errors: {final_errors}")
+            
             return {
                 "success": success,
                 "results": result_state.model_dump() if result_state else {},
                 "metadata": {"workflow_type": workflow_type.value, "session_id": session_id},
                 "processing_time": processing_time,
-                "errors": result_state.error_messages if result_state else []
+                "errors": final_errors
             }
 
         except Exception as e:
@@ -434,17 +521,27 @@ class EnhancedCVIntegration:
         self,
         personal_info: Dict[str, Any],
         experience: List[Dict[str, Any]],
-        job_description: Dict[str, Any],
+        job_description: Union[str, Dict[str, Any]],
         session_id: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """Generate a job-tailored CV."""
+        # Handle both string and dict job descriptions
+        if isinstance(job_description, str):
+            # Convert string to dict format expected by the workflow
+            job_desc_dict = {
+                "description": job_description.strip(),
+                "raw_text": job_description.strip()
+            }
+        else:
+            job_desc_dict = job_description
+            
         return await self.execute_workflow(
             WorkflowType.JOB_TAILORED_CV,
             {
                 "personal_info": personal_info,
                 "experience": experience,
-                "job_description": job_description,
+                "job_description": job_desc_dict,
                 **kwargs
             },
             session_id

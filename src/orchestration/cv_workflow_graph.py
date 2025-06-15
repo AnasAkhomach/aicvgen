@@ -36,17 +36,22 @@ formatter_agent = FormatterAgent(name="FormatterAgent", description="Generates P
 async def parser_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Parse job description and CV. Queue setup is now handled by generate_skills_node."""
     logger.info("Executing parser_node")
+    logger.info(f"Parser input state keys: {list(state.keys())}")
+    
     agent_state = AgentState.model_validate(state)
+    logger.info(f"AgentState validation successful. Has structured_cv: {agent_state.structured_cv is not None}")
+    logger.info(f"AgentState validation successful. Has job_description_data: {agent_state.job_description_data is not None}")
     
     # Parse inputs using the parser agent
     result = await parser_agent.run_as_node(agent_state)
+    logger.info(f"Parser result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
     
     return result
 
 async def content_writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Generate content for the current item specified in state.current_item_id."""
-    logger.info(f"Executing content_writer_node for item: {state.get('current_item_id')}")
     agent_state = AgentState.model_validate(state)
+    logger.info(f"Executing content_writer_node for item: {agent_state.current_item_id}")
     
     if not agent_state.current_item_id:
         logger.error("ContentWriter called without current_item_id")
@@ -57,8 +62,8 @@ async def content_writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 async def qa_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Perform quality assurance on the generated content."""
-    logger.info(f"Executing qa_node for item: {state.get('current_item_id')}")
     agent_state = AgentState.model_validate(state)
+    logger.info(f"Executing qa_node for item: {agent_state.current_item_id}")
     result = await qa_agent.run_as_node(agent_state)
     return result
 
@@ -132,11 +137,8 @@ async def formatter_node(state: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("Executing formatter_node")
     agent_state = AgentState.model_validate(state)
     
-    # Use FormatterAgent to generate PDF (formatter agent is synchronous)
-    # Run in executor to avoid blocking the async event loop
-    import asyncio
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, formatter_agent.run_as_node, agent_state)
+    # Use FormatterAgent to generate PDF (now async)
+    result = await formatter_agent.run_as_node(agent_state)
     
     # Update state with the result
     updated_state = agent_state.model_copy()
@@ -154,12 +156,8 @@ async def generate_skills_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     my_talents = ""  # Placeholder for now, could be extracted from original CV
     
-    # Run the synchronous method in executor to avoid blocking
-    import asyncio
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
-        content_writer_agent.generate_big_10_skills,
+    # Call the async method directly
+    result = await content_writer_agent.generate_big_10_skills(
         agent_state.job_description_data.raw_text,
         my_talents
     )

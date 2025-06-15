@@ -1,0 +1,19 @@
+************************************* Invoked: Sat Jun 14 19:56:48 2025
+[0] Arguments: C:\Users\Nitro\AppData\Local\Temp\WinGet\MSYS2.MSYS2.20250221\msys2-x86_64-20250221.exe, install, --confirm-command, --root, C:\msys64
+[5] Operations sanity check succeeded.
+[29] Using metadata cache from "C:/Users/Nitro/AppData/Local/cache\\qt-installer-framework\\d75f1c19-3379-3717-ae8d-1404b51494a9"
+[29] Found 0 cached items.
+[33] Loaded control script ":/metadata/installer-config/control_js.js"
+[39] TargetDirectoryInUse : Error : The directory you selected already exists and contains an installation. Choose a different target for installation.
+************************************* Invoked: Sat Jun 14 19:58:03 2025
+[0] Arguments: C:\Users\Nitro\Desktop\aicvgen\msys2-installer.exe
+[4] Operations sanity check succeeded.
+[4] Warning: Cannot create lock file "C:\Users\Nitro\AppData\Local\Temp\msys2-installer1234865.lock": The process cannot access the file because it is being used by another process.
+ (0x00000020)
+[13] UnableToStart : Unable to start installer : Another msys2-installer instance is already running. Wait until it finishes, close it, or restart your system.
+************************************* Invoked: Sat Jun 14 20:00:27 2025
+[0] Arguments: C:\Users\Nitro\Desktop\aicvgen\msys2-installer.exe
+[5] Operations sanity check succeeded.
+[5] Warning: Cannot create lock file "C:\Users\Nitro\AppData\Local\Temp\msys2-installer1234865.lock": The process cannot access the file because it is being used by another process.
+ (0x00000020)
+[14] UnableToStart : Unable to start installer : Another msys2-installer instance is already running. Wait until it finishes, close it, or restart your system.

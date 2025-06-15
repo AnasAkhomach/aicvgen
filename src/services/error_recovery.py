@@ -18,6 +18,24 @@ from ..models.data_models import (
     CVGenerationState, ProcessingStatus, ContentType, Item,
     ProcessingMetadata
 )
+from ..utils.exceptions import (
+    AicvgenError, WorkflowPreconditionError, LLMResponseParsingError, 
+    AgentExecutionError, ConfigurationError, StateManagerError, 
+    ValidationError
+)
+
+# Additional exception types for comprehensive error handling
+class RateLimitError(AicvgenError):
+    """Raised when rate limits are exceeded."""
+    pass
+
+class NetworkError(AicvgenError):
+    """Raised when network-related errors occur."""
+    pass
+
+class TimeoutError(AicvgenError):
+    """Raised when operations timeout."""
+    pass
 
 
 class ErrorType(Enum):
@@ -172,7 +190,30 @@ class ErrorRecoveryService:
         }
     
     def classify_error(self, exception: Exception, context: Dict[str, Any] = None) -> ErrorType:
-        """Classify an exception into an error type."""
+        """Classify an exception into an error type.
+        
+        Uses type-based classification first (most robust), then falls back to
+        string-based classification for generic errors.
+        """
+        # --- Type-based classification (most robust) ---
+        if isinstance(exception, (WorkflowPreconditionError, ValidationError)):
+            return ErrorType.VALIDATION_ERROR
+        if isinstance(exception, LLMResponseParsingError):
+            return ErrorType.PARSING_ERROR
+        if isinstance(exception, AgentExecutionError):
+            return ErrorType.SYSTEM_ERROR
+        if isinstance(exception, ConfigurationError):
+            return ErrorType.SYSTEM_ERROR
+        if isinstance(exception, StateManagerError):
+            return ErrorType.SYSTEM_ERROR
+        if isinstance(exception, RateLimitError):
+            return ErrorType.RATE_LIMIT
+        if isinstance(exception, NetworkError):
+            return ErrorType.NETWORK_ERROR
+        if isinstance(exception, TimeoutError):
+            return ErrorType.TIMEOUT_ERROR
+        
+        # --- String-based classification (fallback for generic errors) ---
         error_message = str(exception).lower()
         
         # Rate limiting errors

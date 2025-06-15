@@ -1,5 +1,5 @@
 from src.agents.agent_base import AgentBase
-from src.core.state_manager import AgentIO, CVData
+from src.models.data_models import AgentIO, CVData
 from src.models.data_models import JobDescriptionData
 from typing import Dict, Any, List
 from src.services.llm import LLM  # Import LLM

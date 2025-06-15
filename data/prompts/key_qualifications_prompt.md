@@ -17,10 +17,10 @@ You are an expert CV and LinkedIn profile skill generator. Your goal is to analy
     * Directly aligned with employer requirements.
 
 [Job Description]
-{{main_job_description_raw}}
+{main_job_description_raw}
 
 [Additional Context & Talents to Consider]
-{{my_talents}}
+{my_talents}
 
 [Output Example]
 Data Analysis & Insights

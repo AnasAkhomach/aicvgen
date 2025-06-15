@@ -138,31 +138,7 @@ class CVAnalysisAgent(EnhancedAgentBase):
                 confidence_score=0.0
             )
     
-    def run(self, input_data: Any) -> Any:
-        """Legacy synchronous run method for backward compatibility."""
-        import asyncio
-        from .agent_base import AgentExecutionContext
-        
-        # Create a basic execution context
-        context = AgentExecutionContext(
-            session_id="sync_execution",
-            user_id="system",
-            request_id="sync_request"
-        )
-        
-        # Run the async method synchronously
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        result = loop.run_until_complete(self.run_async(input_data, context))
-        
-        if result.success:
-            return result.output_data
-        else:
-            raise Exception(result.error_message or "CV analysis failed")
+
     
     async def _analyze_cv_job_match(
         self, 
@@ -216,14 +192,25 @@ class CVAnalysisAgent(EnhancedAgentBase):
             item_id=context.item_id
         )
         
-        if response.success:
-            try:
-                # Try to parse JSON response
-                analysis = json.loads(response.content)
-                return analysis
-            except json.JSONDecodeError:
-                # Fallback to structured text parsing
-                return self._parse_analysis_text(response.content)
+        # Check if LLM response was successful
+        if not response.success:
+            logger.error(f"CV analysis LLM request failed: {response.error_message}")
+            return {
+                "skill_gaps": [],
+                "strengths": [],
+                "experience_relevance": 0.3,
+                "keyword_match": 0.3,
+                "overall_assessment": "Analysis failed due to LLM error",
+                "error": response.error_message
+            }
+        
+        try:
+            # Try to parse JSON response
+            analysis = json.loads(response.content)
+            return analysis
+        except json.JSONDecodeError:
+            # Fallback to structured text parsing
+            return self._parse_analysis_text(response.content)
         
         return {
             "skill_gaps": [],
@@ -483,187 +470,56 @@ class ContentOptimizationAgent(EnhancedAgentBase):
             return ContentType.QUALIFICATION
 
 
-class QualityAssuranceAgent(EnhancedAgentBase):
-    """Agent specialized in quality assurance for generated content."""
+# QualityAssuranceAgent removed - using the one from quality_assurance_agent.py instead
+
+
+# Helper function for quality checks (used by other agents)
+def _check_item_quality_basic(item: Dict[str, Any], quality_criteria: Dict[str, Any]) -> Dict[str, Any]:
+    """Basic quality check for content items."""
+    issues = []
+    warnings = []
+    score = 1.0
     
-    def __init__(self):
-        super().__init__(
-            name="QualityAssuranceAgent",
-            description="Performs quality assurance checks on generated CV content",
-            input_schema={
-                "content_items": List[Dict[str, Any]],
-                "quality_criteria": Dict[str, Any]
-            },
-            output_schema={
-                "quality_report": Dict[str, Any],
-                "flagged_items": List[Dict[str, Any]],
-                "overall_score": float
-            }
-        )
+    content = item.get("content", "")
     
-    def run(self, input_data: Any) -> Any:
-        """Synchronous wrapper for run_async method."""
-        import asyncio
-        
-        # Create a basic context if not provided
-        context = AgentExecutionContext(
-            session_id="sync_session",
-            item_id="sync_item",
-            content_type=None
-        )
-        
-        # Run the async method
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(self.run_async(input_data, context))
+    # Length checks
+    min_length = quality_criteria.get("min_length", 20)
+    max_length = quality_criteria.get("max_length", 1000)
     
-    async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
-        """Perform quality assurance on content items."""
-        from src.models.validation_schemas import validate_agent_input, ValidationError
-        
-        try:
-            # Validate input data using Pydantic schemas
-            try:
-                # Use quality_assurance_agent schema for validation
-                validated_input = validate_agent_input('quality_assurance_agent', input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-                logger.info("Input validation passed for QualityAssuranceAgent")
-            except ValidationError as ve:
-                logger.error(f"Input validation failed for QualityAssuranceAgent: {ve.message}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation failed: {ve.message}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={"qa_type": "specialized", "validation_error": True}
-                )
-            except Exception as e:
-                logger.error(f"Input validation error for QualityAssuranceAgent: {str(e)}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation error: {str(e)}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
-                    metadata={"qa_type": "specialized", "validation_error": True}
-                )
-            
-            content_items = input_data.get("content_items", [])
-            quality_criteria = input_data.get("quality_criteria", {})
-            
-            quality_report = {
-                "total_items": len(content_items),
-                "passed_items": 0,
-                "failed_items": 0,
-                "warnings": 0,
-                "checks_performed": []
-            }
-            
-            flagged_items = []
-            item_scores = []
-            
-            for item in content_items:
-                item_qa_result = await self._check_item_quality(
-                    item, quality_criteria, context
-                )
-                
-                if item_qa_result["passed"]:
-                    quality_report["passed_items"] += 1
-                else:
-                    quality_report["failed_items"] += 1
-                    flagged_items.append({
-                        "item": item,
-                        "issues": item_qa_result["issues"]
-                    })
-                
-                quality_report["warnings"] += len(item_qa_result.get("warnings", []))
-                item_scores.append(item_qa_result["score"])
-            
-            # Calculate overall score
-            overall_score = sum(item_scores) / len(item_scores) if item_scores else 0.0
-            
-            result_data = {
-                "quality_report": quality_report,
-                "flagged_items": flagged_items,
-                "overall_score": overall_score
-            }
-            
-            return AgentResult(
-                success=True,
-                output_data=result_data,
-                confidence_score=0.9,
-                metadata={"qa_timestamp": datetime.now().isoformat()}
-            )
-            
-        except Exception as e:
-            logger.error(
-                "Quality assurance failed",
-                session_id=context.session_id,
-                error=str(e)
-            )
-            return AgentResult(
-                success=False,
-                output_data={},
-                error_message=str(e),
-                confidence_score=0.0
-            )
+    if len(content) < min_length:
+        issues.append(f"Content too short (minimum {min_length} characters)")
+        score -= 0.3
+    elif len(content) > max_length:
+        warnings.append(f"Content might be too long (maximum {max_length} characters recommended)")
+        score -= 0.1
     
-    async def _check_item_quality(
-        self,
-        item: Dict[str, Any],
-        quality_criteria: Dict[str, Any],
-        context: AgentExecutionContext
-    ) -> Dict[str, Any]:
-        """Check quality of a single content item."""
-        
-        issues = []
-        warnings = []
-        score = 1.0
-        
-        content = item.get("content", "")
-        
-        # Length checks
-        min_length = quality_criteria.get("min_length", 20)
-        max_length = quality_criteria.get("max_length", 1000)
-        
-        if len(content) < min_length:
-            issues.append(f"Content too short (minimum {min_length} characters)")
-            score -= 0.3
-        elif len(content) > max_length:
-            warnings.append(f"Content might be too long (maximum {max_length} characters recommended)")
-            score -= 0.1
-        
-        # Grammar and formatting checks
-        if not content.strip():
-            issues.append("Empty content")
-            score = 0.0
-        elif content != content.strip():
-            warnings.append("Content has leading/trailing whitespace")
+    # Grammar and formatting checks
+    if not content.strip():
+        issues.append("Empty content")
+        score = 0.0
+    elif content != content.strip():
+        warnings.append("Content has leading/trailing whitespace")
+        score -= 0.05
+    
+    # Professional language check (basic)
+    unprofessional_words = ['awesome', 'cool', 'stuff', 'things']
+    for word in unprofessional_words:
+        if word.lower() in content.lower():
+            warnings.append(f"Consider replacing informal word: '{word}'")
             score -= 0.05
-        
-        # Professional language check (basic)
-        unprofessional_words = ['awesome', 'cool', 'stuff', 'things']
-        for word in unprofessional_words:
-            if word.lower() in content.lower():
-                warnings.append(f"Consider replacing informal word: '{word}'")
-                score -= 0.05
-        
-        # Confidence score check
-        confidence = item.get("confidence_score", 1.0)
-        if confidence < 0.5:
-            warnings.append("Low confidence score from content generation")
-            score -= 0.1
-        
-        return {
-            "passed": len(issues) == 0,
-            "score": max(score, 0.0),
-            "issues": issues,
-            "warnings": warnings
-        }
+    
+    # Confidence score check
+    confidence = item.get("confidence_score", 1.0)
+    if confidence < 0.5:
+        warnings.append("Low confidence score from content generation")
+        score -= 0.1
+    
+    return {
+        "passed": len(issues) == 0,
+        "score": max(score, 0.0),
+        "issues": issues,
+        "warnings": warnings
+    }
 
 
 # Factory functions for creating specialized agents
@@ -677,9 +533,13 @@ def create_content_optimization_agent() -> ContentOptimizationAgent:
     return ContentOptimizationAgent()
 
 
-def create_quality_assurance_agent() -> QualityAssuranceAgent:
-    """Create a quality assurance agent."""
-    return QualityAssuranceAgent()
+def create_quality_assurance_agent():
+    """Create a quality assurance agent from the dedicated module."""
+    from .quality_assurance_agent import QualityAssuranceAgent
+    return QualityAssuranceAgent(
+        name="QualityAssuranceAgent",
+        description="Agent responsible for quality assurance of generated CV content"
+    )
 
 
 def create_enhanced_parser_agent() -> EnhancedAgentBase:

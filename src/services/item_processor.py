@@ -16,7 +16,8 @@ from ..models.data_models import (
     Item, ProcessingStatus, ContentType, CVGenerationState,
     ExperienceItem, ProjectItem, QualificationItem
 )
-from ..services.rate_limiter import get_rate_limiter, RateLimitExceeded, APIError
+from ..services.rate_limiter import get_rate_limiter
+from ..utils.exceptions import RateLimitError, NetworkError
 
 
 class ItemProcessor:
@@ -93,7 +94,7 @@ class ItemProcessor:
 
             return True
 
-        except RateLimitExceeded as e:
+        except RateLimitError as e:
             item.metadata.update_status(ProcessingStatus.RATE_LIMITED, str(e))
             item.metadata.processing_time_seconds = time.time() - start_time
             self.total_rate_limited += 1
@@ -291,7 +292,7 @@ class ItemProcessor:
                 duration_seconds=duration,
                 success=False,
                 error_message=str(e),
-                rate_limit_hit=isinstance(e, RateLimitExceeded),
+                rate_limit_hit=isinstance(e, RateLimitError),
                 session_id=item_id
             )
 
@@ -301,7 +302,7 @@ class ItemProcessor:
     async def _call_llm_api(self, prompt: str, model_name: str) -> Any:
         """Make the actual LLM API call."""
         if not self.llm_client:
-            raise APIError("No LLM client configured")
+            raise NetworkError("No LLM client configured")
 
         # This would be implemented based on the specific LLM client
         # For now, we'll create a placeholder that works with common interfaces
@@ -339,7 +340,7 @@ class ItemProcessor:
                 return response
 
         except Exception as e:
-            raise APIError(f"LLM API call failed: {str(e)}") from e
+            raise NetworkError(f"LLM API call failed: {str(e)}") from e
 
     def _extract_content_from_response(self, response: Any) -> str:
         """Extract content from LLM response."""

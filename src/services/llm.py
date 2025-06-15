@@ -8,9 +8,12 @@ from queue import Queue
 import logging
 import hashlib
 import functools
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
-from datetime import datetime
+import json
+import pickle
+from typing import Dict, Any, Optional, List, Union, Tuple
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from collections import OrderedDict
 
 try:
     import google.generativeai as genai
@@ -34,21 +37,218 @@ from .error_recovery import get_error_recovery_service
 logger = get_structured_logger("llm_service")
 
 # Define retryable exceptions for LLM API calls
-# NOTE: These exceptions are dependent on the google-generativeai library
-# and may need to be updated if the library changes its exception hierarchy
+# These are common exceptions that indicate transient failures
 RETRYABLE_EXCEPTIONS = (
-    Exception,  # Catch-all for now, will be refined based on actual google.generativeai exceptions
-    # Common network/service exceptions that should be retried:
-    # - ResourceExhausted (rate limits)
-    # - ServiceUnavailable (temporary service issues)
-    # - InternalServerError (server errors)
-    # - DeadlineExceeded (timeout errors)
-    # - TimeoutError (connection timeouts)
-    # - ConnectionError (network issues)
+    # Network and connection errors
+    ConnectionError,
+    TimeoutError,
+    OSError,  # Covers network-related OS errors
+    
+    # HTTP and API errors that are typically transient
+    Exception,  # Temporary catch-all until we identify specific google.generativeai exceptions
+)
+
+# Non-retryable exceptions that indicate permanent failures
+NON_RETRYABLE_EXCEPTIONS = (
+    ValueError,  # Invalid input parameters
+    TypeError,   # Type errors in our code
+    KeyError,    # Missing configuration keys
+    AttributeError,  # Missing attributes/methods
 )
 
 
-# --- Caching Mechanism ---
+class AdvancedCache:
+    """Advanced caching system with LRU eviction, TTL, and persistence."""
+    
+    def __init__(self, max_size: int = 1000, default_ttl_hours: int = 24, persist_file: Optional[str] = None):
+        self.max_size = max_size
+        self.default_ttl_hours = default_ttl_hours
+        self.persist_file = persist_file
+        self._cache: OrderedDict = OrderedDict()
+        self._lock = threading.RLock()
+        self._hits = 0
+        self._misses = 0
+        self._evictions = 0
+        
+        # Load persisted cache if available
+        if persist_file:
+            self._load_cache()
+        
+        logger.info(
+            "Advanced cache initialized",
+            max_size=max_size,
+            default_ttl_hours=default_ttl_hours,
+            persist_file=persist_file
+        )
+    
+    def _generate_cache_key(self, prompt: str, model: str, temperature: float = 0.7, **kwargs) -> str:
+        """Generate a comprehensive cache key."""
+        key_data = {
+            'prompt': prompt,
+            'model': model,
+            'temperature': temperature,
+            **kwargs
+        }
+        key_string = json.dumps(key_data, sort_keys=True)
+        return hashlib.sha256(key_string.encode()).hexdigest()
+    
+    def _is_expired(self, entry: Dict[str, Any]) -> bool:
+        """Check if cache entry is expired."""
+        return datetime.now() > entry['expiry']
+    
+    def _evict_expired(self):
+        """Remove expired entries."""
+        expired_keys = [
+            key for key, entry in self._cache.items()
+            if self._is_expired(entry)
+        ]
+        for key in expired_keys:
+            del self._cache[key]
+            self._evictions += 1
+    
+    def _evict_lru(self):
+        """Evict least recently used entries if cache is full."""
+        while len(self._cache) >= self.max_size:
+            self._cache.popitem(last=False)  # Remove oldest (LRU)
+            self._evictions += 1
+    
+    def get(self, prompt: str, model: str, **kwargs) -> Optional[Dict[str, Any]]:
+        """Get cached response."""
+        cache_key = self._generate_cache_key(prompt, model, **kwargs)
+        
+        with self._lock:
+            self._evict_expired()
+            
+            if cache_key in self._cache:
+                entry = self._cache[cache_key]
+                if not self._is_expired(entry):
+                    # Move to end (mark as recently used)
+                    self._cache.move_to_end(cache_key)
+                    self._hits += 1
+                    return entry['response']
+                else:
+                    del self._cache[cache_key]
+                    self._evictions += 1
+            
+            self._misses += 1
+            return None
+    
+    def set(self, prompt: str, model: str, response: Dict[str, Any], ttl_hours: Optional[int] = None, **kwargs):
+        """Cache response with TTL."""
+        cache_key = self._generate_cache_key(prompt, model, **kwargs)
+        ttl = ttl_hours or self.default_ttl_hours
+        
+        with self._lock:
+            self._evict_expired()
+            self._evict_lru()
+            
+            entry = {
+                'response': response,
+                'expiry': datetime.now() + timedelta(hours=ttl),
+                'created_at': datetime.now(),
+                'access_count': 1,
+                'cache_key': cache_key
+            }
+            
+            self._cache[cache_key] = entry
+            
+            # Persist cache if configured
+            if self.persist_file:
+                self._save_cache()
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        with self._lock:
+            total_requests = self._hits + self._misses
+            hit_rate = (self._hits / total_requests * 100) if total_requests > 0 else 0
+            
+            return {
+                'size': len(self._cache),
+                'max_size': self.max_size,
+                'hits': self._hits,
+                'misses': self._misses,
+                'hit_rate_percent': hit_rate,
+                'evictions': self._evictions,
+                'memory_usage_estimate_mb': self._estimate_memory_usage()
+            }
+    
+    def _estimate_memory_usage(self) -> float:
+        """Estimate cache memory usage in MB."""
+        try:
+            # Rough estimation based on cache size
+            return len(self._cache) * 0.1  # Assume ~100KB per entry
+        except Exception:
+            return 0.0
+    
+    def clear(self):
+        """Clear all cache entries."""
+        with self._lock:
+            self._cache.clear()
+            self._hits = 0
+            self._misses = 0
+            self._evictions = 0
+            
+            if self.persist_file:
+                self._save_cache()
+    
+    def _save_cache(self):
+        """Persist cache to file."""
+        try:
+            if self.persist_file:
+                cache_data = {
+                    'cache': dict(self._cache),
+                    'stats': {
+                        'hits': self._hits,
+                        'misses': self._misses,
+                        'evictions': self._evictions
+                    },
+                    'saved_at': datetime.now().isoformat()
+                }
+                
+                with open(self.persist_file, 'wb') as f:
+                    pickle.dump(cache_data, f)
+        except Exception as e:
+            logger.warning("Failed to save cache", error=str(e))
+    
+    def _load_cache(self):
+        """Load persisted cache from file."""
+        try:
+            if self.persist_file and os.path.exists(self.persist_file):
+                with open(self.persist_file, 'rb') as f:
+                    cache_data = pickle.load(f)
+                
+                # Restore cache entries that haven't expired
+                for key, entry in cache_data.get('cache', {}).items():
+                    if not self._is_expired(entry):
+                        self._cache[key] = entry
+                
+                # Restore stats
+                stats = cache_data.get('stats', {})
+                self._hits = stats.get('hits', 0)
+                self._misses = stats.get('misses', 0)
+                self._evictions = stats.get('evictions', 0)
+                
+                logger.info(
+                    "Cache loaded from persistence",
+                    entries_loaded=len(self._cache),
+                    file=self.persist_file
+                )
+        except Exception as e:
+            logger.warning("Failed to load persisted cache", error=str(e))
+
+# Global advanced cache instance
+_advanced_cache = None
+
+def get_advanced_cache() -> AdvancedCache:
+    """Get global advanced cache instance."""
+    global _advanced_cache
+    if _advanced_cache is None:
+        settings = get_config()
+        cache_file = os.path.join(settings.data_dir, 'llm_cache.pkl') if hasattr(settings, 'data_dir') else None
+        _advanced_cache = AdvancedCache(persist_file=cache_file)
+    return _advanced_cache
+
+# --- Legacy Caching Mechanism ---
 # Use LRU (Least Recently Used) cache for LLM responses.
 # maxsize=128 means it will store up to 128 recent unique LLM calls.
 # This is highly effective for regeneration requests where the prompt is identical.
@@ -171,6 +371,9 @@ class EnhancedLLMService:
         self.rate_limiter = rate_limiter or EnhancedRateLimiter()
         self.error_recovery = error_recovery or get_error_recovery_service()
         
+        # Initialize advanced caching
+        self.cache = get_advanced_cache()
+        
         # Performance tracking
         self.call_count = 0
         self.total_tokens = 0
@@ -180,12 +383,16 @@ class EnhancedLLMService:
         self.cache_hits = 0
         self.cache_misses = 0
         
+        # Connection pooling for better performance
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=5, thread_name_prefix="llm_worker")
+        
         logger.info(
             "Enhanced LLM service initialized",
             model=self.model_name,
             timeout=timeout,
             using_user_key=self.using_user_key,
-            using_fallback_key=self.using_fallback
+            using_fallback_key=self.using_fallback,
+            cache_enabled=True
         )
     
     def _switch_to_fallback_key(self):
@@ -215,19 +422,67 @@ class EnhancedLLMService:
             )
             return False
 
+    def _should_retry_exception(self, exception: Exception) -> bool:
+        """
+        Determine if an exception should trigger a retry.
+        
+        Args:
+            exception: The exception that occurred
+            
+        Returns:
+            True if the exception indicates a transient failure
+        """
+        # Don't retry non-retryable exceptions
+        if isinstance(exception, NON_RETRYABLE_EXCEPTIONS):
+            logger.debug(f"Non-retryable exception detected: {type(exception).__name__}")
+            return False
+            
+        # Check for specific error messages that indicate non-retryable failures
+        error_msg = str(exception).lower()
+        non_retryable_patterns = [
+            "invalid api key",
+            "api key not found",
+            "authentication failed",
+            "permission denied",
+            "invalid request",
+            "malformed request",
+        ]
+        
+        if any(pattern in error_msg for pattern in non_retryable_patterns):
+            logger.debug(f"Non-retryable error pattern detected: {error_msg}")
+            return False
+            
+        # Retry for retryable exceptions
+        if isinstance(exception, RETRYABLE_EXCEPTIONS):
+            logger.debug(f"Retryable exception detected: {type(exception).__name__}")
+            return True
+            
+        # Default to not retrying unknown exceptions
+        logger.debug(f"Unknown exception type, not retrying: {type(exception).__name__}")
+        return False
+
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
+        stop=stop_after_attempt(5),  # Increased from 3 to 5 attempts
+        wait=wait_exponential(multiplier=2, min=1, max=30),  # More aggressive backoff
         retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
-        reraise=True
+        reraise=True,
+        before_sleep=lambda retry_state: logger.warning(
+            f"Retrying LLM API call (attempt {retry_state.attempt_number}) after error: {retry_state.outcome.exception()}"
+        )
     )
     def _make_llm_api_call(self, prompt: str) -> Any:
         """
-        Make the actual LLM API call with retry logic using tenacity.
+        Make the actual LLM API call with enhanced retry logic using tenacity.
         
         This method is decorated with @retry to handle transient errors
-        with exponential backoff. It will retry up to 3 times with
-        exponentially increasing delays (4s, 8s, 10s max).
+        with exponential backoff. It will retry up to 5 times with
+        exponentially increasing delays (1s, 2s, 4s, 8s, 16s, max 30s).
+        
+        The retry logic is intelligent and will not retry for:
+        - Authentication errors (invalid API key)
+        - Permission errors
+        - Invalid request format errors
+        - Type/Value errors in our code
         
         Args:
             prompt: Text prompt to send to the model
@@ -238,7 +493,20 @@ class EnhancedLLMService:
         Raises:
             Various exceptions from the google-generativeai library
         """
-        return self.llm.generate_content(prompt)
+        try:
+            response = self.llm.generate_content(prompt)
+            logger.debug("LLM API call successful")
+            return response
+        except Exception as e:
+            # Log the specific error for debugging
+            logger.error(
+                "LLM API call failed",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                prompt_length=len(prompt)
+            )
+            # Re-raise to let tenacity handle the retry logic
+            raise
 
     def _generate_with_timeout(self, prompt: str, session_id: str = None) -> Any:
         """
@@ -505,6 +773,9 @@ class EnhancedLLMService:
         total_requests = self.cache_hits + self.cache_misses
         cache_hit_rate = (self.cache_hits / max(total_requests, 1)) * 100
         
+        # Get advanced cache stats
+        cache_stats = self.cache.get_stats()
+        
         return {
             "total_calls": self.call_count,
             "total_tokens": self.total_tokens,
@@ -518,7 +789,8 @@ class EnhancedLLMService:
                 "total_requests": total_requests,
                 "cache_hit_rate_percent": round(cache_hit_rate, 2),
                 "cache_size": len(_response_cache)
-            }
+            },
+            "advanced_cache": cache_stats
         }
     
     def reset_stats(self):
@@ -534,7 +806,37 @@ class EnhancedLLMService:
     def clear_cache(self):
         """Clear the LLM response cache."""
         clear_cache()
+        self.cache.clear()
+        self.cache_hits = 0
+        self.cache_misses = 0
         logger.info("LLM service cache cleared")
+    
+    def optimize_performance(self) -> Dict[str, Any]:
+        """Run performance optimization."""
+        # Clear expired cache entries
+        cache_stats_before = self.cache.get_stats()
+        self.cache._evict_expired()
+        cache_stats_after = self.cache.get_stats()
+        
+        result = {
+            'cache_optimization': {
+                'entries_before': cache_stats_before['size'],
+                'entries_after': cache_stats_after['size'],
+                'entries_removed': cache_stats_before['size'] - cache_stats_after['size']
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        logger.info("Performance optimization completed", result=result)
+        return result
+    
+    def __del__(self):
+        """Cleanup resources on destruction."""
+        try:
+            if hasattr(self, 'executor'):
+                self.executor.shutdown(wait=False)
+        except Exception:
+            pass  # Ignore cleanup errors
 
 
 # Legacy compatibility

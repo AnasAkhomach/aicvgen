@@ -1314,7 +1314,24 @@ def main():
                                             st.session_state.processing = False
                                             return
                                     else:
-                                        logger.error(f"Result structure invalid: success={cleaned_result.get('success') if isinstance(cleaned_result, dict) else 'N/A'}")
+                                        # Enhanced debugging for success=False case
+                                        success_value = cleaned_result.get('success') if isinstance(cleaned_result, dict) else 'N/A'
+                                        errors_value = cleaned_result.get('errors', []) if isinstance(cleaned_result, dict) else []
+                                        results_value = cleaned_result.get('results') if isinstance(cleaned_result, dict) else None
+                                        
+                                        logger.error(f"Result structure invalid: success={success_value}")
+                                        logger.error(f"Errors in result: {errors_value}")
+                                        logger.error(f"Results present: {bool(results_value)}")
+                                        logger.error(f"Results type: {type(results_value)}")
+                                        if results_value:
+                                            logger.error(f"Results length: {len(results_value) if hasattr(results_value, '__len__') else 'N/A'}")
+                                        
+                                        # Log the full result structure for debugging
+                                        try:
+                                            logger.error(f"Full result structure: {json.dumps(cleaned_result, indent=2, default=str)}")
+                                        except Exception as log_error:
+                                            logger.error(f"Could not serialize result for logging: {log_error}")
+                                        
                                         st.error("Invalid result structure from CV generation")
                                         st.session_state.processing = False
                                         return

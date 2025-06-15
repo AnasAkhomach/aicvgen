@@ -463,14 +463,27 @@ class ResearchAgent(AgentBase):
             )
 
             response = self.llm.generate_content(prompt)
+            
+            # Check if LLM response was successful
+            if hasattr(response, 'success') and not response.success:
+                logger.error(f"LLM request failed: {getattr(response, 'error_message', 'Unknown error')}")
+                return {
+                    "core_technical_skills": skills,
+                    "soft_skills": [],
+                    "error": "LLM analysis failed",
+                    "raw_analysis": getattr(response, 'content', ''),
+                }
+            
+            # Extract content from LLMResponse or use response directly for backward compatibility
+            response_content = getattr(response, 'content', response) if hasattr(response, 'content') else response
 
             # Extract JSON from response
             try:
                 # Find the first JSON-like structure in the response
-                json_start = response.find("{")
-                json_end = response.rfind("}") + 1
+                json_start = response_content.find("{")
+                json_end = response_content.rfind("}") + 1
                 if json_start >= 0 and json_end > json_start:
-                    json_str = response[json_start:json_end]
+                    json_str = response_content[json_start:json_end]
                     analysis = json.loads(json_str)
                     return analysis
 
@@ -491,7 +504,7 @@ class ResearchAgent(AgentBase):
                 return {
                     "core_technical_skills": skills,
                     "soft_skills": [],
-                    "raw_analysis": response,
+                    "raw_analysis": response_content,
                 }
         except Exception as e:
             logger.error(f"Error analyzing job requirements: {str(e)}")
@@ -524,13 +537,27 @@ class ResearchAgent(AgentBase):
             """
 
             response = self.llm.generate_content(company_prompt)
+            
+            # Check if LLM response was successful
+            if hasattr(response, 'success') and not response.success:
+                logger.error(f"Company research LLM request failed: {getattr(response, 'error_message', 'Unknown error')}")
+                # Return fallback company info
+                return {
+                    "company_name": "Unknown Company",
+                    "industry": "Technology",
+                    "values": ["Innovation", "Teamwork"],
+                    "error": "LLM company research failed"
+                }
+            
+            # Extract content from LLMResponse or use response directly for backward compatibility
+            response_content = getattr(response, 'content', response) if hasattr(response, 'content') else response
 
             # Extract JSON from response
             try:
-                json_start = response.find("{")
-                json_end = response.rfind("}") + 1
+                json_start = response_content.find("{")
+                json_end = response_content.rfind("}") + 1
                 if json_start >= 0 and json_end > json_start:
-                    json_str = response[json_start:json_end]
+                    json_str = response_content[json_start:json_end]
                     company_info = json.loads(json_str)
 
                     # For MVP, simulate the rest of the company research

@@ -26,6 +26,14 @@ from src.models.data_models import (
     ItemType,
 )
 from src.orchestration.state import AgentState
+from src.utils.exceptions import (
+    ValidationError,
+    LLMResponseParsingError,
+    WorkflowPreconditionError,
+    AgentExecutionError,
+    ConfigurationError,
+    StateManagerError
+)
 
 logger = get_structured_logger("enhanced_content_writer")
 
@@ -295,39 +303,46 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
                 metadata=result_data["metadata"]
             )
             
+        except (ValidationError, LLMResponseParsingError) as parse_error:
+            logger.error(
+                "Content parsing/validation failed",
+                session_id=getattr(context, 'session_id', None),
+                item_id=getattr(context, 'item_id', None),
+                error=str(parse_error),
+                agent_name=self.name,
+                error_type="parsing_validation"
+            )
+            return self._create_error_result(input_data, context, parse_error, "parsing_validation")
+        except (ConfigurationError, StateManagerError) as system_error:
+            logger.error(
+                "System configuration error during content generation",
+                session_id=getattr(context, 'session_id', None),
+                item_id=getattr(context, 'item_id', None),
+                error=str(system_error),
+                agent_name=self.name,
+                error_type="system"
+            )
+            return self._create_error_result(input_data, context, system_error, "system")
+        except AgentExecutionError as agent_error:
+            logger.error(
+                "Agent execution error during content generation",
+                session_id=getattr(context, 'session_id', None),
+                item_id=getattr(context, 'item_id', None),
+                error=str(agent_error),
+                agent_name=self.name,
+                error_type="agent_execution"
+            )
+            return self._create_error_result(input_data, context, agent_error, "agent_execution")
         except Exception as e:
             logger.error(
-                "Content generation failed",
+                "Unexpected error during content generation",
                 session_id=getattr(context, 'session_id', None),
                 item_id=getattr(context, 'item_id', None),
                 error=str(e),
-                agent_name=self.name
+                agent_name=self.name,
+                error_type="unexpected"
             )
-            
-            # Return error result with fallback content
-            content_item = input_data.get("content_item", {})
-            # Ensure content_item is a dictionary for fallback generation
-            if not isinstance(content_item, dict):
-                content_item = {}
-            content_type_fallback = getattr(context, 'content_type', None) or ContentType.QUALIFICATION
-            fallback_content = self._generate_fallback_content(
-                content_item,
-                content_type_fallback
-            )
-            
-            return AgentResult(
-                success=False,
-                output_data={
-                    "content": fallback_content,
-                    "content_type": content_type_fallback.value,
-                    "confidence_score": 0.1,
-                    "error": str(e),
-                    "fallback_used": True
-                },
-                confidence_score=0.1,
-                error_message=str(e),
-                metadata={"fallback_used": True, "error_type": type(e).__name__}
-            )
+            return self._create_error_result(input_data, context, e, "unexpected")
     
     def run(self, input_data: Any) -> Any:
         """Legacy synchronous interface for backward compatibility."""
@@ -1012,7 +1027,7 @@ Description: {description[:200] if description else f'{role_title} position with
 
 
     
-    def _build_single_item_prompt(self, subsection: Subsection, section: Section, job_description: Optional[JobDescriptionData]) -> str:
+    def _build_single_item_prompt(self, subsection: Subsection, section: Section, job_description: Optional[JobDescriptionData], research_findings: Optional[Dict[str, Any]] = None) -> str:
         """Build a focused prompt for a single subsection/item."""
         try:
             # Get the appropriate template for the content type
@@ -1028,10 +1043,20 @@ Description: {description[:200] if description else f'{role_title} position with
                 "additional_context": f"This is for the {section.title} section of a CV"
             }
             
+            # Add research findings to context if available
+            if research_findings:
+                research_context = self._format_research_findings(research_findings)
+                context_vars["research_insights"] = research_context
+                # Update template to include research insights
+                template = template.replace(
+                    "{additional_context}",
+                    "{additional_context}\n\nResearch Insights:\n{research_insights}"
+                )
+            
             # Format the template with context variables
             formatted_prompt = template.format(**context_vars)
             
-            logger.info(f"Built single item prompt for {subsection.title}")
+            logger.info(f"Built single item prompt for {subsection.title} with research insights: {bool(research_findings)}")
             return formatted_prompt
             
         except Exception as e:
@@ -1049,6 +1074,47 @@ Description: {description[:200] if description else f'{role_title} position with
         """Format project content."""
         # Ensure clear project description
         return content
+    
+    def _format_research_findings(self, research_findings: Dict[str, Any]) -> str:
+        """Format research findings for inclusion in prompts."""
+        if not research_findings:
+            return "No research insights available."
+        
+        formatted_insights = []
+        
+        # Format job requirements analysis
+        if "job_requirements" in research_findings:
+            job_reqs = research_findings["job_requirements"]
+            if job_reqs.get("key_skills"):
+                formatted_insights.append(f"Key Skills Required: {', '.join(job_reqs['key_skills'])}")
+            if job_reqs.get("experience_level"):
+                formatted_insights.append(f"Experience Level: {job_reqs['experience_level']}")
+        
+        # Format relevant CV content
+        if "relevant_cv_content" in research_findings:
+            cv_content = research_findings["relevant_cv_content"]
+            if cv_content.get("matching_skills"):
+                formatted_insights.append(f"Matching Skills from CV: {', '.join(cv_content['matching_skills'])}")
+            if cv_content.get("relevant_experiences"):
+                exp_list = [exp.get("title", "Unknown") for exp in cv_content["relevant_experiences"][:3]]
+                formatted_insights.append(f"Relevant Experiences: {', '.join(exp_list)}")
+        
+        # Format section relevance scores
+        if "section_relevance" in research_findings:
+            relevance = research_findings["section_relevance"]
+            high_relevance = [section for section, score in relevance.items() if score > 0.7]
+            if high_relevance:
+                formatted_insights.append(f"High Relevance Sections: {', '.join(high_relevance)}")
+        
+        # Format company information
+        if "company_info" in research_findings:
+            company = research_findings["company_info"]
+            if company.get("industry"):
+                formatted_insights.append(f"Company Industry: {company['industry']}")
+            if company.get("size"):
+                formatted_insights.append(f"Company Size: {company['size']}")
+        
+        return "\n".join(formatted_insights) if formatted_insights else "Research insights available but not formatted."
     
     def _format_executive_summary_content(self, content: str) -> str:
         """Format executive summary content."""
@@ -1103,14 +1169,17 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         
         if not state.current_item_id:
             logger.error("Content writer called without current_item_id")
-            return {"error_messages": (state.error_messages or []) + ["ContentWriter failed: No item ID."]}
+            error_list = state.error_messages or []
+            error_list.append("ContentWriter failed: No item ID.")
+            return {"error_messages": error_list}
         
         try:
-            # Process the single item using the async method
+            # Process the single item using the async method with research findings
             result = await self._process_single_item(
                 state.structured_cv.model_dump(),
                 state.job_description_data.model_dump() if state.job_description_data else {},
-                state.current_item_id
+                state.current_item_id,
+                state.research_findings
             )
             
             if result.success:
@@ -1124,13 +1193,17 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             
             # If not successful, add error to state
             logger.error(f"Failed to process item {state.current_item_id}: {result.error_message}")
-            return {"error_messages": (state.error_messages or []) + [f"ContentWriter Error: {result.error_message}"]}
+            error_list = state.error_messages or []
+            error_list.append(f"ContentWriter Error: {result.error_message}")
+            return {"error_messages": error_list}
             
         except Exception as e:
-            logger.error(f"Exception in Content Writer node for item {state.current_item_id}: {e}")
-            return {"error_messages": (state.error_messages or []) + [f"ContentWriter Exception: {str(e)}"]}
+            logger.error(f"Exception in Content Writer node for item {state.current_item_id}: {e}", exc_info=True)
+            error_list = state.error_messages or []
+            error_list.append(f"ContentWriter Exception: {str(e)}")
+            return {"error_messages": error_list}
     
-    def generate_big_10_skills(self, job_description: str, my_talents: str = "") -> Dict[str, Any]:
+    async def generate_big_10_skills(self, job_description: str, my_talents: str = "") -> Dict[str, Any]:
         """
         Generate the "Big 10" skills specifically for Key Qualifications section.
         Returns a structured response with the skills list and raw LLM output.
@@ -1148,13 +1221,12 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             logger.info("Generating Big 10 skills with enhanced content writer")
             
             # Generate content using LLM
-            response = self.llm_client.generate_content(
+            response = await self.llm_service.generate_content(
                 prompt=prompt,
-                max_tokens=500,  # Sufficient for 10 skills
-                temperature=0.7
+                content_type=ContentType.QUALIFICATION
             )
             
-            if not response or not response.strip():
+            if not response or not response.content or not response.content.strip():
                 logger.warning("Empty response from LLM for Big 10 skills generation")
                 return {
                     "skills": [],
@@ -1164,13 +1236,13 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 }
             
             # Parse the response into individual skills
-            skills_list = self._parse_big_10_skills(response)
+            skills_list = self._parse_big_10_skills(response.content)
             
             logger.info(f"Successfully generated {len(skills_list)} skills")
             
             return {
                 "skills": skills_list,
-                "raw_llm_output": response,
+                "raw_llm_output": response.content,
                 "success": True,
                 "formatted_content": self._format_big_10_skills_display(skills_list)
             }
@@ -1192,9 +1264,50 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             # Split by newlines and clean up
             lines = [line.strip() for line in llm_response.split('\n') if line.strip()]
             
+            # Filter out template content and system instructions
+            filtered_lines = []
+            skip_patterns = [
+                '[System Instruction]',
+                '[Instructions for Skill Generation]',
+                '[Job Description]',
+                '[Additional Context',
+                '[Output Example]',
+                'You are an expert',
+                'Analyze Job Description',
+                'Identify Key Skills',
+                'Synthesize and Condense',
+                'Format Output',
+                'Generate the "Big 10" Skills',
+                'Highly relevant to the job',
+                'Concise (under 30 characters)',
+                'Action-oriented and impactful',
+                'Directly aligned with employer',
+                '{{main_job_description_raw}}',
+                '{{my_talents}}'
+            ]
+            
+            for line in lines:
+                # Skip lines that contain template instructions
+                should_skip = False
+                for pattern in skip_patterns:
+                    if pattern.lower() in line.lower():
+                        should_skip = True
+                        break
+                
+                # Skip lines that are too long (likely instructions)
+                if len(line) > 100:
+                    should_skip = True
+                
+                # Skip lines with brackets (likely template markers)
+                if line.startswith('[') and line.endswith(']'):
+                    should_skip = True
+                    
+                if not should_skip:
+                    filtered_lines.append(line)
+            
             # Remove any bullet points, numbers, or formatting
             skills = []
-            for line in lines:
+            for line in filtered_lines:
                 # Remove common prefixes
                 cleaned_line = line
                 for prefix in ['•', '*', '-', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.', '10.']:
@@ -1290,7 +1403,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             "company": "Unknown Company"
         })
     
-    async def _process_single_item(self, structured_cv_data: Dict[str, Any], job_data: Dict[str, Any], item_id: str) -> AgentResult:
+    async def _process_single_item(self, structured_cv_data: Dict[str, Any], job_data: Dict[str, Any], item_id: str, research_findings: Optional[Dict[str, Any]] = None) -> AgentResult:
         """
         Process a single subsection item for granular workflow (Task 3.1).
         
@@ -1298,6 +1411,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             structured_cv_data: The current CV data structure
             job_data: Job description data for context
             item_id: The ID of the specific item to process
+            research_findings: Research insights from ResearchAgent
             
         Returns:
             AgentResult with the updated CV structure
@@ -1324,8 +1438,8 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                     output_data={"structured_cv": structured_cv.model_dump()}
                 )
             
-            # Build focused prompt for this specific item
-            prompt = self._build_single_item_prompt(target_item, target_section, target_subsection, job_description)
+            # Build focused prompt for this specific item with research insights
+            prompt = self._build_single_item_prompt(target_subsection, target_section, job_description, research_findings)
             
             # Generate content using LLM with fallback handling
             try:
@@ -1489,6 +1603,32 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             bullet_points = [content.strip()]
         
         return bullet_points[:5]  # Limit to 5 bullet points max
+
+    def _create_error_result(self, input_data: Dict[str, Any], context: AgentExecutionContext, error: Exception, error_type: str) -> AgentResult:
+        """Create a standardized error result with fallback content."""
+        # Return error result with fallback content
+        content_item = input_data.get("content_item", {})
+        # Ensure content_item is a dictionary for fallback generation
+        if not isinstance(content_item, dict):
+            content_item = {}
+        content_type_fallback = getattr(context, 'content_type', None) or ContentType.QUALIFICATION
+        
+        # Simple fallback content for error cases
+        fallback_content = "⚠️ Content generation failed. Please try again."
+        
+        return AgentResult(
+            success=False,
+            output_data={
+                "content": fallback_content,
+                "content_type": content_type_fallback.value,
+                "confidence_score": 0.1,
+                "error": str(error),
+                "fallback_used": True
+            },
+            confidence_score=0.1,
+            error_message=str(error),
+            metadata={"fallback_used": True, "error_type": error_type}
+        )
 
     def _generate_fallback_content(self, target_item: 'Item', target_section: 'Section', target_subsection: 'Subsection', job_description: Optional['JobDescriptionData']) -> str:
         """

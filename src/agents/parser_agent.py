@@ -1,6 +1,5 @@
 from src.agents.agent_base import AgentBase
 from src.services.llm import LLM
-from src.core.state_manager import AgentIO
 from src.models.data_models import (
     JobDescriptionData,
     StructuredCV,
@@ -9,11 +8,20 @@ from src.models.data_models import (
     Item,
     ItemStatus,
     ItemType,
+    AgentIO,
 )
 from src.config.logging_config import get_logger
 from src.config.settings import get_config
 from src.services.llm import LLMResponse
 from src.orchestration.state import AgentState
+from src.utils.exceptions import (
+    LLMResponseParsingError,
+    ValidationError,
+    WorkflowPreconditionError,
+    AgentExecutionError,
+    ConfigurationError,
+    StateManagerError
+)
 import json  # Import json for parsing LLM output
 from typing import List, Optional, Dict, Any, Union
 import re  # For regex parsing of Markdown
@@ -241,13 +249,58 @@ class ParserAgent(AgentBase):
                     
                 except (json.JSONDecodeError, ValueError, TypeError) as parse_error:
                     logger.warning(f"JSON parsing failed: {str(parse_error)}. Response content: {response.content[:200]}...")
-                    raise ValueError(f"Failed to parse LLM response as JSON: {str(parse_error)}")
+                    raise LLMResponseParsingError(
+                        f"Failed to parse LLM response as JSON: {str(parse_error)}",
+                        raw_response=response.content
+                    )
             else:
                 logger.warning("LLM response could not be parsed as JSON, falling back to regex parsing")
-                raise ValueError("Invalid LLM response format - no JSON content found")
+                raise LLMResponseParsingError(
+                    "Invalid LLM response format - no JSON content found",
+                    raw_response=response.content if response and response.content else "No content"
+                )
 
+        except (LLMResponseParsingError, ValidationError) as parse_error:
+            logger.warning(f"Parsing error: {str(parse_error)}. Attempting regex fallback.")
+            
+            # Fallback to regex-based parsing
+            try:
+                job_data = self._parse_job_description_with_regex(raw_text)
+                job_data.status = ItemStatus.GENERATED_FALLBACK
+                self._job_data = job_data
+                logger.info("Job description parsing completed using regex fallback")
+                return job_data
+            except Exception as fallback_error:
+                logger.error(f"Both LLM and regex parsing failed: {str(fallback_error)}")
+                # Return a default JobDescriptionData object with error information
+                job_data = JobDescriptionData(
+                    raw_text=raw_text,
+                    skills=[],
+                    experience_level="N/A",
+                    responsibilities=[],
+                    industry_terms=[],
+                    company_values=[],
+                    error=f"Both LLM and regex parsing failed. Parse error: {str(parse_error)}. Regex error: {str(fallback_error)}",
+                    status=ItemStatus.GENERATION_FAILED
+                )
+                self._job_data = job_data
+                return job_data
+        except (ConfigurationError, StateManagerError) as system_error:
+            logger.error(f"System error during job description parsing: {str(system_error)}")
+            job_data = JobDescriptionData(
+                raw_text=raw_text,
+                skills=[],
+                experience_level="N/A",
+                responsibilities=[],
+                industry_terms=[],
+                company_values=[],
+                error=f"System error: {str(system_error)}",
+                status=ItemStatus.GENERATION_FAILED
+            )
+            self._job_data = job_data
+            return job_data
         except Exception as e:
-            logger.warning(f"Primary LLM parsing failed: {str(e)}. Attempting regex fallback.")
+            logger.warning(f"Unexpected error in LLM parsing: {str(e)}. Attempting regex fallback.")
             
             # Fallback to regex-based parsing
             try:
@@ -397,7 +450,14 @@ class ParserAgent(AgentBase):
         structured_cv = StructuredCV()
 
         # Add metadata
-        structured_cv.metadata["job_description"] = job_data.to_dict() if job_data else {}
+        if job_data:
+            if hasattr(job_data, 'to_dict'):
+                structured_cv.metadata["job_description"] = job_data.to_dict()
+            else:
+                # job_data is already a dict
+                structured_cv.metadata["job_description"] = job_data
+        else:
+            structured_cv.metadata["job_description"] = {}
         structured_cv.metadata["original_cv_text"] = cv_text
 
         # If no CV text, return empty structure

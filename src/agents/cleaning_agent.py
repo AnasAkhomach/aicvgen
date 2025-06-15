@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.core.state_manager import AgentIO
+from src.models.data_models import AgentIO
 from src.models.data_models import ContentType
 from src.services.llm_service import get_llm_service
 

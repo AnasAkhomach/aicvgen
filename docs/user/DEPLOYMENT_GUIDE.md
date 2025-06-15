@@ -400,7 +400,7 @@ Add to your application:
 ```python
 # src/api/health.py
 from fastapi import APIRouter
-from src.core.orchestrator import EnhancedOrchestrator
+from src.core.enhanced_orchestrator import EnhancedOrchestrator
 
 router = APIRouter()
 

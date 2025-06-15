@@ -20,21 +20,10 @@ from tenacity import (
     before_sleep_log
 )
 
-from ..config.logging_config import get_structured_logger, RateLimitLog
+from ..config.logging_config import get_structured_logger
+from ..config.settings import LLMConfig
 from ..models.data_models import RateLimitState
-
-
-class RateLimitExceeded(Exception):
-    """Exception raised when rate limit is exceeded."""
-    def __init__(self, model: str, retry_after: float):
-        self.model = model
-        self.retry_after = retry_after
-        super().__init__(f"Rate limit exceeded for model {model}. Retry after {retry_after} seconds.")
-
-
-class APIError(Exception):
-    """Exception for API-related errors."""
-    pass
+from ..utils.exceptions import RateLimitError, NetworkError
 
 
 @dataclass
@@ -169,9 +158,9 @@ class RateLimiter:
                 # Check if it's a rate limit error
                 if self._is_rate_limit_error(e):
                     retry_after = self._extract_retry_after(e)
-                    raise RateLimitExceeded(model, retry_after)
+                    raise RateLimitError(f"Rate limit exceeded for model {model}. Retry after {retry_after} seconds.")
                 
-                raise APIError(f"API call failed: {str(e)}") from e
+                raise NetworkError(f"API call failed: {str(e)}") from e
     
     def _is_rate_limit_error(self, error: Exception) -> bool:
         """Check if an error is a rate limit error."""
@@ -237,7 +226,7 @@ class RetryableRateLimiter(RateLimiter):
                 multiplier=self.config.base_backoff_seconds,
                 max=self.config.max_backoff_seconds
             ),
-            retry=retry_if_exception_type((RateLimitExceeded, APIError)),
+            retry=retry_if_exception_type((RateLimitError, NetworkError)),
             before_sleep=before_sleep_log(self.logger.logger, logging.WARNING)
         )
     

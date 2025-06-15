@@ -323,7 +323,7 @@ class EnhancedAgentBase(ABC):
         
         self.logger.info("Agent statistics reset", agent_name=self.name)
     
-    def run_as_node(self, state: "AgentState") -> dict:
+    async def run_as_node(self, state: "AgentState") -> dict:
         """
         Standard LangGraph node interface for all agents.
         This method should be overridden by subclasses to provide

@@ -1,7 +1,7 @@
 # Core web framework dependencies
 uvicorn==0.34.3
-fastapi==0.115.9
-starlette==0.47.0
+fastapi
+starlette
 python-multipart==0.0.20
 
 # Template and rendering
@@ -32,14 +32,14 @@ tenacity==9.1.2
 
 # Database
 sqlalchemy==2.0.36
-chromadb==0.5.29
+chromadb
 
 # UI Framework
 streamlit==1.45.1
 
 # PDF generation
 weasyprint==65.1
-reportlab==4.3.0
+reportlab
 
 # Testing
 pytest==8.4.0

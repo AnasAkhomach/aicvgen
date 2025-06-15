@@ -11,7 +11,7 @@ The AI CV Generator provides both a Streamlit web interface and programmatic acc
 The main orchestration class that manages the CV generation workflow.
 
 ```python
-from src.core.orchestrator import EnhancedOrchestrator
+from src.core.enhanced_orchestrator import EnhancedOrchestrator
 
 orchestrator = EnhancedOrchestrator()
 result = await orchestrator.process_cv_request(

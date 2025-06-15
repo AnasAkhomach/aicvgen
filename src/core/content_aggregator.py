@@ -262,8 +262,8 @@ class ContentAggregator:
             state_manager: State manager containing Big 10 skills data
         """
         try:
-            # Get the structured CV from state manager
-            structured_cv = getattr(state_manager, '_structured_cv', None)
+            # Get the structured CV from state manager using public method
+            structured_cv = state_manager.get_structured_cv()
             
             if structured_cv and hasattr(structured_cv, 'big_10_skills'):
                 # Populate raw skills list

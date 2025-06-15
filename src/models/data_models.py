@@ -207,6 +207,116 @@ class StructuredCV(BaseModel):
                         return item, section, subsection
         
         return None, None, None
+    
+    def get_section_by_name(self, name: str) -> Optional[Section]:
+        """Find a section by its name."""
+        for section in self.sections:
+            if section.name == name:
+                return section
+        return None
+    
+    def find_section_by_id(self, section_id: str) -> Optional[Section]:
+        """Find a section by its ID."""
+        for section in self.sections:
+            if str(section.id) == section_id:
+                return section
+        return None
+    
+    def update_item_content(self, item_id: str, new_content: str) -> bool:
+        """Update the content of a specific item by its ID."""
+        item, _, _ = self.find_item_by_id(item_id)
+        if item:
+            item.content = new_content
+            return True
+        return False
+    
+    def update_item_status(self, item_id: str, new_status: ItemStatus) -> bool:
+        """Update the status of a specific item by its ID."""
+        item, _, _ = self.find_item_by_id(item_id)
+        if item:
+            item.status = new_status
+            return True
+        return False
+    
+    def get_items_by_status(self, status: ItemStatus) -> List[Item]:
+        """Get all items that match a specific status."""
+        items = []
+        for section in self.sections:
+            for item in section.items:
+                if item.status == status:
+                    items.append(item)
+            for subsection in section.subsections:
+                for item in subsection.items:
+                    if item.status == status:
+                        items.append(item)
+        return items
+    
+    def to_content_data(self) -> Dict[str, Any]:
+        """Convert StructuredCV to ContentData format for backward compatibility."""
+        content_data = {
+            "personal_info": self.metadata.get("personal_info", {}),
+            "executive_summary": [],
+            "professional_experience": [],
+            "key_qualifications": [],
+            "projects": [],
+            "education": []
+        }
+        
+        for section in self.sections:
+            section_name = section.name.lower().replace(" ", "_")
+            
+            if "executive" in section_name or "summary" in section_name:
+                content_data["executive_summary"] = [item.content for item in section.items]
+            elif "experience" in section_name or "employment" in section_name:
+                content_data["professional_experience"] = [item.content for item in section.items]
+            elif "qualification" in section_name or "skill" in section_name:
+                content_data["key_qualifications"] = [item.content for item in section.items]
+            elif "project" in section_name:
+                content_data["projects"] = [item.content for item in section.items]
+            elif "education" in section_name:
+                content_data["education"] = [item.content for item in section.items]
+        
+        return content_data
+    
+    def update_from_content(self, content_data: Dict[str, Any]) -> bool:
+        """Update StructuredCV from ContentData format."""
+        try:
+            # Validate input is a dictionary
+            if not isinstance(content_data, dict):
+                return False
+            
+            # Update personal info in metadata
+            if "personal_info" in content_data:
+                self.metadata["personal_info"] = content_data["personal_info"]
+            
+            # Clear existing sections
+            self.sections.clear()
+            
+            # Recreate sections from content_data
+            section_mappings = {
+                "executive_summary": "Executive Summary",
+                "professional_experience": "Professional Experience", 
+                "key_qualifications": "Key Qualifications",
+                "projects": "Projects",
+                "education": "Education"
+            }
+            
+            for content_key, section_name in section_mappings.items():
+                if content_key in content_data and content_data[content_key]:
+                    section = Section(
+                        name=section_name,
+                        items=[
+                            Item(content=content, status=ItemStatus.INITIAL)
+                            for content in content_data[content_key]
+                            if content  # Skip empty content
+                        ]
+                    )
+                    if section.items:  # Only add section if it has items
+                        self.sections.append(section)
+            
+            return True
+        except Exception:
+            return False
 
 
 class JobDescriptionData(BaseModel):
@@ -610,5 +720,8 @@ class AgentIO(BaseModel):
 
 class VectorStoreConfig(BaseModel):
     """Configuration for vector store database."""
+    collection_name: str = "cv_content"
+    persist_directory: str = "data/vector_store"
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     dimension: int = 768
     index_type: str = "IndexFlatL2"

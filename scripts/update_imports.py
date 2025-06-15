@@ -21,7 +21,7 @@ def update_imports_in_file(file_path):
             # Core imports
             'from src.core.main import': 'from src.core.main import',
             'import src.core.main as main': 'import src.core.main as main',
-            'from src.core.orchestrator import': 'from src.core.orchestrator import',
+            'from src.core.orchestrator import': 'from src.core.enhanced_orchestrator import',
             'import src.core.orchestrator as orchestrator': 'import src.core.orchestrator as orchestrator',
             'from src.core.state_manager import': 'from src.core.state_manager import',
             'import src.core.state_manager as state_manager': 'import src.core.state_manager as state_manager',
