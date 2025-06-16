@@ -1,8 +1,9 @@
-from src.agents.agent_base import AgentBase
+from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from src.models.data_models import AgentIO, ContentData
 from src.orchestration.state import AgentState
 from src.config.settings import get_config
 from src.config.logging_config import get_structured_logger
+from src.services.llm_service import get_llm_service
 from typing import Dict, Any, Optional
 import os
 from jinja2 import Environment, FileSystemLoader
@@ -20,7 +21,7 @@ except (ImportError, OSError) as e:
 logger = get_structured_logger(__name__)
 
 
-class FormatterAgent(AgentBase):
+class FormatterAgent(EnhancedAgentBase):
     """
     Agent responsible for formatting the tailored CV content.
     """
@@ -46,6 +47,7 @@ class FormatterAgent(AgentBase):
                 required_fields=["formatted_cv", "output_path"]
             ),
         )
+        self.llm_service = get_llm_service()
 
     async def run_as_node(self, state: AgentState) -> dict:
         """
@@ -109,60 +111,7 @@ class FormatterAgent(AgentBase):
             error_list.append(f"PDF generation failed: {e}")
             return {"error_messages": error_list}
 
-    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Legacy method for backward compatibility.
-        For new workflows, use run_as_node instead.
-        """
-        # Extract input data
-        content_data = input_data.get("content_data")
-        if not content_data:
-            return {
-                "formatted_cv_text": "# No content data provided",
-                "error": "Missing content data",
-            }
 
-        format_specs = input_data.get("format_specs", {})
-
-        # This can be enhanced in the future with more complex formatting logic
-        try:
-            formatted_text = self.format_content(content_data, format_specs)
-        except Exception as e:
-            logger.error("Error formatting content: %s", str(e))
-            import traceback
-
-            traceback.print_exc()
-
-            # Simple fallback formatting
-            formatted_text = "# Tailored CV\n\n"
-
-            # Add summary if available
-            if content_data.get("summary"):
-                formatted_text += (
-                    f"## Professional Profile\n\n{content_data.get('summary')}\n\n---\n\n"
-                )
-
-            # Add skills if available
-            if content_data.get("skills_section"):
-                formatted_text += (
-                    f"## Key Qualifications\n\n{content_data.get('skills_section')}\n\n---\n\n"
-                )
-
-            # Add experience if available
-            if content_data.get("experience_bullets"):
-                formatted_text += "## Professional Experience\n\n"
-                for exp in content_data.get("experience_bullets", []):
-                    if isinstance(exp, dict):
-                        if exp.get("position"):
-                            formatted_text += f"### {exp.get('position')}\n\n"
-                        for bullet in exp.get("bullets", []):
-                            formatted_text += f"* {bullet}\n"
-                    else:
-                        formatted_text += f"* {exp}\n"
-                formatted_text += "\n---\n\n"
-
-        logger.info("Completed: %s (Legacy Formatting)", self.name)
-        return {"formatted_cv_text": formatted_text}
     
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
@@ -192,8 +141,25 @@ class FormatterAgent(AgentBase):
                     metadata={"agent_type": "formatter", "validation_error": True}
                 )
             
-            # Use the existing run method for the actual processing
-            result = self.run(input_data)
+            # Process the formatting directly
+            content_data = input_data.get("content_data")
+            if not content_data:
+                return AgentResult(
+                    success=False,
+                    output_data={"formatted_cv_text": "# No content data provided"},
+                    confidence_score=0.0,
+                    error_message="Missing content data",
+                    metadata={"agent_type": "formatter"}
+                )
+
+            format_specs = input_data.get("format_specs", {})
+            
+            try:
+                formatted_text = self.format_content(content_data, format_specs)
+                result = {"formatted_cv_text": formatted_text}
+            except Exception as e:
+                logger.error(f"Error formatting content: {e}")
+                result = {"formatted_cv_text": "# Error formatting CV\n\nAn error occurred during formatting."}
             
             return AgentResult(
                 success=True,
@@ -215,7 +181,7 @@ class FormatterAgent(AgentBase):
         self, content_data: ContentData, specifications: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        Formats the content data according to the specifications.
+        Formats the content data according to the specifications using LLM for intelligent formatting.
 
         Args:
             content_data: The content data to format
@@ -227,39 +193,161 @@ class FormatterAgent(AgentBase):
         if specifications is None:
             specifications = {}
 
-        formatted_text = ""
+        # Try LLM-enhanced formatting first
+        try:
+            return self._format_with_llm(content_data, specifications)
+        except Exception as e:
+            logger.warning(f"LLM formatting failed, falling back to template: {e}")
+            return self._format_with_template(content_data, specifications)
+
+    def _format_with_llm(self, content_data: ContentData, specifications: Dict[str, Any]) -> str:
+        """
+        Use LLM to intelligently format the CV content.
+        """
+        # Prepare content for LLM
+        content_summary = self._prepare_content_for_llm(content_data)
+        
+        # Create formatting prompt
+        formatting_prompt = f"""
+You are an expert CV formatter. Format the following CV content into a professional, well-structured markdown document.
+
+Requirements:
+- Start with "# Tailored CV" as the main header
+- Use proper markdown formatting with headers, bullet points, and emphasis
+- Ensure professional presentation and readability
+- Maintain all provided information while improving structure and flow
+- Use consistent formatting throughout
+
+CV Content to format:
+{content_summary}
+
+Format this into a professional CV in markdown format:
+"""
+
+        try:
+            response = self.llm_service.generate_response(
+                prompt=formatting_prompt,
+                max_tokens=2000,
+                temperature=0.3
+            )
+            
+            if response and response.strip():
+                return response.strip()
+            else:
+                raise ValueError("Empty response from LLM")
+                
+        except Exception as e:
+            logger.error(f"LLM formatting error: {e}")
+            raise
+
+    def _prepare_content_for_llm(self, content_data: ContentData) -> str:
+        """
+        Prepare content data for LLM formatting.
+        """
+        content_parts = []
+        
+        # Personal information
+        if hasattr(content_data, 'name') and content_data.name:
+            content_parts.append(f"Name: {content_data.name}")
+        if hasattr(content_data, 'email') and content_data.email:
+            content_parts.append(f"Email: {content_data.email}")
+        if hasattr(content_data, 'phone') and content_data.phone:
+            content_parts.append(f"Phone: {content_data.phone}")
+        if hasattr(content_data, 'linkedin') and content_data.linkedin:
+            content_parts.append(f"LinkedIn: {content_data.linkedin}")
+        if hasattr(content_data, 'github') and content_data.github:
+            content_parts.append(f"GitHub: {content_data.github}")
+            
+        # Professional summary
+        if hasattr(content_data, 'summary') and content_data.summary:
+            content_parts.append(f"Professional Summary: {content_data.summary}")
+            
+        # Skills
+        if hasattr(content_data, 'skills_section') and content_data.skills_section:
+            content_parts.append(f"Skills: {content_data.skills_section}")
+            
+        # Experience
+        if hasattr(content_data, 'experience_bullets') and content_data.experience_bullets:
+            exp_text = "Experience:\n"
+            for exp in content_data.experience_bullets:
+                if isinstance(exp, str):
+                    exp_text += f"- {exp}\n"
+                elif isinstance(exp, dict):
+                    if exp.get('position'):
+                        exp_text += f"Position: {exp['position']}\n"
+                    for bullet in exp.get('bullets', []):
+                        exp_text += f"- {bullet}\n"
+            content_parts.append(exp_text)
+            
+        # Education
+        if hasattr(content_data, 'education') and content_data.education:
+            edu_text = "Education:\n"
+            for edu in content_data.education:
+                if isinstance(edu, str):
+                    edu_text += f"- {edu}\n"
+                elif isinstance(edu, dict):
+                    if edu.get('degree'):
+                        edu_text += f"- {edu['degree']}"
+                        if edu.get('institution'):
+                            edu_text += f" at {edu['institution']}"
+                        edu_text += "\n"
+            content_parts.append(edu_text)
+            
+        # Projects
+        if hasattr(content_data, 'projects') and content_data.projects:
+            proj_text = "Projects:\n"
+            for proj in content_data.projects:
+                if isinstance(proj, str):
+                    proj_text += f"- {proj}\n"
+            content_parts.append(proj_text)
+            
+        # Certifications
+        if hasattr(content_data, 'certifications') and content_data.certifications:
+            cert_text = "Certifications:\n"
+            for cert in content_data.certifications:
+                if isinstance(cert, str):
+                    cert_text += f"- {cert}\n"
+            content_parts.append(cert_text)
+            
+        return "\n\n".join(content_parts)
+
+    def _format_with_template(self, content_data: ContentData, specifications: Dict[str, Any]) -> str:
+        """
+        Fallback template-based formatting.
+        """
+        formatted_text = "# Tailored CV\n\n"
 
         # Add header with name and contact info
-        if "name" in content_data:
-            formatted_text += f"# {content_data['name']}\n\n"
+        if hasattr(content_data, 'name') and content_data.name:
+            formatted_text += f"## {content_data.name}\n\n"
 
         # Format contact info if available
         contact_parts = []
-        if "phone" in content_data:
-            contact_parts.append(f"📞 {content_data['phone']}")
-        if "email" in content_data:
-            contact_parts.append(f"📧 {content_data['email']}")
-        if "linkedin" in content_data:
-            contact_parts.append(f"🔗 [LinkedIn]({content_data['linkedin']})")
-        if "github" in content_data:
-            contact_parts.append(f"💻 [GitHub]({content_data['github']})")
+        if hasattr(content_data, 'phone') and content_data.phone:
+            contact_parts.append(f"📞 {content_data.phone}")
+        if hasattr(content_data, 'email') and content_data.email:
+            contact_parts.append(f"📧 {content_data.email}")
+        if hasattr(content_data, 'linkedin') and content_data.linkedin:
+            contact_parts.append(f"🔗 [LinkedIn]({content_data.linkedin})")
+        if hasattr(content_data, 'github') and content_data.github:
+            contact_parts.append(f"💻 [GitHub]({content_data.github})")
 
         if contact_parts:
             formatted_text += " | ".join(contact_parts) + "\n\n"
             formatted_text += "---\n\n"
 
         # Process Professional Profile/Summary
-        if content_data.get("summary"):
+        if hasattr(content_data, 'summary') and content_data.summary:
             formatted_text += "## Professional Profile\n\n"
-            formatted_text += content_data["summary"] + "\n\n"
+            formatted_text += content_data.summary + "\n\n"
             formatted_text += "---\n\n"
 
         # Process Key Qualifications
-        if content_data.get("skills_section"):
+        if hasattr(content_data, 'skills_section') and content_data.skills_section:
             formatted_text += "## Key Qualifications\n\n"
 
             # Check if skills are just a string or need parsing
-            skills_content = content_data["skills_section"]
+            skills_content = content_data.skills_section
             if isinstance(skills_content, str):
                 # Remove any duplicate skills that might have been introduced
                 skills_list = [skill.strip() for skill in skills_content.split("|")]
@@ -276,10 +364,38 @@ class FormatterAgent(AgentBase):
             formatted_text += "---\n\n"
 
         # Process Professional Experience
-        if content_data.get("experience_bullets"):
+        if hasattr(content_data, 'experience_bullets') and content_data.experience_bullets:
             formatted_text += "## Professional Experience\n\n"
-            for exp in content_data["experience_bullets"]:
-                if isinstance(exp, dict):
+            for exp in content_data.experience_bullets:
+                if isinstance(exp, str):
+                    # Handle string bullet points
+                    bullet = exp
+                    # Ensure the bullet point isn't truncated
+                    if (
+                        bullet.endswith("...")
+                        or bullet.endswith("…")
+                        or bullet.endswith("and")
+                        or bullet.endswith("or")
+                    ):
+                        # Log this as an issue
+                        print(f"Warning: Found truncated bullet point: {bullet}")
+                        # Try to clean it up - remove trailing ellipsis and conjunctions
+                        bullet = (
+                            bullet.rstrip("…")
+                            .rstrip("...")
+                            .rstrip(" and")
+                            .rstrip(" or")
+                            .rstrip(",")
+                            .strip()
+                        )
+                        bullet += "."  # Add a period at the end
+
+                    # Ensure bullet points have proper punctuation
+                    if bullet and not bullet.endswith((".", "!", "?")):
+                        bullet += "."
+
+                    formatted_text += f"* {bullet}\n"
+                elif isinstance(exp, dict):
                     if exp.get("position"):
                         formatted_text += f"### {exp['position']}\n\n"
 
@@ -324,15 +440,13 @@ class FormatterAgent(AgentBase):
                         formatted_text += f"* {bullet}\n"
 
                     formatted_text += "\n"
-                else:
-                    formatted_text += f"* {exp}\n"
 
             formatted_text += "---\n\n"
 
         # Process Projects
-        if content_data.get("projects"):
+        if hasattr(content_data, 'projects') and content_data.projects:
             formatted_text += "## Project Experience\n\n"
-            for project in content_data["projects"]:
+            for project in content_data.projects:
                 if isinstance(project, dict):
                     # Add project name and technologies if available
                     project_header_parts = []

@@ -1,26 +1,51 @@
-"""Validation schemas for the AI CV Generator.
+"""Pydantic validation schemas for API requests and responses.
 
-This module provides Pydantic validation schemas for API requests and responses.
-Currently serves as a placeholder for future API development.
-"""
+This module provides validation functions and error handling for agent inputs and outputs."""
 
-from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field, ValidationError
+import logging
 
-
-# Placeholder API validation schemas
-# These will be expanded when building the REST API
-
-class CVGenerationRequestSchema(BaseModel):
-    """Schema for CV generation API requests."""
-    cv_text: str = Field(..., description="Raw CV text")
-    job_description: str = Field(..., description="Job description text")
-    options: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Generation options")
+logger = logging.getLogger(__name__)
 
 
-class CVGenerationResponseSchema(BaseModel):
-    """Schema for CV generation API responses."""
-    session_id: str = Field(..., description="Session identifier")
-    status: str = Field(..., description="Generation status")
-    structured_cv: Optional[Dict[str, Any]] = Field(None, description="Generated structured CV")
-    errors: Optional[List[str]] = Field(None, description="Any errors that occurred")
+def validate_agent_input(input_data: Any, expected_type: type = None) -> bool:
+    """Validate agent input data.
+    
+    Args:
+        input_data: The input data to validate
+        expected_type: Optional expected type for validation
+        
+    Returns:
+        bool: True if validation passes, False otherwise
+    """
+    try:
+        if expected_type and not isinstance(input_data, expected_type):
+            logger.warning(f"Input type mismatch: expected {expected_type}, got {type(input_data)}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Validation error: {e}")
+        return False
+
+
+def validate_agent_output(output_data: Any, required_fields: List[str] = None) -> bool:
+    """Validate agent output data.
+    
+    Args:
+        output_data: The output data to validate
+        required_fields: Optional list of required fields for dict outputs
+        
+    Returns:
+        bool: True if validation passes, False otherwise
+    """
+    try:
+        if required_fields and isinstance(output_data, dict):
+            missing_fields = [field for field in required_fields if field not in output_data]
+            if missing_fields:
+                logger.warning(f"Missing required fields: {missing_fields}")
+                return False
+        return True
+    except Exception as e:
+        logger.error(f"Output validation error: {e}")
+        return False

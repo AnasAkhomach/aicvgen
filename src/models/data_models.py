@@ -6,7 +6,7 @@ ensure data consistency, validation, and clarity across all components, from
 parsing and generation to state management and API serialization.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from dataclasses import dataclass
@@ -26,6 +26,26 @@ class ItemStatus(str, Enum):
     GENERATION_FAILED = "generation_failed"
     GENERATED_FALLBACK = "generated_fallback"
     STATIC = "static"
+
+
+class ProcessingStatus(str, Enum):
+    """Enumeration for processing status - backward compatibility alias for ItemStatus."""
+    INITIAL = "initial"
+    GENERATED = "generated"
+    USER_MODIFIED = "user_modified"
+    USER_ACCEPTED = "user_accepted"
+    TO_REGENERATE = "to_regenerate"
+    GENERATION_FAILED = "generation_failed"
+    GENERATED_FALLBACK = "generated_fallback"
+    STATIC = "static"
+    
+    # Additional processing-specific statuses
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    RATE_LIMITED = "rate_limited"
 
 
 class ItemType(str, Enum):
@@ -331,305 +351,7 @@ class JobDescriptionData(BaseModel):
 
 
 
-# Legacy models for backward compatibility during transition
-# These will be removed once all components are updated to use the new models
 
-class ProcessingStatus(Enum):
-    """Status of processing for individual items or sections."""
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    RATE_LIMITED = "rate_limited"
-
-
-@dataclass
-class ProcessingMetadata:
-    """Metadata for processing items."""
-    item_id: str
-    status: 'ProcessingStatus'
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-@dataclass
-class ProcessingQueue:
-    """Queue for managing content processing."""
-    pending_items: List[Item] = field(default_factory=list)
-    in_progress_items: List[Item] = field(default_factory=list)
-    completed_items: List[Item] = field(default_factory=list)
-    failed_items: List[Item] = field(default_factory=list)
-    
-    def add_item(self, item: Item):
-        """Add an item to the pending queue."""
-        self.pending_items.append(item)
-    
-    def get_next_item(self) -> Optional[Item]:
-        """Get the next item ready for processing."""
-        # Sort by priority (higher first) and creation time
-        ready_items = [
-            item for item in self.pending_items 
-            if item.is_ready_for_processing
-        ]
-        
-        if not ready_items:
-            return None
-        
-        # Sort by priority (descending) then by creation time (ascending)
-        ready_items.sort(
-            key=lambda x: (-x.priority, x.metadata.created_at)
-        )
-        
-        item = ready_items[0]
-        self.pending_items.remove(item)
-        self.in_progress_items.append(item)
-        item.metadata.update_status(ProcessingStatus.IN_PROGRESS)
-        
-        return item
-    
-    def complete_item(self, item: Item, generated_content: str):
-        """Mark an item as completed."""
-        item.content = generated_content
-        item.status = ItemStatus.GENERATED
-        
-        if item in self.in_progress_items:
-            self.in_progress_items.remove(item)
-        self.completed_items.append(item)
-    
-    def fail_item(self, item: Item, error: str):
-        """Mark an item as failed."""
-        item.status = ItemStatus.FAILED
-        item.metadata["error"] = error
-        
-        if item in self.in_progress_items:
-            self.in_progress_items.remove(item)
-        self.failed_items.append(item)
-    
-    def rate_limit_item(self, item: Item):
-        """Mark an item as rate limited and return to pending."""
-        item.status = ItemStatus.RATE_LIMITED
-        item.metadata["rate_limit_hits"] = item.metadata.get("rate_limit_hits", 0) + 1
-        
-        if item in self.in_progress_items:
-            self.in_progress_items.remove(item)
-        self.pending_items.append(item)
-    
-    @property
-    def total_items(self) -> int:
-        """Total number of items in all queues."""
-        return (
-            len(self.pending_items) + 
-            len(self.in_progress_items) + 
-            len(self.completed_items) + 
-            len(self.failed_items)
-        )
-    
-    @property
-    def completion_percentage(self) -> float:
-        """Percentage of items completed."""
-        if self.total_items == 0:
-            return 0.0
-        return (len(self.completed_items) / self.total_items) * 100
-
-
-@dataclass
-class CVGenerationState:
-    """Complete state for CV generation workflow."""
-    session_id: str = field(default_factory=lambda: str(uuid4()))
-    current_stage: WorkflowStage = WorkflowStage.INITIALIZATION
-    job_description: Optional[JobDescriptionData] = None
-    
-    # Individual processing queues
-    qualification_queue: ProcessingQueue = field(default_factory=ProcessingQueue)
-    experience_queue: ProcessingQueue = field(default_factory=ProcessingQueue)
-    project_queue: ProcessingQueue = field(default_factory=ProcessingQueue)
-    
-    # Generated content
-    key_qualifications: List[Item] = field(default_factory=list)
-    professional_experiences: List[Item] = field(default_factory=list)
-    side_projects: List[Item] = field(default_factory=list)
-    executive_summary: Optional[Item] = None
-    
-    # Workflow metadata
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    total_processing_time: float = 0.0
-    total_llm_calls: int = 0
-    total_tokens_used: int = 0
-    total_rate_limit_hits: int = 0
-    
-    # Configuration
-    target_qualifications_count: int = 10
-    max_retry_attempts: int = 3
-    rate_limit_backoff_seconds: float = 60.0
-    
-    def update_stage(self, new_stage: WorkflowStage):
-        """Update the current workflow stage."""
-        self.current_stage = new_stage
-        self.updated_at = datetime.now()
-    
-    def add_qualification_items(self, items: List[str]):
-        """Add qualification items to the processing queue."""
-        for i, item_text in enumerate(items):
-            qualification = Item(
-                content=item_text,
-                item_type=ItemType.KEY_QUALIFICATION,
-                metadata={"priority": len(items) - i}  # Earlier items have higher priority
-            )
-            self.qualification_queue.add_item(qualification)
-    
-    def add_experience_items(self, experiences: List[Dict[str, Any]]):
-        """Add experience items to the processing queue."""
-        for i, exp_data in enumerate(experiences):
-            experience = ExperienceItem(
-                content_type=ContentType.EXPERIENCE_ITEM,
-                original_content=exp_data.get('description', ''),
-                company=exp_data.get('company', ''),
-                position=exp_data.get('position', ''),
-                duration=exp_data.get('duration', ''),
-                responsibilities=exp_data.get('responsibilities', []),
-                achievements=exp_data.get('achievements', []),
-                technologies=exp_data.get('technologies', []),
-                priority=len(experiences) - i
-            )
-            self.experience_queue.add_item(experience)
-    
-    def add_project_items(self, projects: List[Dict[str, Any]]):
-        """Add project items to the processing queue."""
-        for i, proj_data in enumerate(projects):
-            project = ProjectItem(
-                content_type=ContentType.PROJECT_ITEM,
-                original_content=proj_data.get('description', ''),
-                name=proj_data.get('name', ''),
-                description=proj_data.get('description', ''),
-                technologies=proj_data.get('technologies', []),
-                achievements=proj_data.get('achievements', []),
-                url=proj_data.get('url'),
-                priority=len(projects) - i
-            )
-            self.project_queue.add_item(project)
-    
-    @property
-    def overall_progress(self) -> Dict[str, Any]:
-        """Get overall progress statistics."""
-        total_items = (
-            self.qualification_queue.total_items +
-            self.experience_queue.total_items +
-            self.project_queue.total_items
-        )
-        
-        completed_items = (
-            len(self.qualification_queue.completed_items) +
-            len(self.experience_queue.completed_items) +
-            len(self.project_queue.completed_items)
-        )
-        
-        return {
-            "total_items": total_items,
-            "completed_items": completed_items,
-            "completion_percentage": (completed_items / total_items * 100) if total_items > 0 else 0,
-            "current_stage": self.current_stage.value,
-            "qualifications_progress": self.qualification_queue.completion_percentage,
-            "experience_progress": self.experience_queue.completion_percentage,
-            "projects_progress": self.project_queue.completion_percentage,
-            "total_processing_time": self.total_processing_time,
-            "total_llm_calls": self.total_llm_calls,
-            "total_tokens_used": self.total_tokens_used,
-            "rate_limit_hits": self.total_rate_limit_hits
-        }
-    
-    @property
-    def is_complete(self) -> bool:
-        """Check if all processing is complete."""
-        return (
-            self.current_stage == WorkflowStage.COMPLETED and
-            self.qualification_queue.completion_percentage == 100 and
-            self.experience_queue.completion_percentage == 100 and
-            self.project_queue.completion_percentage == 100 and
-            self.executive_summary is not None and
-            self.executive_summary.metadata.status == ProcessingStatus.COMPLETED
-        )
-    
-    def get_final_cv(self) -> Dict[str, Any]:
-        """Get the final CV content as a dictionary."""
-        return {
-            "executive_summary": self.executive_summary.generated_content if self.executive_summary else "",
-            "key_qualifications": [q.generated_content for q in self.key_qualifications if q.generated_content],
-            "professional_experiences": [{
-                "company": exp.company,
-                "position": exp.position,
-                "duration": exp.duration,
-                "content": exp.generated_content
-            } for exp in self.professional_experiences if exp.generated_content],
-            "side_projects": [{
-                "name": proj.name,
-                "description": proj.description,
-                "content": proj.generated_content
-            } for proj in self.side_projects if proj.generated_content],
-            "metadata": {
-                "session_id": self.session_id,
-                "created_at": self.created_at.isoformat(),
-                "total_tokens_used": self.total_tokens_used,
-                "total_llm_calls": self.total_llm_calls
-            }
-        }
-
-
-@dataclass
-class RateLimitState:
-    """State for tracking rate limits across different models."""
-    model_name: str
-    requests_per_minute: int = 0
-    tokens_per_minute: int = 0
-    window_start: datetime = field(default_factory=datetime.now)
-    last_request_time: datetime = field(default_factory=datetime.now)
-    consecutive_failures: int = 0
-    backoff_until: Optional[datetime] = None
-    max_requests_per_minute: int = 30
-    max_tokens_per_minute: int = 50000
-    
-    def can_make_request(self, estimated_tokens: int = 0) -> bool:
-        """Check if a request can be made given current rate limits."""
-        now = datetime.now()
-        
-        # Check if we're in a backoff period
-        if self.backoff_until and now < self.backoff_until:
-            return False
-        
-        # Reset window if it's been more than a minute
-        if (now - self.window_start).total_seconds() >= 60:
-            self.requests_per_minute = 0
-            self.tokens_per_minute = 0
-            self.window_start = now
-        
-        # Check rate limits using configured limits
-        return (
-            self.requests_per_minute < self.max_requests_per_minute and
-            (self.tokens_per_minute + estimated_tokens) < self.max_tokens_per_minute
-        )
-    
-    def record_request(self, tokens_used: int, success: bool):
-        """Record a request and update rate limit state."""
-        now = datetime.now()
-        
-        # Reset window if needed
-        if (now - self.window_start).total_seconds() >= 60:
-            self.requests_per_minute = 0
-            self.tokens_per_minute = 0
-            self.window_start = now
-        
-        self.requests_per_minute += 1
-        self.tokens_per_minute += tokens_used
-        self.last_request_time = now
-        
-        if success:
-            self.consecutive_failures = 0
-            self.backoff_until = None
-        else:
-            self.consecutive_failures += 1
-            # Exponential backoff
-            backoff_seconds = min(300, 30 * (2 ** self.consecutive_failures))
-            self.backoff_until = now + datetime.timedelta(seconds=backoff_seconds)
 
 
 # Missing models that are imported by state_manager.py
@@ -725,3 +447,177 @@ class VectorStoreConfig(BaseModel):
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     dimension: int = 768
     index_type: str = "IndexFlatL2"
+
+
+# Backward compatibility aliases for legacy imports
+class ProcessingMetadata(BaseModel):
+    """Legacy processing metadata class - replaced by Item.metadata."""
+    status: ProcessingStatus = ProcessingStatus.INITIAL
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    def update_status(self, status: ProcessingStatus, error_message: Optional[str] = None):
+        """Update the processing status."""
+        self.status = status
+        self.updated_at = datetime.now()
+        if error_message:
+            self.error_message = error_message
+
+
+# API Model backward compatibility aliases
+class PersonalInfo(BaseModel):
+    """Personal information model."""
+    name: str
+    email: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    linkedin: Optional[str] = None
+    website: Optional[str] = None
+    summary: Optional[str] = None
+
+class Experience(BaseModel):
+    """Work experience model."""
+    title: str
+    company: str
+    location: Optional[str] = None
+    start_date: str
+    end_date: Optional[str] = None
+    current: bool = False
+    description: Optional[str] = None
+    achievements: Optional[List[str]] = None
+    technologies: Optional[List[str]] = None
+
+class Education(BaseModel):
+    """Education model."""
+    degree: str
+    institution: str
+    location: Optional[str] = None
+    graduation_date: Optional[str] = None
+    gpa: Optional[str] = None
+    honors: Optional[List[str]] = None
+    relevant_coursework: Optional[List[str]] = None
+
+class Project(BaseModel):
+    """Project model."""
+    name: str
+    description: str
+    technologies: Optional[List[str]] = None
+    url: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    achievements: Optional[List[str]] = None
+
+class Skill(BaseModel):
+    """Skill model."""
+    name: str
+    level: Optional[str] = None
+    category: Optional[str] = None
+    years_experience: Optional[int] = None
+
+class Certification(BaseModel):
+    """Certification model."""
+    name: str
+    issuer: str
+    date_obtained: Optional[str] = None
+    expiry_date: Optional[str] = None
+    credential_id: Optional[str] = None
+    url: Optional[str] = None
+
+class Language(BaseModel):
+    """Language model."""
+    name: str
+    proficiency: Optional[str] = None
+    native: bool = False
+
+
+class CVGenerationState(BaseModel):
+    """Legacy CV generation state class - replaced by AgentState."""
+    session_id: str = Field(default_factory=lambda: str(uuid4()))
+    structured_cv: Optional[StructuredCV] = None
+    job_description_data: Optional[JobDescriptionData] = None
+    current_stage: WorkflowStage = WorkflowStage.INITIALIZATION
+    completed_stages: List[WorkflowStage] = Field(default_factory=list)
+    failed_stages: List[WorkflowStage] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    error_messages: List[str] = Field(default_factory=list)
+    
+    # Additional legacy fields
+    current_section_key: Optional[str] = None
+    items_to_process_queue: List[str] = Field(default_factory=list)
+    current_item_id: Optional[str] = None
+    is_initial_generation: bool = True
+    user_feedback: Optional[UserFeedback] = None
+    research_findings: Optional[Dict[str, Any]] = None
+    final_output_path: Optional[str] = None
+    
+    def advance_to_stage(self, stage: WorkflowStage):
+        """Advance workflow to a new stage."""
+        if self.current_stage not in self.completed_stages:
+            self.completed_stages.append(self.current_stage)
+        self.current_stage = stage
+        self.updated_at = datetime.now()
+    
+    def mark_stage_failed(self, stage: WorkflowStage):
+        """Mark a stage as failed."""
+        if stage not in self.failed_stages:
+            self.failed_stages.append(stage)
+        self.updated_at = datetime.now()
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class RateLimitState(BaseModel):
+    """Legacy rate limit state class - replaced by service-level rate limiting."""
+    model: str
+    requests_made: int = 0
+    requests_limit: int = 100
+    window_start: datetime = Field(default_factory=datetime.now)
+    window_duration: timedelta = Field(default=timedelta(minutes=1))
+    last_request_time: Optional[datetime] = None
+    backoff_until: Optional[datetime] = None
+    consecutive_failures: int = 0
+    
+    def is_rate_limited(self) -> bool:
+        """Check if currently rate limited."""
+        now = datetime.now()
+        
+        # Check if in backoff period
+        if self.backoff_until and now < self.backoff_until:
+            return True
+            
+        # Check if window has reset
+        if now - self.window_start > self.window_duration:
+            self.requests_made = 0
+            self.window_start = now
+            
+        return self.requests_made >= self.requests_limit
+    
+    def record_request(self):
+        """Record a new request."""
+        now = datetime.now()
+        
+        # Reset window if needed
+        if now - self.window_start > self.window_duration:
+            self.requests_made = 0
+            self.window_start = now
+            
+        self.requests_made += 1
+        self.last_request_time = now
+    
+    def record_failure(self):
+        """Record a request failure."""
+        self.consecutive_failures += 1
+        # Exponential backoff
+        backoff_seconds = min(300, 2 ** self.consecutive_failures)  # Max 5 minutes
+        self.backoff_until = datetime.now() + timedelta(seconds=backoff_seconds)
+    
+    def record_success(self):
+        """Record a successful request."""
+        self.consecutive_failures = 0
+        self.backoff_until = None

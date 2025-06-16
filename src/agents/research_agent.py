@@ -1,5 +1,5 @@
-from src.agents.agent_base import AgentBase
-from src.services.llm import LLM
+from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from src.services.llm_service import get_llm_service
 from src.core.state_manager import (
     JobDescriptionData,
     AgentIO,
@@ -24,7 +24,7 @@ from src.orchestration.state import AgentState
 logger = logging.getLogger(__name__)
 
 
-class ResearchAgent(AgentBase):
+class ResearchAgent(EnhancedAgentBase):
     """
     Agent responsible for conducting research related to the job description and finding
     relevant content from the CV for tailoring.
@@ -37,7 +37,7 @@ class ResearchAgent(AgentBase):
         self,
         name: str,
         description: str,
-        llm: LLM,
+        llm_service=None,
         vector_db: Optional[VectorDB] = None,
     ):
         """
@@ -46,7 +46,7 @@ class ResearchAgent(AgentBase):
         Args:
             name: The name of the agent.
             description: A description of the agent.
-            llm: The LLM instance for analysis.
+            llm_service: Optional LLM service instance for analysis.
             vector_db: Vector database instance for storing and searching embeddings.
         """
         super().__init__(
@@ -61,107 +61,13 @@ class ResearchAgent(AgentBase):
                 required_fields=["research_results", "content_matches"]
             ),
         )
-        self.llm = llm
+        self.llm = llm_service or get_llm_service()
         self.vector_db = vector_db
         
         # Initialize settings for prompt loading
         self.settings = get_config()
 
-    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Conducts research based on the job description and finds relevant content from the CV.
-
-        Args:
-            input_data: A dictionary containing:
-                - 'job_description_data' (Dict): Parsed job description data
-                - 'structured_cv' (StructuredCV): The current StructuredCV
-
-        Returns:
-            A dictionary containing research results and relevance matches.
-        """
-        job_description_data = input_data.get("job_description_data", {})
-        structured_cv = input_data.get("structured_cv")
-
-        # Check if input data is valid
-        if not job_description_data or not structured_cv:
-            logger.warning("Missing required input data for ResearchAgent")
-            return {}
-
-        # Extract relevant information for research queries
-        skills = self._extract_field(job_description_data, "skills", [])
-        responsibilities = self._extract_field(job_description_data, "responsibilities", [])
-        industry_terms = self._extract_field(job_description_data, "industry_terms", [])
-        company_values = self._extract_field(job_description_data, "company_values", [])
-        experience_level = self._extract_field(job_description_data, "experience_level", "")
-        raw_jd = self._extract_field(job_description_data, "raw_text", "")
-
-        logger.info(
-            f"Running ResearchAgent for job with {len(skills)} skills, {len(responsibilities)} responsibilities"
-        )
-
-        # --- STEP 1: Build vector database from CV content if not already populated ---
-        if self.vector_db:
-            self._index_cv_content(structured_cv)
-
-        # --- STEP 2: Perform research and analysis ---
-
-        # Initialize the research results dictionary
-        research_results = {
-            "relevance_scores": {},
-            "key_matches": {},
-            "company_info": {},
-            "industry_insights": {},
-            "job_requirements_analysis": {},
-        }
-
-        # Analyze the job description with the LLM for deeper insights
-        requirements_analysis = self._analyze_job_requirements(
-            raw_jd, skills, responsibilities, experience_level
-        )
-        if requirements_analysis:
-            research_results["job_requirements_analysis"] = requirements_analysis
-
-        # Find most relevant content from the CV using vector search (if available)
-        if self.vector_db:
-            # Search by skills
-            if skills:
-                skill_query = " ".join(skills)
-                relevant_skill_content = self._search_relevant_content(
-                    skill_query, structured_cv, num_results=5
-                )
-                research_results["key_matches"]["skills"] = relevant_skill_content
-
-            # Search by responsibilities
-            if responsibilities:
-                resp_query = " ".join(responsibilities)
-                relevant_resp_content = self._search_relevant_content(
-                    resp_query, structured_cv, num_results=5
-                )
-                research_results["key_matches"]["responsibilities"] = relevant_resp_content
-
-            # Calculate overall relevance score for sections
-            research_results["relevance_scores"] = self._calculate_section_relevance(
-                structured_cv, skills + responsibilities + industry_terms
-            )
-
-        # Gather company information (simulated for MVP)
-        if raw_jd:
-            company_info = self._research_company_info(raw_jd)
-            research_results["company_info"] = company_info
-
-        # Gather industry insights (simulated for MVP)
-        if industry_terms or skills:
-            industry_insights = self._research_industry_insights(
-                industry_terms if industry_terms else skills[:3]
-            )
-            research_results["industry_insights"] = industry_insights
-
-        logger.info(
-            f"ResearchAgent completed analysis with {len(research_results['key_matches'])} match categories"
-        )
-
-        self._latest_research_results = research_results
-        return research_results
+    # Legacy run method removed - use run_as_node for LangGraph integration
     
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
@@ -216,8 +122,24 @@ class ResearchAgent(AgentBase):
                     metadata={"agent_type": "research", "validation_error": True}
                 )
             
-            # Use the existing run method for the actual processing
-            result = self.run(input_data)
+            # Use run_as_node for LangGraph integration
+            # Create AgentState for run_as_node compatibility
+            from src.orchestration.state import AgentState
+            from src.models.data_models import StructuredCV, JobDescriptionData
+            
+            # Create proper StructuredCV and JobDescriptionData objects
+            structured_cv = input_data.get("structured_cv") or StructuredCV()
+            job_desc_data = input_data.get("job_description_data")
+            if not job_desc_data or isinstance(job_desc_data, dict):
+                job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
+            
+            agent_state = AgentState(
+                structured_cv=structured_cv,
+                job_description_data=job_desc_data
+            )
+            
+            node_result = await self.run_as_node(agent_state)
+            result = node_result.get("output_data", {})
             
             return AgentResult(
                 success=True,

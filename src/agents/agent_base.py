@@ -105,10 +105,7 @@ class EnhancedAgentBase(ABC):
         """Abstract async method to be implemented by each agent."""
         raise NotImplementedError
     
-    @abstractmethod
-    def run(self, input_data: Any) -> Any:
-        """Legacy abstract method for backward compatibility."""
-        raise NotImplementedError
+    # Legacy run method removed - use run_as_node for LangGraph integration
     
     async def execute_with_context(
         self, 
@@ -340,30 +337,4 @@ class EnhancedAgentBase(ABC):
         )
 
 
-# Legacy compatibility
-class AgentBase(EnhancedAgentBase):
-    """Legacy AgentBase class for backward compatibility."""
-    
-    def __init__(self, name: str, description: str, input_schema: AgentIO, output_schema: AgentIO):
-        super().__init__(name, description, input_schema, output_schema)
-    
-    async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
-        """Default async implementation that calls the legacy run method."""
-        try:
-            output = self.run(input_data)
-            confidence = self.get_confidence_score(output)
-            
-            return AgentResult(
-                success=True,
-                output_data=output,
-                confidence_score=confidence,
-                metadata={"legacy_execution": True}
-            )
-        except Exception as e:
-            return AgentResult(
-                success=False,
-                output_data=None,
-                confidence_score=0.0,
-                error_message=str(e),
-                metadata={"legacy_execution": True}
-            )
+# Legacy AgentBase class removed - all agents now use EnhancedAgentBase

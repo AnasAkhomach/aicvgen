@@ -95,6 +95,9 @@ from src.integration.enhanced_cv_system import (
     EnhancedCVConfig,
     IntegrationMode,
 )
+from src.core.enhanced_orchestrator import EnhancedOrchestrator
+from src.orchestration.state import AgentState
+from src.models.data_models import UserAction, UserFeedback
 from src.core.state_manager import (
     VectorStoreConfig,
     CVData,
@@ -107,8 +110,9 @@ from src.models.data_models import (
     Section,
     Subsection,
     Item,
+    WorkflowType,
 )
-from src.services.llm import LLM
+from src.services.llm_service import get_llm_service
 
 # ContentWriterAgent no longer needed - using enhanced CV integration
 from src.agents.cv_analyzer_agent import CVAnalyzerAgent
@@ -146,25 +150,24 @@ def process_single_item_async(item_id, section, subsection, item, state_manager)
         # Set item status to processing
         item["status"] = "processing"
         st.session_state[f"processing_item_{item_id}"] = False
-        
+
         # Show processing indicator
         with st.spinner(f"Regenerating {item.get('title', 'item')}..."):
             # Get enhanced CV integration
             if "enhanced_cv_integration_config" not in st.session_state:
                 config = EnhancedCVConfig(
-                    mode=IntegrationMode.STREAMLIT,
+                    mode=IntegrationMode.PRODUCTION,
                     enable_caching=True,
                     enable_monitoring=True,
                 )
                 st.session_state.enhanced_cv_integration_config = config.to_dict()
-            
-            enhanced_cv_integration = get_enhanced_cv_integration(
-                **st.session_state.enhanced_cv_integration_config
-            )
-            
+
+            config = EnhancedCVConfig.from_dict(st.session_state.enhanced_cv_integration_config)
+            enhanced_cv_integration = get_enhanced_cv_integration(config)
+
             # Get the orchestrator
             orchestrator = enhanced_cv_integration.orchestrator
-            
+
             # Process the single item using the new interface
             async def process_item():
                 try:
@@ -174,7 +177,7 @@ def process_single_item_async(item_id, section, subsection, item, state_manager)
                 except Exception as e:
                     logger.error(f"Error processing single item {item_id}: {str(e)}")
                     return {"success": False, "error": str(e)}
-            
+
             # Run the async processing
             import asyncio
             try:
@@ -186,12 +189,12 @@ def process_single_item_async(item_id, section, subsection, item, state_manager)
                 result = {"success": False, "error": str(e)}
             finally:
                 loop.close()
-            
+
             # Handle the result
             if result and result.get("success"):
                 item["status"] = "completed"
                 st.success(f"✅ Successfully regenerated {item.get('title', 'item')}!")
-                
+
                 # Check for raw LLM output in the updated CV structure (Task 3.2 preparation)
                 updated_cv = result.get("structured_cv")
                 if updated_cv and hasattr(updated_cv, 'model_dump'):
@@ -201,17 +204,17 @@ def process_single_item_async(item_id, section, subsection, item, state_manager)
                     if raw_output:
                         with st.expander("🔍 View Raw LLM Output", expanded=False):
                             st.code(raw_output, language="text")
-                        
+
             else:
                 item["status"] = "error"
                 error_msg = result.get("error", "Unknown error occurred") if result else "No result returned"
                 st.error(f"❌ Failed to regenerate item: {error_msg}")
-                
+
     except Exception as e:
         logger.error(f"Error in process_single_item_async: {str(e)}")
         item["status"] = "error"
         st.error(f"❌ Error processing item: {str(e)}")
-    
+
     # Force a rerun to update the UI
     time.sleep(1)
     st.rerun()
@@ -237,7 +240,7 @@ def find_raw_output_for_item(cv_data, item_id):
                     if result:
                         return result
             return None
-        
+
         return search_for_item(cv_data, item_id)
     except Exception as e:
         logger.error(f"Error finding raw output for item {item_id}: {str(e)}")
@@ -397,7 +400,7 @@ def display_subsection(subsection, parent_section, state_manager):
         if "items" in subsection:
             for item in subsection["items"]:
                 display_item(item, parent_section, subsection, state_manager)
-                
+
                 # Handle granular item processing (Task 3.1)
                 item_id = item.get('id', 'unknown')
                 if st.session_state.get(f"processing_item_{item_id}", False):
@@ -446,6 +449,8 @@ def display_item(item, section, subsection, state_manager):
                     key=f"accept_item_{item.get('id', 'unknown')}",
                     help="Accept this content",
                 ):
+                    item_id = item.get('id', 'unknown')
+                    handle_user_action(UserAction.ACCEPT, item_id)
                     item["status"] = "accepted"
                     item["feedback"] = "positive"
                     state_manager.update_item_feedback(
@@ -453,15 +458,15 @@ def display_item(item, section, subsection, state_manager):
                     )
                     st.success("Content accepted!")
                     st.rerun()
-            
+
             with regen_col:
                 if st.button(
                     f"🔄",
                     key=f"regen_item_{item.get('id', 'unknown')}",
                     help="Regenerate this item",
                 ):
-                    # Set processing state for this specific item
-                    st.session_state[f"processing_item_{item.get('id', 'unknown')}"] = True
+                    item_id = item.get('id', 'unknown')
+                    handle_user_action(UserAction.REGENERATE, item_id)
                     st.rerun()
 
         with col4:
@@ -525,7 +530,7 @@ def display_item(item, section, subsection, state_manager):
         else:
             # Display mode
             st.write(item.get("content", "*No content*"))
-            
+
             # Raw LLM Output expander (for debugging/transparency)
             if item.get("raw_llm_output"):
                 with st.expander("🔍 Raw LLM Output", expanded=False):
@@ -802,6 +807,45 @@ def get_available_sessions():
     return sessions
 
 
+def handle_user_action(action: UserAction, item_id: str, feedback_text: str = "") -> None:
+    """Handle user feedback actions for the iterative workflow.
+
+    This callback function updates the session state with user feedback
+    and triggers the appropriate workflow actions.
+
+    Args:
+        action: The user action (ACCEPT or REGENERATE)
+        item_id: The ID of the item being acted upon
+        feedback_text: Optional feedback text from the user
+    """
+    try:
+        # Create UserFeedback object
+        user_feedback = UserFeedback(
+            action=action,
+            item_id=item_id,
+            feedback_text=feedback_text,
+            timestamp=datetime.now()
+        )
+
+        # Store in session state for the LangGraph workflow
+        st.session_state.user_feedback = user_feedback
+
+        # Log the action
+        logger.info(f"User action recorded: {action.value} for item {item_id}")
+
+        if action == UserAction.REGENERATE:
+            # Set processing state for regeneration
+            st.session_state[f"processing_item_{item_id}"] = True
+            st.session_state.status_message = f"Regenerating item {item_id}..."
+        elif action == UserAction.ACCEPT:
+            # Mark item as accepted
+            st.session_state[f"accepted_item_{item_id}"] = True
+
+    except Exception as e:
+        logger.error(f"Error handling user action: {e}")
+        st.error(f"Failed to process user action: {str(e)}")
+
+
 def main():
     """Main Streamlit application."""
 
@@ -1075,7 +1119,7 @@ def main():
                                 st.session_state.processing = False
                                 return
 
-                            # Initialize enhanced CV integration if not already done
+                            # Initialize LangGraph orchestrator if not already done
                             if st.session_state.orchestrator_config is None:
                                 config = EnhancedCVConfig(
                                     mode=IntegrationMode.PRODUCTION,
@@ -1085,17 +1129,11 @@ def main():
                                 st.session_state.orchestrator_config = config.to_dict()
                                 st.session_state.api_key_validated = True
 
-                            # Get enhanced content writer agent from integration
-                            # Reconstruct the object from stored config
-                            config = EnhancedCVConfig.from_dict(
-                                st.session_state.orchestrator_config
-                            )
-                            enhanced_cv_integration = get_enhanced_cv_integration(
-                                config
-                            )
-                            enhanced_content_writer = enhanced_cv_integration.get_agent(
-                                "enhanced_content_writer"
-                            )
+                            # Get LangGraph orchestrator
+                            # Create StateManager for the orchestrator
+                            from src.core.state_manager import StateManager
+                            state_manager = StateManager(session_id=st.session_state.get('session_id'))
+                            orchestrator = EnhancedOrchestrator(state_manager)
 
                             # Budget checking function
                             def check_budget_limits():
@@ -1171,68 +1209,93 @@ def main():
                                 + 2000
                             )  # Rough estimate
 
-                            # Process with enhanced CV integration
-                            # Parse CV content into user data format
-                            user_data = {
-                                "personal_info": {},  # Add personal_info key
-                                "experience": [cv_content],  # Use 'experience' not 'experiences'
-                                "experiences": [cv_content],  # Keep for backward compatibility
-                                "qualifications": [],
-                                "projects": [],
-                                "education": [],
-                            }
+                            # Process with LangGraph orchestrator
+                            # Set up initial state for the workflow
+                            st.session_state.progress = 30
+                            st.session_state.status_message = "Setting up workflow state..."
 
-                            # Start enhanced CV generation workflow
+                            # Get enhanced CV integration
+                            if "enhanced_cv_integration_config" not in st.session_state:
+                                config = EnhancedCVConfig(
+                                mode=IntegrationMode.PRODUCTION,
+                                enable_caching=True,
+                                enable_monitoring=True,
+                                api_key=st.session_state.user_gemini_api_key,
+                            )
+                                st.session_state.enhanced_cv_integration_config = config.to_dict()
+
+                            config = EnhancedCVConfig.from_dict(st.session_state.enhanced_cv_integration_config)
+                            enhanced_cv_integration = get_enhanced_cv_integration(config)
+
+                            # Start LangGraph workflow
                             import asyncio
 
                             async def generate_cv():
                                 try:
-                                    # Use the enhanced CV integration's generate_job_tailored_cv method
-                                    result = await enhanced_cv_integration.generate_job_tailored_cv(
-                                        personal_info=user_data.get('personal_info', {}),
-                                        experience=user_data.get('experience', []),
-                                        job_description=job_description
-                                    )
-                                    
-                                    # Apply enum_to_value to the entire result to handle IntegrationMode objects
-                                    logger.info(f"Raw result type: {type(result)}")
-                                    if result:
-                                        logger.info(f"Raw result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")
-                                        
+                                    # Use the enhanced CV system to properly parse and process both job description and CV content
+                                    # The workflow will handle parsing and setting data in the correct order:
+                                    # 1. Parse job description and CV data
+                                    # 2. Create StructuredCV instance first
+                                    # 3. Then set job description data in the CV metadata
+                                    if cv_content:
+                                        # Use the enhanced CV system to properly parse and process the CV content
+                                        await enhanced_cv_integration.execute_workflow(
+                                            workflow_type=WorkflowType.JOB_TAILORED_CV,
+                                            input_data={
+                                                "job_description": job_description,
+                                                "cv_data": {"raw_text": cv_content}
+                                            }
+                                        )
+                                        # The workflow will handle parsing and setting the structured CV in state manager
+                                    else:
+                                        # If no CV content, still need to initialize with job description
+                                        await enhanced_cv_integration.execute_workflow(
+                                            workflow_type=WorkflowType.JOB_TAILORED_CV,
+                                            input_data={
+                                                "job_description": job_description,
+                                                "cv_data": None
+                                            }
+                                        )
+
+                                    # Get the final state from the orchestrator after workflow execution
+                                    final_state = orchestrator.state_manager.get_agent_state()
+
+                                    # Convert AgentState to serializable format
+                                    if final_state and final_state.structured_cv:
+                                        # Extract the structured CV data
+                                        cv_dict = final_state.structured_cv.model_dump()
+
                                         # Clean the result of any enum objects
-                                        cleaned_result = enum_to_value(result)
-                                        logger.info(f"Cleaned result type: {type(cleaned_result)}")
-                                        
-                                        # Test serialization
-                                        try:
-                                            import json
-                                            json.dumps(cleaned_result, cls=EnumEncoder)
-                                            logger.info("Result serialization test passed")
-                                        except Exception as serialize_error:
-                                            logger.error(f"Result serialization test failed: {serialize_error}")
-                                            logger.error(f"Problematic result structure: {cleaned_result}")
-                                            raise serialize_error
-                                        
-                                        return cleaned_result
-                                    return result
+                                        cleaned_result = enum_to_value(cv_dict)
+
+                                        # Wrap in expected format for compatibility
+                                        result = {
+                                            "content": cleaned_result,
+                                            "status": "success",
+                                            "agent_state": enum_to_value(final_state.model_dump())
+                                        }
+
+                                        logger.info("Enhanced CV workflow completed successfully")
+                                        return result
+                                    else:
+                                        logger.error("LangGraph workflow completed but no structured CV generated")
+                                        return None
+
                                 except Exception as workflow_error:
-                                    logger.error(f"Error in workflow execution: {workflow_error}")
-                                    logger.error(f"Workflow error type: {type(workflow_error)}")
+                                    logger.error(f"Error in LangGraph workflow execution: {workflow_error}")
                                     import traceback
                                     logger.error(f"Workflow traceback: {traceback.format_exc()}")
                                     raise workflow_error
 
-                            # Run the async workflow
+                            # Run the async LangGraph workflow
                             try:
                                 loop = asyncio.new_event_loop()
                                 asyncio.set_event_loop(loop)
                                 result = loop.run_until_complete(generate_cv())
-                                # The result is already in the correct format from generate_job_tailored_cv
+                                st.session_state.progress = 80
+                                st.session_state.status_message = "Finalizing CV generation..."
                             except Exception as e:
-                                logger.error(f"Error in CV generation loop: {str(e)}")
-                                logger.error(f"Loop error type: {type(e)}")
-                                if "IntegrationMode" in str(e):
-                                    logger.error("IntegrationMode serialization error detected in workflow execution")
+                                logger.error(f"Error in LangGraph workflow execution: {str(e)}")
                                 st.error(f"Error in CV generation: {str(e)}")
                                 result = None
                             finally:
@@ -1265,10 +1328,10 @@ def main():
                                     # First, clean the entire result object to remove any IntegrationMode enums
                                     logger.info(f"Raw result type: {type(result)}")
                                     logger.info(f"Raw result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
-                                    
+
                                     # Apply enum_to_value to the entire result first
                                     cleaned_result = enum_to_value(result)
-                                    
+
                                     # Test if the cleaned result is serializable
                                     try:
                                         import json
@@ -1279,7 +1342,7 @@ def main():
                                         logger.error(f"Result still not serializable after cleaning: {serialize_error}")
                                         # Force convert any remaining problematic objects to strings
                                         cleaned_result = json.loads(json.dumps(cleaned_result, cls=EnumEncoder, default=str))
-                                    
+
                                     if cleaned_result and cleaned_result.get("success") and cleaned_result.get("results"):
                                         # Debug: Log the structure of results
                                         logger.info(f"Results array length: {len(cleaned_result['results'])}")
@@ -1287,24 +1350,24 @@ def main():
                                             logger.info(f"Task result {i}: keys={list(task_result.keys()) if isinstance(task_result, dict) else 'Not a dict'}")
                                             if isinstance(task_result, dict):
                                                 logger.info(f"Task result {i} content keys: {list(task_result.get('content', {}).keys()) if task_result.get('content') else 'No content key'}")
-                                        
+
                                         # Use ContentAggregator to properly aggregate individual content pieces
                                         from .content_aggregator import ContentAggregator
-                                        
+
                                         # Add detailed logging for each task result
                                         for i, task_result in enumerate(cleaned_result["results"]):
                                             agent_type = task_result.get("agent_type", "unknown")
                                             content_keys = list(task_result.get("content", {}).keys()) if task_result.get("content") else []
                                             logger.info(f"Task {i} ({agent_type}): content_keys={content_keys}")
-                                        
+
                                         # Create aggregator and process all task results
                                         aggregator = ContentAggregator()
                                         cv_content = aggregator.aggregate_results(cleaned_result["results"], st.session_state.state_manager)
-                                        
+
                                         # Validate aggregated content
                                         if cv_content and aggregator.validate_content_data(cv_content):
                                             logger.info(f"Content aggregation successful. Populated fields: {[k for k, v in cv_content.items() if v]}")
-                                            
+
                                             # Ensure content is serializable
                                             serializable_content = json.loads(json.dumps(cv_content, cls=EnumEncoder, default=str))
                                             st.session_state.state_manager.update_cv_data(serializable_content)
@@ -1318,36 +1381,36 @@ def main():
                                         success_value = cleaned_result.get('success') if isinstance(cleaned_result, dict) else 'N/A'
                                         errors_value = cleaned_result.get('errors', []) if isinstance(cleaned_result, dict) else []
                                         results_value = cleaned_result.get('results') if isinstance(cleaned_result, dict) else None
-                                        
+
                                         logger.error(f"Result structure invalid: success={success_value}")
                                         logger.error(f"Errors in result: {errors_value}")
                                         logger.error(f"Results present: {bool(results_value)}")
                                         logger.error(f"Results type: {type(results_value)}")
                                         if results_value:
                                             logger.error(f"Results length: {len(results_value) if hasattr(results_value, '__len__') else 'N/A'}")
-                                        
+
                                         # Log the full result structure for debugging
                                         try:
                                             logger.error(f"Full result structure: {json.dumps(cleaned_result, indent=2, default=str)}")
                                         except Exception as log_error:
                                             logger.error(f"Could not serialize result for logging: {log_error}")
-                                        
+
                                         st.error("Invalid result structure from CV generation")
                                         st.session_state.processing = False
                                         return
-                                        
+
                                 except Exception as e:
                                     logger.error(f"Error processing CV results: {e}")
                                     logger.error(f"Error type: {type(e)}")
                                     import traceback
                                     logger.error(f"Full traceback: {traceback.format_exc()}")
-                                    
+
                                     # Try to log the problematic result structure
                                     try:
                                         logger.error(f"Result structure: {json.dumps(result, cls=EnumEncoder, default=str, indent=2)}")
                                     except:
                                         logger.error(f"Could not serialize result for logging: {type(result)}")
-                                    
+
                                     st.error(f"An error occurred during CV processing: {str(e)}")
                                     st.session_state.processing = False
                                     return
@@ -1425,7 +1488,7 @@ def main():
                             # Get enhanced CV integration for tailoring
                             if "enhanced_cv_integration_config" not in st.session_state:
                                 config = EnhancedCVConfig(
-                                    mode=IntegrationMode.STREAMLIT,
+                                    mode=IntegrationMode.PRODUCTION,
                                     enable_caching=True,
                                     enable_monitoring=True,
                                 )
@@ -1610,11 +1673,11 @@ def main():
             if content_data:
                 # Add toggle for showing raw LLM output
                 show_raw_output = st.checkbox(
-                    "🔍 Show Raw LLM Output", 
-                    value=False, 
+                    "🔍 Show Raw LLM Output",
+                    value=False,
                     help="Toggle to see the raw LLM responses for transparency"
                 )
-                
+
                 # Generate rendered Markdown (placeholder for real rendering)
                 rendered_cv = f"""
 # {content_data.get('name', 'Your Name')}
@@ -1633,7 +1696,7 @@ def main():
 
 ## 🎯 Big 10 Skills
 """
-                
+
                 # Add Big 10 skills display
                 big_10_skills = content_data.get('big_10_skills', [])
                 if big_10_skills:
@@ -1641,13 +1704,13 @@ def main():
                         rendered_cv += f"\n{i}. {skill}"
                 else:
                     rendered_cv += "\nBig 10 skills will appear here after CV generation."
-                
+
                 # Add raw output section if toggled
                 if show_raw_output:
                     raw_output = content_data.get('big_10_skills_raw_output', '')
                     if raw_output:
                         rendered_cv += f"\n\n### 🔍 Raw LLM Output for Big 10 Skills\n\n```\n{raw_output}\n```"
-                
+
                 rendered_cv += "\n\n## Professional Experience\n"
                 # Add experience bullets
                 for bullet in content_data.get("experience_bullets", []):

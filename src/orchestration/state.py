@@ -2,7 +2,7 @@
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from src.models.data_models import JobDescriptionData, StructuredCV
+from src.models.data_models import JobDescriptionData, StructuredCV, UserFeedback
 
 
 class AgentState(BaseModel):
@@ -26,8 +26,7 @@ class AgentState(BaseModel):
 
     # User Feedback for Regeneration
     # Stores feedback from the UI to guide the next generation cycle.
-    # e.g., {"action": "regenerate", "item_id": "...", "feedback_text": "Make it more technical."}
-    user_feedback: Optional[Dict[str, Any]] = None
+    user_feedback: Optional[UserFeedback] = None
 
     # Agent Outputs & Finalization
     # Research findings from the ResearchAgent

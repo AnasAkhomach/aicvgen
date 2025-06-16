@@ -1,5 +1,7 @@
-from src.agents.agent_base import AgentBase
-from src.services.llm import LLM
+from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from src.services.llm_service import get_llm_service
+from src.services.vector_db import get_enhanced_vector_db
+from .agent_base import EnhancedAgentBase
 from src.models.data_models import (
     JobDescriptionData,
     StructuredCV,
@@ -9,6 +11,13 @@ from src.models.data_models import (
     ItemStatus,
     ItemType,
     AgentIO,
+    PersonalInfo,
+    Experience,
+    Education,
+    Skill,
+    Project,
+    Certification,
+    Language,
 )
 from src.config.logging_config import get_logger
 from src.config.settings import get_config
@@ -37,34 +46,85 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class ParserAgent(AgentBase):
+class ParserAgent(EnhancedAgentBase):
     """Agent responsible for parsing job descriptions and extracting key information, and parsing CVs into StructuredCV objects."""
 
-    def __init__(self, name: str, description: str, llm: LLM):
+    def __init__(self, name: str, description: str, llm_service=None):
         """
         Initialize the ParserAgent.
 
         Args:
             name: The name of the agent.
             description: A description of the agent's purpose.
-            llm: The language model to use for parsing.
+            llm_service: Optional LLM service instance. If None, will use get_llm_service().
         """
         self.name = name
         self.description = description
-        self.llm = llm
+        self.llm = llm_service or get_llm_service()
         
         # Initialize settings for prompt loading
         self.settings = get_config()
 
     async def run(self, input: dict) -> Dict[str, Any]:
         """
-        Main entry point for the agent.
-
+        Main run method for the ParserAgent.
+        Processes job descriptions and CV text to extract structured data.
+        
         Args:
-            input: A dictionary containing the input data.
-
+            input: Dictionary containing 'job_description' and optionally 'cv_text' or 'start_from_scratch'
+            
         Returns:
-            A dictionary containing the parsed job description and/or parsed CV.
+            Dictionary with 'job_description_data' and optionally 'structured_cv'
+        """
+        try:
+            result = {}
+
+            # Process job description if provided
+            if "job_description" in input and input["job_description"]:
+                job_data = await self.parse_job_description(input["job_description"])
+                
+                # Ensure job_data is properly structured as a dictionary for workflow compatibility
+                if hasattr(job_data, '__dict__'):
+                    # Convert JobDescriptionData object to dictionary
+                    job_data_dict = {
+                        "raw_text": job_data.raw_text,
+                        "skills": job_data.skills,
+                        "experience_level": job_data.experience_level,
+                        "responsibilities": job_data.responsibilities,
+                        "industry_terms": job_data.industry_terms,
+                        "company_values": job_data.company_values
+                    }
+                    result["job_description_data"] = job_data_dict
+                    logger.info(f"Job description parsed and converted to structured dictionary format")
+                else:
+                    # Fallback if job_data is already a dict
+                    result["job_description_data"] = job_data
+                    logger.info(f"Job description parsed successfully")
+
+            # Process CV if provided
+            if "cv_text" in input and input["cv_text"]:
+                # Get job data from the result if we just parsed it, or from input
+                job_data = result.get("job_description_data", input.get("job_description_data", None))
+                structured_cv = self.parse_cv_text(input["cv_text"], job_data)
+                result["structured_cv"] = structured_cv
+
+            # Create empty CV structure if user chose "start from scratch"
+            if "start_from_scratch" in input and input["start_from_scratch"]:
+                # Get job data from the result if we just parsed it, or from input
+                job_data = result.get("job_description_data", input.get("job_description_data", None))
+                structured_cv = self.create_empty_cv_structure(job_data)
+                result["structured_cv"] = structured_cv
+
+            return result
+        except Exception as e:
+            logger.error(f"Error in ParserAgent.run: {str(e)}")
+            # Re-raise the exception to ensure proper error propagation
+            raise e
+    
+    async def _legacy_run_implementation(self, input: dict) -> Dict[str, Any]:
+        """
+        Legacy implementation preserved for reference but not used.
+        Use run_as_node for LangGraph integration.
         """
         try:
             result = {}
@@ -142,8 +202,24 @@ class ParserAgent(AgentBase):
                     metadata={"agent_type": "parser", "validation_error": True}
                 )
             
-            # Use the existing run method for the actual processing
-            result = await self.run(input_data)
+            # Use run_as_node for LangGraph integration
+            # Create AgentState for run_as_node compatibility
+            from src.orchestration.state import AgentState
+            from src.models.data_models import StructuredCV, JobDescriptionData
+            
+            # Create proper StructuredCV and JobDescriptionData objects
+            structured_cv = input_data.get("structured_cv") or StructuredCV()
+            job_desc_data = input_data.get("job_description_data")
+            if not job_desc_data or isinstance(job_desc_data, dict):
+                job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
+            
+            agent_state = AgentState(
+                structured_cv=structured_cv,
+                job_description_data=job_desc_data
+            )
+            
+            node_result = await self.run_as_node(agent_state)
+            result = node_result.get("output_data", {})
             
             return AgentResult(
                 success=True,
@@ -449,13 +525,17 @@ class ParserAgent(AgentBase):
         # Create a new StructuredCV
         structured_cv = StructuredCV()
 
-        # Add metadata
+        # Add metadata - handle both dict and JobDescriptionData object types
         if job_data:
             if hasattr(job_data, 'to_dict'):
+                # JobDescriptionData object
                 structured_cv.metadata["job_description"] = job_data.to_dict()
-            else:
-                # job_data is already a dict
+            elif isinstance(job_data, dict):
+                # Already a dictionary
                 structured_cv.metadata["job_description"] = job_data
+            else:
+                # Fallback for other types
+                structured_cv.metadata["job_description"] = {}
         else:
             structured_cv.metadata["job_description"] = {}
         structured_cv.metadata["original_cv_text"] = cv_text
@@ -610,9 +690,9 @@ class ParserAgent(AgentBase):
                 # Determine item type based on current section
                 item_type = ItemType.BULLET_POINT
                 if current_section and current_section.name == "Key Qualifications":
-                    item_type = ItemType.KEY_QUAL
+                    item_type = ItemType.KEY_QUALIFICATION
                 elif current_section and current_section.name == "Executive Summary":
-                    item_type = ItemType.SUMMARY_PARAGRAPH
+                    item_type = ItemType.EXECUTIVE_SUMMARY_PARA
                 elif current_section and current_section.name == "Education":
                     item_type = ItemType.EDUCATION_ENTRY
                 elif current_section and current_section.name == "Certifications":
@@ -675,7 +755,7 @@ class ParserAgent(AgentBase):
                                 Item(
                                     content=qual,
                                     status=ItemStatus.INITIAL,
-                                    item_type=ItemType.KEY_QUAL,
+                                    item_type=ItemType.KEY_QUALIFICATION,
                                 )
                             )
 
@@ -973,8 +1053,19 @@ class ParserAgent(AgentBase):
         # Create a new StructuredCV
         structured_cv = StructuredCV()
 
-        # Add metadata
-        structured_cv.metadata["job_description"] = job_data.to_dict() if job_data else {}
+        # Add metadata - handle both dict and JobDescriptionData object types
+        if job_data:
+            if hasattr(job_data, 'to_dict'):
+                # JobDescriptionData object
+                structured_cv.metadata["job_description"] = job_data.to_dict()
+            elif isinstance(job_data, dict):
+                # Already a dictionary
+                structured_cv.metadata["job_description"] = job_data
+            else:
+                # Fallback for other types
+                structured_cv.metadata["job_description"] = {}
+        else:
+            structured_cv.metadata["job_description"] = {}
         structured_cv.metadata["start_from_scratch"] = True
 
         # Create standard CV sections with proper order
@@ -1002,19 +1093,26 @@ class ParserAgent(AgentBase):
                     Item(
                         content="",
                         status=ItemStatus.TO_REGENERATE,
-                        item_type=ItemType.SUMMARY_PARAGRAPH,
+                        item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
                     )
                 )
 
             # For Key Qualifications, add empty items based on skills from job description
-            if section.name == "Key Qualifications" and job_data and job_data.skills:
+            skills = None
+            if job_data:
+                if hasattr(job_data, 'skills'):
+                    skills = job_data.skills
+                elif isinstance(job_data, dict) and 'skills' in job_data:
+                    skills = job_data['skills']
+            
+            if section.name == "Key Qualifications" and skills:
                 # Limit to 8 skills maximum
-                for skill in job_data.skills[:8]:
+                for skill in skills[:8]:
                     section.items.append(
                         Item(
                             content=skill,
                             status=ItemStatus.TO_REGENERATE,
-                            item_type=ItemType.KEY_QUAL,
+                            item_type=ItemType.KEY_QUALIFICATION,
                         )
                     )
 

@@ -16,6 +16,10 @@ from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..services.error_recovery import get_error_recovery_service, RecoveryStrategy
 from ..utils.security_utils import redact_sensitive_data
+from ..core.performance_optimizer import PerformanceOptimizer
+from ..core.async_optimizer import AsyncOptimizer
+from ..core.caching_strategy import get_intelligent_cache_manager, CachePattern
+import hashlib
 
 # Enhanced CV system imports
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
@@ -99,6 +103,11 @@ class EnhancedCVIntegration:
         self._orchestrator: Optional[EnhancedOrchestrator] = None
         self._state_manager: Optional[StateManager] = None
         self._agents: Dict[str, Any] = {}
+        
+        # Performance optimization components
+        self._performance_optimizer: Optional[PerformanceOptimizer] = None
+        self._async_optimizer: Optional[AsyncOptimizer] = None
+        self._intelligent_cache = None
 
         # Performance tracking
         self._performance_stats = {
@@ -142,6 +151,13 @@ class EnhancedCVIntegration:
             if self.config.enable_specialized_agents:
                 self._initialize_agents()
                 self.logger.info("Specialized agents initialized")
+            
+            # Initialize performance optimization components
+            if self.config.enable_performance_monitoring:
+                self._performance_optimizer = PerformanceOptimizer()
+                self._async_optimizer = AsyncOptimizer()
+                self._intelligent_cache = get_intelligent_cache_manager()
+                self.logger.info("Performance optimization components initialized")
 
             self.logger.info("Enhanced CV system integration initialized successfully")
 
@@ -309,6 +325,35 @@ class EnhancedCVIntegration:
     def get_orchestrator(self):
         """Get the orchestrator instance."""
         return self._orchestrator
+    
+    @property
+    def orchestrator(self):
+        """Get the orchestrator instance as a property."""
+        return self._orchestrator
+    
+    def _get_performance_context(self):
+        """Get performance optimization context."""
+        if self._performance_optimizer:
+            return self._performance_optimizer.optimized_execution(
+                operation_type="workflow_execution",
+                expected_duration=30.0
+            )
+        else:
+            # Return a no-op context manager if performance optimizer is not available
+            from contextlib import nullcontext
+            return nullcontext()
+    
+    def _get_async_context(self):
+        """Get async optimization context."""
+        if self._async_optimizer:
+            return self._async_optimizer.optimized_context(
+                max_concurrent=self.config.max_concurrent_agents,
+                timeout=self.config.orchestration_timeout.total_seconds()
+            )
+        else:
+            # Return a no-op context manager if async optimizer is not available
+            from contextlib import nullcontext
+            return nullcontext()
 
     # Workflow Execution
     async def execute_workflow(
@@ -325,101 +370,138 @@ class EnhancedCVIntegration:
         start_time = datetime.now()
         success = False  # Initialize success variable
         result_state = None  # Initialize result_state variable
+        
+        # Check intelligent cache first
+        cache_key = None
+        if self._intelligent_cache:
+            cache_data = {
+                "workflow_type": workflow_type.value if hasattr(workflow_type, 'value') else str(workflow_type),
+                "input_data": input_data,
+                "custom_options": custom_options or {}
+            }
+            cache_key = hashlib.md5(str(cache_data).encode()).hexdigest()
+            cached_result = self._intelligent_cache.get(cache_key)
+            if cached_result:
+                self.logger.info("Workflow result served from cache", cache_key=cache_key)
+                self._performance_stats["cache_hits"] += 1
+                return cached_result
+            else:
+                self._performance_stats["cache_misses"] += 1
 
         try:
-            # Convert string to enum if needed
-            if isinstance(workflow_type, str):
-                workflow_type = WorkflowType(workflow_type)
+            # Use performance optimizer for the entire workflow execution
+            async with self._get_performance_context():
+                # Convert string to enum if needed
+                if isinstance(workflow_type, str):
+                    workflow_type = WorkflowType(workflow_type)
 
-            self.logger.info("Executing workflow", extra={
-                "workflow_type": workflow_type.value,
-                "session_id": session_id,
-                "input_keys": list(input_data.keys())
-            })
+                self.logger.info("Executing workflow", extra={
+                    "workflow_type": workflow_type.value,
+                    "session_id": session_id,
+                    "input_keys": list(input_data.keys())
+                })
 
-            # For now, we'll use the enhanced orchestrator's execute_full_workflow method
-            # This is a simplified implementation that can be expanded based on workflow_type
-            if workflow_type in [WorkflowType.BASIC_CV_GENERATION, WorkflowType.JOB_TAILORED_CV]:
-                # First, we need to set up the input data in the state manager
-                # The orchestrator expects job description data to be available in state manager
-                if "job_description" in input_data:
-                    # Parse the job description using the parser agent
-                    parser_agent = self.get_agent("parser")
-                    if parser_agent:
-                        # Parse job description to create JobDescriptionData
-                        job_desc_data = input_data["job_description"]
-                        if isinstance(job_desc_data, dict):
-                            job_desc_text = job_desc_data.get("description", job_desc_data.get("raw_text", ""))
-                            if not job_desc_text:
-                                # If no description field, try to extract from other fields
-                                job_desc_text = f"Title: {job_desc_data.get('title', '')}\n"
-                                job_desc_text += f"Company: {job_desc_data.get('company', '')}\n"
-                                job_desc_text += f"Requirements: {job_desc_data.get('requirements', '')}\n"
-                                job_desc_text += f"Responsibilities: {job_desc_data.get('responsibilities', '')}"
-                        else:
-                            # Handle string job description (from Streamlit text area)
-                            job_desc_text = str(job_desc_data).strip()
-                            if not job_desc_text:
-                                self.logger.error("Empty job description provided")
-                                raise ValueError("Job description cannot be empty")
-                        
-                        # Create a basic CV structure from personal info and experience if available
-                        cv_text = ""
-                        if "personal_info" in input_data and "experience" in input_data:
-                            personal_info = input_data["personal_info"]
-                            experience = input_data["experience"]
-                            
-                            # Build a simple CV text from the provided data
-                            cv_text = f"Name: {personal_info.get('name', '')}\n"
-                            cv_text += f"Email: {personal_info.get('email', '')}\n"
-                            cv_text += f"Phone: {personal_info.get('phone', '')}\n\n"
-                            cv_text += "Experience:\n"
-                            for exp in experience:
-                                cv_text += f"- {exp.get('title', '')} at {exp.get('company', '')}\n"
-                                cv_text += f"  {exp.get('description', '')}\n"
-                        
-                        # Use parser agent to process both job description and CV data
-                        parser_input = {
-                            "job_description": job_desc_text
-                        }
-                        
-                        if cv_text:
-                            parser_input["cv_text"] = cv_text
-                        else:
-                            # Create empty CV structure if no CV data provided
-                            parser_input["start_from_scratch"] = True
-                        
-                        parser_result = await parser_agent.run(parser_input)
-                        
-                        # Log the parser result for debugging
-                        self.logger.info(f"Parser result keys: {list(parser_result.keys()) if isinstance(parser_result, dict) else 'Not a dict'}")
-                        self.logger.info(f"Parser result type: {type(parser_result)}")
-                        if isinstance(parser_result, dict):
-                            self.logger.info(f"Parser result content: {parser_result}")
-                        
-                        # Set the parsed data in the state manager
-                        if "job_description_data" in parser_result:
-                            # Convert dict to JobDescriptionData object if needed
-                            job_desc_data = parser_result["job_description_data"]
+                # For now, we'll use the enhanced orchestrator's execute_full_workflow method
+                # This is a simplified implementation that can be expanded based on workflow_type
+                if workflow_type in [WorkflowType.BASIC_CV_GENERATION, WorkflowType.JOB_TAILORED_CV]:
+                    # First, we need to set up the input data in the state manager
+                    # The orchestrator expects job description data to be available in state manager
+                    if "job_description" in input_data:
+                        # Parse the job description using the parser agent
+                        parser_agent = self.get_agent("parser")
+                        if parser_agent:
+                            # Parse job description to create JobDescriptionData
+                            job_desc_data = input_data["job_description"]
                             if isinstance(job_desc_data, dict):
-                                from src.models.data_models import JobDescriptionData
-                                job_desc_obj = JobDescriptionData(**job_desc_data)
-                                self._orchestrator.state_manager.set_job_description_data(job_desc_obj)
+                                job_desc_text = job_desc_data.get("description", job_desc_data.get("raw_text", ""))
+                                if not job_desc_text:
+                                    # If no description field, try to extract from other fields
+                                    job_desc_text = f"Title: {job_desc_data.get('title', '')}\n"
+                                    job_desc_text += f"Company: {job_desc_data.get('company', '')}\n"
+                                    job_desc_text += f"Requirements: {job_desc_data.get('requirements', '')}\n"
+                                    job_desc_text += f"Responsibilities: {job_desc_data.get('responsibilities', '')}"
                             else:
-                                self._orchestrator.state_manager.set_job_description_data(job_desc_data)
-                            self.logger.info("Job description data set in state manager")
+                                # Handle string job description (from Streamlit text area)
+                                job_desc_text = str(job_desc_data).strip()
+                                if not job_desc_text:
+                                    self.logger.error("Empty job description provided")
+                                    raise ValueError("Job description cannot be empty")
+                            
+                            # Create a basic CV structure from personal info and experience if available
+                            cv_text = ""
+                            if "personal_info" in input_data and "experience" in input_data:
+                                personal_info = input_data["personal_info"]
+                                experience = input_data["experience"]
+                                
+                                # Build a simple CV text from the provided data
+                                cv_text = f"Name: {personal_info.get('name', '')}\n"
+                                cv_text += f"Email: {personal_info.get('email', '')}\n"
+                                cv_text += f"Phone: {personal_info.get('phone', '')}\n\n"
+                                cv_text += "Experience:\n"
+                                for exp in experience:
+                                    cv_text += f"- {exp.get('title', '')} at {exp.get('company', '')}\n"
+                                    cv_text += f"  {exp.get('description', '')}\n"
+                            
+                            # Use parser agent to process both job description and CV data
+                            parser_input = {
+                                "job_description": job_desc_text
+                            }
+                            
+                            if cv_text:
+                                parser_input["cv_text"] = cv_text
+                            else:
+                                # Create empty CV structure if no CV data provided
+                                parser_input["start_from_scratch"] = True
+                            
+                            # Use run_as_node for LangGraph integration
+                            # Create AgentState for run_as_node compatibility
+                            from src.orchestration.state import AgentState
+                            from src.models.data_models import StructuredCV, JobDescriptionData
+                            
+                            # Create proper StructuredCV and JobDescriptionData objects
+                            structured_cv = StructuredCV()
+                            job_desc_data = JobDescriptionData(raw_text=job_desc_text)
+                            
+                            agent_state = AgentState(
+                                structured_cv=structured_cv,
+                                job_description_data=job_desc_data
+                            )
+                            
+                            node_result = await parser_agent.run_as_node(agent_state)
+                            parser_result = node_result.get("output_data", {})
+                            
+                            # Log the parser result for debugging
+                            self.logger.info(f"Parser result keys: {list(parser_result.keys()) if isinstance(parser_result, dict) else 'Not a dict'}")
+                            self.logger.info(f"Parser result type: {type(parser_result)}")
+                            if isinstance(parser_result, dict):
+                                self.logger.info(f"Parser result content: {parser_result}")
+                            
+                            # Set the parsed data in the state manager
+                            # IMPORTANT: Set structured CV FIRST, then job description data
+                            # because job description data requires a StructuredCV instance to exist
+                            if "structured_cv" in parser_result:
+                                self._orchestrator.state_manager.set_structured_cv(parser_result["structured_cv"])
+                                self.logger.info("Structured CV data set in state manager")
+                            
+                            if "job_description_data" in parser_result:
+                                # Convert dict to JobDescriptionData object if needed
+                                job_desc_data = parser_result["job_description_data"]
+                                if isinstance(job_desc_data, dict):
+                                    from src.models.data_models import JobDescriptionData
+                                    job_desc_obj = JobDescriptionData(**job_desc_data)
+                                    self._orchestrator.state_manager.set_job_description_data(job_desc_obj)
+                                else:
+                                    self._orchestrator.state_manager.set_job_description_data(job_desc_data)
+                                self.logger.info("Job description data set in state manager")
+                            
+                            self.logger.info("Job description and CV data processed and set in state manager")
+                            
+                            # Initialize workflow after setting up the data
+                            await self._orchestrator.initialize_workflow()
                         
-                        if "structured_cv" in parser_result:
-                            self._orchestrator.state_manager.set_structured_cv(parser_result["structured_cv"])
-                            self.logger.info("Structured CV data set in state manager")
-                        
-                        self.logger.info("Job description and CV data processed and set in state manager")
-                        
-                        # Initialize workflow after setting up the data
-                        self._orchestrator.initialize_workflow()
-                        
-                        # Execute the full workflow
-                        result_state = await self._orchestrator.execute_full_workflow()
+                        # Execute the full workflow with async optimization
+                        async with self._get_async_context():
+                            result_state = await self._orchestrator.execute_full_workflow()
                         
                         # Debug logging for error_messages
                         self.logger.info(f"Workflow result_state.error_messages: {result_state.error_messages}")
@@ -428,26 +510,44 @@ class EnhancedCVIntegration:
                         success = not bool(result_state.error_messages)
                         self.logger.info(f"Success determined as: {success} (based on error_messages: {bool(result_state.error_messages)})")
                 
-            else:
-                # For other workflow types, return a placeholder response
-                self.logger.warning(f"Workflow type {workflow_type.value} not yet implemented in new orchestrator")
-                success = False
-                result_state = None
+                else:
+                    # For other workflow types, return a placeholder response
+                    self.logger.warning(f"Workflow type {workflow_type.value} not yet implemented in new orchestrator")
+                    success = False
+                    result_state = None
 
-            # Update performance stats
-            processing_time = (datetime.now() - start_time).total_seconds()
-            self._performance_stats["requests_processed"] += 1
-            self._performance_stats["total_processing_time"] += processing_time
+                # Update performance stats
+                processing_time = (datetime.now() - start_time).total_seconds()
+                self._performance_stats["requests_processed"] += 1
+                self._performance_stats["total_processing_time"] += processing_time
 
-            self.logger.info("Workflow completed", extra={
-                "workflow_type": workflow_type.value,
-                "session_id": session_id,
-                "processing_time": processing_time,
-                "success": success
-            })
+                self.logger.info("Workflow completed", extra={
+                    "workflow_type": workflow_type.value,
+                    "session_id": session_id,
+                    "processing_time": processing_time,
+                    "success": success
+                })
 
-            # Debug logging for final return structure
-            final_errors = result_state.error_messages if result_state else []
+                # Cache successful results
+                if success and result_state and cache_key and self._intelligent_cache:
+                    workflow_result = {
+                        "success": success,
+                        "result_state": result_state,
+                        "processing_time": processing_time,
+                        "session_id": session_id
+                    }
+                    
+                    self._intelligent_cache.set(
+                        cache_key,
+                        workflow_result,
+                        ttl_hours=2,
+                        tags={"workflow", workflow_type.value, "cv_generation"},
+                        priority=3,
+                        pattern=CachePattern.READ_HEAVY
+                    )
+                
+                # Debug logging for final return structure
+                final_errors = result_state.error_messages if result_state else []
             self.logger.info(f"Final return structure - success: {success}, errors: {final_errors}")
             
             return {

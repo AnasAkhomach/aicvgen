@@ -38,53 +38,21 @@ class CVAnalysisAgent(EnhancedAgentBase):
         # Initialize settings for prompt loading
         self.settings = get_config()
     
-    def run(self, input_data: Any) -> Any:
-        """Synchronous wrapper for run_async method."""
-        import asyncio
-        
-        # Create a basic context if not provided
-        context = AgentExecutionContext(
-            session_id="sync_session",
-            item_id="sync_item",
-            content_type=None
-        )
-        
-        # Run the async method
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(self.run_async(input_data, context))
+    # Legacy run method removed - use run_as_node for LangGraph integration
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Analyze CV content against job requirements."""
-        from src.models.validation_schemas import validate_agent_input, ValidationError
+        from src.models.validation_schemas import validate_agent_input
         
         try:
-            # Validate input data using Pydantic schemas
-            try:
-                validated_input = validate_agent_input('cv_analyzer', input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-                self.logger.info("Input validation passed for CVAnalysisAgent")
-            except ValidationError as ve:
-                self.logger.error(f"Input validation failed for CVAnalysisAgent: {ve.message}")
+            # Validate input data
+            if not validate_agent_input(input_data, dict):
+                self.logger.error("Input validation failed for CVAnalysisAgent")
                 return AgentResult(
                     success=False,
-                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    output_data={"error": "Input validation failed: expected dictionary input"},
                     confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={"analysis_type": "cv_job_match", "validation_error": True}
-                )
-            except Exception as e:
-                self.logger.error(f"Input validation error for CVAnalysisAgent: {str(e)}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation error: {str(e)}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
+                    error_message="Input validation failed: expected dictionary input",
                     metadata={"analysis_type": "cv_job_match", "validation_error": True}
                 )
             
@@ -299,54 +267,21 @@ class ContentOptimizationAgent(EnhancedAgentBase):
             for content_type in ContentType
         }
     
-    def run(self, input_data: Any) -> Any:
-        """Synchronous wrapper for run_async method."""
-        import asyncio
-        
-        # Create a basic context if not provided
-        context = AgentExecutionContext(
-            session_id="sync_session",
-            item_id="sync_item",
-            content_type=None
-        )
-        
-        # Run the async method
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        return loop.run_until_complete(self.run_async(input_data, context))
+    # Legacy run method removed - use run_as_node for LangGraph integration
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Optimize content items for better performance."""
-        from src.models.validation_schemas import validate_agent_input, ValidationError
+        from src.models.validation_schemas import validate_agent_input
         
         try:
-            # Validate input data using Pydantic schemas
-            try:
-                # Use enhanced_content_writer schema as it's the closest match for content optimization
-                validated_input = validate_agent_input('enhanced_content_writer', input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-                logger.info("Input validation passed for ContentOptimizationAgent")
-            except ValidationError as ve:
-                logger.error(f"Input validation failed for ContentOptimizationAgent: {ve.message}")
+            # Validate input data
+            if not validate_agent_input(input_data, dict):
+                logger.error("Input validation failed for ContentOptimizationAgent")
                 return AgentResult(
                     success=False,
-                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    output_data={"error": "Input validation failed: expected dictionary input"},
                     confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={"optimization_type": "content", "validation_error": True}
-                )
-            except Exception as e:
-                logger.error(f"Input validation error for ContentOptimizationAgent: {str(e)}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation error: {str(e)}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
+                    error_message="Input validation failed: expected dictionary input",
                     metadata={"optimization_type": "content", "validation_error": True}
                 )
             
@@ -572,66 +507,21 @@ class EnhancedParserAgent(EnhancedAgentBase):
             llm=llm_service
         )
     
-    def run(self, input_data: Any) -> Any:
-        """Synchronous run method for backward compatibility."""
-        try:
-            # Convert input data to the format expected by ParserAgent
-            parser_input = {}
-            
-            if isinstance(input_data, dict):
-                # Handle structured input
-                if "cv_text" in input_data:
-                    parser_input["cv_text"] = input_data["cv_text"]
-                if "job_description" in input_data:
-                    parser_input["job_description"] = input_data["job_description"]
-                if "start_from_scratch" in input_data:
-                    parser_input["start_from_scratch"] = input_data["start_from_scratch"]
-            elif isinstance(input_data, str):
-                # Handle string input as CV text
-                parser_input["cv_text"] = input_data
-            
-            # Run the parser agent using asyncio since it's now async
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(self.parser_agent.run(parser_input))
-                return result
-            finally:
-                loop.close()
-            
-        except Exception as e:
-            self.logger.error(f"Enhanced parser agent failed: {str(e)}")
-            return {"error": str(e)}
+    # Legacy run method removed - use run_as_node for LangGraph integration
     
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Run the parser agent asynchronously."""
-        from src.models.validation_schemas import validate_agent_input, ValidationError
+        from src.models.validation_schemas import validate_agent_input
         
         try:
-            # Validate input data using Pydantic schemas
-            try:
-                # Use parser_agent schema for validation
-                validated_input = validate_agent_input('parser_agent', input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-                logger.info("Input validation passed for EnhancedParserAgent")
-            except ValidationError as ve:
-                logger.error(f"Input validation failed for EnhancedParserAgent: {ve.message}")
+            # Validate input data
+            if not validate_agent_input(input_data):
+                logger.error("Input validation failed for EnhancedParserAgent")
                 return AgentResult(
                     success=False,
-                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    output_data={"error": "Input validation failed"},
                     confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={"agent_type": "enhanced_parser", "validation_error": True}
-                )
-            except Exception as e:
-                logger.error(f"Input validation error for EnhancedParserAgent: {str(e)}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation error: {str(e)}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
+                    error_message="Input validation failed",
                     metadata={"agent_type": "enhanced_parser", "validation_error": True}
                 )
             
@@ -650,8 +540,24 @@ class EnhancedParserAgent(EnhancedAgentBase):
                 # Handle string input as CV text
                 parser_input["cv_text"] = input_data
             
-            # Run the parser agent asynchronously (now has async support)
-            result = await self.parser_agent.run(parser_input)
+            # Use run_as_node for LangGraph integration
+            # Create AgentState for run_as_node compatibility
+            from src.orchestration.state import AgentState
+            from src.models.data_models import StructuredCV, JobDescriptionData
+            
+            # Create proper StructuredCV and JobDescriptionData objects
+            structured_cv = parser_input.get("structured_cv") or StructuredCV()
+            job_desc_data = parser_input.get("job_description_data")
+            if not job_desc_data or isinstance(job_desc_data, dict):
+                job_desc_data = JobDescriptionData(raw_text=parser_input.get("job_description", ""))
+            
+            agent_state = AgentState(
+                structured_cv=structured_cv,
+                job_description_data=job_desc_data
+            )
+            
+            node_result = await self.parser_agent.run_as_node(agent_state)
+            result = node_result.get("output_data", {})
             
             return AgentResult(
                 success=True,

@@ -1,11 +1,11 @@
-from src.agents.agent_base import AgentBase
+from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from src.core.state_manager import ContentData, AgentIO
 import google.generativeai as genai
 import os
-from src.services.llm import LLM
+from src.services.llm_service import get_llm_service
 
 
-class TemplateRenderer(AgentBase):
+class TemplateRenderer(EnhancedAgentBase):
     """Agent responsible for rendering CV templates."""
 
     def __init__(

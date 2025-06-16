@@ -1,5 +1,5 @@
-from src.agents.agent_base import AgentBase
-from src.services.llm import LLM
+from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from src.services.llm_service import get_llm_service
 from src.core.state_manager import (
     ContentData,
     AgentIO,
@@ -21,20 +21,20 @@ from src.models.data_models import StructuredCV as PydanticStructuredCV
 logger = logging.getLogger(__name__)
 
 
-class QualityAssuranceAgent(AgentBase):
+class QualityAssuranceAgent(EnhancedAgentBase):
     """
     Agent responsible for quality assurance of generated CV content.
     This agent fulfills REQ-FUNC-QA-1 from the SRS.
     """
 
-    def __init__(self, name: str, description: str, llm: LLM = None):
+    def __init__(self, name: str, description: str, llm_service=None):
         """
         Initializes the QualityAssuranceAgent.
 
         Args:
             name: The name of the agent.
             description: A description of the agent.
-            llm: Optional LLM instance for more sophisticated checks.
+            llm_service: Optional LLM service instance for more sophisticated checks.
         """
         super().__init__(
             name=name,
@@ -62,80 +62,9 @@ class QualityAssuranceAgent(AgentBase):
                 description="Results of quality checks and updated CV structure.",
             ),
         )
-        self.llm = llm
+        self.llm = llm_service or get_llm_service()
 
-    def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Runs quality checks on the generated CV content.
-
-        Args:
-            input_data: A dictionary containing:
-                - structured_cv (StructuredCV): The CV structure to check
-                - job_description_data (Dict): Job description data for context
-
-        Returns:
-            A dictionary containing:
-                - quality_check_results: Results of the quality checks
-                - updated_structured_cv: The updated CV structure with any fixes
-        """
-        structured_cv = input_data.get("structured_cv")
-        job_description_data = input_data.get("job_description_data", {})
-
-        if not structured_cv:
-            logger.warning("No StructuredCV provided to QualityAssuranceAgent")
-            return {
-                "quality_check_results": {"error": "No CV data provided"},
-                "updated_structured_cv": StructuredCV(),
-            }
-
-        # Extract job requirements for matching checks
-        key_terms = self._extract_key_terms(job_description_data)
-
-        # Perform quality checks
-        check_results = {
-            "item_checks": [],
-            "section_checks": [],
-            "overall_checks": [],
-            "summary": {
-                "total_items": 0,
-                "passed_items": 0,
-                "warning_items": 0,
-                "failed_items": 0,
-            },
-        }
-
-        # Check each section and item
-        for section in structured_cv.sections:
-            section_check = self._check_section(section, key_terms)
-            check_results["section_checks"].append(section_check)
-
-            # Update summary counts
-            check_results["summary"]["total_items"] += section_check["total_items"]
-            check_results["summary"]["passed_items"] += section_check["passed_items"]
-            check_results["summary"]["warning_items"] += section_check["warning_items"]
-            check_results["summary"]["failed_items"] += section_check["failed_items"]
-
-            # Add individual item checks to the results
-            check_results["item_checks"].extend(section_check["item_checks"])
-
-        # Perform overall CV checks
-        overall_check = self._check_overall_cv(structured_cv, key_terms)
-        check_results["overall_checks"] = overall_check
-
-        # Calculate overall quality score
-        if check_results["summary"]["total_items"] > 0:
-            quality_score = (
-                check_results["summary"]["passed_items"] / check_results["summary"]["total_items"]
-            ) * 100
-            check_results["summary"]["quality_score"] = quality_score
-        else:
-            check_results["summary"]["quality_score"] = 0
-
-        # Return results and updated CV
-        return {
-            "quality_check_results": check_results,
-            "updated_structured_cv": structured_cv,
-        }
+    # Legacy run method removed - use run_as_node for LangGraph integration
     
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
@@ -198,8 +127,24 @@ class QualityAssuranceAgent(AgentBase):
                     metadata={"agent_type": "quality_assurance", "validation_error": True}
                 )
             
-            # Use the existing run method for the actual processing
-            result = self.run(input_data)
+            # Use run_as_node for LangGraph integration
+            # Create AgentState for run_as_node compatibility
+            from src.orchestration.state import AgentState
+            from src.models.data_models import StructuredCV, JobDescriptionData
+            
+            # Create proper StructuredCV and JobDescriptionData objects
+            structured_cv = input_data.get("structured_cv") or StructuredCV()
+            job_desc_data = input_data.get("job_description_data")
+            if not job_desc_data or isinstance(job_desc_data, dict):
+                job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
+            
+            agent_state = AgentState(
+                structured_cv=structured_cv,
+                job_description_data=job_desc_data
+            )
+            
+            node_result = await self.run_as_node(agent_state)
+            result = node_result.get("output_data", {})
             
             return AgentResult(
                 success=True,
@@ -505,7 +450,7 @@ class QualityAssuranceAgent(AgentBase):
                     }
                 )
 
-        elif item.item_type == ItemType.KEY_QUAL:
+        elif item.item_type == ItemType.KEY_QUALIFICATION:
             if word_count > 5:
                 item_result["checks"].append(
                     {

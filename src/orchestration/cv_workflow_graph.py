@@ -14,7 +14,7 @@ from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.formatter_agent import FormatterAgent
-from src.services.llm import get_llm_service
+from src.services.llm_service import get_llm_service
 from src.models.data_models import UserAction
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,12 @@ WORKFLOW_SEQUENCE = ["key_qualifications", "professional_experience", "project_e
 
 # Initialize services and agents
 llm_service = get_llm_service()
-parser_agent = ParserAgent(name="ParserAgent", description="Parses CV and JD.", llm=llm_service)
+parser_agent = ParserAgent(name="ParserAgent", description="Parses CV and JD.", llm_service=llm_service)
 content_writer_agent = EnhancedContentWriterAgent()
-qa_agent = QualityAssuranceAgent(name="QAAgent", description="Performs quality checks.", llm=llm_service)
+qa_agent = QualityAssuranceAgent(name="QAAgent", description="Performs quality checks.", llm_service=llm_service)
 from src.services.vector_db import get_enhanced_vector_db
 vector_db = get_enhanced_vector_db()
-research_agent = ResearchAgent(name="ResearchAgent", description="Conducts research and finds relevant CV content.", llm=llm_service, vector_db=vector_db)
+research_agent = ResearchAgent(name="ResearchAgent", description="Conducts research and finds relevant CV content.", llm_service=llm_service, vector_db=vector_db)
 formatter_agent = FormatterAgent(name="FormatterAgent", description="Generates PDF output from structured CV data.")
 
 # Node wrapper functions for granular workflow
@@ -202,7 +202,7 @@ async def route_after_review(state: Dict[str, Any]) -> str:
     
     # Check if there's user feedback requiring regeneration
     if (agent_state.user_feedback and 
-        agent_state.user_feedback.get("action") == UserAction.REGENERATE):
+        agent_state.user_feedback.action == UserAction.REGENERATE):
         logger.info("User requested regeneration, routing to content_writer")
         return "regenerate"
     

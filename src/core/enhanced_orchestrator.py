@@ -13,7 +13,7 @@ from src.orchestration.state import AgentState
 from src.orchestration.cv_workflow_graph import cv_graph_app  # Import the compiled graph
 from src.agents.research_agent import ResearchAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
-from src.services.llm import LLM
+from src.services.llm_service import get_llm_service
 from src.services.vector_db import get_enhanced_vector_db
 from src.utils.exceptions import (
     WorkflowPreconditionError,
@@ -44,26 +44,24 @@ class EnhancedOrchestrator:
         self.workflow_app = cv_graph_app
 
         # Initialize LLM service
-        self.llm = LLM()
+        self.llm_service = get_llm_service()
 
         # Initialize Research and QA agents
         vector_db = get_enhanced_vector_db()
         self.research_agent = ResearchAgent(
             name="ResearchAgent",
             description="Agent for populating vector store with CV content",
-            llm=self.llm,
             vector_db=vector_db
         )
 
         self.quality_assurance_agent = QualityAssuranceAgent(
             name="QualityAssuranceAgent",
-            description="Agent for quality assurance of generated content",
-            llm=self.llm
+            description="Agent for quality assurance of generated content"
         )
 
         logger.info("EnhancedOrchestrator initialized with compiled LangGraph application and MVP agents.")
 
-    def initialize_workflow(self) -> None:
+    async def initialize_workflow(self) -> None:
         """
         Initialize the workflow by running the research agent to populate the vector store.
         This should be called before processing any items.
@@ -91,7 +89,24 @@ class EnhancedOrchestrator:
                 "structured_cv": structured_cv.model_dump() if structured_cv else {}
             }
 
-            research_result = self.research_agent.run(research_input)
+            # Use run_as_node for LangGraph integration
+            # Create AgentState for run_as_node compatibility
+            from src.orchestration.state import AgentState
+            from src.models.data_models import StructuredCV, JobDescriptionData
+            
+            # Create proper StructuredCV and JobDescriptionData objects
+            structured_cv = research_input.get("structured_cv") or StructuredCV()
+            job_desc_data = research_input.get("job_description_data")
+            if not job_desc_data or isinstance(job_desc_data, dict):
+                job_desc_data = JobDescriptionData(raw_text=research_input.get("job_description", ""))
+            
+            agent_state = AgentState(
+                structured_cv=structured_cv,
+                job_description_data=job_desc_data
+            )
+            
+            node_result = await self.research_agent.run_as_node(agent_state)
+            research_result = node_result.get("output_data", {})
 
             if research_result.get("success", False):
                 logger.info("Research agent successfully populated vector store")
@@ -235,7 +250,7 @@ class EnhancedOrchestrator:
                 error_messages=[f"Unexpected error processing item {item_id}: {str(e)}"]
             )
 
-    def _run_quality_assurance(self, structured_cv: StructuredCV, item_id: str) -> Dict[str, Any]:
+    async def _run_quality_assurance(self, structured_cv: StructuredCV, item_id: str) -> Dict[str, Any]:
         """
         Run quality assurance on the generated CV content.
 
@@ -258,8 +273,18 @@ class EnhancedOrchestrator:
                 "job_description_data": job_description_data.model_dump() if job_description_data else {}
             }
 
-            # Run quality assurance
-            qa_result = self.quality_assurance_agent.run(qa_input)
+            # Use run_as_node for LangGraph integration
+            # Create AgentState for run_as_node compatibility
+            from src.orchestration.state import AgentState
+            agent_state = AgentState(
+                job_description_data=qa_input.get("job_description_data", {}),
+                structured_cv=qa_input.get("structured_cv", {}),
+                current_stage="quality_assurance",
+                metadata={"agent_type": "quality_assurance"}
+            )
+            
+            node_result = await self.quality_assurance_agent.run_as_node(agent_state)
+            qa_result = node_result.get("output_data", {})
 
             # Log QA results
             quality_checks = qa_result.get("quality_check_results", {})

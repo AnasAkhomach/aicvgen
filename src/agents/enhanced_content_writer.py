@@ -6,7 +6,8 @@ from datetime import datetime
 import json
 
 from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.services.llm import get_llm_service, LLMResponse
+from src.services.llm_service import get_llm_service
+from src.services.llm import LLMResponse
 from src.models.data_models import ContentType, ProcessingStatus
 from src.config.logging_config import get_structured_logger
 from src.config.settings import get_config
@@ -344,24 +345,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             )
             return self._create_error_result(input_data, context, e, "unexpected")
     
-    def run(self, input_data: Any) -> Any:
-        """Legacy synchronous interface for backward compatibility."""
-        # Create a basic context for legacy calls
-        context = AgentExecutionContext(
-            session_id="legacy_session",
-            item_id="legacy_item",
-            content_type=self.content_type,
-            input_data=input_data if isinstance(input_data, dict) else {}
-        )
-        
-        # Run async method synchronously
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(self.run_async(input_data, context))
-            return result
-        finally:
-            loop.close()
+    # Legacy run method removed - use run_as_node for LangGraph integration
     
     async def _generate_content_with_llm(
         self,

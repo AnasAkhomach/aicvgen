@@ -1,29 +1,28 @@
-from src.agents.agent_base import AgentBase
+from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from src.models.data_models import AgentIO, CVData
 from src.models.data_models import JobDescriptionData
 from typing import Dict, Any, List
-from src.services.llm import LLM  # Import LLM
+from src.services.llm_service import get_llm_service
+from src.services.llm import LLMResponse
 from src.config.logging_config import get_logger
 from src.config.settings import get_config
-from src.services.llm import LLMResponse
 import json  # Import json
 import time
 import os
 
 
-class CVAnalyzerAgent(AgentBase):
+class CVAnalyzerAgent(EnhancedAgentBase):
     """
     Agent responsible for analyzing the user's CV and extracting relevant information.
     """
 
-    def __init__(self, name: str, description: str, llm: LLM):
+    def __init__(self, name: str, description: str):
         """
         Initializes the CVAnalyzerAgent.
 
         Args:
             name: The name of the agent.
             description: A description of the agent.
-            llm: The LLM instance to use for parsing.
         """
         super().__init__(
             name=name,
@@ -37,7 +36,7 @@ class CVAnalyzerAgent(AgentBase):
                 required_fields=["analysis_results", "extracted_data"]
             ),
         )
-        self.llm = llm  # Store the LLM instance
+        self.llm_service = get_llm_service()  # Use enhanced LLM service
         self.timeout = 30  # Maximum wait time in seconds
         
         # Initialize settings for prompt loading
@@ -222,17 +221,7 @@ class CVAnalyzerAgent(AgentBase):
             )
             return fallback_extraction
     
-    def run(self, input_data: Any) -> Any:
-        """Legacy run method for backward compatibility."""
-        if isinstance(input_data, dict):
-            return self.analyze_cv(input_data)
-        else:
-            # Convert string input to expected format
-            formatted_input = {
-                'user_cv': {'raw_text': str(input_data)},
-                'job_description': ''
-            }
-            return self.analyze_cv(formatted_input)
+
     
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
@@ -265,8 +254,16 @@ class CVAnalyzerAgent(AgentBase):
                     metadata={"agent_type": "cv_analyzer", "validation_error": True}
                 )
             
-            # Use the existing run method for the actual processing
-            result = self.run(input_data)
+            # Process the CV analysis directly
+            if isinstance(input_data, dict):
+                result = self.analyze_cv(input_data)
+            else:
+                # Convert string input to expected format
+                formatted_input = {
+                    'user_cv': {'raw_text': str(input_data)},
+                    'job_description': ''
+                }
+                result = self.analyze_cv(formatted_input)
             
             return AgentResult(
                 success=True,
