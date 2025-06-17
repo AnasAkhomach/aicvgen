@@ -1,0 +1,16 @@
+{
+  "id": "65694b9a-78ed-4018-8324-ac0e7ae16a93",
+  "sections": [],
+  "metadata": {
+    "job_description": {
+      "raw_text": "Software Engineer position requiring Python, FastAPI, and AI experience. Must have experience with web development and API design.",
+      "skills": [],
+      "experience_level": "N/A",
+      "responsibilities": [],
+      "industry_terms": [],
+      "company_values": [],
+      "error": "Error: Cannot run the event loop while another loop is running"
+    },
+    "original_cv_text": "John Doe\nSoftware Developer\n\nExperience:\n- 3 years Python development\n- Web application development\n- Database design\n- Team collaboration\n\nSkills:\n- Python, JavaScript\n- Django, Flask\n- PostgreSQL, MongoDB\n- Git, Docker"
+  }
+}

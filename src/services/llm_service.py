@@ -365,7 +365,7 @@ class EnhancedLLMService:
 
         # Initialize the model
         genai.configure(api_key=api_key)
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = self.settings.llm_settings.default_model
         self.llm = genai.GenerativeModel(self.model_name)
         self.using_fallback = not bool(self.user_api_key or self.primary_api_key)
         

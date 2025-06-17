@@ -1,0 +1,32 @@
+{
+  "id": "dc1ea837-9bbb-4fb4-8d24-b37621cfc472",
+  "sections": [
+    {
+      "id": "professional_experience",
+      "name": "Professional Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "experience_item_0",
+          "content": "Okay, I understand. I will generate the requested content for each role, following your specified format and instructions, paying close attention to including the skill name prefix in bold for each bullet point.\n\n---\n\n<skills>\nData Analysis\nTechnical Implementation\nProblem Solving\nCommunication\nProject Management\n</skills>\n\n---\n\n<role_info_start>\n<info>\nRole: Professional Experience\nOrganization: Previous Company\nDescription: Professional Experience position with focus on data analysis and technical implementation\n</info>\n<accomplishments>\n</accomplishments>\n</role_info_end>\n\n---\n\n# Role: Professional Experience @ Previous Company\n\n## Organization Description\nDetails about Previous Company are needed.\n\n## Role Description\nData analysis & technical implementation role.\n\n### Suggested Resume Bullet Point for Data Analysis (Alignment Score: 1)\n*Data Analysis*: No accomplishments provided to demonstrate data analysis skills.\n\n### Suggested Resume Bullet Point for Technical Implementation (Alignment Score: 1)\n*Technical Implementation*: No accomplishments provided to demonstrate technical implementation skills.\n\n### Suggested Resume Bullet Point for Problem Solving (Alignment Score: 1)\n*Problem Solving*: No accomplishments provided to demonstrate problem-solving skills.\n\n### Suggested Resume Bullet Point for Communication (Alignment Score: 1)\n*Communication*: No accomplishments provided to demonstrate communication skills.\n\n### Suggested Resume Bullet Point for Project Management (Alignment Score: 1)\n*Project Management*: No accomplishments provided to demonstrate project management skills.",
+          "status": "generated",
+          "item_type": "bullet_point",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "",
+      "order": 0,
+      "status": "generated",
+      "user_feedback": null
+    }
+  ],
+  "metadata": {
+    "name": "",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "github": ""
+  }
+}

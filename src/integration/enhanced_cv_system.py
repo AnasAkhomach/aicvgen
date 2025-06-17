@@ -35,6 +35,7 @@ from ..services.vector_db import get_enhanced_vector_db
 from ..core.enhanced_orchestrator import EnhancedOrchestrator
 from ..core.state_manager import StateManager
 from ..models.data_models import WorkflowType
+from ..orchestration.state import AgentState
 
 
 class IntegrationMode(Enum):
@@ -359,10 +360,21 @@ class EnhancedCVIntegration:
     async def execute_workflow(
         self,
         workflow_type: Union[WorkflowType, str],
-        input_data: Dict[str, Any],
+        input_data: AgentState,
         session_id: Optional[str] = None,
         custom_options: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
+        """Execute a predefined workflow.
+
+        Args:
+            workflow_type: The type of workflow to execute.
+            input_data: The AgentState object containing all necessary workflow data.
+            session_id: Optional session ID for state management.
+            custom_options: Optional custom options for the workflow.
+
+        Returns:
+            A dictionary containing the results of the workflow execution.
+        """
         """Execute a predefined workflow."""
         if not self._orchestrator:
             raise RuntimeError("Orchestration not enabled")
@@ -376,7 +388,7 @@ class EnhancedCVIntegration:
         if self._intelligent_cache:
             cache_data = {
                 "workflow_type": workflow_type.value if hasattr(workflow_type, 'value') else str(workflow_type),
-                "input_data": input_data,
+                "input_data": input_data.model_dump(),
                 "custom_options": custom_options or {}
             }
             cache_key = hashlib.md5(str(cache_data).encode()).hexdigest()
@@ -395,124 +407,49 @@ class EnhancedCVIntegration:
                 if isinstance(workflow_type, str):
                     workflow_type = WorkflowType(workflow_type)
 
+                # Use the provided AgentState directly
+                initial_agent_state = input_data
+
                 self.logger.info("Executing workflow", extra={
                     "workflow_type": workflow_type.value,
                     "session_id": session_id,
-                    "input_keys": list(input_data.keys())
+                    "input_data_type": "AgentState"
                 })
 
-                # For now, we'll use the enhanced orchestrator's execute_full_workflow method
-                # This is a simplified implementation that can be expanded based on workflow_type
+                # Execute workflow with clean AgentState input
                 if workflow_type in [WorkflowType.BASIC_CV_GENERATION, WorkflowType.JOB_TAILORED_CV]:
-                    # First, we need to set up the input data in the state manager
-                    # The orchestrator expects job description data to be available in state manager
-                    if "job_description" in input_data:
-                        # Parse the job description using the parser agent
-                        parser_agent = self.get_agent("parser")
-                        if parser_agent:
-                            # Parse job description to create JobDescriptionData
-                            job_desc_data = input_data["job_description"]
-                            if isinstance(job_desc_data, dict):
-                                job_desc_text = job_desc_data.get("description", job_desc_data.get("raw_text", ""))
-                                if not job_desc_text:
-                                    # If no description field, try to extract from other fields
-                                    job_desc_text = f"Title: {job_desc_data.get('title', '')}\n"
-                                    job_desc_text += f"Company: {job_desc_data.get('company', '')}\n"
-                                    job_desc_text += f"Requirements: {job_desc_data.get('requirements', '')}\n"
-                                    job_desc_text += f"Responsibilities: {job_desc_data.get('responsibilities', '')}"
-                            else:
-                                # Handle string job description (from Streamlit text area)
-                                job_desc_text = str(job_desc_data).strip()
-                                if not job_desc_text:
-                                    self.logger.error("Empty job description provided")
-                                    raise ValueError("Job description cannot be empty")
-                            
-                            # Create a basic CV structure from personal info and experience if available
-                            cv_text = ""
-                            if "personal_info" in input_data and "experience" in input_data:
-                                personal_info = input_data["personal_info"]
-                                experience = input_data["experience"]
-                                
-                                # Build a simple CV text from the provided data
-                                cv_text = f"Name: {personal_info.get('name', '')}\n"
-                                cv_text += f"Email: {personal_info.get('email', '')}\n"
-                                cv_text += f"Phone: {personal_info.get('phone', '')}\n\n"
-                                cv_text += "Experience:\n"
-                                for exp in experience:
-                                    cv_text += f"- {exp.get('title', '')} at {exp.get('company', '')}\n"
-                                    cv_text += f"  {exp.get('description', '')}\n"
-                            
-                            # Use parser agent to process both job description and CV data
-                            parser_input = {
-                                "job_description": job_desc_text
-                            }
-                            
-                            if cv_text:
-                                parser_input["cv_text"] = cv_text
-                            else:
-                                # Create empty CV structure if no CV data provided
-                                parser_input["start_from_scratch"] = True
-                            
-                            # Use run_as_node for LangGraph integration
-                            # Create AgentState for run_as_node compatibility
-                            from src.orchestration.state import AgentState
-                            from src.models.data_models import StructuredCV, JobDescriptionData
-                            
-                            # Create proper StructuredCV and JobDescriptionData objects
-                            structured_cv = StructuredCV()
-                            job_desc_data = JobDescriptionData(raw_text=job_desc_text)
-                            
-                            agent_state = AgentState(
-                                structured_cv=structured_cv,
-                                job_description_data=job_desc_data
-                            )
-                            
-                            node_result = await parser_agent.run_as_node(agent_state)
-                            parser_result = node_result.get("output_data", {})
-                            
-                            # Log the parser result for debugging
-                            self.logger.info(f"Parser result keys: {list(parser_result.keys()) if isinstance(parser_result, dict) else 'Not a dict'}")
-                            self.logger.info(f"Parser result type: {type(parser_result)}")
-                            if isinstance(parser_result, dict):
-                                self.logger.info(f"Parser result content: {parser_result}")
-                            
-                            # Set the parsed data in the state manager
-                            # IMPORTANT: Set structured CV FIRST, then job description data
-                            # because job description data requires a StructuredCV instance to exist
-                            if "structured_cv" in parser_result:
-                                self._orchestrator.state_manager.set_structured_cv(parser_result["structured_cv"])
-                                self.logger.info("Structured CV data set in state manager")
-                            
-                            if "job_description_data" in parser_result:
-                                # Convert dict to JobDescriptionData object if needed
-                                job_desc_data = parser_result["job_description_data"]
-                                if isinstance(job_desc_data, dict):
-                                    from src.models.data_models import JobDescriptionData
-                                    job_desc_obj = JobDescriptionData(**job_desc_data)
-                                    self._orchestrator.state_manager.set_job_description_data(job_desc_obj)
-                                else:
-                                    self._orchestrator.state_manager.set_job_description_data(job_desc_data)
-                                self.logger.info("Job description data set in state manager")
-                            
-                            self.logger.info("Job description and CV data processed and set in state manager")
-                            
-                            # Initialize workflow after setting up the data
-                            await self._orchestrator.initialize_workflow()
-                        
-                        # Execute the full workflow with async optimization
-                        async with self._get_async_context():
-                            result_state = await self._orchestrator.execute_full_workflow()
-                        
-                        # Debug logging for error_messages
-                        self.logger.info(f"Workflow result_state.error_messages: {result_state.error_messages}")
-                        self.logger.info(f"Error messages count: {len(result_state.error_messages) if result_state.error_messages else 0}")
-                        
-                        success = not bool(result_state.error_messages)
-                        self.logger.info(f"Success determined as: {success} (based on error_messages: {bool(result_state.error_messages)})")
+                    # Populate state manager with AgentState components
+                    if initial_agent_state.structured_cv:
+                        self._orchestrator.state_manager.set_structured_cv(initial_agent_state.structured_cv)
+                        self.logger.info("Structured CV data set in state manager")
+                    else:
+                        # Create an empty StructuredCV if not present
+                        from src.models.data_models import StructuredCV
+                        self._orchestrator.state_manager.set_structured_cv(StructuredCV())
+                        self.logger.info("Empty Structured CV data set in state manager")
+
+                    if initial_agent_state.job_description_data:
+                        self._orchestrator.state_manager.set_job_description_data(initial_agent_state.job_description_data)
+                        self.logger.info("Job description data set in state manager")
+                    else:
+                        self.logger.warning("Job description data missing in AgentState")
+                    
+                    self.logger.info("State manager populated from AgentState")
+
+                    # No fallback needed - AgentState is the only supported input type
+
+                    # Initialize workflow after setting up the data
+                    await self._orchestrator.initialize_workflow()
+                    
+                    # Execute the full workflow with async optimization
+                    async with self._get_async_context():
+                        result_state = await self._orchestrator.execute_full_workflow()
+                    
+                    success = not bool(result_state.error_messages if result_state else True) # Assume success if no result_state
+                    self.logger.info(f"Workflow success: {success}")
                 
                 else:
-                    # For other workflow types, return a placeholder response
-                    self.logger.warning(f"Workflow type {workflow_type.value} not yet implemented in new orchestrator")
+                    self.logger.warning(f"Workflow type {workflow_type.value} not fully implemented for AgentState input or not recognized.")
                     success = False
                     result_state = None
 

@@ -1,0 +1,552 @@
+{
+  "id": "4b028c3d-c261-4619-a2e5-59f003e026a0",
+  "sections": [
+    {
+      "id": "a8fe3ad5-17e7-4dfa-b8af-f2dd51248c2f",
+      "name": "Executive Summary",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "26de9e03-4c94-46ac-bd5c-d5e74aa935b4",
+          "content": "**Option 1 (Experienced):**\n\n> Highly experienced Data Engineer proficient in developing and implementing data pipelines using Python and NumPy for data analysis and reporting. Proven ability to build scalable and efficient solutions to meet complex business needs.\n\n**Option 2 (Entry-Level/Junior...",
+          "status": "generated",
+          "item_type": "summary_paragraph",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Executive Summary",
+      "order": 0,
+      "status": "generated",
+      "user_feedback": null
+    },
+    {
+      "id": "95de7828-3852-4178-9e02-58c70877c89b",
+      "name": "Key Qualifications",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "f5836fd9-c855-4030-85b7-572c90a7f8cc",
+          "content": "Data Science Workflow Expertise",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "1120286b-0d20-46c0-a344-847ce593a42c",
+          "content": "Communicates Insights Clearly",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "57318274-9ae0-4422-bf14-4d177888f0c8",
+          "content": "Machine Learning Pipeline Development",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "21b57445-2cec-4638-a0f5-dcc2d0164351",
+          "content": "Statistical Modeling Expertise",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "663bc92c-60d1-4204-9261-d19e489501bb",
+          "content": "\"Scalable Model Deployment Expertise\"",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "4efaabb6-6867-4f86-ba01-a2d8ed4fd0d6",
+          "content": "\"Model Performance Optimization\"",
+          "status": "generated",
+          "item_type": "key_qual",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Key Qualifications",
+      "order": 1,
+      "status": "generated",
+      "user_feedback": null
+    },
+    {
+      "id": "e7ffebd7-cbf0-4b57-808b-74ec68805964",
+      "name": "Professional Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "a053e8c8-57e8-449d-9b22-ffc3f8fd22aa",
+          "name": "Trainee Data Analyst",
+          "items": [
+            {
+              "id": "c4631861-91b1-4685-bb3d-bcfc8e6dcd22",
+              "content": "**Developed** Python-based generative AI tools, enabling automated content creation based on user preferences.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "b887596e-07d4-43ae-b8eb-02b14d89cd97",
+              "content": "**Built** Pandas-driven data pipelines, facilitating efficient machine learning model implementation.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "eff31f72-aa32-4731-aeda-1ec4ea299e18",
+              "content": "**Leveraged** NumPy to optimize model performance, improving AI function scalability by 15%.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Trainee Data Analyst "
+        },
+        {
+          "id": "373006ce-d84f-4b40-93f2-423126c7ce25",
+          "name": "IT trainer",
+          "items": [
+            {
+              "id": "599ccde7-e6e5-4906-961b-1913b690e96d",
+              "content": "Developed Python-based AI tools, enabling automated content generation workflows.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "d9fdbecb-7371-47b7-8da6-c6aa483cbfd3",
+              "content": "Implemented scalable machine learning models using Pandas, improving AI content generation accuracy by 15%.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "883db0d6-4a0c-4dbb-8873-2e03107f81d2",
+              "content": "Leveraged NumPy to optimize AI model training, reducing processing time by 20%.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### IT trainer"
+        },
+        {
+          "id": "0c281d78-4c64-49c3-8646-1193f528d866",
+          "name": "Mathematics teacher",
+          "items": [
+            {
+              "id": "afcd6a42-e92f-414d-b462-f0c06f5f70e6",
+              "content": "**Developed** Python-based tools, raising student engagement by 15% in advanced algebra.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "fc3e9414-6cf4-411e-a0fd-fcb522de0a31",
+              "content": "**Leveraged** Pandas to analyze student performance data, improving personalized learning plans.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "a0663e72-5a35-45be-9c2e-724aa5bb20ed",
+              "content": "**Automated** content creation using Python, saving 10+ hours weekly for lesson planning.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Mathematics teacher"
+        },
+        {
+          "id": "34cfd624-2dc1-47d5-8f71-207bde609d84",
+          "name": "Indie Mobile Game Developer",
+          "items": [
+            {
+              "id": "7516966d-ec37-47b1-990a-4f4930ee7a81",
+              "content": "**Developed** ML models with Python, boosting content generation speed by 20%.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "9af411c6-d479-4045-88fd-4c4a330a34c7",
+              "content": "**Implemented** AI-driven content personalization using Pandas, improving user engagement by 15%.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "5781b0a5-3fca-40ac-8533-a6dc6a9c7a04",
+              "content": "**Automated** website structure generation with Python, reducing development time by 25%.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Indie Mobile Game Developer"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Professional Experience",
+      "order": 2,
+      "status": "generated",
+      "user_feedback": null
+    },
+    {
+      "id": "28aec31f-5a73-4dfa-a52e-2364046d87c4",
+      "name": "Project Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "eb331b3f-8fd2-4068-8c71-c264b11ffe98",
+          "name": "ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA",
+          "items": [
+            {
+              "id": "ba783765-45bf-45dc-a0e1-9c0790c6dea9",
+              "content": "Developed dynamic SQL-backed dashboards in Excel VBA, providing real-time insights into supply chain performance.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "9ed2bec5-7c77-4740-b7f4-f46c0b93023d",
+              "content": "Automated Sylob ERP data extraction with SQL, preparing datasets for future Python/Pandas-based AI agent integration.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "31cae8cc-a315-4301-a1b2-33258b52b313",
+              "content": "Automated Sylob ERP data extraction & transformation with SQL, paving the way for future Python-based AI agent integration.",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA"
+        },
+        {
+          "id": "9efca7d8-4fbb-4442-b2f4-1ddf7f59e629",
+          "name": "SQL Analytics Project | SQL, Data Visualization",
+          "items": [
+            {
+              "id": "7122903e-47bc-480f-94ed-b0aa3164d30a",
+              "content": "**Integrated Python (NumPy, Pandas) to automate SQL data validation, reducing reporting errors by 15%.**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "f803e221-76ab-4f99-83bf-3ce1c9789299",
+              "content": "**Leveraged Pandas to reshape SQL outputs, enhancing data visualization insights by 20%.**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "2e69ad62-3135-449d-bbde-949f5c6cad6e",
+              "content": "**Leveraged Python (Pandas) to process SQL query results, enabling dynamic data visualizations.**",
+              "status": "generated",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### SQL Analytics Project | SQL, Data Visualization"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Project Experience",
+      "order": 3,
+      "status": "generated",
+      "user_feedback": null
+    },
+    {
+      "id": "a9390c33-56f3-480b-92a1-74e24e727293",
+      "name": "Education",
+      "content_type": "STATIC",
+      "subsections": [
+        {
+          "id": "6c3051a1-3dda-43b1-9a0f-fc077f9496a1",
+          "name": "Master in Data Analytics Engineering",
+          "items": [
+            {
+              "id": "784996c3-f708-49b8-a506-4033fdcae57b",
+              "content": "Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "30aff856-5c25-4a0b-bb90-919e79b9fc76",
+              "content": "Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "eee41f72-291c-42b7-a04d-2f702cc58313",
+              "content": "Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Master in Data Analytics Engineering"
+        },
+        {
+          "id": "d086458f-5e22-43b7-b9ee-715c633c9686",
+          "name": "Teacher Training Centre (CRMEFs)",
+          "items": [
+            {
+              "id": "cf2e3737-c344-4864-b7af-9ebbd03ef6fb",
+              "content": "Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "3e35ee1a-f4b1-4284-be0e-ce6693321eee",
+              "content": "Specialized in innovative instructional strategies for teaching math concepts to adolescents",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "9d94e969-00f0-4a3a-9577-2df5d3cb68f4",
+              "content": "Graduated with highest honors (16.75/20)",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Teacher Training Centre (CRMEFs)"
+        },
+        {
+          "id": "12952b5d-c07e-494f-a04d-70a960b825c7",
+          "name": "Bachelor in Mathematics",
+          "items": [
+            {
+              "id": "f4b42b10-5f8c-4ddd-8485-286420505b31",
+              "content": "Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "5b000489-ffe9-4e26-951d-00d7b380fe8b",
+              "content": "Mathematical Modeling and linear programming",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "e65e9f5c-2028-4433-9a9f-3eb5af210a08",
+              "content": "Thesis: Applications of Mathematical Models in Agriculture",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Bachelor in Mathematics"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Education",
+      "order": 4,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "afaea15b-11f0-42d1-bd8c-89e7958ae757",
+      "name": "Certifications",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "604b264a-d7b1-49d3-9689-0eeba3283779",
+          "content": "Applied Data Science with Python - Professional Certificate, IBM (2023)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "30f62b32-18e7-4c31-9e67-3beff1a25d0b",
+          "content": "Data Visualization with Tableau - Coursera, University of California Davis (2022)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "0e662b80-3756-4534-ac97-6b647f589e04",
+          "content": "Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "b785ad79-e3b5-4ed0-8c7a-eb9229abe0eb",
+          "content": "Machine Learning with Python - Kaggle (2020)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "7be7be30-c7bd-4c72-8069-7f8f7434af9f",
+          "content": "Advanced Teacher Certification - Moroccan Department of Education (2018)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Certifications",
+      "order": 5,
+      "status": "initial",
+      "user_feedback": null
+    },
+    {
+      "id": "d4930f40-d089-471a-b80b-49898b7dd1e4",
+      "name": "Languages",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "2a39f4c7-474c-4d0c-8785-a4dc1a7e86a0",
+          "content": "Arabic (native) | English (B2) | German (B2) | French (B2) | Spanish (B1)",
+          "status": "static",
+          "item_type": "language_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Languages",
+      "order": 6,
+      "status": "initial",
+      "user_feedback": null
+    }
+  ],
+  "metadata": {
+    "job_description": {
+      "raw_text": "Data Engineer\nAI Engineer (m/f/d)\nBertelsmann SE & Co. KGaA\nFull-time\nHamburg\nfrom now on\n24 days ago\nEmployer logo\nJob description\nWe are a hybrid marketing agency serving the \u20ac4.2 billion small and medium-sized enterprise (SME) market. Large competitors often overwhelm the target audience, so we offer semi-automated, scalable marketing solutions in a user-friendly toolkit. We bridge the gap between the needs of the SME market and the automated solutions of tech players by offering websites, print media, social media, newsletters, and more. Our goal is to provide SMEs with effective and cost-efficient marketing solutions and strengthen their presence to promote their growth.\nPosition in our subsidiary TERRITORY Smart Agency ( www.smartagency.de )\nSMART AGENCY, a corporate start-up of TERRITORY GmbH, is looking for you as an AI Engineer (m/f/d) full-time at our locations in Hamburg, Berlin, Munich or 100% remotely within Germany.\n\nDo you want to actively shape the future of generative AI and love trying out new technologies? If you're looking for creative freedom and space for your own ideas, then you're a perfect fit for us!\n\nAs an AI Engineer (m/f/d) at Smart Agency, you will use your expertise to develop innovative, generative AI applications that delight our users. You will work in a creative, dynamic, and flexible environment to scale machine learning models and integrate modern technologies into our products hands-on.\n\nOur mission is to use artificial intelligence and a user-friendly toolkit to help small and medium-sized businesses easily create and manage all their marketing materials. With our hybrid approach, which combines the strengths of digital platforms and traditional agencies, we're redefining the future of marketing. Join us from the very beginning and help shape it! We offer you flat hierarchies, inspiring colleagues, and the security of a global corporate network with Bertelsmann.\n\nYour tasks:\n\nYou make generative AI available to us so that we can automatically create content such as text, images and website structures based on user preferences.\nYou will develop scalable machine learning models for various AI functions and implement them hands-on. You will integrate open source models into our product via interfaces.\nYou will create and maintain ETL pipelines for data integration and processing and implement MLOps practices for the continuous deployment and monitoring of ML models.\nYou will advise our internal teams and customers on how to make the best use of our solution.\nYou will leverage your expertise in the open source AI market and lead research projects to improve and innovate machine learning techniques.\nYour profile:\n\nYou have a university degree in computer science and at least 2-3 years of professional experience OR are a qualified career changer with at least 5 years of experience in the AI/ML field. You have already gained Gen AI experience and ideally also have experience with AI agents (e.g., crew.ai, fetch.ai).\nYou have excellent knowledge of AWS services (especially Lambda and serverless architectures) as well as RESTful and GraphQL APIs. You also have excellent Python skills and proficiency in relevant ML/DL libraries (NumPy, Pandas, Scikit-learn); TypeScript knowledge is an advantage.\nYou have in-depth knowledge of machine learning, deep learning, and NLP, are familiar with TensorFlow, PyTorch, and Hugging Face, and are familiar with the common open source AI models on the market and their integration.\nYou have experience with recommender systems, data acquisition (including web scraping), and practical MLOps application, as well as in the integration and fine-tuning of LLMs and generative AI models, especially in prompt engineering.\nYou are experimental and creative, not afraid to try out new technologies, enjoy working hands-on and communicate technical concepts clearly and effectively.\nGerman OR English skills at C-level complete your profile.\nWe offer you:\n\nA dynamic and cooperative work culture that encourages your creativity and offers you space for innovative ideas.\nResponsibility and freedom of choice from day one - you shape the future with us!\nHybrid working and up to 100% remote option.\nThe option to work from outside the EU for 30 days \u2013 the workation can begin!\n30 days of vacation and two extra days on December 24 and 31, as well as two days of special leave for social projects\nUrban Sports Club membership - Train flexibly in hundreds of studios and sports across Europe!\nAccess to comprehensive continuing education offerings with over 5,000 e-learning content.\nFinancial benefits such as capital-forming benefits.\nMany other corporate benefits from TERRITORY and Bertelsmann.\nWhy wait any longer?\nApply now quickly and easily via our online portal. Jennifer Steiner from our recruiting team is your personal contact for this job opening.\n\nBy the way: We welcome applications from people who contribute to the diversity of our company.\n\nWant to know more about us?\nWe are a hybrid marketing agency serving the \u20ac4.2 billion small and medium-sized enterprise (SME) market. Large competitors often overwhelm the target audience, so we offer semi-automated, scalable marketing solutions in a user-friendly toolkit. We bridge the gap between the needs of the SME market and the automated solutions of tech players by offering websites, print media, social media, newsletters, and more. Our goal is to provide SMEs with effective and cost-efficient marketing solutions and strengthen their presence to promote their growth.\nWe are proud of the diversity of our team. Neither in hiring nor during employment are decisions made based on skin color, religion or religious belief, ethnic or national origin, nationality, gender identity, sexual orientation, disability, or age. We are committed to a safe workplace and take action against discrimination and harassment of any kind.\n\nCompany: TERRITORY Smart Agency GmbH\nCountry: Germany\nRegion: Hamburg City: Hamburg\nPostal Code: 20459\nJob ID: 274458\n\nWorkplaces\n\nShow map\n20459 Hamburg\nCompany profile: Bertelsmann SE & Co. KGaAEmployer logo\nBertelsmann SE & Co. KGaA\n\nBertelsmann is a media, services, and education company operating in approximately 50 countries worldwide. The group includes the television group RTL Group, the book publishing group Penguin Random House, the magazine publisher Gruner + Jahr, the music company BMG, the service provider Arvato, the Bertelsmann Printing Group, the Bertelsmann Education Group, and the international fund network Bertelsmann Investments. With 119,000 employees, the company generated revenue of \u20ac17.2 billion in the 2017 fiscal year. Bertelsmann stands for entrepreneurial spirit and creativity.\n\nHomepage\nView all open positions\nInformation on the application\nSecurity query\nWe protect the employer's contact information from unauthorized access. Please enter the characters shown in the text field to display the employer's contact information.\n\nSecurity query\nLoad another image\nPlay audio version\nNote: The characters shown do not contain umlauts (\u00e4, \u00f6, \u00fc or \u00df), special characters or spaces.\n\nCharacters shown\nSubmit\nFoot area\nPosition supervised by employer\n\nReference No.: 13660-43300254-48-S\nLast edited on: 09.04.2025\nReport violation",
+      "skills": [
+        "Python",
+        "NumPy",
+        "Pandas",
+        "Scikit-learn",
+        "TypeScript",
+        "TensorFlow",
+        "PyTorch",
+        "Hugging Face",
+        "AWS (especially Lambda and serverless architectures)",
+        "RESTful APIs",
+        "GraphQL APIs",
+        "MLOps",
+        "NLP",
+        "Prompt Engineering",
+        "Web Scraping",
+        "Gen AI",
+        "AI agents (e.g., crew.ai, fetch.ai)",
+        "ETL Pipelines"
+      ],
+      "experience_level": "Mid-level",
+      "responsibilities": [
+        "Make generative AI available to us so that we can automatically create content such as text, images and website structures based on user preferences.",
+        "Develop scalable machine learning models for various AI functions and implement them hands-on.",
+        "Integrate open source models into our product via interfaces.",
+        "Create and maintain ETL pipelines for data integration and processing and implement MLOps practices for the continuous deployment and monitoring of ML models.",
+        "Advise our internal teams and customers on how to make the best use of our solution.",
+        "Leverage your expertise in the open source AI market and lead research projects to improve and innovate machine learning techniques."
+      ],
+      "industry_terms": [
+        "Generative AI",
+        "Machine Learning",
+        "Deep Learning",
+        "NLP",
+        "AI Agents",
+        "MLOps",
+        "ETL Pipelines",
+        "LLMs",
+        "Recommender Systems",
+        "Web Scraping",
+        "Prompt Engineering",
+        "Serverless Architectures",
+        "Open Source AI Models",
+        "SME (Small and Medium-sized Enterprise)",
+        "Hybrid Marketing Agency"
+      ],
+      "company_values": [
+        "Dynamic and cooperative work culture",
+        "Creativity encouraged",
+        "Space for innovative ideas",
+        "Responsibility and freedom of choice",
+        "Flat hierarchies",
+        "Inspiring colleagues",
+        "Diversity",
+        "Safe workplace",
+        "Entrepreneurial spirit",
+        "Growth"
+      ],
+      "error": null
+    },
+    "original_cv_text": "**Anas AKHOMACH** | \ud83d\udcde (+212) 600310536 | \ud83d\udce7 [anasakhomach205@gmail.com](mailto:anasakhomach205@gmail.com) | \ud83d\udd17 [LinkedIn](https://www.linkedin.com/in/anas-akhomach/) | \ud83d\udcbb [GitHub](https://github.com/AnasAkhomach)  \n---\n\n### Executive Summary\n\nData analyst with an educational background and strong communication skills. I combine in-depth knowledge of SQL, Python and Power BI with the ability to communicate complex topics in an easily understandable way.  \n---\n\n### Key Qualifications\n\nProcess optimization | Multilingual Service | Friendly communication | Data-Driven Sales | SQL | Python | Power BI | Excel\n---\n\n### Professional Experience\n\n#### Trainee Data Analyst \n\n[*STE Smart-Send*](https://annoncelegale.flasheconomie.com/smart-send/) *| Tetouan, Morocco (Jan. 2024 \u2013 Mar. 2024)*\n\n* Data-Driven Sales: Increased ROI using SQL/Python segmentation and timely Power BI metrics.  \n* Process optimization: Streamlined KPI tracking, shortened decision time for a team of three people.  \n* Teamwork: Developed solutions for different customer segments to improve customer service.\n\n#### IT trainer\n\n[*Supply Chain Management Center*](https://www.scmc.ma/) *| Tetouan, Morocco (June \u2013 Sep 2022, Jun \u2013 Sep 2024)*\n\n* Technical Training: Conducted 100+ ERP dashboard sessions (MS Excel) with 95% satisfaction.  \n* Friendly communication: Illustrated content with case studies for a quick start.  \n* Process improvement: Focused on automated reporting and reduced manual data entry.\n\n#### Mathematics teacher\n\n[*Martile Secondary School*](https://www.facebook.com/ETChamsMartil/?locale=fr_FR) *| Tetouan, Morocco (Sep. 2017 \u2013 Jun. 2024)* \n\n* User Retention: Increased the class average from 3.7 to 3.3 through personalized learning plans and GeoGebra.  \n* Friendly communication: Successfully guided 5+ students to top 10 placements in math competitions.  \n* Multilingual Service: Supported non-native speakers in diverse classroom environments.\n\n#### Indie Mobile Game Developer\n\nUnity\n\n* Bullet 1: (AI-adjusted description)  \n* Bullet 2: (AI-adjusted description)  \n* Bullet 3: (AI-adjusted description)\n\n---\n\n### Project Experience\n\n#### ERP process automation and dashboard development | Sylob ERP, SQL, Excel VBA\n\n* Automated manual data entry for raw material receiving and warehouse management, reducing manual errors and improving operational efficiency.\n* Development and deployment of interactive Sylob ERP dashboards for warehouse staff and dock agents, providing real-time metrics and actionable insights.\n* Integrated QR code scanners and rugged tablets to optimize material tracking, reduce processing time, and improve inventory accuracy by 35%.\n\n#### SQL Analytics Project | SQL, Data Visualization\n\n* Led a SQL-based analysis of an e-commerce database to optimize marketing budget and increase website traffic by 22%.\n* Conducted A/B tests that improved checkout page conversion rates by 15% and reduced bounce rates by 22%.\n* Worked with stakeholders to translate data insights into actionable strategies, resulting in a 12% reduction in cost per acquisition.\n\n---\n\n### Education\n\n#### Master in Data Analytics Engineering\n\n*School of Information Sciences, T\u00e9touan (Sep. 2023 - Present)*\n\n* Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies  \n* Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.  \n* Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).\n\n#### Teacher Training Centre (CRMEFs)\n\n*CRMEFs (Sep. 2015- Jul. 2017)*\n\n*  Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies  \n*  Specialized in innovative instructional strategies for teaching math concepts to adolescents  \n*  Graduated with highest honors (16.75/20)\n\n#### Bachelor in Mathematics\n\n*Faculty of Sciences (Sep. 2011 - Jul. 2015)*\n\n*  Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis  \n*  Mathematical Modeling and linear programming  \n*  Thesis: Applications of Mathematical Models in Agriculture\n\n---\n\n### Certifications\n\n* Applied Data Science with Python - Professional Certificate, IBM (2023)  \n* Data Visualization with Tableau - Coursera, University of California Davis (2022)  \n* Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)  \n* Machine Learning with Python - Kaggle (2020)  \n* Advanced Teacher Certification - Moroccan Department of Education (2018)\n\n---\n\n### Languages\n\n* Arabic (native) | English (B2) | German (B2) | French (B2) | Spanish (B1)\n",
+    "name": "Anas AKHOMACH",
+    "email": "anasakhomach205@gmail.com",
+    "phone": "(+212) 600310536",
+    "linkedin": "https://www.linkedin.com/in/anas-akhomach/",
+    "github": "https://github.com/AnasAkhomach",
+    "main_jd_text": "Data Engineer\nAI Engineer (m/f/d)\nBertelsmann SE & Co. KGaA\nFull-time\nHamburg\nfrom now on\n24 days ago\nEmployer logo\nJob description\nWe are a hybrid marketing agency serving the \u20ac4.2 billion small and medium-sized enterprise (SME) market. Large competitors often overwhelm the target audience, so we offer semi-automated, scalable marketing solutions in a user-friendly toolkit. We bridge the gap between the needs of the SME market and the automated solutions of tech players by offering websites, print media, social media, newsletters, and more. Our goal is to provide SMEs with effective and cost-efficient marketing solutions and strengthen their presence to promote their growth.\nPosition in our subsidiary TERRITORY Smart Agency ( www.smartagency.de )\nSMART AGENCY, a corporate start-up of TERRITORY GmbH, is looking for you as an AI Engineer (m/f/d) full-time at our locations in Hamburg, Berlin, Munich or 100% remotely within Germany.\n\nDo you want to actively shape the future of generative AI and love trying out new technologies? If you're looking for creative freedom and space for your own ideas, then you're a perfect fit for us!\n\nAs an AI Engineer (m/f/d) at Smart Agency, you will use your expertise to develop innovative, generative AI applications that delight our users. You will work in a creative, dynamic, and flexible environment to scale machine learning models and integrate modern technologies into our products hands-on.\n\nOur mission is to use artificial intelligence and a user-friendly toolkit to help small and medium-sized businesses easily create and manage all their marketing materials. With our hybrid approach, which combines the strengths of digital platforms and traditional agencies, we're redefining the future of marketing. Join us from the very beginning and help shape it! We offer you flat hierarchies, inspiring colleagues, and the security of a global corporate network with Bertelsmann.\n\nYour tasks:\n\nYou make generative AI available to us so that we can automatically create content such as text, images and website structures based on user preferences.\nYou will develop scalable machine learning models for various AI functions and implement them hands-on. You will integrate open source models into our product via interfaces.\nYou will create and maintain ETL pipelines for data integration and processing and implement MLOps practices for the continuous deployment and monitoring of ML models.\nYou will advise our internal teams and customers on how to make the best use of our solution.\nYou will leverage your expertise in the open source AI market and lead research projects to improve and innovate machine learning techniques.\nYour profile:\n\nYou have a university degree in computer science and at least 2-3 years of professional experience OR are a qualified career changer with at least 5 years of experience in the AI/ML field. You have already gained Gen AI experience and ideally also have experience with AI agents (e.g., crew.ai, fetch.ai).\nYou have excellent knowledge of AWS services (especially Lambda and serverless architectures) as well as RESTful and GraphQL APIs. You also have excellent Python skills and proficiency in relevant ML/DL libraries (NumPy, Pandas, Scikit-learn); TypeScript knowledge is an advantage.\nYou have in-depth knowledge of machine learning, deep learning, and NLP, are familiar with TensorFlow, PyTorch, and Hugging Face, and are familiar with the common open source AI models on the market and their integration.\nYou have experience with recommender systems, data acquisition (including web scraping), and practical MLOps application, as well as in the integration and fine-tuning of LLMs and generative AI models, especially in prompt engineering.\nYou are experimental and creative, not afraid to try out new technologies, enjoy working hands-on and communicate technical concepts clearly and effectively.\nGerman OR English skills at C-level complete your profile.\nWe offer you:\n\nA dynamic and cooperative work culture that encourages your creativity and offers you space for innovative ideas.\nResponsibility and freedom of choice from day one - you shape the future with us!\nHybrid working and up to 100% remote option.\nThe option to work from outside the EU for 30 days \u2013 the workation can begin!\n30 days of vacation and two extra days on December 24 and 31, as well as two days of special leave for social projects\nUrban Sports Club membership - Train flexibly in hundreds of studios and sports across Europe!\nAccess to comprehensive continuing education offerings with over 5,000 e-learning content.\nFinancial benefits such as capital-forming benefits.\nMany other corporate benefits from TERRITORY and Bertelsmann.\nWhy wait any longer?\nApply now quickly and easily via our online portal. Jennifer Steiner from our recruiting team is your personal contact for this job opening.\n\nBy the way: We welcome applications from people who contribute to the diversity of our company.\n\nWant to know more about us?\nWe are a hybrid marketing agency serving the \u20ac4.2 billion small and medium-sized enterprise (SME) market. Large competitors often overwhelm the target audience, so we offer semi-automated, scalable marketing solutions in a user-friendly toolkit. We bridge the gap between the needs of the SME market and the automated solutions of tech players by offering websites, print media, social media, newsletters, and more. Our goal is to provide SMEs with effective and cost-efficient marketing solutions and strengthen their presence to promote their growth.\nWe are proud of the diversity of our team. Neither in hiring nor during employment are decisions made based on skin color, religion or religious belief, ethnic or national origin, nationality, gender identity, sexual orientation, disability, or age. We are committed to a safe workplace and take action against discrimination and harassment of any kind.\n\nCompany: TERRITORY Smart Agency GmbH\nCountry: Germany\nRegion: Hamburg City: Hamburg\nPostal Code: 20459\nJob ID: 274458\n\nWorkplaces\n\nShow map\n20459 Hamburg\nCompany profile: Bertelsmann SE & Co. KGaAEmployer logo\nBertelsmann SE & Co. KGaA\n\nBertelsmann is a media, services, and education company operating in approximately 50 countries worldwide. The group includes the television group RTL Group, the book publishing group Penguin Random House, the magazine publisher Gruner + Jahr, the music company BMG, the service provider Arvato, the Bertelsmann Printing Group, the Bertelsmann Education Group, and the international fund network Bertelsmann Investments. With 119,000 employees, the company generated revenue of \u20ac17.2 billion in the 2017 fiscal year. Bertelsmann stands for entrepreneurial spirit and creativity.\n\nHomepage\nView all open positions\nInformation on the application\nSecurity query\nWe protect the employer's contact information from unauthorized access. Please enter the characters shown in the text field to display the employer's contact information.\n\nSecurity query\nLoad another image\nPlay audio version\nNote: The characters shown do not contain umlauts (\u00e4, \u00f6, \u00fc or \u00df), special characters or spaces.\n\nCharacters shown\nSubmit\nFoot area\nPosition supervised by employer\n\nReference No.: 13660-43300254-48-S\nLast edited on: 09.04.2025\nReport violation"
+  }
+}

@@ -196,22 +196,42 @@ async def generate_skills_node(state: Dict[str, Any]) -> Dict[str, Any]:
     else:
         return {"error_messages": agent_state.error_messages + [f"Skills generation failed: {result['error']}"]}
 
+async def error_handler_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle workflow errors by logging them and preparing for termination.
+    
+    This node is entered if the 'error_messages' field in the state is
+    populated, indicating that a previous node encountered an error.
+    """
+    agent_state = AgentState.model_validate(state)
+    error_list = state.get("error_messages", [])
+    
+    logger.error(f"Workflow terminated due to errors: {error_list}")
+    
+    # Return empty dict as we're terminating the workflow
+    return {}
+
 async def route_after_review(state: Dict[str, Any]) -> str:
-    """Route based on user feedback and queue status."""
+    """Route based on user feedback, queue status, and error conditions."""
     agent_state = AgentState.model_validate(state)
     
-    # Check if there's user feedback requiring regeneration
+    # Priority 1: Check for errors first - if any previous node has populated error_messages, divert immediately
+    if state.get("error_messages"):
+        logger.warning("Errors detected in state, routing to error handler")
+        return "error"
+    
+    # Priority 2: Check if there's user feedback requiring regeneration
     if (agent_state.user_feedback and 
         agent_state.user_feedback.action == UserAction.REGENERATE):
         logger.info("User requested regeneration, routing to content_writer")
         return "regenerate"
     
-    # Check if there are more items in the current section queue
+    # Priority 3: Check if there are more items in the current section queue
     if agent_state.items_to_process_queue:
         logger.info("More items in queue, processing next item")
         return "next_item"
     
-    # Check if there are more sections to process
+    # Priority 4: Check if there are more sections to process
     try:
         current_index = WORKFLOW_SEQUENCE.index(agent_state.current_section_key)
         if current_index + 1 < len(WORKFLOW_SEQUENCE):
@@ -239,6 +259,7 @@ def build_cv_workflow_graph() -> StateGraph:
     workflow.add_node("qa", qa_node)
     workflow.add_node("prepare_next_section", prepare_next_section_node)
     workflow.add_node("formatter", formatter_node)
+    workflow.add_node("error_handler", error_handler_node)
     
     # Set entry point
     workflow.set_entry_point("parser")
@@ -255,6 +276,7 @@ def build_cv_workflow_graph() -> StateGraph:
         "qa",
         route_after_review,
         {
+            "error": "error_handler",  # Route to error handler if errors detected
             "regenerate": "content_writer",  # User wants to regenerate current item
             "next_item": "process_next_item",  # More items in current section
             "next_section": "prepare_next_section",  # Move to next section
@@ -267,6 +289,9 @@ def build_cv_workflow_graph() -> StateGraph:
     
     # Formatter ends the workflow
     workflow.add_edge("formatter", END)
+    
+    # Error handler terminates the workflow
+    workflow.add_edge("error_handler", END)
     
     return workflow
 

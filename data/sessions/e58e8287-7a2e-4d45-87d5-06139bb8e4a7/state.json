@@ -1,0 +1,467 @@
+{
+  "id": "e58e8287-7a2e-4d45-87d5-06139bb8e4a7",
+  "sections": [
+    {
+      "id": "fec14fa3-6c6c-4226-ada6-6e63b3c3f90f",
+      "name": "Executive Summary",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "c65a4a41-9e3c-4c16-971d-6b35679ff202",
+          "content": "Data analyst with an educational background and strong communication skills. I combine in-depth knowledge of SQL, Python and Power BI with the ability to communicate complex topics in an easily understandable way.",
+          "status": "initial",
+          "item_type": "summary_paragraph",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Executive Summary",
+      "order": 0
+    },
+    {
+      "id": "b72ba976-c5d5-4a2d-a890-13379c25aa38",
+      "name": "Key Qualifications",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [],
+      "raw_text": "### Key Qualifications",
+      "order": 1
+    },
+    {
+      "id": "3dfbd8cc-d165-4f35-8182-eb37e32061a9",
+      "name": "Professional Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "1bdcd97a-34f3-464c-9a2a-5f1cda9cb225",
+          "name": "Trainee Data Analyst",
+          "items": [
+            {
+              "id": "95f2ee83-a46c-4e34-bd85-a9219af6941b",
+              "content": "Data-Driven Sales: Increased ROI using SQL/Python segmentation and timely Power BI metrics.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "711b5c2e-60e6-408f-bf6b-5459d0d3eb6d",
+              "content": "Process optimization : Streamlined KPI tracking, shortened decision time for a team of three people.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "d3ec6316-6004-4946-ae50-f957ed8eae09",
+              "content": "Teamwork : Developed solutions for different customer segments to improve customer service.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Trainee Data Analyst "
+        },
+        {
+          "id": "e377bb93-f7c1-426e-bf7d-90e7126ac6d1",
+          "name": "IT trainer",
+          "items": [
+            {
+              "id": "aefb35df-1bb9-4b4c-b44d-bca2dcaf597d",
+              "content": "Technical Training : Conducted 100+ ERP dashboard sessions (MS Excel) with 95% satisfaction.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "54ebe72f-df0e-4e9e-a42e-895f7b4a6c37",
+              "content": "Friendly communication : Illustrated content with case studies for a quick start.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "b1e33780-0c67-4ae2-8aae-a69f374b9c0b",
+              "content": "Process improvement : Focused on automated reporting and reduced manual data entry.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### IT trainer"
+        },
+        {
+          "id": "84ab568a-5135-45ce-8fed-ae0e425313b3",
+          "name": "Mathematics teacher",
+          "items": [
+            {
+              "id": "be591f33-bf56-42c3-9544-57d06fde5942",
+              "content": "User Retention : Increased the class average from 3.7 to 3.3 through personalized learning plans and GeoGebra.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "25c31d8b-e5e7-46a5-931a-6d65344afba1",
+              "content": "Friendly communication : Successfully guided 5+ students to top 10 placements in math competitions.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "53838dcd-68c1-48ca-8cf7-c28071832a32",
+              "content": "Multilingual Service : Supported non-native speakers in diverse classroom environments.",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Mathematics teacher"
+        },
+        {
+          "id": "3591a894-5622-4816-aa1d-44ef58f6dee7",
+          "name": "Indie Mobile Game Developer",
+          "items": [
+            {
+              "id": "01dd58b7-4503-4259-9b3f-dbfb25858c53",
+              "content": "Bullet 1: (AI-adjusted description)",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "b02977bd-e459-4757-ab76-ba8eb2172b8b",
+              "content": "Bullet 2: (AI-adjusted description)",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "23ef817c-8c74-42d8-9abc-93fcdb1f9a1f",
+              "content": "Bullet 3: (AI-adjusted description)",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Indie Mobile Game Developer"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Professional Experience",
+      "order": 2
+    },
+    {
+      "id": "0e70fbe5-b508-49bb-97c8-21966aaeba91",
+      "name": "Project Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "id": "9433436f-4d5e-4d90-bd92-5d558d28c0e1",
+          "name": "ERP process automation and dynamic dashboard development | Sylob ERP, SQL, Excel VBA, QR scanner",
+          "items": [
+            {
+              "id": "f7ccdcd2-896a-49b5-8964-c319502abed1",
+              "content": "Automated manual data entry for raw material receiving and warehouse management, reducing manual errors and",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "18cdf808-6996-4a07-9c0f-903b1cccd42c",
+              "content": "Development and deployment of interactive Sylob ERP dashboards for warehouse staff and dock agents, providing",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "82ceab01-c881-4559-a11a-efdb5afcbd3a",
+              "content": "Integrated QR code scanners and rugged tablets to optimize material tracking, reduce processing time, and improve",
+              "status": "initial",
+              "item_type": "bullet_point",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### ERP process automation and dynamic dashboard development | Sylob ERP, SQL, Excel VBA, QR scanner"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Project Experience",
+      "order": 3
+    },
+    {
+      "id": "ca6b740c-3191-4da8-9dd4-a42c423f43d1",
+      "name": "Education",
+      "content_type": "STATIC",
+      "subsections": [
+        {
+          "id": "c8ff8d89-bdba-40da-9ac2-60f491b0a4f2",
+          "name": "Master in Data Analytics Engineering",
+          "items": [
+            {
+              "id": "58021d0e-2d3f-4f2e-ba09-9a0bbbb7f086",
+              "content": "Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "c42f0fd0-4ed2-4041-8b1a-c025d6a64495",
+              "content": "Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "0ce34e64-2aef-493d-b375-f6f803d99752",
+              "content": "Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Master in Data Analytics Engineering"
+        },
+        {
+          "id": "6e9e5e59-5e6d-4b65-b79e-41efed05b8e9",
+          "name": "Teacher Training Centre (CRMEFs)",
+          "items": [
+            {
+              "id": "b500e400-1e99-47fe-9411-29ba05ac5dfa",
+              "content": "Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "19fb373a-7060-47a6-83df-9b4056afed57",
+              "content": "Specialized in innovative instructional strategies for teaching math concepts to adolescents",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "008be1b9-f88b-4aba-b813-1130b6bd70d1",
+              "content": "Graduated with highest honors (16.75/20)",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Teacher Training Centre (CRMEFs)"
+        },
+        {
+          "id": "f5cefc90-4440-420d-8229-33442cf8fc0b",
+          "name": "Bachelor in Mathematics",
+          "items": [
+            {
+              "id": "36c8682c-497c-4cd5-9ab4-6b713eedcd40",
+              "content": "Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "deca18b0-5954-43f0-b3e9-ac1811dd701f",
+              "content": "Mathematical Modeling and linear programming",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            },
+            {
+              "id": "222ee48f-bdd2-4373-b145-89d136007b51",
+              "content": "Thesis: Applications of Mathematical Models in Agriculture",
+              "status": "static",
+              "item_type": "education_entry",
+              "metadata": {},
+              "user_feedback": null
+            }
+          ],
+          "metadata": {},
+          "raw_text": "#### Bachelor in Mathematics"
+        }
+      ],
+      "items": [],
+      "raw_text": "### Education",
+      "order": 4
+    },
+    {
+      "id": "c7092c40-67a1-429c-a865-01a4fa32df9b",
+      "name": "Certifications",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "41e54ca8-012b-4b6b-9b24-9a9d36c31a76",
+          "content": "Applied Data Science with Python - Professional Certificate, IBM (2023)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "c3e5cb3a-bcde-4df0-87ef-ab9e22e1fd75",
+          "content": "Data Visualization with Tableau - Coursera, University of California Davis (2022)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "831d669b-57e8-4307-a714-023e4ecf62f2",
+          "content": "Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "43148020-0e52-480a-883a-c9e546b39242",
+          "content": "Machine Learning with Python - Kaggle (2020)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "0d3c4739-9f11-4ffe-ab94-0eea8d322ccc",
+          "content": "Advanced Teacher Certification - Moroccan Department of Education (2018)",
+          "status": "static",
+          "item_type": "certification_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Certifications",
+      "order": 5
+    },
+    {
+      "id": "e78a59f7-9683-4bdf-8b53-b9a0f8dced95",
+      "name": "Languages",
+      "content_type": "STATIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "1e68795c-36db-4a6c-905e-461947485704",
+          "content": "Arabic: Native proficiency",
+          "status": "static",
+          "item_type": "language_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "f2c35027-c0bf-4d0c-a503-c50c0142981a",
+          "content": "English: Full professional proficiency",
+          "status": "static",
+          "item_type": "language_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "24483ad6-ffd3-43f8-9105-6b17e25fe191",
+          "content": "French: Professional working proficiency",
+          "status": "static",
+          "item_type": "language_entry",
+          "metadata": {},
+          "user_feedback": null
+        },
+        {
+          "id": "f0000291-4ea1-46c5-bdf3-3ed178f98a46",
+          "content": "Spanish: Elementary proficiency",
+          "status": "static",
+          "item_type": "language_entry",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "### Languages",
+      "order": 6
+    }
+  ],
+  "metadata": {
+    "job_description": {
+      "raw_text": "Product developer\nAI/LLM Engineer (m/f/d)\nDeutsche Telekom AG\nFull-time\ndifferent workplaces\nfrom 01.07.2025\n27 days ago\nEmployer logo\nJob description\nT-Systems International GmbH\nAt T-Systems, we offer business customers the right system solutions for their digital business. With our portfolio we ensure that digital transformation reduces complexity, saves costs and makes day-to-day work easier. We focus on the areas connectivity, digital, cloud & infrastructure as well as security - Let's power higher performance!\nAbout the Role:\nAs an AI/LLM Engineer in our AI Foundation Services team, you will support the development of secure and compliant AI solutions with a focus on Large Language Models and Retrieval-Augmented Generation systems.\nYour responsibilities:\n\nDesign, develop, and implement end to end AI systems, particularly focusing on large language models (LLMs)\nCollaborate with cross-functional teams to integrate AI solutions into existing systems and processes\nConduct research to explore new techniques and technologies in AI and machine learning\nAnalyze large datasets to identify trends and insights that inform model development\nContinuously monitor and improve model performance to ensure accuracy and efficiency\nCommunicate technical concepts effectively to both technical and non-technical stakeholders\nQualifications:\n\nEducation in Computer Science, Machine Learning, or a related field\nExcellent problem-solving skills and attention to detail\nProficiency in Python and strong programming skills\nExperience with LLMs and AI frameworks: Transformers, Pytorch / Tensorflow as well as RAG frameworks: Llama-index / LangChain\nAbility to integrate new functional AI systems with APIs, low latency backends and production deployment\nQuickly grasp new AI concepts from papers and blogs, conduct experiments, and propose system improvements\nExcellent communication skills in English, both written and verbal\nNice to have:\n\nHave experiences on working with distributed HPC clusters: Ray, Kubernetes, Docker\nExperience with fine-tuning LLM / Embed for downstream tasks\nExperience with building, evaluating RAG systems\nIn case of equal qualification, disabled candidates will be considered preferentially.\nThey say money can't buy you happiness, but we know it does buy you peace of mind. We want you to focus your full attention on your tasks, which is why we support you with an attractive salary and additional monetary benefits. We also know that money can't buy everything, so we offer a host of other benefits that will make your life better. For more information click here.\nAlina Florentina Pocea\nalina.pocea@telekom.com\n+40 785178822\n\nWorkplaces\n\nShow map\n60528 Frankfurt am Main\n80335 Munich\n22297 Hamburg\n40547 D\u00fcsseldorf\n53113 Bonn\n13509 Berlin\n64295 Darmstadt\nCompany profile: Deutsche Telekom AGEmployer logo\nDeutsche Telekom AG\n\nHomepage\nView all open positions\nInformation on the application\nSecurity query\nWe protect the employer's contact information from unauthorized access. Please enter the characters shown in the text field to display the employer's contact information.\n\nSecurity query\nLoad another image\nPlay audio version\nNote: The characters shown do not contain umlauts (\u00e4, \u00f6, \u00fc or \u00df), special characters or spaces.\n\nCharacters shown\nSubmit\nFoot area\n\nPosition supervised by the BA\n\nReference No.: 12444-43291985-44-S\nLast edited on: 07.04.2025\nReport violation",
+      "skills": [
+        "Python",
+        "Transformers",
+        "Pytorch",
+        "Tensorflow",
+        "Llama-index",
+        "LangChain",
+        "API integration",
+        "Low latency backends",
+        "Production deployment",
+        "Problem-solving",
+        "Communication (written and verbal)",
+        "Research",
+        "Data analysis",
+        "Model performance monitoring",
+        "HPC clusters (Ray, Kubernetes, Docker)",
+        "LLM Fine-tuning",
+        "RAG systems"
+      ],
+      "experience_level": "N/A",
+      "responsibilities": [
+        "Design, develop, and implement end to end AI systems, particularly focusing on large language models (LLMs)",
+        "Collaborate with cross-functional teams to integrate AI solutions into existing systems and processes",
+        "Conduct research to explore new techniques and technologies in AI and machine learning",
+        "Analyze large datasets to identify trends and insights that inform model development",
+        "Continuously monitor and improve model performance to ensure accuracy and efficiency",
+        "Communicate technical concepts effectively to both technical and non-technical stakeholders"
+      ],
+      "industry_terms": [
+        "AI",
+        "LLM (Large Language Model)",
+        "RAG (Retrieval-Augmented Generation)",
+        "HPC (High-Performance Computing)",
+        "Transformers",
+        "Pytorch",
+        "Tensorflow",
+        "Llama-index",
+        "LangChain",
+        "API",
+        "Kubernetes",
+        "Docker"
+      ],
+      "company_values": [
+        "Focus on employee well-being through attractive salary and additional monetary benefits."
+      ],
+      "error": null
+    },
+    "original_cv_text": "**Anas AKHOMACH** | \ud83d\udcde (+212) 600310536 | \ud83d\udce7 [anasakhomach205@gmail.com](mailto:anasakhomach205@gmail.com) | \ud83d\udd17 [LinkedIn](https://www.linkedin.com/in/anas-akhomach/) | \ud83d\udcbb [GitHub](https://github.com/AnasAkhomach)  \n---\n\n### Executive Summary\n\nData analyst with an educational background and strong communication skills. I combine in-depth knowledge of SQL, Python and Power BI with the ability to communicate complex topics in an easily understandable way.  \n---\n\n### Key Qualifications\n\nProcess optimization  |  Multilingual Service  |  Friendly communication  |  Data-Driven Sales  |  Process optimization  |  Multilingual Service  |  Friendly communication  |  Data-Driven Sales   \n---\n\n### Professional Experience\n\n#### Trainee Data Analyst \n\n[*STE Smart-Send*](https://annoncelegale.flasheconomie.com/smart-send/) *| Tetouan, Morocco (Jan. 2024 \u2013 Mar. 2024)*\n\n* Data-Driven Sales: Increased ROI using SQL/Python segmentation and timely Power BI metrics.  \n* Process optimization : Streamlined KPI tracking, shortened decision time for a team of three people.  \n* Teamwork : Developed solutions for different customer segments to improve customer service.\n\n#### IT trainer\n\n[*Supply Chain Management Center*](https://www.scmc.ma/) *| Tetouan, Morocco (June \u2013 Sep 2022, Jun \u2013 Sep 2024)*\n\n* Technical Training : Conducted 100+ ERP dashboard sessions (MS Excel) with 95% satisfaction.  \n* Friendly communication : Illustrated content with case studies for a quick start.  \n* Process improvement : Focused on automated reporting and reduced manual data entry.\n\n#### Mathematics teacher\n\n[*Martile Secondary School*](https://www.facebook.com/ETChamsMartil/?locale=fr_FR) *| Tetouan, Morocco (Sep. 2017 \u2013 Jun. 2024)* \n\n* User Retention : Increased the class average from 3.7 to 3.3 through personalized learning plans and GeoGebra.  \n* Friendly communication : Successfully guided 5+ students to top 10 placements in math competitions.  \n* Multilingual Service : Supported non-native speakers in diverse classroom environments.\n\n#### Indie Mobile Game Developer\n\nUnity\n\n* Bullet 1: (AI-adjusted description)  \n* Bullet 2: (AI-adjusted description)  \n* Bullet 3: (AI-adjusted description)\n\n---\n\n### Project Experience\n\n#### ERP process automation and dynamic dashboard development | Sylob ERP, SQL, Excel VBA, QR scanner\n\n* Automated manual data entry for raw material receiving and warehouse management, reducing manual errors and  \n* Development and deployment of interactive Sylob ERP dashboards for warehouse staff and dock agents, providing  \n* Integrated QR code scanners and rugged tablets to optimize material tracking, reduce processing time, and improve\n\n---\n\n### Education\n\n#### Master in Data Analytics Engineering\n\n*School of Information Sciences, T\u00e9touan (Sep. 2023 - Present)*\n\n* Coursework: Data Science, ML Algorithms, Python/R Programming, Data Visualization, Big Data Technologies  \n* Projects: Social Media Trend Analysis Using Python &amp; Twitter API. Housing Price Prediction Using ML.  \n* Achievement: Top 3 position, TISC Hackathon (predictive maintenance challenge).\n\n#### Teacher Training Centre (CRMEFs)\n\n*CRMEFs (Sep. 2015- Jul. 2017)*\n\n*  Studied Mathematics education, Educational psychology, Curriculum design, Teaching methodologies  \n*  Specialized in innovative instructional strategies for teaching math concepts to adolescents  \n*  Graduated with highest honors (16.75/20)\n\n#### Bachelor in Mathematics\n\n*Faculty of Sciences (Sep. 2011 - Jul. 2015)*\n\n*  Areas of specialty: discrete mathematics, probability, statistics, algebra, numerical analysis  \n*  Mathematical Modeling and linear programming  \n*  Thesis: Applications of Mathematical Models in Agriculture\n\n---\n\n### Certifications\n\n* Applied Data Science with Python - Professional Certificate, IBM (2023)  \n* Data Visualization with Tableau - Coursera, University of California Davis (2022)  \n* Fundamentals of Game Development with Unity 3D - Coursera, Michigan State (2021)  \n* Machine Learning with Python - Kaggle (2020)  \n* Advanced Teacher Certification - Moroccan Department of Education (2018)\n\n---\n\n### Languages\n\n* Arabic: Native proficiency  \n* English: Full professional proficiency  \n* French: Professional working proficiency  \n* Spanish: Elementary proficiency\n",
+    "name": "Anas AKHOMACH",
+    "email": "anasakhomach205@gmail.com",
+    "phone": "(+212) 600310536",
+    "linkedin": "https://www.linkedin.com/in/anas-akhomach/",
+    "github": "https://github.com/AnasAkhomach"
+  }
+}

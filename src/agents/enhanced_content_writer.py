@@ -71,10 +71,10 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         
         # Content generation templates - load from external files
         self.content_templates = {
-            ContentType.QUALIFICATION: self._load_prompt_template("key_qualifications_prompt"),
-            ContentType.EXPERIENCE: self._load_prompt_template("resume_role_prompt"),
-            ContentType.PROJECT: self._load_prompt_template("side_project_prompt"),
-            ContentType.EXECUTIVE_SUMMARY: self._load_prompt_template("executive_summary_prompt")
+            ContentType.QUALIFICATION: self._load_prompt_template("key_qualifications_writer"),
+            ContentType.EXPERIENCE: self._load_prompt_template("resume_role_writer"),
+            ContentType.PROJECT: self._load_prompt_template("project_writer"),
+            ContentType.EXECUTIVE_SUMMARY: self._load_prompt_template("executive_summary_writer")
         }
         
         logger.info(
@@ -355,7 +355,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         content_type: ContentType,
         context: AgentExecutionContext
     ) -> LLMResponse:
-        """Generate content using the enhanced LLM service."""
+        """Generate content using the enhanced LLM service with JSON parsing for role generation."""
         
         # Build prompt based on content type
         prompt = self._build_prompt(
@@ -376,6 +376,44 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             content_item.raw_llm_output = response.content
         elif isinstance(content_item, dict) and 'raw_llm_output' in content_item:
             content_item['raw_llm_output'] = response.content
+        
+        # For Experience content type, parse JSON response and validate with Pydantic
+        if content_type == ContentType.EXPERIENCE and response.success:
+            try:
+                # Extract JSON from the response
+                json_content = self._extract_json_from_response(response.content)
+                
+                # Parse and validate with Pydantic model
+                from src.models.validation_schemas import LLMRoleGenerationOutput
+                validated_data = LLMRoleGenerationOutput.model_validate(json_content)
+                
+                # Convert validated data to formatted content
+                formatted_content = self._format_role_generation_output(validated_data)
+                
+                # Update response content with formatted output
+                response.content = formatted_content
+                response.metadata["json_validated"] = True
+                response.metadata["validation_model"] = "LLMRoleGenerationOutput"
+                
+                logger.info(f"Successfully parsed and validated role generation JSON for {content_type}")
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parsing failed for role generation: {e}")
+                response.metadata["json_parse_error"] = str(e)
+                response.metadata["json_validated"] = False
+                # Keep original content as fallback
+                
+            except ValidationError as e:
+                logger.error(f"Pydantic validation failed for role generation: {e}")
+                response.metadata["validation_error"] = str(e)
+                response.metadata["json_validated"] = False
+                # Keep original content as fallback
+                
+            except Exception as e:
+                logger.error(f"Unexpected error during role generation JSON processing: {e}")
+                response.metadata["processing_error"] = str(e)
+                response.metadata["json_validated"] = False
+                # Keep original content as fallback
         
         return response
     
@@ -1108,16 +1146,75 @@ Description: {description[:200] if description else f'{role_title} position with
             content = content[:297] + "..."
         return content
     
-    def _load_prompt_template(self, prompt_name: str) -> str:
-        """Load a prompt template from external file."""
+    def _extract_json_from_response(self, response_content: str) -> dict:
+        """Extract JSON content from LLM response."""
+        import re
+        
+        # Try to find JSON block markers
+        json_match = re.search(r'```json\s*\n(.*?)\n```', response_content, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1).strip()
+        else:
+            # Try to find content between { and }
+            start_idx = response_content.find('{')
+            if start_idx == -1:
+                raise json.JSONDecodeError("No JSON object found in response", response_content, 0)
+            
+            # Find the matching closing brace
+            brace_count = 0
+            end_idx = start_idx
+            for i, char in enumerate(response_content[start_idx:], start_idx):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_idx = i + 1
+                        break
+            
+            if brace_count != 0:
+                raise json.JSONDecodeError("Unmatched braces in JSON", response_content, start_idx)
+            
+            json_str = response_content[start_idx:end_idx]
+        
+        # Parse the JSON string
+        return json.loads(json_str)
+    
+    def _format_role_generation_output(self, validated_data) -> str:
+        """Format the validated role generation data into the expected content format."""
+        from src.models.validation_schemas import LLMRoleGenerationOutput
+        
+        if not isinstance(validated_data, LLMRoleGenerationOutput):
+            logger.error(f"Expected LLMRoleGenerationOutput, got {type(validated_data)}")
+            return "Error: Invalid data format for role generation"
+        
+        formatted_content = ""
+        
+        for role in validated_data.roles:
+            formatted_content += f"## {role.organization_description}\n\n"
+            formatted_content += f"**Role:** {role.role_description}\n\n"
+            formatted_content += f"**Suggested Resume Bullet Points:**\n\n"
+            
+            for skill_bullets in role.suggested_resume_bullet_points:
+                formatted_content += f"### {skill_bullets.skill}\n\n"
+                for bullet in skill_bullets.bullet_points:
+                    formatted_content += f"• {bullet}\n"
+                formatted_content += "\n"
+            
+            formatted_content += "\n---\n\n"
+        
+        return formatted_content.strip()
+    
+    def _load_prompt_template(self, prompt_key: str) -> str:
+        """Load a prompt template from external file using centralized configuration."""
         try:
-            prompt_path = self.settings.get_prompt_path(prompt_name)
+            prompt_path = self.settings.get_prompt_path_by_key(prompt_key)
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 template = f.read()
-            logger.info(f"Successfully loaded prompt template: {prompt_name}")
+            logger.info(f"Successfully loaded prompt template: {prompt_key}")
             return template
         except Exception as e:
-            logger.error(f"Error loading prompt template {prompt_name}: {e}")
+            logger.error(f"Error loading prompt template {prompt_key}: {e}")
             # Fallback to basic template
             return self._get_fallback_template()
     
@@ -1194,7 +1291,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         """
         try:
             # Load the key qualifications prompt template
-            template = self._load_prompt_template("key_qualifications_prompt")
+            template = self._load_prompt_template("key_qualifications_writer")
             
             # Format the prompt with job description and talents
             prompt = template.format(

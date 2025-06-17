@@ -52,6 +52,9 @@ import logging
 import traceback
 import enum
 
+from src.orchestration.state import AgentState # Added for type hinting
+from src.models.data_models import StructuredCV, JobDescriptionData # Added for type hinting
+
 
 def enum_to_value(obj):
     """Recursively convert enum objects to their values for JSON serialization."""
@@ -141,6 +144,50 @@ OUTPUT_DIR = "data/output"
 # Ensure directories exist
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def create_agent_state_from_ui() -> AgentState:
+    """
+    Validates and transforms the current Streamlit session state into a
+    well-formed AgentState object for initiating a workflow.
+
+    This function acts as the sole bridge between the UI state and the
+    backend workflow state.
+
+    Returns:
+        AgentState: A fully initialized AgentState object ready for the workflow.
+    """
+    # 1. Initialize JobDescriptionData from UI
+    job_desc_raw = st.session_state.get("job_description", "")
+    job_description_data = JobDescriptionData(raw_text=job_desc_raw)
+
+    # 2. Initialize StructuredCV based on user choice
+    cv_text = st.session_state.get("cv_text", "")
+    start_from_scratch = st.session_state.get("start_from_scratch", False)
+
+    # The ParserAgent will later populate the full StructuredCV from cv_text.
+    # For initialization, we only need the raw text and metadata.
+    structured_cv = StructuredCV(
+        metadata={"original_cv_text": cv_text, "start_from_scratch": start_from_scratch}
+    )
+
+    # 3. Construct the final AgentState
+    initial_state = AgentState(
+        structured_cv=structured_cv,
+        job_description_data=job_description_data,
+        # Initialize other fields with sensible defaults
+        user_feedback=None,
+        error_messages=[],
+        # The workflow itself will manage these control fields
+        current_section_key=None,
+        current_item_id=None,
+        items_to_process_queue=[],
+        is_initial_generation=True,
+        final_output_path=None,
+        research_findings=None,
+    )
+
+    return initial_state
+
 
 
 # Helper functions for the UI
@@ -1232,32 +1279,17 @@ def main():
 
                             async def generate_cv():
                                 try:
-                                    # Use the enhanced CV system to properly parse and process both job description and CV content
-                                    # The workflow will handle parsing and setting data in the correct order:
-                                    # 1. Parse job description and CV data
-                                    # 2. Create StructuredCV instance first
-                                    # 3. Then set job description data in the CV metadata
-                                    if cv_content:
-                                        # Use the enhanced CV system to properly parse and process the CV content
-                                        await enhanced_cv_integration.execute_workflow(
-                                            workflow_type=WorkflowType.JOB_TAILORED_CV,
-                                            input_data={
-                                                "job_description": job_description,
-                                                "cv_data": {"raw_text": cv_content}
-                                            }
-                                        )
-                                        # The workflow will handle parsing and setting the structured CV in state manager
-                                    else:
-                                        # If no CV content, still need to initialize with job description
-                                        await enhanced_cv_integration.execute_workflow(
-                                            workflow_type=WorkflowType.JOB_TAILORED_CV,
-                                            input_data={
-                                                "job_description": job_description,
-                                                "cv_data": None
-                                            }
-                                        )
+                                    # The ONLY point where UI state is converted to backend state
+                                    initial_agent_state = create_agent_state_from_ui()
+
+                                    # Pass the clean, validated state object to the workflow
+                                    await enhanced_cv_integration.execute_workflow(
+                                        workflow_type=WorkflowType.JOB_TAILORED_CV,
+                                        input_data=initial_agent_state
+                                    )
 
                                     # Get the final state from the orchestrator after workflow execution
+                                    # Assuming orchestrator's state_manager is updated by the workflow
                                     final_state = orchestrator.state_manager.get_agent_state()
 
                                     # Convert AgentState to serializable format
@@ -1278,7 +1310,7 @@ def main():
                                         logger.info("Enhanced CV workflow completed successfully")
                                         return result
                                     else:
-                                        logger.error("LangGraph workflow completed but no structured CV generated")
+                                        logger.error("LangGraph workflow completed but no structured CV generated or final_state is None")
                                         return None
 
                                 except Exception as workflow_error:

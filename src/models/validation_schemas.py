@@ -9,6 +9,45 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# LLM Output Validation Schemas for JSON-based parsing
+class LLMJobDescriptionOutput(BaseModel):
+    """Schema for validating the JSON output from the job description parsing LLM call."""
+    skills: List[str] = Field(..., description="List of key skills and technologies mentioned.")
+    experience_level: str = Field(..., description="Required experience level (e.g., Senior, Mid-Level).")
+    responsibilities: List[str] = Field(..., description="List of key job responsibilities.")
+    industry_terms: List[str] = Field(..., description="List of industry-specific terms or jargon.")
+    company_values: List[str] = Field(..., description="List of company values or cultural keywords.")
+
+
+class LLMRoleGenerationOutput(BaseModel):
+    """Schema for validating the JSON output for generating a single resume role."""
+    organization_description: Optional[str] = Field(description="A brief description of the company.")
+    role_description: Optional[str] = Field(description="A brief description of the role's main purpose.")
+    bullet_points: List[str] = Field(..., description="A list of 3-5 generated resume bullet points tailored to the job description.")
+
+
+class LLMProjectGenerationOutput(BaseModel):
+    """Schema for validating the JSON output for generating project content."""
+    project_description: Optional[str] = Field(description="A brief description of the project.")
+    technologies_used: List[str] = Field(..., description="List of technologies and tools used in the project.")
+    achievements: List[str] = Field(..., description="List of key achievements and outcomes from the project.")
+    bullet_points: List[str] = Field(..., description="A list of 3-5 generated project bullet points.")
+
+
+class LLMSummaryOutput(BaseModel):
+    """Schema for validating the JSON output for generating executive summary."""
+    summary_text: str = Field(..., description="The generated executive summary text.")
+    key_strengths: List[str] = Field(..., description="List of key professional strengths highlighted.")
+    career_focus: str = Field(..., description="Primary career focus or objective.")
+
+
+class LLMQualificationsOutput(BaseModel):
+    """Schema for validating the JSON output for generating key qualifications."""
+    qualifications: List[str] = Field(..., description="List of key qualifications and competencies.")
+    technical_skills: List[str] = Field(..., description="List of technical skills to highlight.")
+    soft_skills: List[str] = Field(..., description="List of soft skills and interpersonal abilities.")
+
+
 def validate_agent_input(input_data: Any, expected_type: type = None) -> bool:
     """Validate agent input data.
     

@@ -8,6 +8,7 @@ import os
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
+from pydantic import BaseModel, Field, DirectoryPath
 
 # Try to import python-dotenv, but don't fail if it's not available
 try:
@@ -15,6 +16,27 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
+
+class LLMSettings(BaseModel):
+    """Configuration for Large Language Model services."""
+    default_model: str = "gemini-2.0-flash"
+    default_temperature: float = 0.7
+    max_tokens: int = 4096
+
+
+class PromptSettings(BaseModel):
+    """Configuration for prompt templates, mapping a key to a filename."""
+    job_description_parser: str = "job_description_parsing_prompt.md"
+    resume_role_writer: str = "resume_role_prompt.md"
+    project_writer: str = "side_project_prompt.md"
+    key_qualifications_writer: str = "key_qualifications_prompt.md"
+    executive_summary_writer: str = "executive_summary_prompt.md"
+    cv_analysis: str = "cv_analysis_prompt.md"
+    cv_assessment: str = "cv_assessment_prompt.md"
+    clean_big_6: str = "clean_big_6_prompt.md"
+    clean_json_output: str = "clean_json_output_prompt.md"
+    job_research_analysis: str = "job_research_analysis_prompt.md"
 
 
 @dataclass
@@ -139,6 +161,10 @@ class AppConfig:
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     
+    # NEW: Add structured configuration sections
+    llm_settings: LLMSettings = field(default_factory=LLMSettings)
+    prompts: PromptSettings = field(default_factory=PromptSettings)
+    
     # Application Metadata
     app_name: str = "AI CV Generator"
     app_version: str = "1.0.0"
@@ -170,6 +196,19 @@ class AppConfig:
     def get_prompt_path(self, prompt_name: str) -> Path:
         """Get the full path to a prompt file."""
         return self.prompts_directory / f"{prompt_name}.md"
+    
+    def get_prompt_path_by_key(self, prompt_key: str) -> str:
+        """
+        Constructs the full path to a prompt file using a key from PromptSettings.
+        """
+        prompt_filename = getattr(self.prompts, prompt_key, None)
+        if not prompt_filename:
+            raise ValueError(f"Prompt key '{prompt_key}' not found in settings.")
+
+        path = os.path.join(str(self.prompts_directory), prompt_filename)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Prompt file does not exist at path: {path}")
+        return path
     
     def get_session_path(self, session_id: str) -> Path:
         """Get the full path to a session directory."""

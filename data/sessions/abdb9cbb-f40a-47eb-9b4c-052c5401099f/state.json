@@ -1,0 +1,32 @@
+{
+  "id": "abdb9cbb-f40a-47eb-9b4c-052c5401099f",
+  "sections": [
+    {
+      "id": "professional_experience",
+      "name": "Professional Experience",
+      "content_type": "DYNAMIC",
+      "subsections": [],
+      "items": [
+        {
+          "id": "experience_item_0",
+          "content": "\u2022 Okay, I understand\n\u2022 I will generate tailored CV content for each role, following your instructions for organization descriptions, role descriptions, and bullet points\n\u2022 Each bullet point will start with the skill name in bold, followed by a colon and the bullet point content\n\u2022 I will prioritize accuracy, conciseness, and the specified formatting.",
+          "status": "generated",
+          "item_type": "bullet_point",
+          "metadata": {},
+          "user_feedback": null
+        }
+      ],
+      "raw_text": "",
+      "order": 0,
+      "status": "generated",
+      "user_feedback": null
+    }
+  ],
+  "metadata": {
+    "name": "",
+    "email": "",
+    "phone": "",
+    "linkedin": "",
+    "github": ""
+  }
+}

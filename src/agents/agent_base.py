@@ -320,21 +320,23 @@ class EnhancedAgentBase(ABC):
         
         self.logger.info("Agent statistics reset", agent_name=self.name)
     
-    async def run_as_node(self, state: "AgentState") -> dict:
+    @abstractmethod
+    async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
         """
-        Standard LangGraph node interface for all agents.
-        This method should be overridden by subclasses to provide
-        agent-specific LangGraph integration logic.
-        
+        Executes the agent's logic as a node within the LangGraph.
+
+        This method must be implemented by all concrete agent classes. It takes
+        the current workflow state and returns a dictionary containing only the
+        slice of the state that has been modified.
+
         Args:
-            state: The current workflow state (AgentState)
-            
+            state (AgentState): The current state of the LangGraph workflow.
+
         Returns:
-            dict: Updates to be applied to the state
+            Dict[str, Any]: A dictionary with keys matching AgentState fields
+                            that have been updated.
         """
-        raise NotImplementedError(
-            f"Agent {self.name} must implement run_as_node method for LangGraph compatibility"
-        )
+        pass
 
 
 # Legacy AgentBase class removed - all agents now use EnhancedAgentBase

@@ -4,6 +4,7 @@ from src.orchestration.state import AgentState
 from src.config.settings import get_config
 from src.config.logging_config import get_structured_logger
 from src.services.llm_service import get_llm_service
+from src.utils.template_renderer import recursively_escape_latex
 from typing import Dict, Any, Optional
 import os
 from jinja2 import Environment, FileSystemLoader
@@ -72,10 +73,15 @@ class FormatterAgent(EnhancedAgentBase):
             env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
             template = env.get_template("pdf_template.html")
 
-            # 2. Render HTML from template
-            html_out = template.render(cv=cv_data)
+            # 2. Apply LaTeX character escaping to CV data
+            # Convert CV data to dict for processing
+            cv_context_dict = cv_data.model_dump() if hasattr(cv_data, 'model_dump') else cv_data
+            sanitized_cv_context = recursively_escape_latex(cv_context_dict)
+            
+            # 3. Render HTML from template with sanitized data
+            html_out = template.render(cv=sanitized_cv_context)
 
-            # 3. Generate PDF using WeasyPrint (if available)
+            # 4. Generate PDF using WeasyPrint (if available)
             if not WEASYPRINT_AVAILABLE:
                 logger.warning("WeasyPrint not available. Saving HTML output instead of PDF.")
                 output_filename = f"CV_{cv_data.id}.html"
@@ -96,7 +102,7 @@ class FormatterAgent(EnhancedAgentBase):
                 stylesheets=[css_stylesheet] if css_stylesheet else None
             )
 
-            # 4. Save PDF to file
+            # 5. Save PDF to file
             output_filename = f"CV_{cv_data.id}.pdf"
             output_path = output_dir / output_filename
             with open(output_path, "wb") as f:

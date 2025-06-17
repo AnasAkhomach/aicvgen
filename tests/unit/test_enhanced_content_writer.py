@@ -385,7 +385,7 @@ class TestEnhancedContentWriterAgent:
     async def test_generate_big_10_skills_success(self, content_writer_agent, mock_llm_service, sample_job_data, sample_research_findings):
         """Test successful Big 10 skills generation."""
         # Mock prompt loading
-        with patch('src.agents.enhanced_content_writer.load_prompt') as mock_load_prompt:
+        with patch.object(content_writer_agent, '_load_prompt_template') as mock_load_prompt:
             mock_load_prompt.return_value = "Generate top 10 skills for: {job_title}"
             
             # Mock LLM response
@@ -405,7 +405,7 @@ class TestEnhancedContentWriterAgent:
     async def test_generate_big_10_skills_llm_error(self, content_writer_agent, mock_llm_service, sample_job_data, sample_research_findings):
         """Test Big 10 skills generation with LLM error."""
         # Mock prompt loading
-        with patch('src.agents.enhanced_content_writer.load_prompt') as mock_load_prompt:
+        with patch.object(content_writer_agent, '_load_prompt_template') as mock_load_prompt:
             mock_load_prompt.return_value = "Generate skills prompt"
             
             # Mock LLM to raise an exception
