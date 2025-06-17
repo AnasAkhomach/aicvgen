@@ -549,9 +549,12 @@ class EnhancedLLMService:
                 # Log timeout
                 logger.error(
                     "LLM request timed out",
-                    session_id=session_id,
-                    timeout=self.timeout,
-                    prompt_length=len(prompt)
+                    extra={
+                        'trace_id': trace_id,
+                        'session_id': session_id,
+                        'timeout': self.timeout,
+                        'prompt_length': len(prompt)
+                    }
                 )
                 
                 raise TimeoutError(f"LLM request timed out after {self.timeout} seconds")
@@ -563,7 +566,8 @@ class EnhancedLLMService:
         content_type: ContentType = ContentType.QUALIFICATION,
         session_id: str = None,
         item_id: str = None,
-        max_retries: int = 3
+        max_retries: int = 3,
+        trace_id: Optional[str] = None
     ) -> LLMResponse:
         """
         Generate content using the Gemini model with enhanced error handling and caching.
@@ -591,10 +595,13 @@ class EnhancedLLMService:
             self.cache_hits += 1
             logger.info(
                 "Performance cache hit for LLM request",
-                session_id=session_id,
-                item_id=item_id,
-                content_type=content_type.value,
-                cache_key=cache_key[:20] + "..."
+                extra={
+                    'trace_id': trace_id,
+                    'session_id': session_id,
+                    'item_id': item_id,
+                    'content_type': content_type.value,
+                    'cache_key': cache_key[:20] + "..."
+                }
             )
             
             # Return cached response with updated metadata
@@ -613,10 +620,13 @@ class EnhancedLLMService:
             self.performance_optimizer.cache.set(cache_key, cached_response, ttl_hours=1)
             logger.info(
                 "Local cache hit for LLM request",
-                session_id=session_id,
-                item_id=item_id,
-                content_type=content_type.value,
-                cache_key=cache_key[:20] + "..."
+                extra={
+                    'trace_id': trace_id,
+                    'session_id': session_id,
+                    'item_id': item_id,
+                    'content_type': content_type.value,
+                    'cache_key': cache_key[:20] + "..."
+                }
             )
             
             # Return cached response with updated metadata
@@ -631,9 +641,12 @@ class EnhancedLLMService:
         self.cache_misses += 1
         logger.debug(
             "Cache miss for LLM request",
-            session_id=session_id,
-            item_id=item_id,
-            content_type=content_type.value
+            extra={
+                'trace_id': trace_id,
+                'session_id': session_id,
+                'item_id': item_id,
+                'content_type': content_type.value
+            }
         )
         
         # Update call tracking
@@ -647,11 +660,14 @@ class EnhancedLLMService:
                 # Log the attempt
                 logger.info(
                     "Starting LLM generation",
-                    session_id=session_id,
-                    item_id=item_id,
-                    content_type=content_type.value,
-                    prompt_length=len(prompt),
-                    retry_count=retry_count
+                    extra={
+                        'trace_id': trace_id,
+                        'session_id': session_id,
+                        'item_id': item_id,
+                        'content_type': content_type.value,
+                        'prompt_length': len(prompt),
+                        'retry_count': retry_count
+                    }
                 )
 
                 # Generate content with timeout and optimization

@@ -4,7 +4,9 @@ from src.models.data_models import JobDescriptionData
 from typing import Dict, Any, List
 from src.services.llm_service import get_llm_service
 from src.services.llm import LLMResponse
-from src.config.logging_config import get_logger
+from src.config.logging_config import get_structured_logger
+from src.models.data_models import AgentDecisionLog, AgentExecutionLog
+import datetime
 from src.config.settings import get_config
 import json  # Import json
 import time
@@ -150,14 +152,34 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         fallback_extraction = self.extract_basic_info(raw_cv_text)
 
         # Load prompt template from external file
-        logger = get_logger(__name__)
+        logger = get_structured_logger(__name__)
         try:
             prompt_path = self.settings.get_prompt_path("cv_analysis_prompt")
             with open(prompt_path, 'r', encoding='utf-8') as f:
                 prompt_template = f.read()
-            logger.info("Successfully loaded CV analysis prompt template")
+            decision_log = AgentDecisionLog(
+                timestamp=datetime.datetime.now().isoformat(),
+                agent_name=self.name,
+                session_id=getattr(context, 'session_id', 'unknown'),
+                item_id=getattr(context, 'current_item_id', None),
+                decision_type='template_loading',
+                decision_details='Successfully loaded CV analysis prompt template',
+                confidence_score=1.0,
+                metadata={'template_path': str(prompt_path)}
+            )
+            logger.log_agent_decision(decision_log)
         except Exception as e:
-            logger.error(f"Error loading CV analysis prompt template: {e}")
+            decision_log = AgentDecisionLog(
+                timestamp=datetime.datetime.now().isoformat(),
+                agent_name=self.name,
+                session_id=getattr(context, 'session_id', 'unknown'),
+                item_id=getattr(context, 'current_item_id', None),
+                decision_type='template_loading',
+                decision_details=f'Error loading CV analysis prompt template: {e}',
+                confidence_score=0.0,
+                metadata={'error': str(e)}
+            )
+            logger.log_agent_decision(decision_log)
             # Fallback to basic prompt
             prompt_template = """
             Analyze the following CV text and extract key information in JSON format.
@@ -228,15 +250,37 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         from .agent_base import AgentResult
         from src.models.validation_schemas import validate_agent_input, ValidationError
         
+        logger = get_structured_logger(__name__)
+        
         try:
             # Validate input data using Pydantic schemas
             try:
                 validated_input = validate_agent_input('cv_analyzer', input_data)
                 # Convert validated Pydantic model back to dict for processing
                 input_data = validated_input.model_dump()
-                logger.info("Input validation passed for CVAnalyzerAgent")
+                decision_log = AgentDecisionLog(
+                    timestamp=datetime.datetime.now().isoformat(),
+                    agent_name=self.name,
+                    session_id=getattr(context, 'session_id', 'unknown'),
+                    item_id=getattr(context, 'current_item_id', None),
+                    decision_type='validation',
+                    decision_details='Input validation passed for CVAnalyzerAgent',
+                    confidence_score=1.0,
+                    metadata={'input_keys': list(input_data.keys()) if isinstance(input_data, dict) else ['non_dict_input']}
+                )
+                logger.log_agent_decision(decision_log)
             except ValidationError as ve:
-                logger.error(f"Input validation failed for CVAnalyzerAgent: {ve.message}")
+                decision_log = AgentDecisionLog(
+                    timestamp=datetime.datetime.now().isoformat(),
+                    agent_name=self.name,
+                    session_id=getattr(context, 'session_id', 'unknown'),
+                    item_id=getattr(context, 'current_item_id', None),
+                    decision_type='validation',
+                    decision_details=f'Input validation failed for CVAnalyzerAgent: {ve.message}',
+                    confidence_score=0.0,
+                    metadata={'error': ve.message, 'error_type': 'ValidationError'}
+                )
+                logger.log_agent_decision(decision_log)
                 return AgentResult(
                     success=False,
                     output_data={"error": f"Input validation failed: {ve.message}"},
@@ -245,7 +289,17 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                     metadata={"agent_type": "cv_analyzer", "validation_error": True}
                 )
             except Exception as e:
-                logger.error(f"Input validation error for CVAnalyzerAgent: {str(e)}")
+                decision_log = AgentDecisionLog(
+                    timestamp=datetime.datetime.now().isoformat(),
+                    agent_name=self.name,
+                    session_id=getattr(context, 'session_id', 'unknown'),
+                    item_id=getattr(context, 'current_item_id', None),
+                    decision_type='validation',
+                    decision_details=f'Input validation error for CVAnalyzerAgent: {str(e)}',
+                    confidence_score=0.0,
+                    metadata={'error': str(e), 'error_type': 'Exception'}
+                )
+                logger.log_agent_decision(decision_log)
                 return AgentResult(
                     success=False,
                     output_data={"error": f"Input validation error: {str(e)}"},

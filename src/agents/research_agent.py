@@ -9,7 +9,8 @@ from src.core.state_manager import (
     Item,
 )
 from src.services.vector_db import VectorDB
-from src.config.logging_config import get_logger
+from src.config.logging_config import get_structured_logger
+from src.models.data_models import AgentDecisionLog, AgentExecutionLog
 from src.config.settings import get_config
 from src.services.llm import LLMResponse
 from typing import Dict, Any, List, Optional
@@ -18,10 +19,11 @@ import logging
 import json
 import os
 import asyncio
+from datetime import datetime
 from src.orchestration.state import AgentState
 
-# Set up logging
-logger = logging.getLogger(__name__)
+# Set up structured logging
+logger = get_structured_logger(__name__)
 
 
 class ResearchAgent(EnhancedAgentBase):
@@ -63,24 +65,34 @@ class ResearchAgent(EnhancedAgentBase):
         )
         self.llm = llm_service or get_llm_service()
         self.vector_db = vector_db
-        
+
         # Initialize settings for prompt loading
         self.settings = get_config()
 
     # Legacy run method removed - use run_as_node for LangGraph integration
-    
+
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
         from src.models.validation_schemas import validate_agent_input, ValidationError
-        
+
         try:
             # Validate input data using Pydantic schemas
             try:
                 validated_input = validate_agent_input('research', input_data)
                 # Convert validated Pydantic model back to dict for processing
                 input_data = validated_input.model_dump()
-                logger.info("Input validation passed for ResearchAgent")
+                # Log validation success with structured logging
+                decision_log = AgentDecisionLog(
+                    timestamp=datetime.now().isoformat(),
+                    agent_name=self.name,
+                    session_id=context.session_id if context else "unknown",
+                    item_id=context.item_id if context else None,
+                    decision_type="validation",
+                    decision_details="Input validation passed for ResearchAgent",
+                    metadata={"input_keys": list(input_data.keys()) if isinstance(input_data, dict) else []}
+                )
+                logger.log_agent_decision(decision_log)
             except ValidationError as ve:
                 logger.error(f"Input validation failed for ResearchAgent: {ve.message}")
                 fallback_result = {
@@ -121,36 +133,36 @@ class ResearchAgent(EnhancedAgentBase):
                     error_message=f"Input validation error: {str(e)}",
                     metadata={"agent_type": "research", "validation_error": True}
                 )
-            
+
             # Use run_as_node for LangGraph integration
             # Create AgentState for run_as_node compatibility
             from src.orchestration.state import AgentState
             from src.models.data_models import StructuredCV, JobDescriptionData
-            
+
             # Create proper StructuredCV and JobDescriptionData objects
             structured_cv = input_data.get("structured_cv") or StructuredCV()
             job_desc_data = input_data.get("job_description_data")
             if not job_desc_data or isinstance(job_desc_data, dict):
                 job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
-            
+
             agent_state = AgentState(
                 structured_cv=structured_cv,
                 job_description_data=job_desc_data
             )
-            
+
             node_result = await self.run_as_node(agent_state)
             result = node_result.get("output_data", {})
-            
+
             return AgentResult(
                 success=True,
                 output_data=result,
                 confidence_score=1.0,
                 metadata={"agent_type": "research"}
             )
-            
+
         except Exception as e:
             logger.error(f"ResearchAgent error: {str(e)}")
-            
+
             # Return error result with fallback empty results
             fallback_result = {
                 "research_results": {
@@ -163,7 +175,7 @@ class ResearchAgent(EnhancedAgentBase):
                 },
                 "enhanced_job_description": input_data.get("job_description") if isinstance(input_data, dict) else None
             }
-            
+
             return AgentResult(
                 success=False,
                 output_data=fallback_result,
@@ -375,7 +387,7 @@ class ResearchAgent(EnhancedAgentBase):
                 Experience level: {experience_level}
                 Return analysis as JSON.
                 """
-            
+
             # Format the prompt with actual data
             prompt = prompt_template.format(
                 raw_jd=raw_jd,
@@ -385,7 +397,7 @@ class ResearchAgent(EnhancedAgentBase):
             )
 
             response = self.llm.generate_content(prompt)
-            
+
             # Check if LLM response was successful
             if hasattr(response, 'success') and not response.success:
                 logger.error(f"LLM request failed: {getattr(response, 'error_message', 'Unknown error')}")
@@ -395,7 +407,7 @@ class ResearchAgent(EnhancedAgentBase):
                     "error": "LLM analysis failed",
                     "raw_analysis": getattr(response, 'content', ''),
                 }
-            
+
             # Extract content from LLMResponse or use response directly for backward compatibility
             response_content = getattr(response, 'content', response) if hasattr(response, 'content') else response
 
@@ -459,7 +471,7 @@ class ResearchAgent(EnhancedAgentBase):
             """
 
             response = self.llm.generate_content(company_prompt)
-            
+
             # Check if LLM response was successful
             if hasattr(response, 'success') and not response.success:
                 logger.error(f"Company research LLM request failed: {getattr(response, 'error_message', 'Unknown error')}")
@@ -470,7 +482,7 @@ class ResearchAgent(EnhancedAgentBase):
                     "values": ["Innovation", "Teamwork"],
                     "error": "LLM company research failed"
                 }
-            
+
             # Extract content from LLMResponse or use response directly for backward compatibility
             response_content = getattr(response, 'content', response) if hasattr(response, 'content') else response
 
@@ -529,25 +541,25 @@ class ResearchAgent(EnhancedAgentBase):
                 "Customer experience enhancement",
             ],
         }
-    
+
     async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the research logic as a LangGraph node.
-        
+
         Args:
             state: The current state of the workflow.
-            
+
         Returns:
             A dictionary containing research findings.
         """
         logger.info("ResearchAgent node running.")
         cv = state.structured_cv
         job_data = state.job_description_data
-        
+
         if not cv or not job_data:
             logger.warning("Research agent called without required CV or job data.")
             return {}
-        
+
         try:
             # Create execution context for the async method
             context = AgentExecutionContext(
@@ -557,25 +569,25 @@ class ResearchAgent(EnhancedAgentBase):
                     "job_description_data": job_data.model_dump()
                 }
             )
-            
+
             # Call the existing async method
             result = await self.run_async(None, context)
-            
+
             if result.success:
                 # Extract research findings
                 research_data = result.output_data.get("research_findings", {})
-                
+
                 # Store research findings in state
                 current_findings = state.research_findings or {}
                 current_findings.update(research_data)
-                
+
                 return {"research_findings": current_findings}
-            
+
             # If not successful, add error to state
             error_list = state.error_messages or []
             error_list.append(f"Research Error: {result.error_message}")
             return {"error_messages": error_list}
-            
+
         except Exception as e:
             logger.error(f"Error in Research node: {e}", exc_info=True)
             error_list = state.error_messages or []

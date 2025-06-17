@@ -81,7 +81,7 @@ class TestParserAgent:
         agent = ParserAgent(
             name="TestParser",
             description="Test description",
-            llm=mock_llm
+            llm_service=mock_llm
         )
 
         assert agent.name == "TestParser"
@@ -155,8 +155,10 @@ class TestParserAgent:
 
         result_state = await parser_agent.run_as_node(state)
 
-        # The method should return a result without job_description_data
-        assert "job_description_data" not in result_state or result_state["job_description_data"] is None
+        # The method should create an empty JobDescriptionData when none exists
+        assert "job_description_data" in result_state
+        assert isinstance(result_state["job_description_data"], JobDescriptionData)
+        assert result_state["job_description_data"].raw_text == ""
 
     @pytest.mark.asyncio
     async def test_run_as_node_empty_job_description(self, parser_agent):
@@ -287,12 +289,12 @@ class TestParserAgent:
             assert "job_description_data" in result
             mock_parse.assert_called_once_with("Test job description")
 
-            # Verify job data is converted to dictionary format
+            # Verify job data is returned as JobDescriptionData object
             job_result = result["job_description_data"]
-            assert isinstance(job_result, dict)
-            assert "raw_text" in job_result
-            assert "skills" in job_result
-            assert "experience_level" in job_result
+            assert isinstance(job_result, JobDescriptionData)
+            assert hasattr(job_result, 'raw_text')
+            assert hasattr(job_result, 'skills')
+            assert hasattr(job_result, 'experience_level')
 
     @pytest.mark.asyncio
     async def test_run_as_node_with_cv_text(self, parser_agent):
@@ -301,10 +303,11 @@ class TestParserAgent:
         from src.models.data_models import JobDescriptionData, StructuredCV
 
         job_data = JobDescriptionData(raw_text="Test job description")
+        # Create structured_cv with metadata containing original_cv_text
+        structured_cv = StructuredCV(metadata={"original_cv_text": "Sample CV text content"})
         state = AgentState(
             job_description_data=job_data,
-            cv_text="Sample CV text content",
-            structured_cv=StructuredCV()
+            structured_cv=structured_cv
         )
 
         with patch.object(parser_agent, 'parse_job_description') as mock_parse_job, \
@@ -331,10 +334,11 @@ class TestParserAgent:
         from src.models.data_models import JobDescriptionData, StructuredCV
 
         job_data = JobDescriptionData(raw_text="Test job description")
+        # Create structured_cv with metadata indicating start_from_scratch
+        structured_cv = StructuredCV(metadata={"start_from_scratch": True})
         state = AgentState(
             job_description_data=job_data,
-            start_from_scratch=True,
-            structured_cv=StructuredCV()
+            structured_cv=structured_cv
         )
 
         with patch.object(parser_agent, 'parse_job_description') as mock_parse_job, \

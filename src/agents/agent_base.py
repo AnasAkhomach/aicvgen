@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from src.core.state_manager import AgentIO
 from src.config.logging_config import get_structured_logger
+from src.models.data_models import AgentExecutionLog, AgentDecisionLog
 from src.models.data_models import ContentType, ProcessingStatus
 from src.services.error_recovery import get_error_recovery_service
 from src.services.progress_tracker import get_progress_tracker
@@ -30,7 +31,7 @@ class AgentExecutionContext:
     metadata: Dict[str, Any] = None
     input_data: Optional[Dict[str, Any]] = None
     processing_options: Optional[Dict[str, Any]] = None
-    
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
@@ -49,7 +50,7 @@ class AgentResult:
     processing_time: float = 0.0
     error_message: Optional[str] = None
     metadata: Dict[str, Any] = None
-    
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
@@ -59,10 +60,10 @@ class EnhancedAgentBase(ABC):
     """Enhanced abstract base class for all agents with Phase 1 infrastructure integration."""
 
     def __init__(
-        self, 
-        name: str, 
-        description: str, 
-        input_schema: AgentIO, 
+        self,
+        name: str,
+        description: str,
+        input_schema: AgentIO,
         output_schema: AgentIO,
         content_type: Optional[ContentType] = None
     ):
@@ -80,19 +81,19 @@ class EnhancedAgentBase(ABC):
         self.input_schema = input_schema
         self.output_schema = output_schema
         self.content_type = content_type
-        
+
         # Enhanced services
         self.logger = get_structured_logger(f"agent_{name.lower()}")
         self.error_recovery = get_error_recovery_service()
         self.progress_tracker = get_progress_tracker()
         self.session_manager = get_session_manager()
-        
+
         # Performance tracking
         self.execution_count = 0
         self.total_processing_time = 0.0
         self.success_count = 0
         self.error_count = 0
-        
+
         self.logger.info(
             "Agent initialized",
             agent_name=name,
@@ -104,129 +105,162 @@ class EnhancedAgentBase(ABC):
     async def run_async(self, input_data: Any, context: AgentExecutionContext) -> AgentResult:
         """Abstract async method to be implemented by each agent."""
         raise NotImplementedError
-    
+
     # Legacy run method removed - use run_as_node for LangGraph integration
-    
+
     async def execute_with_context(
-        self, 
-        input_data: Any, 
+        self,
+        input_data: Any,
         context: AgentExecutionContext,
         max_retries: int = 3
     ) -> AgentResult:
         """
         Execute the agent with full context and error handling.
-        
+
         Args:
             input_data: The input data for the agent
             context: Execution context with session info
             max_retries: Maximum number of retries on failure
-            
+
         Returns:
             AgentResult with execution details
         """
         start_time = datetime.now()
         self.execution_count += 1
-        
-        # Log execution start
-        self.logger.info(
-            "Agent execution started",
+
+        # Log execution start with structured logging
+        start_log = AgentExecutionLog(
+            timestamp=start_time.isoformat(),
             agent_name=self.name,
             session_id=context.session_id,
             item_id=context.item_id,
             content_type=context.content_type.value if context.content_type else None,
-            retry_count=context.retry_count
+            execution_phase="start",
+            retry_count=context.retry_count,
+            input_data_type=type(input_data).__name__,
+            metadata={
+                "agent_description": self.description,
+                "execution_count": self.execution_count
+            }
         )
-        
+        self.logger.log_agent_execution(start_log)
+
         # Update progress
         if context.item_id:
             await self.progress_tracker.record_item_start(
                 context.session_id, context.item_id, context.content_type or self.content_type
             )
-        
+
         retry_count = 0
         while retry_count <= max_retries:
             try:
                 # Execute the agent
                 result = await self.run_async(input_data, context)
-                
+
                 processing_time = (datetime.now() - start_time).total_seconds()
                 result.processing_time = processing_time
                 self.total_processing_time += processing_time
-                
+
                 if result.success:
                     self.success_count += 1
-                    
-                    # Log successful execution
-                    self.logger.info(
-                        "Agent execution completed successfully",
+
+                    # Log successful execution with structured logging
+                    success_log = AgentExecutionLog(
+                        timestamp=datetime.now().isoformat(),
                         agent_name=self.name,
                         session_id=context.session_id,
                         item_id=context.item_id,
-                        processing_time=processing_time,
+                        content_type=context.content_type.value if context.content_type else None,
+                        execution_phase="success",
+                        processing_time_seconds=processing_time,
                         confidence_score=result.confidence_score,
-                        retry_count=retry_count
+                        retry_count=retry_count,
+                        output_data_size=len(str(result.output_data)) if result.output_data else 0,
+                        metadata={
+                            "success_count": self.success_count,
+                            "total_processing_time": self.total_processing_time
+                        }
                     )
-                    
+                    self.logger.log_agent_execution(success_log)
+
                     # Update progress
                     if context.item_id:
                         await self.progress_tracker.record_item_completion(
-                            context.session_id, context.item_id, 
+                            context.session_id, context.item_id,
                             context.content_type or self.content_type, True
                         )
-                    
+
                     return result
                 else:
                     raise Exception(result.error_message or "Agent execution failed")
-                    
+
             except Exception as e:
                 self.error_count += 1
                 processing_time = (datetime.now() - start_time).total_seconds()
-                
+
                 # Handle error with recovery service
                 recovery_action = await self.error_recovery.handle_error(
-                    e, context.item_id or "unknown", 
-                    context.content_type or self.content_type, 
-                    context.session_id, retry_count, 
+                    e, context.item_id or "unknown",
+                    context.content_type or self.content_type,
+                    context.session_id, retry_count,
                     {"agent_name": self.name, "input_data_type": type(input_data).__name__}
                 )
-                
+
                 # Check if we should retry
                 if recovery_action.strategy.value == "retry" and retry_count < max_retries:
                     retry_count += 1
                     context.retry_count = retry_count
-                    
-                    self.logger.warning(
-                        "Agent execution failed, retrying",
+
+                    # Log retry with structured logging
+                    retry_log = AgentExecutionLog(
+                        timestamp=datetime.now().isoformat(),
                         agent_name=self.name,
                         session_id=context.session_id,
                         item_id=context.item_id,
-                        error=str(e),
+                        content_type=context.content_type.value if context.content_type else None,
+                        execution_phase="retry",
+                        processing_time_seconds=processing_time,
                         retry_count=retry_count,
-                        delay_seconds=recovery_action.delay_seconds
+                        error_message=str(e),
+                        metadata={
+                            "delay_seconds": recovery_action.delay_seconds,
+                            "recovery_strategy": recovery_action.strategy.value,
+                            "error_count": self.error_count
+                        }
                     )
-                    
+                    self.logger.log_agent_execution(retry_log)
+
                     if recovery_action.delay_seconds > 0:
                         await asyncio.sleep(recovery_action.delay_seconds)
                     continue
-                
-                # Log final failure
-                self.logger.error(
-                    "Agent execution failed after retries",
+
+                # Log final failure with structured logging
+                error_log = AgentExecutionLog(
+                    timestamp=datetime.now().isoformat(),
                     agent_name=self.name,
                     session_id=context.session_id,
                     item_id=context.item_id,
-                    error=str(e),
+                    content_type=context.content_type.value if context.content_type else None,
+                    execution_phase="error",
+                    processing_time_seconds=processing_time,
                     retry_count=retry_count,
-                    processing_time=processing_time
+                    error_message=str(e),
+                    metadata={
+                        "recovery_strategy": recovery_action.strategy.value,
+                        "fallback_used": bool(recovery_action.fallback_content),
+                        "error_count": self.error_count,
+                        "total_processing_time": self.total_processing_time
+                    }
                 )
-                
+                self.logger.log_agent_execution(error_log)
+
                 # Update progress with failure
                 if context.item_id:
                     await self.progress_tracker.record_item_completion(
-                        context.session_id, context.item_id, 
+                        context.session_id, context.item_id,
                         context.content_type or self.content_type, False
                     )
-                
+
                 # Return error result with fallback content if available
                 return AgentResult(
                     success=False,
@@ -240,21 +274,34 @@ class EnhancedAgentBase(ABC):
                         "agent_name": self.name
                     }
                 )
-    
-    def log_decision(self, message: str, context: Optional[AgentExecutionContext] = None):
+
+    def log_decision(self, message: str, context: Optional[AgentExecutionContext] = None, decision_type: str = "processing", confidence_score: Optional[float] = None):
         """
         Logs a decision or action taken by the agent with structured logging.
 
         Args:
             message: The message to log.
             context: Optional execution context for additional metadata.
+            decision_type: Type of decision being made.
+            confidence_score: Optional confidence score for the decision.
         """
-        self.logger.info(
-            message,
+        decision_log = AgentDecisionLog(
+            timestamp=datetime.now().isoformat(),
             agent_name=self.name,
-            session_id=context.session_id if context else None,
-            item_id=context.item_id if context else None
+            session_id=context.session_id if context else "unknown",
+            item_id=context.item_id if context else None,
+            decision_type=decision_type,
+            decision_details=message,
+            confidence_score=confidence_score,
+            metadata={
+                "content_type": context.content_type.value if context and context.content_type else None,
+                "retry_count": context.retry_count if context else 0,
+                "execution_count": self.execution_count,
+                "success_rate": self.success_count / max(self.execution_count, 1)
+            }
         )
+
+        self.logger.log_agent_decision(decision_log)
 
     def generate_explanation(self, input_data: Any, output_data: Any, context: Optional[AgentExecutionContext] = None) -> str:
         """
@@ -274,7 +321,7 @@ class EnhancedAgentBase(ABC):
             f"Output: {str(output_data)[:200]}{'...' if len(str(output_data)) > 200 else ''}\n"
             f"Description: {self.description}\n"
         )
-        
+
         if context:
             explanation += (
                 f"Session ID: {context.session_id}\n"
@@ -282,7 +329,7 @@ class EnhancedAgentBase(ABC):
                 f"Content Type: {context.content_type.value if context.content_type else 'Unknown'}\n"
                 f"Retry Count: {context.retry_count}\n"
             )
-        
+
         return explanation
 
     def get_confidence_score(self, output_data: Any) -> float:
@@ -297,7 +344,7 @@ class EnhancedAgentBase(ABC):
         """
         # Placeholder implementation; override in subclasses for specific logic
         return 1.0
-    
+
     def get_performance_stats(self) -> Dict[str, Any]:
         """Get agent performance statistics."""
         return {
@@ -310,16 +357,16 @@ class EnhancedAgentBase(ABC):
             "average_processing_time": self.total_processing_time / max(self.execution_count, 1),
             "content_type": self.content_type.value if self.content_type else None
         }
-    
+
     def reset_stats(self):
         """Reset performance statistics."""
         self.execution_count = 0
         self.total_processing_time = 0.0
         self.success_count = 0
         self.error_count = 0
-        
+
         self.logger.info("Agent statistics reset", agent_name=self.name)
-    
+
     @abstractmethod
     async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
         """

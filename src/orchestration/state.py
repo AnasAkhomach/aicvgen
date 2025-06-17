@@ -1,6 +1,7 @@
 """Defines the centralized state model for the LangGraph-based orchestration."""
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
+import uuid
 
 from src.models.data_models import JobDescriptionData, StructuredCV, UserFeedback
 
@@ -10,6 +11,9 @@ class AgentState(BaseModel):
     Represents the complete, centralized state of the CV generation workflow
     for LangGraph orchestration.
     """
+    # Observability
+    trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    
     # Core Data Models
     structured_cv: StructuredCV
     job_description_data: Optional[JobDescriptionData] = None

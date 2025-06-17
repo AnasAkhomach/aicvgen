@@ -38,7 +38,7 @@ class ProcessingStatus(str, Enum):
     GENERATION_FAILED = "generation_failed"
     GENERATED_FALLBACK = "generated_fallback"
     STATIC = "static"
-    
+
     # Additional processing-specific statuses
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -144,7 +144,7 @@ class ContentItem(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-    
+
     @property
     def is_ready_for_processing(self) -> bool:
         """Check if item is ready for processing."""
@@ -203,14 +203,14 @@ class StructuredCV(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     sections: List[Section] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    
+
     # New fields for "Big 10" Skills (Task 3.2)
     big_10_skills: List[str] = Field(default_factory=list, description="Top 10 most relevant skills extracted from CV and job description")
     big_10_skills_raw_output: Optional[str] = Field(default=None, description="Raw LLM output for Big 10 skills generation for transparency")
-    
+
     def find_item_by_id(self, item_id: str) -> tuple[Optional[Item], Optional[Section], Optional[Subsection]]:
         """Find an item by its ID and return the item along with its parent section and subsection.
-        
+
         Returns:
             tuple: (item, section, subsection) where subsection is None if the item is directly in a section
         """
@@ -219,29 +219,29 @@ class StructuredCV(BaseModel):
             for item in section.items:
                 if str(item.id) == item_id:
                     return item, section, None
-            
+
             # Check items in subsections
             for subsection in section.subsections:
                 for item in subsection.items:
                     if str(item.id) == item_id:
                         return item, section, subsection
-        
+
         return None, None, None
-    
+
     def get_section_by_name(self, name: str) -> Optional[Section]:
         """Find a section by its name."""
         for section in self.sections:
             if section.name == name:
                 return section
         return None
-    
+
     def find_section_by_id(self, section_id: str) -> Optional[Section]:
         """Find a section by its ID."""
         for section in self.sections:
             if str(section.id) == section_id:
                 return section
         return None
-    
+
     def update_item_content(self, item_id: str, new_content: str) -> bool:
         """Update the content of a specific item by its ID."""
         item, _, _ = self.find_item_by_id(item_id)
@@ -249,7 +249,7 @@ class StructuredCV(BaseModel):
             item.content = new_content
             return True
         return False
-    
+
     def update_item_status(self, item_id: str, new_status: ItemStatus) -> bool:
         """Update the status of a specific item by its ID."""
         item, _, _ = self.find_item_by_id(item_id)
@@ -257,7 +257,7 @@ class StructuredCV(BaseModel):
             item.status = new_status
             return True
         return False
-    
+
     def get_items_by_status(self, status: ItemStatus) -> List[Item]:
         """Get all items that match a specific status."""
         items = []
@@ -270,7 +270,7 @@ class StructuredCV(BaseModel):
                     if item.status == status:
                         items.append(item)
         return items
-    
+
     def to_content_data(self) -> Dict[str, Any]:
         """Convert StructuredCV to ContentData format for backward compatibility."""
         content_data = {
@@ -281,10 +281,10 @@ class StructuredCV(BaseModel):
             "projects": [],
             "education": []
         }
-        
+
         for section in self.sections:
             section_name = section.name.lower().replace(" ", "_")
-            
+
             if "executive" in section_name or "summary" in section_name:
                 content_data["executive_summary"] = [item.content for item in section.items]
             elif "experience" in section_name or "employment" in section_name:
@@ -295,32 +295,32 @@ class StructuredCV(BaseModel):
                 content_data["projects"] = [item.content for item in section.items]
             elif "education" in section_name:
                 content_data["education"] = [item.content for item in section.items]
-        
+
         return content_data
-    
+
     def update_from_content(self, content_data: Dict[str, Any]) -> bool:
         """Update StructuredCV from ContentData format."""
         try:
             # Validate input is a dictionary
             if not isinstance(content_data, dict):
                 return False
-            
+
             # Update personal info in metadata
             if "personal_info" in content_data:
                 self.metadata["personal_info"] = content_data["personal_info"]
-            
+
             # Clear existing sections
             self.sections.clear()
-            
+
             # Recreate sections from content_data
             section_mappings = {
                 "executive_summary": "Executive Summary",
-                "professional_experience": "Professional Experience", 
+                "professional_experience": "Professional Experience",
                 "key_qualifications": "Key Qualifications",
                 "projects": "Projects",
                 "education": "Education"
             }
-            
+
             for content_key, section_name in section_mappings.items():
                 if content_key in content_data and content_data[content_key]:
                     section = Section(
@@ -333,7 +333,7 @@ class StructuredCV(BaseModel):
                     )
                     if section.items:  # Only add section if it has items
                         self.sections.append(section)
-            
+
             return True
         except Exception:
             return False
@@ -415,14 +415,14 @@ class WorkflowState(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    
+
     def advance_to_stage(self, stage: WorkflowStage):
         """Advance workflow to a new stage."""
         if self.current_stage not in self.completed_stages:
             self.completed_stages.append(self.current_stage)
         self.current_stage = stage
         self.updated_at = datetime.now()
-    
+
     def mark_stage_failed(self, stage: WorkflowStage):
         """Mark a stage as failed."""
         if stage not in self.failed_stages:
@@ -458,7 +458,7 @@ class ProcessingMetadata(BaseModel):
     error_message: Optional[str] = None
     retry_count: int = 0
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    
+
     def update_status(self, status: ProcessingStatus, error_message: Optional[str] = None):
         """Update the processing status."""
         self.status = status
@@ -545,7 +545,7 @@ class CVGenerationState(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     error_messages: List[str] = Field(default_factory=list)
-    
+
     # Additional legacy fields
     current_section_key: Optional[str] = None
     items_to_process_queue: List[str] = Field(default_factory=list)
@@ -554,20 +554,20 @@ class CVGenerationState(BaseModel):
     user_feedback: Optional[UserFeedback] = None
     research_findings: Optional[Dict[str, Any]] = None
     final_output_path: Optional[str] = None
-    
+
     def advance_to_stage(self, stage: WorkflowStage):
         """Advance workflow to a new stage."""
         if self.current_stage not in self.completed_stages:
             self.completed_stages.append(self.current_stage)
         self.current_stage = stage
         self.updated_at = datetime.now()
-    
+
     def mark_stage_failed(self, stage: WorkflowStage):
         """Mark a stage as failed."""
         if stage not in self.failed_stages:
             self.failed_stages.append(stage)
         self.updated_at = datetime.now()
-    
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -582,42 +582,86 @@ class RateLimitState(BaseModel):
     last_request_time: Optional[datetime] = None
     backoff_until: Optional[datetime] = None
     consecutive_failures: int = 0
-    
+
     def is_rate_limited(self) -> bool:
         """Check if currently rate limited."""
         now = datetime.now()
-        
+
         # Check if in backoff period
         if self.backoff_until and now < self.backoff_until:
             return True
-            
+
         # Check if window has reset
         if now - self.window_start > self.window_duration:
             self.requests_made = 0
             self.window_start = now
-            
+
         return self.requests_made >= self.requests_limit
-    
+
     def record_request(self):
         """Record a new request."""
         now = datetime.now()
-        
+
         # Reset window if needed
         if now - self.window_start > self.window_duration:
             self.requests_made = 0
             self.window_start = now
-            
+
         self.requests_made += 1
         self.last_request_time = now
-    
+
     def record_failure(self):
         """Record a request failure."""
         self.consecutive_failures += 1
         # Exponential backoff
         backoff_seconds = min(300, 2 ** self.consecutive_failures)  # Max 5 minutes
         self.backoff_until = datetime.now() + timedelta(seconds=backoff_seconds)
-    
+
     def record_success(self):
         """Record a successful request."""
         self.consecutive_failures = 0
         self.backoff_until = None
+
+
+# Structured Logging Data Models
+@dataclass
+class AgentExecutionLog:
+    """Structured log entry for agent execution tracking."""
+    timestamp: str
+    agent_name: str
+    session_id: str
+    item_id: Optional[str]
+    content_type: Optional[str]
+    execution_phase: str  # 'start', 'success', 'error', 'retry'
+    processing_time_seconds: Optional[float] = None
+    confidence_score: Optional[float] = None
+    retry_count: int = 0
+    error_message: Optional[str] = None
+    input_data_type: Optional[str] = None
+    output_data_size: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class AgentDecisionLog:
+    """Structured log entry for agent decision tracking."""
+    timestamp: str
+    agent_name: str
+    session_id: str
+    item_id: Optional[str]
+    decision_type: str  # 'validation', 'processing', 'fallback', 'enhancement'
+    decision_details: str
+    confidence_score: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class AgentPerformanceLog:
+    """Structured log entry for agent performance metrics."""
+    timestamp: str
+    agent_name: str
+    session_id: str
+    metric_type: str  # 'execution_time', 'success_rate', 'error_rate', 'throughput'
+    metric_value: float
+    time_window: str  # 'session', 'hour', 'day'
+    metadata: Optional[Dict[str, Any]] = None

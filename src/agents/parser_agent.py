@@ -19,7 +19,8 @@ from src.models.data_models import (
     Certification,
     Language,
 )
-from src.config.logging_config import get_logger
+from src.config.logging_config import get_structured_logger
+from src.models.data_models import AgentDecisionLog, AgentExecutionLog
 from src.config.settings import get_config
 from src.services.llm import LLMResponse
 from src.orchestration.state import AgentState
@@ -37,13 +38,8 @@ import re  # For regex parsing of Markdown
 import logging  # For logging
 import asyncio
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("debug.log"), logging.StreamHandler()],
-)
-logger = logging.getLogger(__name__)
+# Set up structured logging
+logger = get_structured_logger(__name__)
 
 
 class ParserAgent(EnhancedAgentBase):
@@ -70,93 +66,18 @@ class ParserAgent(EnhancedAgentBase):
             required_fields=["parsed_data"],
             optional_fields=["confidence_score", "error_message"]
         )
-        
+
         # Call parent constructor
         super().__init__(name, description, input_schema, output_schema)
-        
+
         # Accept either llm_service or llm parameter
         self.llm = llm_service or llm or get_llm_service()
-        
+
         # Initialize settings for prompt loading
         self.settings = get_config()
 
-    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
-        """
-        Execute the ParserAgent asynchronously.
-        This method delegates to run_as_node for LangGraph integration.
-        
-        Args:
-            input_data: Input data for parsing (job description or CV text)
-            context: Agent execution context
-            
-        Returns:
-            AgentResult with parsed data
-        """
-        from src.models.validation_schemas import validate_agent_input
-        from src.agents.agent_base import AgentResult
-        
-        try:
-            # Validate input data using Pydantic schemas
-            try:
-                validated_input = validate_agent_input('parser', input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-                logger.info("Input validation passed for ParserAgent")
-            except ValidationError as ve:
-                logger.error(f"Input validation failed for ParserAgent: {ve.message}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation failed: {ve.message}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={"agent_type": "parser", "validation_error": True}
-                )
-            except Exception as e:
-                logger.error(f"Input validation error for ParserAgent: {str(e)}")
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation error: {str(e)}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
-                    metadata={"agent_type": "parser", "validation_error": True}
-                )
-            
-            # Use run_as_node for LangGraph integration
-            # Create AgentState for run_as_node compatibility
-            from src.orchestration.state import AgentState
-            from src.models.data_models import StructuredCV, JobDescriptionData
-            
-            # Create proper StructuredCV and JobDescriptionData objects
-            structured_cv = input_data.get("structured_cv") or StructuredCV()
-            job_desc_data = input_data.get("job_description_data")
-            if not job_desc_data or isinstance(job_desc_data, dict):
-                job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
-            
-            agent_state = AgentState(
-                structured_cv=structured_cv,
-                job_description_data=job_desc_data
-            )
-            
-            node_result = await self.run_as_node(agent_state)
-            result = node_result.get("output_data", {})
-            
-            return AgentResult(
-                success=True,
-                output_data=result,
-                confidence_score=1.0,
-                metadata={"agent_type": "parser"}
-            )
-            
-        except Exception as e:
-            return AgentResult(
-                success=False,
-                output_data={},
-                confidence_score=0.0,
-                error_message=str(e),
-                metadata={"agent_type": "parser"}
-            )
 
-    async def parse_job_description(self, raw_text: str) -> JobDescriptionData:
+    async def parse_job_description(self, raw_text: str, trace_id: Optional[str] = None) -> JobDescriptionData:
         """
         Parses a raw job description using an LLM and extracts key information.
         Uses robust JSON validation with Pydantic models.
@@ -168,7 +89,18 @@ class ParserAgent(EnhancedAgentBase):
             A JobDescriptionData object with the parsed content.
         """
         if not raw_text:
-            logger.warning("Empty job description provided to ParserAgent.")
+            # Log validation decision with structured logging
+            decision_log = AgentDecisionLog(
+                timestamp=datetime.now().isoformat(),
+                agent_name=self.name,
+                session_id=trace_id or "unknown",
+                item_id=None,
+                decision_type="validation",
+                decision_details="Empty job description provided, returning default structure",
+                metadata={"input_length": 0}
+            )
+            logger.log_agent_decision(decision_log)
+            
             return JobDescriptionData(
                 raw_text=raw_text,
                 skills=[],
@@ -178,15 +110,15 @@ class ParserAgent(EnhancedAgentBase):
                 experience_level="N/A"
             )
 
-        return await self._parse_job_description_with_llm(raw_text)
+        return await self._parse_job_description_with_llm(raw_text, trace_id=trace_id)
 
-    async def _parse_job_description_with_llm(self, raw_text: str) -> JobDescriptionData:
+    async def _parse_job_description_with_llm(self, raw_text: str, trace_id: Optional[str] = None) -> JobDescriptionData:
         """
         Internal method to parse job description using LLM.
-        
+
         Args:
             raw_text: The raw job description as a string.
-            
+
         Returns:
             A JobDescriptionData object with the parsed content.
         """
@@ -198,7 +130,7 @@ class ParserAgent(EnhancedAgentBase):
 
         try:
             # 1. Get response from LLM
-            response = await self.llm.generate_content(prompt)
+            response = await self.llm.generate_content(prompt, trace_id=trace_id)
             raw_response_content = response.content
 
             # 2. Extract the JSON block from the raw response
@@ -244,25 +176,25 @@ class ParserAgent(EnhancedAgentBase):
     def _parse_job_description_with_regex(self, raw_text: str) -> JobDescriptionData:
         """
         Fallback method to parse job description using regex patterns.
-        
+
         Args:
             raw_text: The raw job description text
-            
+
         Returns:
             JobDescriptionData object with extracted information
         """
         logger.info("Using regex-based fallback parsing for job description")
-        
+
         # Initialize lists for extracted data
         skills = []
         responsibilities = []
         industry_terms = []
         company_values = []
         experience_level = "N/A"
-        
+
         # Convert to lowercase for pattern matching
         text_lower = raw_text.lower()
-        
+
         # Extract experience level using common patterns
         exp_patterns = [
             (r'(\d+)\+?\s*years?\s*(?:of\s*)?experience', lambda m: f"{m.group(1)}+ years"),
@@ -273,13 +205,13 @@ class ParserAgent(EnhancedAgentBase):
             (r'lead', lambda m: "Lead"),
             (r'principal', lambda m: "Principal"),
         ]
-        
+
         for pattern, formatter in exp_patterns:
             match = re.search(pattern, text_lower)
             if match:
                 experience_level = formatter(match)
                 break
-        
+
         # Extract skills using common technology and skill keywords
         skill_keywords = [
             'python', 'java', 'javascript', 'typescript', 'react', 'angular', 'vue',
@@ -292,11 +224,11 @@ class ParserAgent(EnhancedAgentBase):
             'machine learning', 'ai', 'data science', 'analytics', 'tableau',
             'communication', 'teamwork', 'leadership', 'problem solving'
         ]
-        
+
         for keyword in skill_keywords:
             if keyword in text_lower:
                 skills.append(keyword.title())
-        
+
         # Extract responsibilities using bullet points and common action verbs
         responsibility_patterns = [
             r'[•\*\-]\s*([^\n]+)',  # Bullet points
@@ -304,13 +236,13 @@ class ParserAgent(EnhancedAgentBase):
             r'responsible for\s+([^\n\.]+)',
             r'duties include\s+([^\n\.]+)'
         ]
-        
+
         for pattern in responsibility_patterns:
             matches = re.findall(pattern, raw_text, re.IGNORECASE)
             for match in matches:
                 if len(match.strip()) > 10:  # Filter out very short matches
                     responsibilities.append(match.strip())
-        
+
         # Extract industry terms using common business and tech keywords
         industry_keywords = [
             'fintech', 'healthcare', 'e-commerce', 'saas', 'b2b', 'b2c',
@@ -319,28 +251,28 @@ class ParserAgent(EnhancedAgentBase):
             'automation', 'optimization', 'integration', 'migration',
             'cloud', 'on-premise', 'hybrid', 'distributed', 'real-time'
         ]
-        
+
         for keyword in industry_keywords:
             if keyword in text_lower:
                 industry_terms.append(keyword.title())
-        
+
         # Extract company values using common value keywords
         value_keywords = [
             'innovation', 'collaboration', 'integrity', 'excellence', 'diversity',
             'inclusion', 'transparency', 'accountability', 'customer-focused',
             'quality', 'continuous learning', 'growth mindset', 'teamwork'
         ]
-        
+
         for keyword in value_keywords:
             if keyword in text_lower:
                 company_values.append(keyword.title())
-        
+
         # Remove duplicates and limit results
         skills = list(set(skills))[:15]  # Limit to 15 skills
         responsibilities = list(set(responsibilities))[:10]  # Limit to 10 responsibilities
         industry_terms = list(set(industry_terms))[:8]  # Limit to 8 terms
         company_values = list(set(company_values))[:6]  # Limit to 6 values
-        
+
         return JobDescriptionData(
             raw_text=raw_text,
             skills=skills,
@@ -610,13 +542,13 @@ class ParserAgent(EnhancedAgentBase):
         except RuntimeError:
             # No event loop running, we can create one
             asyncio.run(self._enhance_sections_with_llm(structured_cv, cv_text))
-        
+
         return structured_cv
 
     async def _enhance_sections_with_llm(self, structured_cv: StructuredCV, cv_text: str) -> None:
         """
         Enhance specific sections using LLM-powered parsing.
-        
+
         Args:
             structured_cv: The structured CV to enhance
             cv_text: The original CV text for context
@@ -632,7 +564,7 @@ class ParserAgent(EnhancedAgentBase):
                 # Replace the basic parsed content with LLM-enhanced structure
                 experience_section.subsections = enhanced_experience
                 logger.info(f"Enhanced Professional Experience section with {len(enhanced_experience)} roles")
-        
+
         # Find and enhance Project Experience section
         project_section = next(
             (section for section in structured_cv.sections if section.name == "Project Experience"),
@@ -648,10 +580,10 @@ class ParserAgent(EnhancedAgentBase):
     async def _parse_experience_section_with_llm(self, cv_text: str) -> List[Subsection]:
         """
         Parse the Professional Experience section using LLM to extract structured role information.
-        
+
         Args:
             cv_text: The complete CV text
-            
+
         Returns:
             List of Subsection objects representing individual roles
         """
@@ -661,14 +593,14 @@ class ParserAgent(EnhancedAgentBase):
             if not experience_text:
                 logger.warning("No Professional Experience section found in CV text")
                 return []
-            
+
             # Create prompt for LLM to parse experience
             prompt = f"""
             Parse the following Professional Experience section and extract structured information for each role.
-            
+
             Experience Text:
             {experience_text}
-            
+
             Please return a JSON array where each object represents a role with the following structure:
             {{
                 "title": "Job Title",
@@ -677,31 +609,31 @@ class ParserAgent(EnhancedAgentBase):
                 "location": "City, State/Country (if available)",
                 "responsibilities": ["responsibility 1", "responsibility 2", "responsibility 3"]
             }}
-            
+
             Extract all roles found in the text. If some information is missing, use reasonable defaults or leave empty strings.
             Return only the JSON array, no additional text.
             """
-            
+
             # Generate response using LLM
             response = await self.llm.generate_content(prompt)
-            
+
             if not response:
                 logger.error("Empty response from LLM for experience parsing")
                 return []
-            
+
             # Handle response content
             content = response.content if hasattr(response, 'content') else response
-            
+
             # Parse JSON response
             json_start = content.find("[")
             json_end = content.rfind("]") + 1
             if json_start == -1 or json_end == 0:
                 logger.error("No valid JSON array found in LLM response")
                 return []
-            
+
             json_str = content[json_start:json_end]
             parsed_roles = json.loads(json_str)
-            
+
             # Convert to Subsection objects
             subsections = []
             for role in parsed_roles:
@@ -710,16 +642,16 @@ class ParserAgent(EnhancedAgentBase):
                 company = role.get("company", "Company")
                 duration = role.get("duration", "")
                 location = role.get("location", "")
-                
+
                 # Format subsection name
                 subsection_name = f"{title} at {company}"
                 if duration:
                     subsection_name += f" ({duration})"
                 if location:
                     subsection_name += f" - {location}"
-                
+
                 subsection = Subsection(name=subsection_name)
-                
+
                 # Add responsibilities as items
                 responsibilities = role.get("responsibilities", [])
                 for responsibility in responsibilities:
@@ -730,12 +662,12 @@ class ParserAgent(EnhancedAgentBase):
                             item_type=ItemType.BULLET_POINT
                         )
                         subsection.items.append(item)
-                
+
                 subsections.append(subsection)
-            
+
             logger.info(f"Successfully parsed {len(subsections)} roles from Professional Experience")
             return subsections
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response for experience: {e}")
             return []
@@ -746,10 +678,10 @@ class ParserAgent(EnhancedAgentBase):
     async def _parse_projects_section_with_llm(self, cv_text: str) -> List[Subsection]:
         """
         Parse the Project Experience section using LLM to extract structured project information.
-        
+
         Args:
             cv_text: The complete CV text
-            
+
         Returns:
             List of Subsection objects representing individual projects
         """
@@ -759,14 +691,14 @@ class ParserAgent(EnhancedAgentBase):
             if not projects_text:
                 logger.warning("No Project Experience section found in CV text")
                 return []
-            
+
             # Create prompt for LLM to parse projects
             prompt = f"""
             Parse the following Project Experience section and extract structured information for each project.
-            
+
             Projects Text:
             {projects_text}
-            
+
             Please return a JSON array where each object represents a project with the following structure:
             {{
                 "name": "Project Name",
@@ -774,32 +706,32 @@ class ParserAgent(EnhancedAgentBase):
                 "duration": "Project duration or timeframe (if available)",
                 "description": ["key point 1", "key point 2", "key point 3"]
             }}
-            
+
             Extract all projects found in the text. Focus on technical achievements, technologies used, and impact.
             If some information is missing, use reasonable defaults or leave empty strings.
             Return only the JSON array, no additional text.
             """
-            
+
             # Generate response using LLM
             response = await self.llm.generate_content(prompt)
-            
+
             if not response:
                 logger.error("Empty response from LLM for projects parsing")
                 return []
-            
+
             # Handle response content
             content = response.content if hasattr(response, 'content') else response
-            
+
             # Parse JSON response
             json_start = content.find("[")
             json_end = content.rfind("]") + 1
             if json_start == -1 or json_end == 0:
                 logger.error("No valid JSON array found in LLM response")
                 return []
-            
+
             json_str = content[json_start:json_end]
             parsed_projects = json.loads(json_str)
-            
+
             # Convert to Subsection objects
             subsections = []
             for project in parsed_projects:
@@ -807,16 +739,16 @@ class ParserAgent(EnhancedAgentBase):
                 name = project.get("name", "Project")
                 technologies = project.get("technologies", "")
                 duration = project.get("duration", "")
-                
+
                 # Format subsection name
                 subsection_name = name
                 if technologies:
                     subsection_name += f" ({technologies})"
                 if duration:
                     subsection_name += f" - {duration}"
-                
+
                 subsection = Subsection(name=subsection_name)
-                
+
                 # Add description points as items
                 description_points = project.get("description", [])
                 for point in description_points:
@@ -827,12 +759,12 @@ class ParserAgent(EnhancedAgentBase):
                             item_type=ItemType.BULLET_POINT
                         )
                         subsection.items.append(item)
-                
+
                 subsections.append(subsection)
-            
+
             logger.info(f"Successfully parsed {len(subsections)} projects from Project Experience")
             return subsections
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response for projects: {e}")
             return []
@@ -843,11 +775,11 @@ class ParserAgent(EnhancedAgentBase):
     async def _extract_section_text(self, cv_text: str, section_name: str) -> str:
         """
         Extract the text content of a specific section from the CV using LLM.
-        
+
         Args:
             cv_text: The complete CV text
             section_name: The name of the section to extract
-            
+
         Returns:
             The text content of the section, or empty string if not found
         """
@@ -855,27 +787,27 @@ class ParserAgent(EnhancedAgentBase):
             # Create prompt for LLM to extract the specific section
             prompt = f"""
             Extract the "{section_name}" section from the following CV text.
-            
+
             CV Text:
             {cv_text}
-            
+
             Please return ONLY the content of the "{section_name}" section, without the section header.
             If the section is not found, return "SECTION_NOT_FOUND".
             Do not include any other text or explanations.
-            
+
             The section content should include all subsections, bullet points, and details that belong to "{section_name}".
             """
-            
+
             # Generate response using LLM
             response = await self.llm.generate_content(prompt)
-            
+
             if not response or (hasattr(response, 'content') and response.content.strip() == "SECTION_NOT_FOUND") or response.strip() == "SECTION_NOT_FOUND":
                 logger.warning(f"Section '{section_name}' not found in CV text")
                 return ""
-            
+
             content = response.content if hasattr(response, 'content') else response
             return content.strip()
-            
+
         except Exception as e:
             logger.error(f"Error extracting section '{section_name}' with LLM: {e}")
             return ""
@@ -944,7 +876,7 @@ class ParserAgent(EnhancedAgentBase):
                     skills = job_data.skills
                 elif isinstance(job_data, dict) and 'skills' in job_data:
                     skills = job_data['skills']
-            
+
             if section.name == "Key Qualifications" and skills:
                 # Limit to 8 skills maximum
                 for skill in skills[:8]:
@@ -998,7 +930,7 @@ class ParserAgent(EnhancedAgentBase):
         if hasattr(self, "_job_data") and self._job_data:
             return self._job_data
         return {}
-    
+
     def get_confidence_score(self, output_data: Any) -> float:
         """
         Returns a confidence score for the agent's output based on data completeness.
@@ -1011,37 +943,37 @@ class ParserAgent(EnhancedAgentBase):
         """
         if not output_data:
             return 0.0
-        
+
         # Base confidence score
         confidence = 0.3
-        
+
         # Check for required fields in job description data
         required_fields = ["job_title", "required_skills", "experience_level", "education_requirements"]
         present_fields = 0
-        
+
         for field in required_fields:
             if field in output_data and output_data[field]:
                 present_fields += 1
-        
+
         # Calculate confidence based on completeness
         field_completeness = present_fields / len(required_fields)
         confidence += field_completeness * 0.7
-        
+
         return min(confidence, 1.0)
-    
+
     def _extract_skills_from_text(self, text: str) -> List[str]:
         """
         Extract skills from text using pattern matching.
-        
+
         Args:
             text: The text to extract skills from
-            
+
         Returns:
             List of extracted skills
         """
         if not text:
             return []
-        
+
         # Common skill patterns and keywords
         skill_patterns = [
             r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin)\b',
@@ -1053,15 +985,15 @@ class ParserAgent(EnhancedAgentBase):
             r'\b(?:Machine Learning|AI|Data Science|Analytics|Statistics)\b',
             r'\b(?:Agile|Scrum|DevOps|CI/CD|TDD|BDD)\b'
         ]
-        
+
         skills = []
         text_lower = text.lower()
-        
+
         # Extract skills using patterns
         for pattern in skill_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             skills.extend(matches)
-        
+
         # Also look for comma-separated skills
         # Common phrases that indicate skill lists
         skill_indicators = [
@@ -1069,7 +1001,7 @@ class ParserAgent(EnhancedAgentBase):
             r'(?:technologies|skills|tools)\s*:?\s*([^.]+)',
             r'(?:including|such as)\s*([^.]+)'
         ]
-        
+
         for indicator in skill_indicators:
             matches = re.findall(indicator, text, re.IGNORECASE)
             for match in matches:
@@ -1079,38 +1011,38 @@ class ParserAgent(EnhancedAgentBase):
                     skill = skill.strip().strip('and').strip()
                     if skill and len(skill) > 1:
                         skills.append(skill)
-        
+
         # Remove duplicates and clean up
         unique_skills = []
         for skill in skills:
             skill = skill.strip()
             if skill and skill not in unique_skills:
                 unique_skills.append(skill)
-        
+
         return unique_skills
-    
+
     def _extract_sections(self, cv_content: str) -> List[Section]:
         """
         Extract sections from CV content.
-        
+
         Args:
             cv_content: The CV content to parse
-            
+
         Returns:
             List of Section objects
         """
         sections = []
-        
+
         # Simple section extraction based on common CV patterns
         lines = cv_content.split('\n')
         current_section = None
         current_items = []
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-                
+
             # Check if this line looks like a section header
             if self._is_section_header(line):
                 # Save previous section if exists
@@ -1119,7 +1051,7 @@ class ParserAgent(EnhancedAgentBase):
                         name=current_section,
                         items=[Item(content=item, status=ItemStatus.INITIAL) for item in current_items]
                     ))
-                
+
                 # Start new section
                 current_section = line
                 current_items = []
@@ -1132,23 +1064,23 @@ class ParserAgent(EnhancedAgentBase):
                     if not sections:
                         current_section = "Personal Information"
                         current_items = [line]
-        
+
         # Add the last section
         if current_section:
             sections.append(Section(
                 name=current_section,
                 items=[Item(content=item, status=ItemStatus.INITIAL) for item in current_items]
             ))
-        
+
         return sections
-    
+
     def _is_section_header(self, line: str) -> bool:
         """
         Determine if a line is likely a section header.
-        
+
         Args:
             line: The line to check
-            
+
         Returns:
             True if the line appears to be a section header
         """
@@ -1160,106 +1092,143 @@ class ParserAgent(EnhancedAgentBase):
             'projects', 'achievements', 'certifications', 'languages',
             'references', 'interests', 'hobbies'
         ]
-        
+
         line_lower = line.lower()
-        
+
         # Check if line contains section keywords
         for keyword in section_keywords:
             if keyword in line_lower:
                 return True
-        
+
         # Check if line is all caps (common for headers)
         if line.isupper() and len(line) > 3:
             return True
-        
+
         # Check if line ends with colon
         if line.endswith(':'):
             return True
-        
+
         return False
-    
+
     async def parse_cv(self, cv_content: str) -> StructuredCV:
         """
         Parse CV content and return a structured CV.
-        
+
         Args:
             cv_content: The CV content to parse
-            
+
         Returns:
             StructuredCV object with parsed sections
-            
+
         Raises:
             ValueError: If CV content is empty or None
         """
         if not cv_content or not cv_content.strip():
             raise ValueError("CV content cannot be empty")
-        
+
         # Extract sections from CV content
         sections = self._extract_sections(cv_content)
-        
+
         # Create and return StructuredCV
         return StructuredCV(sections=sections)
-    
+
+    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+        """
+        Legacy async method required by abstract base class.
+        
+        This method provides compatibility with the abstract base class
+        but is not the primary execution path for LangGraph workflows.
+        """
+        from .agent_base import AgentResult
+        from src.orchestration.state import AgentState
+        from src.models.data_models import JobDescriptionData, StructuredCV
+        
+        try:
+            # Simple implementation that returns a basic result
+            # The main execution path is through run_as_node
+            return AgentResult(
+                success=True,
+                output_data={"message": "ParserAgent executed via run_async - use run_as_node for full functionality"},
+                confidence_score=1.0,
+                metadata={"agent_type": "parser", "execution_method": "run_async"}
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in ParserAgent.run_async: {e}", exc_info=True)
+            return AgentResult(
+                success=False,
+                output_data={"error": str(e)},
+                confidence_score=0.0,
+                error_message=str(e),
+                metadata={"agent_type": "parser", "error": True}
+            )
+
     async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the complete parsing logic as a LangGraph node.
-        Consolidates all parsing functionality from legacy methods.
-        
-        Args:
-            state: The current state of the workflow.
-            
-        Returns:
-            A dictionary with the updated 'structured_cv' and 'job_description_data'.
+
+        This method now correctly handles parsing the job description,
+        parsing an existing CV text from metadata, or creating an empty CV
+        structure based on the initial state, ensuring the agent's full
+        capability is exposed to the workflow.
         """
-        logger.info("ParserAgent node running with consolidated logic.")
-        
+        logger.info(
+            "ParserAgent node running with consolidated logic.",
+            extra={'trace_id': state.trace_id}
+        )
+
         try:
-            result = {}
-            
-            # Parse job description if provided
-            if hasattr(state, 'job_description_data') and state.job_description_data and state.job_description_data.raw_text:
-                logger.info("Starting job description parsing")
-                job_data = await self.parse_job_description(state.job_description_data.raw_text)
-                
-                # Ensure job_data is properly structured as a dictionary for workflow compatibility
-                if hasattr(job_data, '__dict__'):
-                    # Convert JobDescriptionData object to dictionary
-                    job_data_dict = {
-                        "raw_text": job_data.raw_text,
-                        "skills": job_data.skills,
-                        "experience_level": job_data.experience_level,
-                        "responsibilities": job_data.responsibilities,
-                        "industry_terms": job_data.industry_terms,
-                        "company_values": job_data.company_values
-                    }
-                    result["job_description_data"] = job_data_dict
-                    logger.info("Job description parsed and converted to structured dictionary format")
-                else:
-                    # Fallback if job_data is already a dict
-                    result["job_description_data"] = job_data
-                    logger.info("Job description parsed successfully")
-            
-            # Process CV if provided in state
-            if hasattr(state, 'cv_text') and state.cv_text:
-                # Get job data from the result if we just parsed it, or from state
-                job_data = result.get("job_description_data", getattr(state, 'job_description_data', None))
-                structured_cv = self.parse_cv_text(state.cv_text, job_data)
-                result["structured_cv"] = structured_cv
-            elif hasattr(state, 'structured_cv'):
-                # Pass through existing structured CV
-                result["structured_cv"] = state.structured_cv
-            
-            # Create empty CV structure if needed (start from scratch scenario)
-            if hasattr(state, 'start_from_scratch') and state.start_from_scratch:
-                # Get job data from the result if we just parsed it, or from state
-                job_data = result.get("job_description_data", getattr(state, 'job_description_data', None))
-                structured_cv = self.create_empty_cv_structure(job_data)
-                result["structured_cv"] = structured_cv
-            
-            return result
-            
+            # Initialize job_data to None
+            job_data = None
+
+            # 1. Always parse the job description first, if it exists.
+            if state.job_description_data and state.job_description_data.raw_text:
+                logger.info(
+                    "Starting job description parsing.",
+                    extra={'trace_id': state.trace_id}
+                )
+                job_data = await self.parse_job_description(state.job_description_data.raw_text, trace_id=state.trace_id)
+            else:
+                logger.warning(
+                    "No job description text found in the state.",
+                    extra={'trace_id': state.trace_id}
+                )
+                # Create empty JobDescriptionData if none exists
+                job_data = JobDescriptionData(raw_text="")
+
+            # 2. Determine the CV processing path from the structured_cv metadata.
+            # This metadata is set by the create_agent_state_from_ui function.
+            cv_metadata = state.structured_cv.metadata if state.structured_cv else {}
+            start_from_scratch = cv_metadata.get("start_from_scratch", False)
+            original_cv_text = cv_metadata.get("original_cv_text", "")
+
+            final_cv = None
+            if start_from_scratch:
+                logger.info(
+                    "Creating empty CV structure for 'Start from Scratch' option.",
+                    extra={'trace_id': state.trace_id}
+                )
+                final_cv = self.create_empty_cv_structure(job_data)
+            elif original_cv_text:
+                logger.info(
+                    "Parsing provided CV text.",
+                    extra={'trace_id': state.trace_id}
+                )
+                final_cv = self.parse_cv_text(original_cv_text, job_data)
+            else:
+                logger.warning("No CV text provided and not starting from scratch. Passing CV state through.")
+                final_cv = state.structured_cv
+
+            # 3. Return the complete, updated state.
+            return {
+                "structured_cv": final_cv,
+                "job_description_data": job_data
+            }
+
         except Exception as e:
-            logger.error(f"Error in ParserAgent node: {e}", exc_info=True)
-            error_list = getattr(state, 'error_messages', []) or []
-            error_list.append(f"ParserAgent Error: {e}")
+            logger.error(f"Critical error in ParserAgent node: {e}", exc_info=True)
+            error_list = state.error_messages or []
+            error_list.append(f"ParserAgent Error: {str(e)}")
+            # Return the errors to be handled by the graph's error handling mechanism
             return {"error_messages": error_list}
+

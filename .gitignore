@@ -167,3 +167,6 @@ __pycache__/
 
 # Other
 .DS_Store
+
+data/job_descriptions
+data/sessions

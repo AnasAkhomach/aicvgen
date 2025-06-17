@@ -12,13 +12,16 @@ from src.core.state_manager import (
 )
 from typing import Dict, Any, List, Tuple
 import logging
+from datetime import datetime
 import re
 import asyncio
 from src.orchestration.state import AgentState
 from src.models.data_models import StructuredCV as PydanticStructuredCV
 
-# Set up logging
-logger = logging.getLogger(__name__)
+# Set up structured logging
+from src.config.logging_config import get_structured_logger
+from src.models.data_models import AgentDecisionLog, AgentExecutionLog
+logger = get_structured_logger(__name__)
 
 
 class QualityAssuranceAgent(EnhancedAgentBase):
@@ -65,19 +68,29 @@ class QualityAssuranceAgent(EnhancedAgentBase):
         self.llm = llm_service or get_llm_service()
 
     # Legacy run method removed - use run_as_node for LangGraph integration
-    
+
     async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
         from src.models.validation_schemas import validate_agent_input, ValidationError
-        
+
         try:
             # Validate input data using Pydantic schemas
             try:
                 validated_input = validate_agent_input('quality_assurance', input_data)
                 # Convert validated Pydantic model back to dict for processing
                 input_data = validated_input.model_dump()
-                logger.info("Input validation passed for QualityAssuranceAgent")
+                # Log validation success with structured logging
+                decision_log = AgentDecisionLog(
+                    timestamp=datetime.now().isoformat(),
+                    agent_name=self.name,
+                    session_id=context.session_id if context else "unknown",
+                    item_id=context.item_id if context else None,
+                    decision_type="validation",
+                    decision_details="Input validation passed for QualityAssuranceAgent",
+                    metadata={"input_keys": list(input_data.keys()) if isinstance(input_data, dict) else []}
+                )
+                logger.log_agent_decision(decision_log)
             except ValidationError as ve:
                 logger.error(f"Input validation failed for QualityAssuranceAgent: {ve.message}")
                 fallback_result = {
@@ -126,36 +139,36 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                     error_message=f"Input validation error: {str(e)}",
                     metadata={"agent_type": "quality_assurance", "validation_error": True}
                 )
-            
+
             # Use run_as_node for LangGraph integration
             # Create AgentState for run_as_node compatibility
             from src.orchestration.state import AgentState
             from src.models.data_models import StructuredCV, JobDescriptionData
-            
+
             # Create proper StructuredCV and JobDescriptionData objects
             structured_cv = input_data.get("structured_cv") or StructuredCV()
             job_desc_data = input_data.get("job_description_data")
             if not job_desc_data or isinstance(job_desc_data, dict):
                 job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
-            
+
             agent_state = AgentState(
                 structured_cv=structured_cv,
                 job_description_data=job_desc_data
             )
-            
+
             node_result = await self.run_as_node(agent_state)
             result = node_result.get("output_data", {})
-            
+
             return AgentResult(
                 success=True,
                 output_data=result,
                 confidence_score=1.0,
                 metadata={"agent_type": "quality_assurance"}
             )
-            
+
         except Exception as e:
             logger.error(f"QualityAssuranceAgent error: {str(e)}")
-            
+
             # Return error result with fallback empty results
             fallback_result = {
                 "quality_check_results": {
@@ -172,7 +185,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 },
                 "updated_structured_cv": input_data.get("structured_cv") if isinstance(input_data, dict) else None
             }
-            
+
             return AgentResult(
                 success=False,
                 output_data=fallback_result,
@@ -674,25 +687,25 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 )
 
         return overall_checks
-    
+
     async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the quality assurance logic as a LangGraph node.
-        
+
         Args:
             state: The current state of the workflow.
-            
+
         Returns:
             A dictionary containing quality check results and potentially updated CV.
         """
         logger.info("QualityAssuranceAgent node running.")
         cv = state.structured_cv
         job_data = state.job_description_data
-        
+
         if not cv or not job_data:
             logger.warning("QA agent called without required CV or job data.")
             return {}
-        
+
         try:
             # Create execution context for the async method
             context = AgentExecutionContext(
@@ -702,34 +715,34 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                     "job_description_data": job_data.model_dump()
                 }
             )
-            
+
             # Call the existing async method
             result = await self.run_async(None, context)
-            
+
             if result.success:
                 # Extract quality check results
                 quality_results = result.output_data.get("quality_check_results", {})
                 updated_cv_data = result.output_data.get("updated_structured_cv")
-                
+
                 response = {}
                 if quality_results:
                     # Store quality results in user feedback for visibility
                     feedback_list = state.user_feedback or []
                     feedback_list.append(f"QA Results: {quality_results}")
                     response["user_feedback"] = feedback_list
-                
+
                 if updated_cv_data:
                     # Convert back to StructuredCV model
                     updated_cv = PydanticStructuredCV.model_validate(updated_cv_data)
                     response["structured_cv"] = updated_cv
-                
+
                 return response
-            
+
             # If not successful, add error to state
             error_list = state.error_messages or []
             error_list.append(f"QA Error: {result.error_message}")
             return {"error_messages": error_list}
-            
+
         except Exception as e:
             logger.error(f"Error in QA node: {e}", exc_info=True)
             error_list = state.error_messages or []
