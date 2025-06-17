@@ -32,7 +32,7 @@ class EnhancedVectorDocument:
     created_at: datetime = None
     updated_at: datetime = None
     session_id: Optional[str] = None
-    
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
@@ -49,7 +49,7 @@ class EnhancedSearchResult:
     similarity_score: float
     rank: int
     relevance_metadata: Dict[str, Any] = None
-    
+
     def __post_init__(self):
         if self.relevance_metadata is None:
             self.relevance_metadata = {}
@@ -92,16 +92,16 @@ class VectorDB:
         self._embed_function = (
             embed_function if embed_function is not None else self._default_embed_function
         )
-        
+
         # Enhanced features
         self.settings = get_config()
         self.error_recovery = get_error_recovery_service()
         self.db_path = Path(db_path or self.settings.data_directory) / "enhanced_vector_db"
         self.db_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Enhanced documents storage
         self.enhanced_documents: Dict[str, EnhancedVectorDocument] = {}
-        
+
         # Performance tracking
         self.stats = {
             "documents_stored": 0,
@@ -110,13 +110,13 @@ class VectorDB:
             "embedding_cache_hits": 0,
             "last_updated": datetime.now()
         }
-        
+
         # Embedding cache for performance
         self.embedding_cache: Dict[str, List[float]] = {}
-        
+
         # Load existing enhanced data
         self._load_enhanced_database()
-        
+
         logger.info(
             "Enhanced VectorDB initialized",
             config_dimension=config.dimension,
@@ -258,9 +258,9 @@ class VectorDB:
             self.index.train(np.zeros((1, self.config.dimension), dtype=np.float32))
 
         logger.info("Vector database cleared")
-    
+
     # Enhanced methods for Phase 1 integration
-    
+
     def _load_enhanced_database(self):
         """Load enhanced database from disk."""
         try:
@@ -271,7 +271,7 @@ class VectorDB:
                     self.enhanced_documents = data.get('documents', {})
                     self.stats = data.get('stats', self.stats)
                     self.embedding_cache = data.get('embedding_cache', {})
-                
+
                 logger.info(
                     "Enhanced vector database loaded",
                     document_count=len(self.enhanced_documents)
@@ -279,7 +279,7 @@ class VectorDB:
         except Exception as e:
             logger.error("Failed to load enhanced vector database", error=str(e))
             self.enhanced_documents = {}
-    
+
     def _save_enhanced_database(self):
         """Save enhanced database to disk."""
         try:
@@ -289,21 +289,21 @@ class VectorDB:
                 'stats': self.stats,
                 'embedding_cache': self.embedding_cache
             }
-            
+
             with open(db_file, 'wb') as f:
                 pickle.dump(data, f)
-            
+
             logger.debug("Enhanced vector database saved")
-            
+
         except Exception as e:
             logger.error("Failed to save enhanced vector database", error=str(e))
-    
+
     def _generate_document_id(self, content: str, content_type: ContentType) -> str:
         """Generate unique document ID."""
         content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{content_type.value}_{content_hash}_{timestamp}"
-    
+
     def _get_cached_embedding(self, text: str) -> Optional[List[float]]:
         """Get embedding from cache if available."""
         text_hash = hashlib.md5(text.encode()).hexdigest()
@@ -311,19 +311,19 @@ class VectorDB:
             self.stats["embedding_cache_hits"] += 1
             return self.embedding_cache[text_hash]
         return None
-    
+
     def _cache_embedding(self, text: str, embedding: List[float]):
         """Cache embedding for future use."""
         text_hash = hashlib.md5(text.encode()).hexdigest()
         self.embedding_cache[text_hash] = embedding
-        
+
         # Limit cache size
         if len(self.embedding_cache) > 1000:
             # Remove oldest entries (simple FIFO)
             oldest_keys = list(self.embedding_cache.keys())[:100]
             for key in oldest_keys:
                 del self.embedding_cache[key]
-    
+
     async def add_enhanced_document(
         self,
         content: str,
@@ -337,7 +337,7 @@ class VectorDB:
             # Generate ID if not provided
             if document_id is None:
                 document_id = self._generate_document_id(content, content_type)
-            
+
             # Check cache first
             embedding = self._get_cached_embedding(content)
             if embedding is None:
@@ -357,7 +357,7 @@ class VectorDB:
                     )
                     # Use zero vector as fallback
                     embedding = [0.0] * self.config.dimension
-            
+
             # Create enhanced document
             document = EnhancedVectorDocument(
                 id=document_id,
@@ -367,17 +367,17 @@ class VectorDB:
                 metadata=metadata or {},
                 session_id=session_id
             )
-            
+
             # Store document
             self.enhanced_documents[document_id] = document
-            
+
             # Update stats
             self.stats["documents_stored"] = len(self.enhanced_documents)
             self.stats["last_updated"] = datetime.now()
-            
+
             # Save to disk
             self._save_enhanced_database()
-            
+
             logger.info(
                 "Enhanced document added",
                 document_id=document_id,
@@ -385,9 +385,9 @@ class VectorDB:
                 content_length=len(content),
                 session_id=session_id
             )
-            
+
             return document_id
-            
+
         except Exception as e:
             logger.error(
                 "Failed to add enhanced document",
@@ -395,7 +395,7 @@ class VectorDB:
                 content_type=content_type.value
             )
             raise
-    
+
     async def search_enhanced(
         self,
         query: str,
@@ -406,7 +406,7 @@ class VectorDB:
     ) -> List[EnhancedSearchResult]:
         """Enhanced search with better similarity calculation."""
         start_time = datetime.now()
-        
+
         try:
             # Generate query embedding with caching
             query_embedding = self._get_cached_embedding(query)
@@ -417,34 +417,34 @@ class VectorDB:
                     operation_name="generate_query_embedding"
                 )
                 self._cache_embedding(query, query_embedding)
-            
+
             # Calculate similarities
             results = []
-            
+
             for doc_id, document in self.enhanced_documents.items():
                 # Filter by content type if specified
                 if content_type and document.content_type != content_type:
                     continue
-                
+
                 # Filter by session if specified
                 if session_id and document.session_id != session_id:
                     continue
-                
+
                 # Calculate similarity
                 if document.embedding:
                     similarity = self._calculate_cosine_similarity(
                         query_embedding, document.embedding
                     )
-                    
+
                     if similarity >= min_similarity:
                         results.append((document, similarity))
-            
+
             # Sort by similarity (descending)
             results.sort(key=lambda x: x[1], reverse=True)
-            
+
             # Limit results
             results = results[:limit]
-            
+
             # Create enhanced search results
             search_results = [
                 EnhancedSearchResult(
@@ -459,18 +459,18 @@ class VectorDB:
                 )
                 for idx, (doc, sim) in enumerate(results)
             ]
-            
+
             # Update stats
             search_time = (datetime.now() - start_time).total_seconds()
             self.stats["searches_performed"] += 1
-            
+
             # Update average search time
             current_avg = self.stats["average_search_time"]
             search_count = self.stats["searches_performed"]
             self.stats["average_search_time"] = (
                 (current_avg * (search_count - 1) + search_time) / search_count
             )
-            
+
             logger.info(
                 "Enhanced search completed",
                 query_length=len(query),
@@ -479,9 +479,9 @@ class VectorDB:
                 content_type=content_type.value if content_type else "all",
                 session_id=session_id
             )
-            
+
             return search_results
-            
+
         except Exception as e:
             logger.error(
                 "Enhanced search failed",
@@ -489,33 +489,33 @@ class VectorDB:
                 query=query[:100]
             )
             return []
-    
+
     def _calculate_cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""
         try:
             # Convert to numpy arrays
             a = np.array(vec1)
             b = np.array(vec2)
-            
+
             # Calculate cosine similarity
             dot_product = np.dot(a, b)
             norm_a = np.linalg.norm(a)
             norm_b = np.linalg.norm(b)
-            
+
             if norm_a == 0 or norm_b == 0:
                 return 0.0
-            
+
             similarity = dot_product / (norm_a * norm_b)
             return float(similarity)
-            
+
         except Exception as e:
             logger.error("Similarity calculation failed", error=str(e))
             return 0.0
-    
+
     async def get_enhanced_document(self, document_id: str) -> Optional[EnhancedVectorDocument]:
         """Get an enhanced document by ID."""
         return self.enhanced_documents.get(document_id)
-    
+
     async def update_enhanced_document(
         self,
         document_id: str,
@@ -528,7 +528,7 @@ class VectorDB:
             if not document:
                 logger.warning("Enhanced document not found for update", document_id=document_id)
                 return False
-            
+
             # Update content and regenerate embedding if needed
             if content is not None:
                 document.content = content
@@ -542,20 +542,20 @@ class VectorDB:
                     )
                     self._cache_embedding(content, embedding)
                 document.embedding = embedding
-            
+
             # Update metadata
             if metadata is not None:
                 document.metadata.update(metadata)
-            
+
             # Update timestamp
             document.updated_at = datetime.now()
-            
+
             # Save to disk
             self._save_enhanced_database()
-            
+
             logger.info("Enhanced document updated", document_id=document_id)
             return True
-            
+
         except Exception as e:
             logger.error(
                 "Failed to update enhanced document",
@@ -563,26 +563,26 @@ class VectorDB:
                 document_id=document_id
             )
             return False
-    
+
     async def delete_enhanced_document(self, document_id: str) -> bool:
         """Delete an enhanced document."""
         try:
             if document_id in self.enhanced_documents:
                 del self.enhanced_documents[document_id]
-                
+
                 # Update stats
                 self.stats["documents_stored"] = len(self.enhanced_documents)
                 self.stats["last_updated"] = datetime.now()
-                
+
                 # Save to disk
                 self._save_enhanced_database()
-                
+
                 logger.info("Enhanced document deleted", document_id=document_id)
                 return True
             else:
                 logger.warning("Enhanced document not found for deletion", document_id=document_id)
                 return False
-                
+
         except Exception as e:
             logger.error(
                 "Failed to delete enhanced document",
@@ -590,7 +590,7 @@ class VectorDB:
                 document_id=document_id
             )
             return False
-    
+
     def get_enhanced_stats(self) -> Dict[str, Any]:
         """Get enhanced database statistics."""
         return {
@@ -600,7 +600,7 @@ class VectorDB:
             "cache_hit_rate": self._calculate_cache_hit_rate(),
             "database_size_mb": self._get_enhanced_database_size()
         }
-    
+
     def _get_enhanced_documents_by_type(self) -> Dict[str, int]:
         """Get enhanced document count by content type."""
         type_counts = {}
@@ -608,14 +608,14 @@ class VectorDB:
             content_type = document.content_type.value
             type_counts[content_type] = type_counts.get(content_type, 0) + 1
         return type_counts
-    
+
     def _calculate_cache_hit_rate(self) -> float:
         """Calculate embedding cache hit rate."""
         total_requests = self.stats["searches_performed"] + self.stats["documents_stored"]
         if total_requests == 0:
             return 0.0
         return self.stats["embedding_cache_hits"] / total_requests
-    
+
     def _get_enhanced_database_size(self) -> float:
         """Get enhanced database size in MB."""
         try:
@@ -626,30 +626,30 @@ class VectorDB:
             return 0.0
         except Exception:
             return 0.0
-    
+
     async def cleanup_old_enhanced_documents(self, days_old: int = 30) -> int:
         """Clean up enhanced documents older than specified days."""
         try:
             cutoff_date = datetime.now() - timedelta(days=days_old)
             deleted_count = 0
-            
+
             documents_to_delete = [
                 doc_id for doc_id, doc in self.enhanced_documents.items()
                 if doc.created_at < cutoff_date
             ]
-            
+
             for doc_id in documents_to_delete:
                 await self.delete_enhanced_document(doc_id)
                 deleted_count += 1
-            
+
             logger.info(
                 "Old enhanced documents cleaned up",
                 deleted_count=deleted_count,
                 cutoff_days=days_old
             )
-            
+
             return deleted_count
-            
+
         except Exception as e:
             logger.error("Failed to cleanup old enhanced documents", error=str(e))
             return 0

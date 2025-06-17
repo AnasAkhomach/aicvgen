@@ -4,10 +4,9 @@ This module handles the processing of individual CV items (qualifications, exper
 with rate limiting and retry logic to mitigate LLM API limits.
 """
 
-import asyncio
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Callable, Awaitable
+from typing import Dict, Optional, Any
 from dataclasses import asdict
 
 from ..config.logging_config import get_structured_logger, LLMCallLog
@@ -365,11 +364,11 @@ class ItemProcessor:
                     return response['content']
                 elif 'text' in response:
                     return response['text']
-                elif 'choices' in response and response['choices']:
+                if 'choices' in response and response['choices']:
                     choice = response['choices'][0]
                     if 'message' in choice:
                         return choice['message'].get('content', '')
-                    elif 'text' in choice:
+                    if 'text' in choice:
                         return choice['text']
 
             elif isinstance(response, str):
@@ -387,13 +386,12 @@ class ItemProcessor:
         try:
             if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens'):
                 return response.usage.total_tokens
-            elif isinstance(response, dict) and 'usage' in response:
+            if isinstance(response, dict) and 'usage' in response:
                 return response['usage'].get('total_tokens', 0)
-            else:
-                # Fallback estimation
-                content = self._extract_content_from_response(response)
-                return len(content) // 4  # Rough estimation
-        except:
+            # Fallback estimation
+            content = self._extract_content_from_response(response)
+            return len(content) // 4  # Rough estimation
+        except Exception:
             return 0
 
     def _build_qualification_prompt(self, item: QualificationItem, job_context: Dict[str, Any]) -> str:
@@ -479,7 +477,7 @@ Generate the tailored project description:"""
 
     def _build_summary_prompt(
         self,
-        item: Item,
+        _item: Item,
         job_context: Dict[str, Any],
         template_context: Optional[Dict[str, Any]] = None
     ) -> str:

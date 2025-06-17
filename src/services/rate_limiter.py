@@ -39,13 +39,13 @@ class RateLimitConfig:
 
 class RateLimiter:
     """Rate limiter for LLM API calls with retry logic."""
-    
+
     def __init__(self, config: Optional[RateLimitConfig] = None):
         self.config = config or RateLimitConfig()
         self.model_states: Dict[str, RateLimitState] = {}
         self.logger = get_structured_logger("rate_limiter")
         self._locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-    
+
     def get_model_state(self, model: str) -> RateLimitState:
         """Get or create rate limit state for a model."""
         if model not in self.model_states:
@@ -57,21 +57,21 @@ class RateLimiter:
                 max_tokens_per_minute=self.config.tokens_per_minute
             )
         return self.model_states[model]
-    
+
     def can_make_request(self, model: str, estimated_tokens: int = 0) -> bool:
         """Check if a request can be made for the given model."""
         state = self.get_model_state(model)
         return state.can_make_request(estimated_tokens)
-    
+
     def get_wait_time(self, model: str) -> float:
         """Get the time to wait before making a request."""
         state = self.get_model_state(model)
         now = datetime.now()
-        
+
         # Check backoff period
         if state.backoff_until and now < state.backoff_until:
             return (state.backoff_until - now).total_seconds()
-        
+
         # Check rate limit window
         window_elapsed = (now - state.window_start).total_seconds()
         if window_elapsed < 60:
@@ -79,9 +79,9 @@ class RateLimiter:
             if (state.requests_per_minute >= self.config.requests_per_minute or
                 state.tokens_per_minute >= self.config.tokens_per_minute):
                 return 60 - window_elapsed
-        
+
         return 0.0
-    
+
     async def wait_if_needed(self, model: str, estimated_tokens: int = 0):
         """Wait if rate limit requires it."""
         wait_time = self.get_wait_time(model)
@@ -91,7 +91,7 @@ class RateLimiter:
                 wait_time=wait_time,
                 estimated_tokens=estimated_tokens
             )
-            
+
             # Log rate limit event
             state = self.get_model_state(model)
             rate_log = RateLimitLog(
@@ -105,14 +105,14 @@ class RateLimiter:
                 wait_time_seconds=wait_time
             )
             self.logger.log_rate_limit(rate_log)
-            
+
             await asyncio.sleep(wait_time)
-    
+
     def record_request(self, model: str, tokens_used: int, success: bool):
         """Record a request and update rate limit state."""
         state = self.get_model_state(model)
         state.record_request(tokens_used, success)
-        
+
         # Log rate limit state
         rate_log = RateLimitLog(
             timestamp=datetime.now().isoformat(),
@@ -124,7 +124,7 @@ class RateLimiter:
             limit_exceeded=False
         )
         self.logger.log_rate_limit(rate_log)
-    
+
     async def execute_with_rate_limit(
         self,
         func: Callable[..., Awaitable[Any]],
@@ -136,32 +136,32 @@ class RateLimiter:
         """Execute a function with rate limiting."""
         async with self._locks[model]:
             await self.wait_if_needed(model, estimated_tokens)
-            
+
             start_time = time.time()
             try:
                 result = await func(*args, **kwargs)
-                
+
                 # Extract actual token usage if available
                 actual_tokens = estimated_tokens
                 if hasattr(result, 'usage') and hasattr(result.usage, 'total_tokens'):
                     actual_tokens = result.usage.total_tokens
                 elif isinstance(result, dict) and 'usage' in result:
                     actual_tokens = result['usage'].get('total_tokens', estimated_tokens)
-                
+
                 self.record_request(model, actual_tokens, success=True)
                 return result
-                
+
             except Exception as e:
                 # Record failed request
                 self.record_request(model, estimated_tokens, success=False)
-                
+
                 # Check if it's a rate limit error
                 if self._is_rate_limit_error(e):
                     retry_after = self._extract_retry_after(e)
                     raise RateLimitError(f"Rate limit exceeded for model {model}. Retry after {retry_after} seconds.")
-                
+
                 raise NetworkError(f"API call failed: {str(e)}") from e
-    
+
     def _is_rate_limit_error(self, error: Exception) -> bool:
         """Check if an error is a rate limit error."""
         error_str = str(error).lower()
@@ -174,34 +174,34 @@ class RateLimiter:
             'throttled'
         ]
         return any(indicator in error_str for indicator in rate_limit_indicators)
-    
+
     def _extract_retry_after(self, error: Exception) -> float:
         """Extract retry-after time from error, or use default backoff."""
         # Try to extract from error message or headers
         # This is API-specific and would need to be customized
         error_str = str(error)
-        
+
         # Look for retry-after in seconds
         import re
         retry_match = re.search(r'retry.after[:\s]+(\d+)', error_str, re.IGNORECASE)
         if retry_match:
             return float(retry_match.group(1))
-        
+
         # Default exponential backoff
         state = self.get_model_state("unknown")
         return min(
             self.config.max_backoff_seconds,
             self.config.base_backoff_seconds * (2 ** state.consecutive_failures)
         )
-    
+
     def _calculate_backoff_delay(self, retry_attempt: int) -> float:
         """Calculate backoff delay with optional jitter."""
         import random
-        
+
         # Calculate base exponential backoff
         base_delay = self.config.base_backoff_seconds * (2 ** retry_attempt)
         delay = min(base_delay, self.config.max_backoff_seconds)
-        
+
         # Add jitter if enabled (but keep within bounds)
         if self.config.jitter:
             # Add random jitter between 0% and 10% of the delay
@@ -210,14 +210,14 @@ class RateLimiter:
             if max_jitter > 0:
                 jitter_amount = max_jitter * random.random()
                 delay += jitter_amount
-        
+
         # Ensure we never exceed the maximum
         return min(delay, self.config.max_backoff_seconds)
 
 
 class RetryableRateLimiter(RateLimiter):
     """Rate limiter with built-in retry logic using tenacity."""
-    
+
     def __init__(self, config: Optional[RateLimitConfig] = None):
         super().__init__(config)
         self.retry_decorator = retry(
@@ -229,7 +229,7 @@ class RetryableRateLimiter(RateLimiter):
             retry=retry_if_exception_type((RateLimitError, NetworkError)),
             before_sleep=before_sleep_log(self.logger.logger, logging.WARNING)
         )
-    
+
     async def execute_with_retry(
         self,
         func: Callable[..., Awaitable[Any]],
@@ -239,13 +239,13 @@ class RetryableRateLimiter(RateLimiter):
         **kwargs
     ) -> Any:
         """Execute a function with rate limiting and automatic retries."""
-        
+
         @self.retry_decorator
         async def _execute():
             return await self.execute_with_rate_limit(
                 func, model, estimated_tokens, *args, **kwargs
             )
-        
+
         return await _execute()
 
 
@@ -292,7 +292,7 @@ async def rate_limited_llm_call(
     if estimated_tokens is None:
         # Rough estimation: 1 token ≈ 4 characters
         estimated_tokens = len(prompt) // 4 + 500  # Add buffer for response
-    
+
     rate_limiter = get_rate_limiter()
     return await rate_limiter.execute_with_retry(
         llm_func, model, estimated_tokens, prompt=prompt, **kwargs
@@ -303,10 +303,10 @@ def get_rate_limit_status(model: str) -> Dict[str, Any]:
     """Get current rate limit status for a model."""
     rate_limiter = get_rate_limiter()
     state = rate_limiter.get_model_state(model)
-    
+
     now = datetime.now()
     window_elapsed = (now - state.window_start).total_seconds()
-    
+
     return {
         "model": model,
         "requests_in_window": state.requests_per_minute,

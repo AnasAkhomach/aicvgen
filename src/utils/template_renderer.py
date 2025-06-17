@@ -1,10 +1,6 @@
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from src.agents.agent_base import EnhancedAgentBase
 from src.core.state_manager import ContentData, AgentIO
-import google.generativeai as genai
-import os
-from src.services.llm_service import get_llm_service
-from typing import Any, Dict, List, Union
-import re
+from typing import Any, Dict
 
 
 class TemplateRenderer(EnhancedAgentBase):
@@ -497,7 +493,7 @@ class TemplateRenderer(EnhancedAgentBase):
 def escape_latex(text: str) -> str:
     """
     Escape special LaTeX characters in a string to prevent compilation errors.
-    
+
     This function replaces LaTeX special characters with their escaped equivalents:
     - & -> \&
     - % -> \%
@@ -509,26 +505,26 @@ def escape_latex(text: str) -> str:
     - } -> \}
     - ~ -> \textasciitilde{}
     - \ -> \textbackslash{}
-    
+
     Args:
         text: The input string that may contain LaTeX special characters
-        
+
     Returns:
         str: The escaped string safe for LaTeX compilation
-        
+
     Example:
         >>> escape_latex("Hello _world_ & Co. 100% #1 {awesome}")
         "Hello \_world\_ \& Co. 100\% \#1 \{awesome\}"
     """
     if not isinstance(text, str):
         return text
-    
+
     import re
-    
+
     # Define escape mappings based on web search results
     conv = {
         '&': '\&',
-        '%': '\%', 
+        '%': '\%',
         '$': '\$',
         '#': '\#',
         '_': '\_',
@@ -539,10 +535,10 @@ def escape_latex(text: str) -> str:
         '+': '\textasciicircum{}',  # Map + to ^ for programming contexts
         '\\': '\textbackslash{}',
     }
-    
+
     # Create regex pattern, sorting by length (longest first) to handle backslash correctly
     regex = re.compile('|'.join(re.escape(str(key)) for key in sorted(conv.keys(), key=lambda item: -len(item))))
-    
+
     # Replace using the mapping
     return regex.sub(lambda match: conv[match.group()], text)
 
@@ -550,17 +546,17 @@ def escape_latex(text: str) -> str:
 def recursively_escape_latex(data: Any) -> Any:
     """
     Recursively escape LaTeX special characters in nested data structures.
-    
+
     This function traverses dictionaries, lists, and other data structures,
     applying LaTeX escaping only to string values while preserving the
     overall structure and non-string data types.
-    
+
     Args:
         data: The input data structure (dict, list, str, or other types)
-        
+
     Returns:
         Any: The data structure with all string values escaped for LaTeX
-        
+
     Example:
         >>> data = {
         ...     "name": "John & Jane",

@@ -18,7 +18,7 @@ class WorkflowPreconditionError(ValueError, AicvgenError):
 
 class LLMResponseParsingError(ValueError, AicvgenError):
     """Raised when the response from an LLM cannot be parsed into the expected format."""
-    
+
     def __init__(self, message: str, raw_response: str = ""):
         self.raw_response = raw_response
         if raw_response:
@@ -29,7 +29,7 @@ class LLMResponseParsingError(ValueError, AicvgenError):
 
 class AgentExecutionError(AicvgenError):
     """Raised when an agent fails during its execution."""
-    
+
     def __init__(self, agent_name: str, message: str):
         self.agent_name = agent_name
         super().__init__(f"Agent '{agent_name}' failed: {message}")

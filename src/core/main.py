@@ -52,13 +52,15 @@ from src.frontend.ui_components import (
     display_sidebar,
     display_input_form,
     display_review_and_edit_tab,
-    display_export_tab
+    display_export_tab,
 )
 from src.frontend.state_helpers import initialize_session_state
 from src.frontend.callbacks import handle_workflow_execution
 from src.core.state_helpers import create_agent_state_from_ui
 from src.orchestration.state import AgentState
-from src.orchestration.cv_workflow_graph import cv_graph_app  # Assumes this is the compiled graph
+from src.orchestration.cv_workflow_graph import (
+    cv_graph_app,
+)  # Assumes this is the compiled graph
 import uuid
 import time
 
@@ -92,47 +94,53 @@ def main():
             "Get personalized, ATS-friendly CVs that highlight your most relevant skills and experience."
         )
 
-        # 3. Main Interaction & Backend Loop
-        if st.session_state.get('run_workflow'):
+        # 3. Handle background thread results
+        if st.session_state.get("processing"):
+            st.spinner("Processing your CV... Please wait.")
+            # The UI is not blocked here. You could add a progress bar that updates.
+
+        if "workflow_result" in st.session_state and st.session_state.workflow_result:
+            # Workflow is done, process the result
+            final_state_dict = st.session_state.workflow_result
+            st.session_state.agent_state = AgentState.model_validate(final_state_dict)
+            st.session_state.workflow_result = None  # Clear the result
+
+            # Clear feedback so the same action doesn't run again on the next rerun
+            if st.session_state.agent_state.user_feedback:
+                st.session_state.agent_state.user_feedback = None
+
+            st.success("CV Generation Complete!")
+            st.rerun()  # Rerun to display the new state in the 'Review & Edit' tab
+
+        if "workflow_error" in st.session_state and st.session_state.workflow_error:
+            # Workflow failed
+            error = st.session_state.workflow_error
+            st.error(f"An error occurred during CV generation: {error}")
+            st.session_state.workflow_error = None  # Clear the error
+
+        # 4. Main Interaction & Backend Loop
+        if st.session_state.get("run_workflow"):
             st.session_state.processing = True
             st.session_state.run_workflow = False  # Reset flag
-            
+
             # Generate trace_id for this workflow execution
             trace_id = str(uuid.uuid4())
-            start_time = time.time()
-            
+
             logger.info(
                 "Starting CV generation workflow",
-                extra={'trace_id': trace_id, 'session_id': st.session_state.get('session_id')}
+                extra={
+                    "trace_id": trace_id,
+                    "session_id": st.session_state.get("session_id"),
+                },
             )
 
-            with st.spinner("Processing..."):
-                try:
-                    handle_workflow_execution(trace_id)
-                    duration = time.time() - start_time
-                    logger.info(
-                        "CV generation workflow completed successfully",
-                        extra={
-                            'trace_id': trace_id,
-                            'session_id': st.session_state.get('session_id'),
-                            'duration_seconds': duration
-                        }
-                    )
-                except Exception as e:
-                    duration = time.time() - start_time
-                    logger.error(
-                        f"CV generation workflow failed: {str(e)}",
-                        extra={
-                            'trace_id': trace_id,
-                            'session_id': st.session_state.get('session_id'),
-                            'duration_seconds': duration,
-                            'error_type': type(e).__name__
-                        }
-                    )
-                    raise
+            handle_workflow_execution(trace_id)
+            st.rerun()  # Rerun to show the spinner immediately
 
-        # 4. Render UI Tabs based on the current state
-        tab1, tab2, tab3 = st.tabs(["📝 Input & Generate", "✏️ Review & Edit", "📄 Export"])
+        # 5. Render UI Tabs based on the current state
+        tab1, tab2, tab3 = st.tabs(
+            ["📝 Input & Generate", "✏️ Review & Edit", "📄 Export"]
+        )
 
         with tab1:
             display_input_form(st.session_state.agent_state)
@@ -147,20 +155,21 @@ def main():
         if st.session_state.agent_state and st.session_state.agent_state.error_messages:
             for error in st.session_state.agent_state.error_messages:
                 st.error(error)
-                
+
     except Exception as e:
         logger.error(
             f"Error in main application: {str(e)}",
             extra={
-                'session_id': st.session_state.get('session_id'),
-                'error_type': type(e).__name__
-            }
+                "session_id": st.session_state.get("session_id"),
+                "error_type": type(e).__name__,
+            },
         )
         st.error(f"❌ Application error: {str(e)}")
-        
+
         # Show error details in expander for debugging
         with st.expander("🔍 Error Details", expanded=False):
             import traceback
+
             st.code(traceback.format_exc(), language="text")
 
 

@@ -1,16 +1,22 @@
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.models.data_models import AgentIO, CVData
-from src.models.data_models import JobDescriptionData
-from typing import Dict, Any, List
-from src.services.llm_service import get_llm_service
-from src.services.llm import LLMResponse
-from src.config.logging_config import get_structured_logger
-from src.models.data_models import AgentDecisionLog, AgentExecutionLog
+"""CV Analyzer Agent for processing and analyzing CV data."""
+
 import datetime
-from src.config.settings import get_config
-import json  # Import json
-import time
+import json
 import os
+import time
+from typing import Any, Dict, TYPE_CHECKING
+
+from src.agents.agent_base import EnhancedAgentBase
+from src.config.logging_config import get_structured_logger
+from src.config.settings import get_config
+from src.models.data_models import AgentDecisionLog
+from src.models.validation_schemas import validate_agent_input, ValidationError
+from src.services.llm_service import get_llm_service
+
+if TYPE_CHECKING:
+    from .agent_base import AgentExecutionContext
+
+from .agent_base import AgentResult
 
 
 class CVAnalyzerAgent(EnhancedAgentBase):
@@ -31,16 +37,16 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             description=description,
             input_schema=AgentIO(
                 description="User CV data and optional job description for analysis.",
-                required_fields=["user_cv", "job_description", "template_cv_path"]
+                required_fields=["user_cv", "job_description", "template_cv_path"],
             ),
             output_schema=AgentIO(
                 description="Extracted information from the CV.",
-                required_fields=["analysis_results", "extracted_data"]
+                required_fields=["analysis_results", "extracted_data"],
             ),
         )
         self.llm_service = get_llm_service()  # Use enhanced LLM service
         self.timeout = 30  # Maximum wait time in seconds
-        
+
         # Initialize settings for prompt loading
         self.settings = get_config()
 
@@ -108,11 +114,12 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
         return result
 
-    def analyze_cv(self, input_data):
+    def analyze_cv(self, input_data, context=None):
         """Process and analyze the user CV data.
 
         Args:
             input_data: Dictionary containing user_cv (CVData object or raw text) and job_description
+            context: Optional execution context for logging
 
         Returns:
             dict: Analyzed CV data with extracted information
@@ -121,14 +128,15 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
         # Check if a template CV path is provided in the input
         template_cv_path = input_data.get("template_cv_path")
-        template_content = None
 
         if template_cv_path and os.path.exists(template_cv_path):
             try:
                 with open(template_cv_path, "r", encoding="utf-8") as file:
-                    template_content = file.read()
+                    _ = (
+                        file.read()
+                    )  # Template content loaded but not used in current implementation
                 print(f"Loaded template CV from {template_cv_path}")
-            except Exception as e:
+            except (OSError, IOError, UnicodeDecodeError) as e:
                 print(f"Error loading template CV: {e}")
 
         # Get user CV data from input
@@ -155,42 +163,34 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         logger = get_structured_logger(__name__)
         try:
             prompt_path = self.settings.get_prompt_path("cv_analysis_prompt")
-            with open(prompt_path, 'r', encoding='utf-8') as f:
+            with open(prompt_path, "r", encoding="utf-8") as f:
                 prompt_template = f.read()
-            decision_log = AgentDecisionLog(
-                timestamp=datetime.datetime.now().isoformat(),
-                agent_name=self.name,
-                session_id=getattr(context, 'session_id', 'unknown'),
-                item_id=getattr(context, 'current_item_id', None),
-                decision_type='template_loading',
-                decision_details='Successfully loaded CV analysis prompt template',
+            self.log_decision(
+                "Successfully loaded CV analysis prompt template",
+                getattr(context, "current_item_id", None) if context else None,
+                "template_loading",
                 confidence_score=1.0,
-                metadata={'template_path': str(prompt_path)}
+                metadata={"template_path": str(prompt_path)},
             )
-            logger.log_agent_decision(decision_log)
-        except Exception as e:
-            decision_log = AgentDecisionLog(
-                timestamp=datetime.datetime.now().isoformat(),
-                agent_name=self.name,
-                session_id=getattr(context, 'session_id', 'unknown'),
-                item_id=getattr(context, 'current_item_id', None),
-                decision_type='template_loading',
-                decision_details=f'Error loading CV analysis prompt template: {e}',
+        except (OSError, IOError, UnicodeDecodeError) as e:
+            self.log_decision(
+                f"Error loading CV analysis prompt template: {e}",
+                getattr(context, "current_item_id", None) if context else None,
+                "template_loading",
                 confidence_score=0.0,
-                metadata={'error': str(e)}
+                metadata={"error": str(e)},
             )
-            logger.log_agent_decision(decision_log)
             # Fallback to basic prompt
             prompt_template = """
             Analyze the following CV text and extract key information in JSON format.
             CV Text: {raw_cv_text}
             Job Description Context: {job_description}
             """
-        
+
         # Format the prompt with actual data
         prompt = prompt_template.format(
             raw_cv_text=raw_cv_text,
-            job_description=input_data.get("job_description", "")
+            job_description=input_data.get("job_description", ""),
         )
 
         print("Sending prompt to LLM for CV analysis...")
@@ -235,50 +235,54 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 f"Error parsing CV: {fallback_extraction.get('summary', '')}"
             )
             return fallback_extraction
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
             print(f"An unexpected error occurred during CV analysis: {e}")
             print("Using fallback extraction instead.")
             fallback_extraction["summary"] = (
                 f"Error analyzing CV: {fallback_extraction.get('summary', '')}"
             )
             return fallback_extraction
-    
 
-    
-    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+    async def run_async(
+        self, input_data: Any, context: "AgentExecutionContext"
+    ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
-        from .agent_base import AgentResult
-        from src.models.validation_schemas import validate_agent_input, ValidationError
-        
+
         logger = get_structured_logger(__name__)
-        
+
         try:
             # Validate input data using Pydantic schemas
             try:
-                validated_input = validate_agent_input('cv_analyzer', input_data)
+                validated_input = validate_agent_input("cv_analyzer", input_data)
                 # Convert validated Pydantic model back to dict for processing
                 input_data = validated_input.model_dump()
                 decision_log = AgentDecisionLog(
                     timestamp=datetime.datetime.now().isoformat(),
                     agent_name=self.name,
-                    session_id=getattr(context, 'session_id', 'unknown'),
-                    item_id=getattr(context, 'current_item_id', None),
-                    decision_type='validation',
-                    decision_details='Input validation passed for CVAnalyzerAgent',
+                    session_id=getattr(context, "session_id", "unknown"),
+                    item_id=getattr(context, "current_item_id", None),
+                    decision_type="validation",
+                    decision_details="Input validation passed for CVAnalyzerAgent",
                     confidence_score=1.0,
-                    metadata={'input_keys': list(input_data.keys()) if isinstance(input_data, dict) else ['non_dict_input']}
+                    metadata={
+                        "input_keys": (
+                            list(input_data.keys())
+                            if isinstance(input_data, dict)
+                            else ["non_dict_input"]
+                        )
+                    },
                 )
                 logger.log_agent_decision(decision_log)
             except ValidationError as ve:
                 decision_log = AgentDecisionLog(
                     timestamp=datetime.datetime.now().isoformat(),
                     agent_name=self.name,
-                    session_id=getattr(context, 'session_id', 'unknown'),
-                    item_id=getattr(context, 'current_item_id', None),
-                    decision_type='validation',
-                    decision_details=f'Input validation failed for CVAnalyzerAgent: {ve.message}',
+                    session_id=getattr(context, "session_id", "unknown"),
+                    item_id=getattr(context, "current_item_id", None),
+                    decision_type="validation",
+                    decision_details=f"Input validation failed for CVAnalyzerAgent: {ve.message}",
                     confidence_score=0.0,
-                    metadata={'error': ve.message, 'error_type': 'ValidationError'}
+                    metadata={"error": ve.message, "error_type": "ValidationError"},
                 )
                 logger.log_agent_decision(decision_log)
                 return AgentResult(
@@ -286,18 +290,18 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                     output_data={"error": f"Input validation failed: {ve.message}"},
                     confidence_score=0.0,
                     error_message=f"Input validation failed: {ve.message}",
-                    metadata={"agent_type": "cv_analyzer", "validation_error": True}
+                    metadata={"agent_type": "cv_analyzer", "validation_error": True},
                 )
-            except Exception as e:
+            except (RuntimeError, ValueError, TypeError, AttributeError) as e:
                 decision_log = AgentDecisionLog(
                     timestamp=datetime.datetime.now().isoformat(),
                     agent_name=self.name,
-                    session_id=getattr(context, 'session_id', 'unknown'),
-                    item_id=getattr(context, 'current_item_id', None),
-                    decision_type='validation',
-                    decision_details=f'Input validation error for CVAnalyzerAgent: {str(e)}',
+                    session_id=getattr(context, "session_id", "unknown"),
+                    item_id=getattr(context, "current_item_id", None),
+                    decision_type="validation",
+                    decision_details=f"Input validation error for CVAnalyzerAgent: {str(e)}",
                     confidence_score=0.0,
-                    metadata={'error': str(e), 'error_type': 'Exception'}
+                    metadata={"error": str(e), "error_type": type(e).__name__},
                 )
                 logger.log_agent_decision(decision_log)
                 return AgentResult(
@@ -305,32 +309,32 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                     output_data={"error": f"Input validation error: {str(e)}"},
                     confidence_score=0.0,
                     error_message=f"Input validation error: {str(e)}",
-                    metadata={"agent_type": "cv_analyzer", "validation_error": True}
+                    metadata={"agent_type": "cv_analyzer", "validation_error": True},
                 )
-            
+
             # Process the CV analysis directly
             if isinstance(input_data, dict):
-                result = self.analyze_cv(input_data)
+                result = self.analyze_cv(input_data, context)
             else:
                 # Convert string input to expected format
                 formatted_input = {
-                    'user_cv': {'raw_text': str(input_data)},
-                    'job_description': ''
+                    "user_cv": {"raw_text": str(input_data)},
+                    "job_description": "",
                 }
-                result = self.analyze_cv(formatted_input)
-            
+                result = self.analyze_cv(formatted_input, context)
+
             return AgentResult(
                 success=True,
                 output_data=result,
                 confidence_score=1.0,
-                metadata={"agent_type": "cv_analyzer"}
+                metadata={"agent_type": "cv_analyzer"},
             )
-            
-        except Exception as e:
+
+        except (RuntimeError, ValueError, TypeError, AttributeError) as e:
             return AgentResult(
                 success=False,
                 output_data={},
                 confidence_score=0.0,
                 error_message=str(e),
-                metadata={"agent_type": "cv_analyzer"}
+                metadata={"agent_type": "cv_analyzer"},
             )

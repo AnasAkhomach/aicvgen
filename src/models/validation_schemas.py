@@ -50,11 +50,11 @@ class LLMQualificationsOutput(BaseModel):
 
 def validate_agent_input(input_data: Any, expected_type: type = None) -> bool:
     """Validate agent input data.
-    
+
     Args:
         input_data: The input data to validate
         expected_type: Optional expected type for validation
-        
+
     Returns:
         bool: True if validation passes, False otherwise
     """
@@ -70,11 +70,11 @@ def validate_agent_input(input_data: Any, expected_type: type = None) -> bool:
 
 def validate_agent_output(output_data: Any, required_fields: List[str] = None) -> bool:
     """Validate agent output data.
-    
+
     Args:
         output_data: The output data to validate
         required_fields: Optional list of required fields for dict outputs
-        
+
     Returns:
         bool: True if validation passes, False otherwise
     """

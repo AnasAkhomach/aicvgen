@@ -32,9 +32,7 @@ class TestResearchAgent:
     def research_agent(self, mock_llm):
         """Create a ResearchAgent instance for testing."""
         return ResearchAgent(
-            name="TestResearcher",
-            description="Test research agent",
-            llm=mock_llm
+            name="TestResearcher", description="Test research agent", llm=mock_llm
         )
 
     @pytest.fixture
@@ -43,7 +41,7 @@ class TestResearchAgent:
         return AgentExecutionContext(
             session_id="test_session_123",
             item_id="test_item",
-            metadata={"test": "data"}
+            metadata={"test": "data"},
         )
 
     @pytest.fixture
@@ -57,8 +55,8 @@ class TestResearchAgent:
             "responsibilities": [
                 "Design and develop scalable web applications",
                 "Lead technical architecture decisions",
-                "Mentor junior developers"
-            ]
+                "Mentor junior developers",
+            ],
         }
 
     @pytest.fixture
@@ -69,17 +67,22 @@ class TestResearchAgent:
             Section(
                 name="Professional Experience",
                 items=[
-                    Item(content="Software Developer at ABC Corp", status=ItemStatus.INITIAL),
-                    Item(content="3 years Python development", status=ItemStatus.INITIAL)
-                ]
+                    Item(
+                        content="Software Developer at ABC Corp",
+                        status=ItemStatus.INITIAL,
+                    ),
+                    Item(
+                        content="3 years Python development", status=ItemStatus.INITIAL
+                    ),
+                ],
             ),
             Section(
                 name="Skills",
                 items=[
                     Item(content="Python, JavaScript", status=ItemStatus.INITIAL),
-                    Item(content="Web development", status=ItemStatus.INITIAL)
-                ]
-            )
+                    Item(content="Web development", status=ItemStatus.INITIAL),
+                ],
+            ),
         ]
         return cv
 
@@ -90,44 +93,49 @@ class TestResearchAgent:
             job_description="Senior Software Engineer position",
             job_data=sample_job_data,
             structured_cv=sample_structured_cv,
-            error_messages=[]
+            error_messages=[],
         )
 
     def test_research_agent_initialization(self, mock_llm):
         """Test ResearchAgent initialization."""
         agent = ResearchAgent(
-            name="TestResearcher",
-            description="Test description",
-            llm=mock_llm
+            name="TestResearcher", description="Test description", llm=mock_llm
         )
-        
+
         assert agent.name == "TestResearcher"
         assert agent.description == "Test description"
         assert agent.llm == mock_llm
-        assert hasattr(agent, 'input_schema')
-        assert hasattr(agent, 'output_schema')
+        assert hasattr(agent, "input_schema")
+        assert hasattr(agent, "output_schema")
 
     async def test_run_async_success(self, research_agent, execution_context):
         """Test successful research execution."""
         input_data = {
             "job_data": {
                 "job_title": "Senior Software Engineer",
-                "required_skills": ["Python", "React"]
+                "required_skills": ["Python", "React"],
             },
-            "structured_cv": StructuredCV()
+            "structured_cv": StructuredCV(),
         }
-        
+
         # Mock the research methods
-        with patch.object(research_agent, '_research_industry_trends') as mock_trends, \
-             patch.object(research_agent, '_research_skill_requirements') as mock_skills, \
-             patch.object(research_agent, '_research_company_culture') as mock_culture:
-            
+        with patch.object(
+            research_agent, "_research_industry_trends"
+        ) as mock_trends, patch.object(
+            research_agent, "_research_skill_requirements"
+        ) as mock_skills, patch.object(
+            research_agent, "_research_company_culture"
+        ) as mock_culture:
+
             mock_trends.return_value = ["Cloud computing growth", "AI/ML adoption"]
             mock_skills.return_value = ["Python expertise", "React proficiency"]
-            mock_culture.return_value = ["Innovation-focused", "Collaborative environment"]
-            
+            mock_culture.return_value = [
+                "Innovation-focused",
+                "Collaborative environment",
+            ]
+
             result = await research_agent.run_async(input_data, execution_context)
-            
+
             assert result.success is True
             assert "industry_trends" in result.output_data
             assert "skill_insights" in result.output_data
@@ -136,12 +144,10 @@ class TestResearchAgent:
 
     async def test_run_async_missing_job_data(self, research_agent, execution_context):
         """Test research execution with missing job data."""
-        input_data = {
-            "structured_cv": StructuredCV()
-        }
-        
+        input_data = {"structured_cv": StructuredCV()}
+
         result = await research_agent.run_async(input_data, execution_context)
-        
+
         assert result.success is False
         assert "Missing required job_data" in result.error_message
         assert result.confidence_score == 0.0
@@ -149,14 +155,11 @@ class TestResearchAgent:
     async def test_run_async_missing_cv(self, research_agent, execution_context):
         """Test research execution with missing CV data."""
         input_data = {
-            "job_data": {
-                "job_title": "Engineer",
-                "required_skills": ["Python"]
-            }
+            "job_data": {"job_title": "Engineer", "required_skills": ["Python"]}
         }
-        
+
         result = await research_agent.run_async(input_data, execution_context)
-        
+
         assert result.success is False
         assert "Missing required structured_cv" in result.error_message
         assert result.confidence_score == 0.0
@@ -169,14 +172,14 @@ class TestResearchAgent:
             output_data={
                 "industry_trends": ["Cloud growth", "AI adoption"],
                 "skill_insights": ["Python in demand", "React popular"],
-                "company_culture": ["Innovation-focused"]
+                "company_culture": ["Innovation-focused"],
             },
-            confidence_score=0.85
+            confidence_score=0.85,
         )
-        
-        with patch.object(research_agent, 'run_async', return_value=mock_result):
+
+        with patch.object(research_agent, "run_async", return_value=mock_result):
             result_state = await research_agent.run_as_node(sample_agent_state)
-            
+
             assert result_state.research_findings is not None
             assert "industry_trends" in result_state.research_findings
             assert "skill_insights" in result_state.research_findings
@@ -189,11 +192,11 @@ class TestResearchAgent:
             job_description="Test job",
             job_data=None,
             structured_cv=StructuredCV(),
-            error_messages=[]
+            error_messages=[],
         )
-        
+
         result_state = await research_agent.run_as_node(state)
-        
+
         assert len(result_state.error_messages) == 1
         assert "Missing job_data" in result_state.error_messages[0]
         assert result_state.research_findings is None
@@ -204,28 +207,33 @@ class TestResearchAgent:
             job_description="Test job",
             job_data=sample_job_data,
             structured_cv=None,
-            error_messages=[]
+            error_messages=[],
         )
-        
+
         result_state = await research_agent.run_as_node(state)
-        
+
         assert len(result_state.error_messages) == 1
         assert "Missing structured_cv" in result_state.error_messages[0]
         assert result_state.research_findings is None
 
-    async def test_run_as_node_execution_error(self, research_agent, sample_agent_state):
+    async def test_run_as_node_execution_error(
+        self, research_agent, sample_agent_state
+    ):
         """Test run_as_node with execution error."""
         # Mock the run_async method to raise an exception
-        with patch.object(research_agent, 'run_async') as mock_run:
+        with patch.object(research_agent, "run_async") as mock_run:
             mock_run.side_effect = Exception("Research failed")
-            
+
             result_state = await research_agent.run_as_node(sample_agent_state)
-            
+
             assert len(result_state.error_messages) == 1
-            assert "Error during research: Research failed" in result_state.error_messages[0]
+            assert (
+                "Error during research: Research failed"
+                in result_state.error_messages[0]
+            )
             assert result_state.research_findings is None
 
-    @patch('src.agents.research_agent.ResearchAgent.llm')
+    @patch("src.agents.research_agent.ResearchAgent.llm")
     async def test_research_industry_trends(self, mock_llm, research_agent):
         """Test industry trends research."""
         mock_llm.generate_content.return_value = """
@@ -235,20 +243,20 @@ class TestResearchAgent:
         3. Remote work becoming standard
         4. DevOps practices widespread
         """
-        
+
         job_data = {
             "job_title": "Software Engineer",
-            "required_skills": ["Python", "AWS"]
+            "required_skills": ["Python", "AWS"],
         }
-        
+
         trends = await research_agent._research_industry_trends(job_data)
-        
+
         assert isinstance(trends, list)
         assert len(trends) > 0
         assert any("cloud" in trend.lower() for trend in trends)
         mock_llm.generate_content.assert_called_once()
 
-    @patch('src.agents.research_agent.ResearchAgent.llm')
+    @patch("src.agents.research_agent.ResearchAgent.llm")
     async def test_research_skill_requirements(self, mock_llm, research_agent):
         """Test skill requirements research."""
         mock_llm.generate_content.return_value = """
@@ -258,20 +266,20 @@ class TestResearchAgent:
         3. AWS knowledge is crucial for cloud positions
         4. Docker containerization is increasingly important
         """
-        
+
         job_data = {
             "required_skills": ["Python", "React", "AWS"],
-            "job_title": "Full Stack Developer"
+            "job_title": "Full Stack Developer",
         }
-        
+
         insights = await research_agent._research_skill_requirements(job_data)
-        
+
         assert isinstance(insights, list)
         assert len(insights) > 0
         assert any("python" in insight.lower() for insight in insights)
         mock_llm.generate_content.assert_called_once()
 
-    @patch('src.agents.research_agent.ResearchAgent.llm')
+    @patch("src.agents.research_agent.ResearchAgent.llm")
     async def test_research_company_culture(self, mock_llm, research_agent):
         """Test company culture research."""
         mock_llm.generate_content.return_value = """
@@ -281,14 +289,14 @@ class TestResearchAgent:
         3. Emphasis on continuous learning
         4. Work-life balance priority
         """
-        
+
         job_data = {
             "company_info": "Tech startup focused on AI solutions",
-            "job_title": "Senior Engineer"
+            "job_title": "Senior Engineer",
         }
-        
+
         culture = await research_agent._research_company_culture(job_data)
-        
+
         assert isinstance(culture, list)
         assert len(culture) > 0
         assert any("innovation" in item.lower() for item in culture)
@@ -297,13 +305,13 @@ class TestResearchAgent:
     async def test_research_llm_error_handling(self, research_agent):
         """Test error handling when LLM fails."""
         job_data = {"job_title": "Engineer"}
-        
+
         # Mock LLM to raise an exception
-        with patch.object(research_agent, 'llm') as mock_llm:
+        with patch.object(research_agent, "llm") as mock_llm:
             mock_llm.generate_content.side_effect = Exception("LLM service error")
-            
+
             trends = await research_agent._research_industry_trends(job_data)
-            
+
             # Should return empty list on error
             assert trends == []
 
@@ -313,35 +321,36 @@ class TestResearchAgent:
         comprehensive_data = {
             "industry_trends": ["Trend 1", "Trend 2", "Trend 3"],
             "skill_insights": ["Insight 1", "Insight 2"],
-            "company_culture": ["Culture 1", "Culture 2"]
+            "company_culture": ["Culture 1", "Culture 2"],
         }
-        
+
         confidence = research_agent.get_confidence_score(comprehensive_data)
         assert confidence > 0.7  # Should be high for comprehensive data
-        
+
         # Test with minimal research data
-        minimal_data = {
-            "industry_trends": ["Trend 1"]
-        }
-        
+        minimal_data = {"industry_trends": ["Trend 1"]}
+
         confidence = research_agent.get_confidence_score(minimal_data)
         assert confidence < 0.5  # Should be lower for minimal data
 
-    @patch('src.agents.research_agent.logger')
-    async def test_run_as_node_logs_execution(self, mock_logger, research_agent, sample_agent_state):
+    @patch("src.agents.research_agent.logger")
+    async def test_run_as_node_logs_execution(
+        self, mock_logger, research_agent, sample_agent_state
+    ):
         """Test that run_as_node logs execution properly."""
         mock_result = AgentResult(
-            success=True,
-            output_data={"industry_trends": []},
-            confidence_score=0.5
+            success=True, output_data={"industry_trends": []}, confidence_score=0.5
         )
-        
-        with patch.object(research_agent, 'run_async', return_value=mock_result):
+
+        with patch.object(research_agent, "run_async", return_value=mock_result):
             await research_agent.run_as_node(sample_agent_state)
-            
+
             # Verify logging calls
             mock_logger.info.assert_called()
-            assert any("Starting research" in str(call) for call in mock_logger.info.call_args_list)
+            assert any(
+                "Starting research" in str(call)
+                for call in mock_logger.info.call_args_list
+            )
 
     async def test_extract_research_insights(self, research_agent):
         """Test extraction of research insights from CV and job data."""
@@ -349,17 +358,19 @@ class TestResearchAgent:
         cv.sections = [
             Section(
                 name="Skills",
-                items=[Item(content="Python, JavaScript, React", status=ItemStatus.INITIAL)]
+                items=[
+                    Item(content="Python, JavaScript, React", status=ItemStatus.INITIAL)
+                ],
             )
         ]
-        
+
         job_data = {
             "required_skills": ["Python", "React", "AWS"],
-            "job_title": "Full Stack Developer"
+            "job_title": "Full Stack Developer",
         }
-        
+
         insights = research_agent._extract_research_insights(cv, job_data)
-        
+
         assert "skill_gaps" in insights
         assert "skill_matches" in insights
         assert "AWS" in insights["skill_gaps"]  # Missing skill
@@ -373,9 +384,9 @@ class TestResearchAgent:
         2. Second insight here
         3. Third insight here
         """
-        
+
         parsed = research_agent._parse_llm_response_to_list(response)
-        
+
         assert isinstance(parsed, list)
         assert len(parsed) == 3
         assert "First insight here" in parsed[0]
@@ -386,6 +397,6 @@ class TestResearchAgent:
         """Test parsing of empty LLM response."""
         parsed = research_agent._parse_llm_response_to_list("")
         assert parsed == []
-        
+
         parsed = research_agent._parse_llm_response_to_list(None)
         assert parsed == []

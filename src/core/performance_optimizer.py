@@ -384,8 +384,12 @@ class MultiLevelCache:
     def start_persistence(self):
         """Start periodic persistence task."""
         if self.config.enable_persistence:
-            loop = asyncio.get_event_loop()
-            self._persistence_task = loop.create_task(self._persistence_loop())
+            try:
+                loop = asyncio.get_running_loop()
+                self._persistence_task = loop.create_task(self._persistence_loop())
+            except RuntimeError:
+                # No event loop running, persistence will be manual
+                logger.warning("No running event loop found, cache persistence disabled")
     
     def stop_persistence(self):
         """Stop persistence task."""

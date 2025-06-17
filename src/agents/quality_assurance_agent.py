@@ -16,11 +16,13 @@ from datetime import datetime
 import re
 import asyncio
 from src.orchestration.state import AgentState
+from src.core.async_optimizer import optimize_async
 from src.models.data_models import StructuredCV as PydanticStructuredCV
 
 # Set up structured logging
 from src.config.logging_config import get_structured_logger
 from src.models.data_models import AgentDecisionLog, AgentExecutionLog
+
 logger = get_structured_logger(__name__)
 
 
@@ -69,7 +71,9 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
     # Legacy run method removed - use run_as_node for LangGraph integration
 
-    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+    async def run_async(
+        self, input_data: Any, context: "AgentExecutionContext"
+    ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
         from src.models.validation_schemas import validate_agent_input, ValidationError
@@ -77,22 +81,19 @@ class QualityAssuranceAgent(EnhancedAgentBase):
         try:
             # Validate input data using Pydantic schemas
             try:
-                validated_input = validate_agent_input('quality_assurance', input_data)
+                validated_input = validate_agent_input("quality_assurance", input_data)
                 # Convert validated Pydantic model back to dict for processing
                 input_data = validated_input.model_dump()
                 # Log validation success with structured logging
-                decision_log = AgentDecisionLog(
-                    timestamp=datetime.now().isoformat(),
-                    agent_name=self.name,
-                    session_id=context.session_id if context else "unknown",
-                    item_id=context.item_id if context else None,
-                    decision_type="validation",
-                    decision_details="Input validation passed for QualityAssuranceAgent",
-                    metadata={"input_keys": list(input_data.keys()) if isinstance(input_data, dict) else []}
+                self.log_decision(
+                    "Input validation passed for QualityAssuranceAgent",
+                    context,
+                    "validation"
                 )
-                logger.log_agent_decision(decision_log)
             except ValidationError as ve:
-                logger.error(f"Input validation failed for QualityAssuranceAgent: {ve.message}")
+                logger.error(
+                    f"Input validation failed for QualityAssuranceAgent: {ve.message}"
+                )
                 fallback_result = {
                     "quality_check_results": {
                         "error": f"Input validation failed: {ve.message}",
@@ -104,19 +105,24 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                             "passed_items": 0,
                             "warning_items": 0,
                             "failed_items": 0,
-                        }
+                        },
                     },
-                    "updated_structured_cv": None
+                    "updated_structured_cv": None,
                 }
                 return AgentResult(
                     success=False,
                     output_data=fallback_result,
                     confidence_score=0.0,
                     error_message=f"Input validation failed: {ve.message}",
-                    metadata={"agent_type": "quality_assurance", "validation_error": True}
+                    metadata={
+                        "agent_type": "quality_assurance",
+                        "validation_error": True,
+                    },
                 )
             except Exception as e:
-                logger.error(f"Input validation error for QualityAssuranceAgent: {str(e)}")
+                logger.error(
+                    f"Input validation error for QualityAssuranceAgent: {str(e)}"
+                )
                 fallback_result = {
                     "quality_check_results": {
                         "error": f"Input validation error: {str(e)}",
@@ -128,16 +134,19 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                             "passed_items": 0,
                             "warning_items": 0,
                             "failed_items": 0,
-                        }
+                        },
                     },
-                    "updated_structured_cv": None
+                    "updated_structured_cv": None,
                 }
                 return AgentResult(
                     success=False,
                     output_data=fallback_result,
                     confidence_score=0.0,
                     error_message=f"Input validation error: {str(e)}",
-                    metadata={"agent_type": "quality_assurance", "validation_error": True}
+                    metadata={
+                        "agent_type": "quality_assurance",
+                        "validation_error": True,
+                    },
                 )
 
             # Use run_as_node for LangGraph integration
@@ -149,11 +158,12 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             structured_cv = input_data.get("structured_cv") or StructuredCV()
             job_desc_data = input_data.get("job_description_data")
             if not job_desc_data or isinstance(job_desc_data, dict):
-                job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
+                job_desc_data = JobDescriptionData(
+                    raw_text=input_data.get("job_description", "")
+                )
 
             agent_state = AgentState(
-                structured_cv=structured_cv,
-                job_description_data=job_desc_data
+                structured_cv=structured_cv, job_description_data=job_desc_data
             )
 
             node_result = await self.run_as_node(agent_state)
@@ -163,7 +173,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 success=True,
                 output_data=result,
                 confidence_score=1.0,
-                metadata={"agent_type": "quality_assurance"}
+                metadata={"agent_type": "quality_assurance"},
             )
 
         except Exception as e:
@@ -181,9 +191,13 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                         "passed_items": 0,
                         "warning_items": 0,
                         "failed_items": 0,
-                    }
+                    },
                 },
-                "updated_structured_cv": input_data.get("structured_cv") if isinstance(input_data, dict) else None
+                "updated_structured_cv": (
+                    input_data.get("structured_cv")
+                    if isinstance(input_data, dict)
+                    else None
+                ),
             }
 
             return AgentResult(
@@ -191,10 +205,12 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 output_data=fallback_result,
                 confidence_score=0.0,
                 error_message=str(e),
-                metadata={"agent_type": "quality_assurance"}
+                metadata={"agent_type": "quality_assurance"},
             )
 
-    def _extract_key_terms(self, job_description_data: Dict[str, Any]) -> Dict[str, List[str]]:
+    def _extract_key_terms(
+        self, job_description_data: Dict[str, Any]
+    ) -> Dict[str, List[str]]:
         """
         Extracts key terms from job description data for matching checks.
 
@@ -215,15 +231,23 @@ class QualityAssuranceAgent(EnhancedAgentBase):
         if hasattr(job_description_data, "get") and callable(job_description_data.get):
             # It's a dictionary-like object
             key_terms["skills"] = job_description_data.get("skills", [])
-            key_terms["responsibilities"] = job_description_data.get("responsibilities", [])
+            key_terms["responsibilities"] = job_description_data.get(
+                "responsibilities", []
+            )
             key_terms["industry_terms"] = job_description_data.get("industry_terms", [])
             key_terms["company_values"] = job_description_data.get("company_values", [])
         elif hasattr(job_description_data, "skills"):
             # It's a JobDescriptionData object
             key_terms["skills"] = getattr(job_description_data, "skills", [])
-            key_terms["responsibilities"] = getattr(job_description_data, "responsibilities", [])
-            key_terms["industry_terms"] = getattr(job_description_data, "industry_terms", [])
-            key_terms["company_values"] = getattr(job_description_data, "company_values", [])
+            key_terms["responsibilities"] = getattr(
+                job_description_data, "responsibilities", []
+            )
+            key_terms["industry_terms"] = getattr(
+                job_description_data, "industry_terms", []
+            )
+            key_terms["company_values"] = getattr(
+                job_description_data, "company_values", []
+            )
 
         # Normalize and clean terms
         for category, terms in key_terms.items():
@@ -231,7 +255,9 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
         return key_terms
 
-    def _check_section(self, section: Section, key_terms: Dict[str, List[str]]) -> Dict[str, Any]:
+    def _check_section(
+        self, section: Section, key_terms: Dict[str, List[str]]
+    ) -> Dict[str, Any]:
         """
         Checks the quality of a section.
 
@@ -284,7 +310,9 @@ class QualityAssuranceAgent(EnhancedAgentBase):
         # Add section-level checks
         if section.name == "Executive Summary":
             # Check if summary is too long or too short
-            summary_text = " ".join([item.content for item in section.items if item.content])
+            summary_text = " ".join(
+                [item.content for item in section.items if item.content]
+            )
             word_count = len(re.findall(r"\b\w+\b", summary_text))
 
             if word_count < 30:
@@ -343,7 +371,9 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 )
             else:
                 role_count = len(section.subsections)
-                avg_bullets = sum(len(ss.items) for ss in section.subsections) / role_count
+                avg_bullets = (
+                    sum(len(ss.items) for ss in section.subsections) / role_count
+                )
 
                 if avg_bullets < 2:
                     section_result["checks"].append(
@@ -387,7 +417,9 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             "item_id": item.id,
             "section": section.name,
             "subsection": subsection.name if subsection else None,
-            "content": (item.content[:50] + "..." if len(item.content) > 50 else item.content),
+            "content": (
+                item.content[:50] + "..." if len(item.content) > 50 else item.content
+            ),
             "status": "pass",  # Default to pass
             "checks": [],
         }
@@ -514,7 +546,10 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 )
             else:
                 # Only add a warning for dynamic content that should match job
-                if section.content_type == "DYNAMIC" and item.status != ItemStatus.STATIC:
+                if (
+                    section.content_type == "DYNAMIC"
+                    and item.status != ItemStatus.STATIC
+                ):
                     item_result["checks"].append(
                         {
                             "check": "key_terms_match",
@@ -660,13 +695,17 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             for section in structured_cv.sections:
                 for item in section.items:
                     term_mentions += sum(
-                        1 for term in all_key_terms if term.lower() in item.content.lower()
+                        1
+                        for term in all_key_terms
+                        if term.lower() in item.content.lower()
                     )
 
                 for subsection in section.subsections:
                     for item in subsection.items:
                         term_mentions += sum(
-                            1 for term in all_key_terms if term.lower() in item.content.lower()
+                            1
+                            for term in all_key_terms
+                            if term.lower() in item.content.lower()
                         )
 
             if term_mentions < 5:
@@ -688,6 +727,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
         return overall_checks
 
+    @optimize_async("agent_execution", "quality_assurance")
     async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the quality assurance logic as a LangGraph node.
@@ -712,8 +752,8 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 session_id="langraph_session",
                 input_data={
                     "structured_cv": cv.model_dump(),
-                    "job_description_data": job_data.model_dump()
-                }
+                    "job_description_data": job_data.model_dump(),
+                },
             )
 
             # Call the existing async method

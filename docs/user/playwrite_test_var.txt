@@ -1,4 +1,3 @@
-api key: {{"AIzaSyAkFX7p9KvqEmWPHWvB-L6uhBwt_5QbDoY"}}
 this job description: {{Job Description
 AIRBUS HELICOPTERS SAS is recruiting:
 

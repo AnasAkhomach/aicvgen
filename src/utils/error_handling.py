@@ -77,7 +77,7 @@ class StructuredError:
         """Post-initialization processing."""
         if self.original_exception and not self.stack_trace:
             self.stack_trace = traceback.format_exc()
-        
+
         if not self.user_message:
             self.user_message = self._generate_user_message()
 
@@ -113,7 +113,7 @@ class StructuredError:
             "component": self.context.component,
             "operation": self.context.operation
         }
-        
+
         if include_sensitive:
             data.update({
                 "stack_trace": self.stack_trace,
@@ -123,17 +123,17 @@ class StructuredError:
                 "additional_data": self.context.additional_data,
                 "related_errors": self.related_errors
             })
-        
+
         return redact_sensitive_data(data) if not include_sensitive else data
 
 
 class ErrorHandler:
     """Centralized error handling and logging."""
-    
+
     def __init__(self, logger: Optional[logging.Logger] = None):
         self.logger = logger or logging.getLogger(__name__)
         self._error_history: List[StructuredError] = []
-    
+
     def handle_error(
         self,
         exception: Union[Exception, str],
@@ -144,17 +144,17 @@ class ErrorHandler:
         recovery_suggestions: Optional[List[str]] = None
     ) -> StructuredError:
         """Handle and log an error with structured information."""
-        
+
         if context is None:
             context = ErrorContext()
-        
+
         if isinstance(exception, str):
             message = exception
             original_exception = None
         else:
             message = str(exception)
             original_exception = exception
-        
+
         structured_error = StructuredError(
             message=message,
             category=category,
@@ -164,24 +164,24 @@ class ErrorHandler:
             user_message=user_message,
             recovery_suggestions=recovery_suggestions or []
         )
-        
+
         # Log the error
         self._log_error(structured_error)
-        
+
         # Store in history (keep last 100 errors)
         self._error_history.append(structured_error)
         if len(self._error_history) > 100:
             self._error_history.pop(0)
-        
+
         return structured_error
-    
+
     def _log_error(self, error: StructuredError):
         """Log structured error with appropriate level."""
         log_data = error.to_dict(include_sensitive=True)
         safe_log_data = redact_sensitive_data(log_data)
-        
+
         log_message = f"Error {error.context.error_id}: {error.message}"
-        
+
         if error.severity == ErrorSeverity.CRITICAL:
             self.logger.critical(log_message, extra={"error_data": safe_log_data})
         elif error.severity == ErrorSeverity.HIGH:
@@ -190,18 +190,18 @@ class ErrorHandler:
             self.logger.warning(log_message, extra={"error_data": safe_log_data})
         else:
             self.logger.info(log_message, extra={"error_data": safe_log_data})
-    
+
     def get_error_history(self, limit: int = 10) -> List[StructuredError]:
         """Get recent error history."""
         return self._error_history[-limit:]
-    
+
     def get_error_by_id(self, error_id: str) -> Optional[StructuredError]:
         """Get error by ID."""
         for error in self._error_history:
             if error.context.error_id == error_id:
                 return error
         return None
-    
+
     def clear_history(self):
         """Clear error history."""
         self._error_history.clear()
@@ -237,7 +237,7 @@ def get_error_handler() -> ErrorHandler:
 
 class ErrorBoundary:
     """Context manager for error boundary handling."""
-    
+
     def __init__(
         self,
         component: str,
@@ -256,17 +256,17 @@ class ErrorBoundary:
         self.recovery_suggestions = recovery_suggestions
         self.reraise = reraise
         self.error: Optional[StructuredError] = None
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
             context = ErrorContext(
                 component=self.component,
                 operation=self.operation
             )
-            
+
             self.error = handle_error(
                 exception=exc_val,
                 category=self.category,
@@ -275,10 +275,10 @@ class ErrorBoundary:
                 user_message=self.user_message,
                 recovery_suggestions=self.recovery_suggestions
             )
-            
+
             if not self.reraise:
                 return True  # Suppress the exception
-        
+
         return False  # Let the exception propagate
 
 

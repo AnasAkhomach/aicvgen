@@ -59,7 +59,7 @@ class SecurityConfig:
     """Security configuration settings."""
     api_key_validation: bool = True
     rate_limiting_enabled: bool = True
-    session_timeout_minutes: int = 60
+    session_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("SESSION_TIMEOUT_SECONDS", "3600")))
     max_file_upload_size_mb: int = 10
     allowed_file_types: List[str] = field(default_factory=lambda: [".txt", ".md", ".pdf", ".docx"])
 
@@ -82,7 +82,7 @@ class PerformanceConfig:
     enable_caching: bool = True
     cache_ttl_seconds: int = 3600
     max_concurrent_requests: int = 10
-    request_timeout_seconds: int = 300
+    request_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", "60")))
     enable_profiling: bool = False
     memory_limit_mb: Optional[int] = None
 
@@ -131,7 +131,7 @@ class AppConfig:
 
 def get_environment() -> Environment:
     """Get the current environment from environment variables."""
-    env_name = os.getenv("APP_ENV", "development").lower()
+    env_name = os.getenv("ENVIRONMENT", "development").lower()
     try:
         return Environment(env_name)
     except ValueError:
@@ -141,7 +141,7 @@ def get_environment() -> Environment:
 def load_config() -> AppConfig:
     """Load configuration based on the current environment."""
     env = get_environment()
-    debug = os.getenv("DEBUG", "true").lower() == "true"
+    debug = os.getenv("DEBUG_MODE", "false").lower() == "true"
     testing = os.getenv("TESTING", "false").lower() == "true"
     
     config = AppConfig(
@@ -176,9 +176,9 @@ def _override_from_env(config: AppConfig) -> None:
             pass
     
     # Security overrides
-    if session_timeout := os.getenv("SESSION_TIMEOUT_MINUTES"):
+    if session_timeout := os.getenv("SESSION_TIMEOUT_SECONDS"):
         try:
-            config.security.session_timeout_minutes = int(session_timeout)
+            config.security.session_timeout_seconds = int(session_timeout)
         except ValueError:
             pass
 

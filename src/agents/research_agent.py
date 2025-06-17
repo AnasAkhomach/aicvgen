@@ -21,6 +21,7 @@ import os
 import asyncio
 from datetime import datetime
 from src.orchestration.state import AgentState
+from src.core.async_optimizer import optimize_async
 
 # Set up structured logging
 logger = get_structured_logger(__name__)
@@ -56,11 +57,11 @@ class ResearchAgent(EnhancedAgentBase):
             description=description,
             input_schema=AgentIO(
                 description="Conducts research on job information and finds relevant CV content.",
-                required_fields=["job_description_data", "structured_cv"]
+                required_fields=["job_description_data", "structured_cv"],
             ),
             output_schema=AgentIO(
                 description="Relevant research findings and content matches for tailoring.",
-                required_fields=["research_results", "content_matches"]
+                required_fields=["research_results", "content_matches"],
             ),
         )
         self.llm = llm_service or get_llm_service()
@@ -71,7 +72,9 @@ class ResearchAgent(EnhancedAgentBase):
 
     # Legacy run method removed - use run_as_node for LangGraph integration
 
-    async def run_async(self, input_data: Any, context: 'AgentExecutionContext') -> 'AgentResult':
+    async def run_async(
+        self, input_data: Any, context: "AgentExecutionContext"
+    ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
         from src.models.validation_schemas import validate_agent_input, ValidationError
@@ -79,20 +82,22 @@ class ResearchAgent(EnhancedAgentBase):
         try:
             # Validate input data using Pydantic schemas
             try:
-                validated_input = validate_agent_input('research', input_data)
+                validated_input = validate_agent_input("research", input_data)
                 # Convert validated Pydantic model back to dict for processing
                 input_data = validated_input.model_dump()
                 # Log validation success with structured logging
-                decision_log = AgentDecisionLog(
-                    timestamp=datetime.now().isoformat(),
-                    agent_name=self.name,
-                    session_id=context.session_id if context else "unknown",
-                    item_id=context.item_id if context else None,
-                    decision_type="validation",
-                    decision_details="Input validation passed for ResearchAgent",
-                    metadata={"input_keys": list(input_data.keys()) if isinstance(input_data, dict) else []}
+                self.log_decision(
+                    "Input validation passed for ResearchAgent",
+                    context.item_id if context else None,
+                    "validation",
+                    metadata={
+                        "input_keys": (
+                            list(input_data.keys())
+                            if isinstance(input_data, dict)
+                            else []
+                        )
+                    },
                 )
-                logger.log_agent_decision(decision_log)
             except ValidationError as ve:
                 logger.error(f"Input validation failed for ResearchAgent: {ve.message}")
                 fallback_result = {
@@ -102,16 +107,16 @@ class ResearchAgent(EnhancedAgentBase):
                         "industry_trends": [],
                         "role_insights": {},
                         "skill_requirements": [],
-                        "market_data": {}
+                        "market_data": {},
                     },
-                    "enhanced_job_description": None
+                    "enhanced_job_description": None,
                 }
                 return AgentResult(
                     success=False,
                     output_data=fallback_result,
                     confidence_score=0.0,
                     error_message=f"Input validation failed: {ve.message}",
-                    metadata={"agent_type": "research", "validation_error": True}
+                    metadata={"agent_type": "research", "validation_error": True},
                 )
             except Exception as e:
                 logger.error(f"Input validation error for ResearchAgent: {str(e)}")
@@ -122,16 +127,16 @@ class ResearchAgent(EnhancedAgentBase):
                         "industry_trends": [],
                         "role_insights": {},
                         "skill_requirements": [],
-                        "market_data": {}
+                        "market_data": {},
                     },
-                    "enhanced_job_description": None
+                    "enhanced_job_description": None,
                 }
                 return AgentResult(
                     success=False,
                     output_data=fallback_result,
                     confidence_score=0.0,
                     error_message=f"Input validation error: {str(e)}",
-                    metadata={"agent_type": "research", "validation_error": True}
+                    metadata={"agent_type": "research", "validation_error": True},
                 )
 
             # Use run_as_node for LangGraph integration
@@ -143,11 +148,12 @@ class ResearchAgent(EnhancedAgentBase):
             structured_cv = input_data.get("structured_cv") or StructuredCV()
             job_desc_data = input_data.get("job_description_data")
             if not job_desc_data or isinstance(job_desc_data, dict):
-                job_desc_data = JobDescriptionData(raw_text=input_data.get("job_description", ""))
+                job_desc_data = JobDescriptionData(
+                    raw_text=input_data.get("job_description", "")
+                )
 
             agent_state = AgentState(
-                structured_cv=structured_cv,
-                job_description_data=job_desc_data
+                structured_cv=structured_cv, job_description_data=job_desc_data
             )
 
             node_result = await self.run_as_node(agent_state)
@@ -157,7 +163,7 @@ class ResearchAgent(EnhancedAgentBase):
                 success=True,
                 output_data=result,
                 confidence_score=1.0,
-                metadata={"agent_type": "research"}
+                metadata={"agent_type": "research"},
             )
 
         except Exception as e:
@@ -171,9 +177,13 @@ class ResearchAgent(EnhancedAgentBase):
                     "industry_trends": [],
                     "role_insights": {},
                     "skill_requirements": [],
-                    "market_data": {}
+                    "market_data": {},
                 },
-                "enhanced_job_description": input_data.get("job_description") if isinstance(input_data, dict) else None
+                "enhanced_job_description": (
+                    input_data.get("job_description")
+                    if isinstance(input_data, dict)
+                    else None
+                ),
             }
 
             return AgentResult(
@@ -181,7 +191,7 @@ class ResearchAgent(EnhancedAgentBase):
                 output_data=fallback_result,
                 confidence_score=0.0,
                 error_message=str(e),
-                metadata={"agent_type": "research"}
+                metadata={"agent_type": "research"},
             )
 
     def get_research_results(self) -> Dict[str, Any]:
@@ -215,7 +225,10 @@ class ResearchAgent(EnhancedAgentBase):
 
         # Track if we've already indexed this CV to avoid duplicates
         cv_id = structured_cv.id
-        if hasattr(self.vector_db, "indexed_cv_ids") and cv_id in self.vector_db.indexed_cv_ids:
+        if (
+            hasattr(self.vector_db, "indexed_cv_ids")
+            and cv_id in self.vector_db.indexed_cv_ids
+        ):
             return
 
         # Initialize tracking set if it doesn't exist
@@ -249,9 +262,13 @@ class ResearchAgent(EnhancedAgentBase):
                                 "subsection": subsection.name,
                                 "type": str(item.item_type),
                             }
-                            self.vector_db.add_item(item, item.content, metadata=metadata)
+                            self.vector_db.add_item(
+                                item, item.content, metadata=metadata
+                            )
                         except Exception as e:
-                            logger.error(f"Error indexing subsection item {item.id}: {str(e)}")
+                            logger.error(
+                                f"Error indexing subsection item {item.id}: {str(e)}"
+                            )
 
         # Mark this CV as indexed
         self.vector_db.indexed_cv_ids.add(cv_id)
@@ -345,7 +362,9 @@ class ResearchAgent(EnhancedAgentBase):
 
             # Calculate a normalized score if we have terms to match
             if terms:
-                section_scores[section.name] = max(0.1, min(1.0, score / (len(terms) * 0.7)))
+                section_scores[section.name] = max(
+                    0.1, min(1.0, score / (len(terms) * 0.7))
+                )
             else:
                 section_scores[section.name] = 0.5  # Default mid-level score
 
@@ -373,12 +392,16 @@ class ResearchAgent(EnhancedAgentBase):
         try:
             # Load prompt template from external file
             try:
-                prompt_path = self.settings.get_prompt_path("job_research_analysis_prompt")
-                with open(prompt_path, 'r', encoding='utf-8') as f:
+                prompt_path = self.settings.get_prompt_path(
+                    "job_research_analysis_prompt"
+                )
+                with open(prompt_path, "r", encoding="utf-8") as f:
                     prompt_template = f.read()
                 logger.info("Successfully loaded job research analysis prompt template")
             except Exception as e:
-                logger.error(f"Error loading job research analysis prompt template: {e}")
+                logger.error(
+                    f"Error loading job research analysis prompt template: {e}"
+                )
                 # Fallback to basic prompt
                 prompt_template = """
                 Analyze the job description: {raw_jd}
@@ -391,25 +414,31 @@ class ResearchAgent(EnhancedAgentBase):
             # Format the prompt with actual data
             prompt = prompt_template.format(
                 raw_jd=raw_jd,
-                skills=', '.join(skills),
-                responsibilities=', '.join(responsibilities),
-                experience_level=experience_level
+                skills=", ".join(skills),
+                responsibilities=", ".join(responsibilities),
+                experience_level=experience_level,
             )
 
             response = self.llm.generate_content(prompt)
 
             # Check if LLM response was successful
-            if hasattr(response, 'success') and not response.success:
-                logger.error(f"LLM request failed: {getattr(response, 'error_message', 'Unknown error')}")
+            if hasattr(response, "success") and not response.success:
+                logger.error(
+                    f"LLM request failed: {getattr(response, 'error_message', 'Unknown error')}"
+                )
                 return {
                     "core_technical_skills": skills,
                     "soft_skills": [],
                     "error": "LLM analysis failed",
-                    "raw_analysis": getattr(response, 'content', ''),
+                    "raw_analysis": getattr(response, "content", ""),
                 }
 
             # Extract content from LLMResponse or use response directly for backward compatibility
-            response_content = getattr(response, 'content', response) if hasattr(response, 'content') else response
+            response_content = (
+                getattr(response, "content", response)
+                if hasattr(response, "content")
+                else response
+            )
 
             # Extract JSON from response
             try:
@@ -473,18 +502,24 @@ class ResearchAgent(EnhancedAgentBase):
             response = self.llm.generate_content(company_prompt)
 
             # Check if LLM response was successful
-            if hasattr(response, 'success') and not response.success:
-                logger.error(f"Company research LLM request failed: {getattr(response, 'error_message', 'Unknown error')}")
+            if hasattr(response, "success") and not response.success:
+                logger.error(
+                    f"Company research LLM request failed: {getattr(response, 'error_message', 'Unknown error')}"
+                )
                 # Return fallback company info
                 return {
                     "company_name": "Unknown Company",
                     "industry": "Technology",
                     "values": ["Innovation", "Teamwork"],
-                    "error": "LLM company research failed"
+                    "error": "LLM company research failed",
                 }
 
             # Extract content from LLMResponse or use response directly for backward compatibility
-            response_content = getattr(response, 'content', response) if hasattr(response, 'content') else response
+            response_content = (
+                getattr(response, "content", response)
+                if hasattr(response, "content")
+                else response
+            )
 
             # Extract JSON from response
             try:
@@ -496,7 +531,9 @@ class ResearchAgent(EnhancedAgentBase):
 
                     # For MVP, simulate the rest of the company research
                     company_name = company_info.get("company_name", "Unknown Company")
-                    company_info["description"] = f"Research insights about {company_name}."
+                    company_info["description"] = (
+                        f"Research insights about {company_name}."
+                    )
                     company_info["key_products"] = ["Product A", "Product B"]
                     company_info["market_position"] = "Market leader in their segment"
 
@@ -542,6 +579,7 @@ class ResearchAgent(EnhancedAgentBase):
             ],
         }
 
+    @optimize_async("agent_execution", "research")
     async def run_as_node(self, state: AgentState) -> dict:
         """
         Executes the research logic as a LangGraph node.
@@ -566,8 +604,8 @@ class ResearchAgent(EnhancedAgentBase):
                 session_id="langraph_session",
                 input_data={
                     "structured_cv": cv.model_dump(),
-                    "job_description_data": job_data.model_dump()
-                }
+                    "job_description_data": job_data.model_dump(),
+                },
             )
 
             # Call the existing async method

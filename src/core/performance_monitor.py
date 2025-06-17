@@ -100,8 +100,12 @@ class PerformanceMonitor:
         self.monitoring_active = True
         
         # Start monitoring task
-        loop = asyncio.get_event_loop()
-        self.monitoring_task = loop.create_task(self._monitoring_loop())
+        try:
+            loop = asyncio.get_running_loop()
+            self.monitoring_task = loop.create_task(self._monitoring_loop())
+        except RuntimeError:
+            # No event loop running, monitoring will be manual
+            logger.warning("No running event loop found, performance monitoring disabled")
         
         logger.info(f"Performance monitoring started with {interval}s interval")
     

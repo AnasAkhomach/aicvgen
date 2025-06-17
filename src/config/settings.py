@@ -52,8 +52,8 @@ class LLMConfig:
     cleaning_model: str = "llama-3.3-70b-versatile"
     
     # Rate Limiting Configuration
-    max_requests_per_minute: int = 30
-    max_tokens_per_minute: int = 6000
+    max_requests_per_minute: int = field(default_factory=lambda: int(os.getenv("LLM_REQUESTS_PER_MINUTE", "30")))
+    max_tokens_per_minute: int = field(default_factory=lambda: int(os.getenv("LLM_TOKENS_PER_MINUTE", "60000")))
     
     # Retry Configuration
     max_retries: int = 3
@@ -61,7 +61,7 @@ class LLMConfig:
     exponential_backoff: bool = True
     
     # Timeout Configuration
-    request_timeout: int = 60
+    request_timeout: int = field(default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", "60")))
     
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -102,7 +102,7 @@ class UIConfig:
     layout: str = "wide"
     
     # Session Configuration
-    session_timeout_minutes: int = 60
+    session_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("SESSION_TIMEOUT_SECONDS", "3600")))
     auto_save_interval_seconds: int = 30
     
     # Display Configuration
@@ -171,7 +171,7 @@ class AppConfig:
     
     # Environment
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
-    debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "False").lower() == "true")
+    debug: bool = field(default_factory=lambda: os.getenv("DEBUG_MODE", "false").lower() == "true")
     
     # Paths
     project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)

@@ -30,8 +30,8 @@ class ErrorSeverity:
 
 class StreamlitErrorBoundary:
     """Error boundary for Streamlit components with user-friendly error handling."""
-    
-    def __init__(self, 
+
+    def __init__(self,
                  component_name: str,
                  show_error_details: bool = False,
                  fallback_message: Optional[str] = None,
@@ -40,7 +40,7 @@ class StreamlitErrorBoundary:
         self.show_error_details = show_error_details
         self.fallback_message = fallback_message or f"An error occurred in {component_name}"
         self.severity = severity
-    
+
     def __call__(self, func: Callable) -> Callable:
         """Decorator to wrap functions with error boundary."""
         @functools.wraps(func)
@@ -51,11 +51,11 @@ class StreamlitErrorBoundary:
                 self._handle_error(e, func.__name__, args, kwargs)
                 return None
         return wrapper
-    
+
     def _handle_error(self, error: Exception, func_name: str, args: tuple, kwargs: dict):
         """Handle and display errors appropriately."""
         error_id = self._generate_error_id()
-        
+
         # Log the error with context
         context = {
             "component_name": self.component_name,
@@ -65,17 +65,17 @@ class StreamlitErrorBoundary:
             "args_count": len(args),
             "kwargs_keys": list(kwargs.keys())
         }
-        
+
         log_error_with_context("error_boundaries", error, context)
-        
+
         # Display user-friendly error message
         self._display_error_message(error, error_id)
-    
+
     def _generate_error_id(self) -> str:
         """Generate a unique error ID for tracking."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"ERR_{self.component_name}_{timestamp}"
-    
+
     def _display_error_message(self, error: Exception, error_id: str):
         """Display appropriate error message to user."""
         if self.severity == ErrorSeverity.CRITICAL:
@@ -103,7 +103,7 @@ class StreamlitErrorBoundary:
 
 
 @contextmanager
-def error_boundary(component_name: str, 
+def error_boundary(component_name: str,
                   severity: str = ErrorSeverity.MEDIUM,
                   show_details: bool = False,
                   fallback_message: Optional[str] = None):
@@ -120,7 +120,7 @@ def error_boundary(component_name: str,
         boundary._handle_error(e, "context_manager", (), {})
 
 
-def safe_streamlit_component(component_name: str, 
+def safe_streamlit_component(component_name: str,
                            severity: str = ErrorSeverity.MEDIUM,
                            show_details: bool = False,
                            fallback_message: Optional[str] = None):
@@ -201,28 +201,28 @@ def handle_data_processing(func: Callable) -> Callable:
 
 class ErrorRecovery:
     """Utility class for error recovery strategies."""
-    
+
     @staticmethod
     def retry_with_backoff(func: Callable, max_retries: int = 3, backoff_factor: float = 1.0):
         """Retry a function with exponential backoff."""
         import time
-        
+
         for attempt in range(max_retries):
             try:
                 return func()
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise e
-                
+
                 wait_time = backoff_factor * (2 ** attempt)
                 logger.warning(f"Attempt {attempt + 1} failed, retrying in {wait_time}s: {str(e)}")
                 time.sleep(wait_time)
-    
+
     @staticmethod
     def fallback_chain(*funcs: Callable):
         """Try functions in sequence until one succeeds."""
         last_error = None
-        
+
         for func in funcs:
             try:
                 return func()
@@ -230,7 +230,7 @@ class ErrorRecovery:
                 last_error = e
                 logger.warning(f"Function {func.__name__} failed, trying next: {str(e)}")
                 continue
-        
+
         if last_error:
             raise last_error
 

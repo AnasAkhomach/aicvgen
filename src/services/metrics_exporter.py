@@ -77,7 +77,7 @@ def record_workflow_start():
 
 def record_workflow_completion(duration: float):
     """Record successful workflow completion.
-    
+
     Args:
         duration: Workflow execution duration in seconds
     """
@@ -86,7 +86,7 @@ def record_workflow_completion(duration: float):
 
 def record_workflow_error(error_type: str):
     """Record a workflow error.
-    
+
     Args:
         error_type: Type/category of the error
     """
@@ -94,7 +94,7 @@ def record_workflow_error(error_type: str):
 
 def record_llm_request(model_name: str, duration: float, input_tokens: int, output_tokens: int, success: bool):
     """Record LLM request metrics.
-    
+
     Args:
         model_name: Name of the LLM model used
         duration: Request duration in seconds
@@ -103,17 +103,17 @@ def record_llm_request(model_name: str, duration: float, input_tokens: int, outp
         success: Whether the request was successful
     """
     status = 'success' if success else 'failure'
-    
+
     LLM_REQUEST_DURATION_SECONDS.labels(model_name=model_name).observe(duration)
     LLM_REQUESTS_TOTAL.labels(model_name=model_name, status=status).inc()
-    
+
     if success:
         LLM_TOKEN_USAGE_TOTAL.labels(model_name=model_name, token_type='input').inc(input_tokens)
         LLM_TOKEN_USAGE_TOTAL.labels(model_name=model_name, token_type='output').inc(output_tokens)
 
 def record_agent_execution(agent_name: str, duration: float, success: bool, error_type: str = None):
     """Record agent execution metrics.
-    
+
     Args:
         agent_name: Name of the agent
         duration: Execution duration in seconds
@@ -121,13 +121,13 @@ def record_agent_execution(agent_name: str, duration: float, success: bool, erro
         error_type: Type of error if execution failed
     """
     AGENT_EXECUTION_DURATION_SECONDS.labels(agent_name=agent_name).observe(duration)
-    
+
     if not success and error_type:
         AGENT_ERRORS_TOTAL.labels(agent_name=agent_name, error_type=error_type).inc()
 
 def update_active_sessions(count: int):
     """Update the active sessions gauge.
-    
+
     Args:
         count: Current number of active sessions
     """
@@ -135,7 +135,7 @@ def update_active_sessions(count: int):
 
 def update_memory_usage(bytes_used: int):
     """Update the memory usage gauge.
-    
+
     Args:
         bytes_used: Current memory usage in bytes
     """
