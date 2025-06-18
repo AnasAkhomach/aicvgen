@@ -19,12 +19,16 @@ from contextlib import contextmanager
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..models.data_models import (
-    CVGenerationState, WorkflowStage, ProcessingStatus, ContentType
+    WorkflowState,
+    WorkflowStage,
+    ProcessingStatus,
+    ContentType,
 )
 
 
 class SessionStatus(Enum):
     """Status of a user session."""
+
     ACTIVE = "active"
     PAUSED = "paused"
     COMPLETED = "completed"
@@ -36,6 +40,7 @@ class SessionStatus(Enum):
 @dataclass
 class SessionInfo:
     """Information about a user session."""
+
     session_id: str
     user_id: Optional[str]
     status: SessionStatus
@@ -73,11 +78,11 @@ class SessionInfo:
             "metadata": self.metadata,
             "processing_time": self.processing_time,
             "llm_calls": self.llm_calls,
-            "tokens_used": self.tokens_used
+            "tokens_used": self.tokens_used,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SessionInfo':
+    def from_dict(cls, data: Dict[str, Any]) -> "SessionInfo":
         """Create from dictionary."""
         return cls(
             session_id=data["session_id"],
@@ -93,7 +98,7 @@ class SessionInfo:
             metadata=data.get("metadata", {}),
             processing_time=data.get("processing_time", 0.0),
             llm_calls=data.get("llm_calls", 0),
-            tokens_used=data.get("tokens_used", 0)
+            tokens_used=data.get("tokens_used", 0),
         )
 
 
@@ -110,7 +115,7 @@ class SessionManager:
 
         # In-memory session tracking
         self.active_sessions: Dict[str, SessionInfo] = {}
-        self.session_states: Dict[str, CVGenerationState] = {}
+        self.session_states: Dict[str, WorkflowState] = {}
 
         # Thread safety
         self._lock = threading.RLock()
@@ -145,9 +150,7 @@ class SessionManager:
                 self.logger.error(f"Error in periodic cleanup: {e}")
 
     def create_session(
-        self,
-        user_id: Optional[str] = None,
-        metadata: Dict[str, Any] = None
+        self, user_id: Optional[str] = None, metadata: Dict[str, Any] = None
     ) -> str:
         """Create a new session."""
 
@@ -171,14 +174,14 @@ class SessionManager:
                 updated_at=now,
                 expires_at=now + self.session_timeout,
                 current_stage=WorkflowStage.INITIALIZATION,
-                metadata=metadata or {}
+                metadata=metadata or {},
             )
 
             # Create initial state
-            initial_state = CVGenerationState(
+            initial_state = WorkflowState(
                 session_id=session_id,
                 current_stage=WorkflowStage.INITIALIZATION,
-                created_at=now
+                created_at=now,
             )
 
             # Store in memory
@@ -189,9 +192,7 @@ class SessionManager:
             self._save_session(session_id)
 
             self.logger.info(
-                "Created new session",
-                session_id=session_id,
-                user_id=user_id
+                "Created new session", session_id=session_id, user_id=user_id
             )
 
             return session_id
@@ -213,7 +214,7 @@ class SessionManager:
             # Try to load from storage
             return self._load_session(session_id)
 
-    def get_session_state(self, session_id: str) -> Optional[CVGenerationState]:
+    def get_session_state(self, session_id: str) -> Optional[WorkflowState]:
         """Get session state."""
         with self._lock:
             # Check if session exists and is valid
@@ -228,7 +229,7 @@ class SessionManager:
             # Try to load state from storage
             return self._load_session_state(session_id)
 
-    def update_session_state(self, session_id: str, state: CVGenerationState):
+    def update_session_state(self, session_id: str, state: WorkflowState):
         """Update session state."""
         with self._lock:
             # Check if session exists
@@ -245,21 +246,21 @@ class SessionManager:
 
             # Calculate item counts
             session_info.total_items = (
-                state.qualification_queue.total_items +
-                state.experience_queue.total_items +
-                state.project_queue.total_items
+                state.qualification_queue.total_items
+                + state.experience_queue.total_items
+                + state.project_queue.total_items
             )
 
             session_info.completed_items = (
-                len(state.qualification_queue.completed_items) +
-                len(state.experience_queue.completed_items) +
-                len(state.project_queue.completed_items)
+                len(state.qualification_queue.completed_items)
+                + len(state.experience_queue.completed_items)
+                + len(state.project_queue.completed_items)
             )
 
             session_info.failed_items = (
-                len(state.qualification_queue.failed_items) +
-                len(state.experience_queue.failed_items) +
-                len(state.project_queue.failed_items)
+                len(state.qualification_queue.failed_items)
+                + len(state.experience_queue.failed_items)
+                + len(state.project_queue.failed_items)
             )
 
             # Update in-memory state
@@ -273,7 +274,7 @@ class SessionManager:
                 session_id=session_id,
                 stage=state.current_stage.value,
                 completed_items=session_info.completed_items,
-                total_items=session_info.total_items
+                total_items=session_info.total_items,
             )
 
     def update_session_status(self, session_id: str, status: SessionStatus):
@@ -288,7 +289,11 @@ class SessionManager:
             session_info.updated_at = datetime.now()
 
             # If completing or failing, remove from active sessions
-            if status in [SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED]:
+            if status in [
+                SessionStatus.COMPLETED,
+                SessionStatus.FAILED,
+                SessionStatus.CANCELLED,
+            ]:
                 if session_id in self.active_sessions:
                     del self.active_sessions[session_id]
                 if session_id in self.session_states:
@@ -301,7 +306,7 @@ class SessionManager:
                 "Updated session status",
                 session_id=session_id,
                 old_status=old_status.value,
-                new_status=status.value
+                new_status=status.value,
             )
 
     def extend_session(self, session_id: str, extension: timedelta = None):
@@ -321,7 +326,7 @@ class SessionManager:
             self.logger.info(
                 "Extended session",
                 session_id=session_id,
-                new_expiry=session_info.expires_at.isoformat()
+                new_expiry=session_info.expires_at.isoformat(),
             )
 
     def pause_session(self, session_id: str):
@@ -380,7 +385,7 @@ class SessionManager:
             if expired_sessions:
                 self.logger.info(
                     f"Cleaned up {len(expired_sessions)} expired sessions",
-                    expired_session_ids=expired_sessions
+                    expired_session_ids=expired_sessions,
                 )
 
     def _expire_session(self, session_id: str):
@@ -409,19 +414,18 @@ class SessionManager:
 
             # Save session info
             info_path = self.storage_path / f"{session_id}_info.json"
-            with open(info_path, 'w') as f:
+            with open(info_path, "w") as f:
                 json.dump(session_info.to_dict(), f, indent=2)
 
             # Save session state if available
             if session_id in self.session_states:
                 state_path = self.storage_path / f"{session_id}_state.pkl"
-                with open(state_path, 'wb') as f:
+                with open(state_path, "wb") as f:
                     pickle.dump(self.session_states[session_id], f)
 
         except Exception as e:
             self.logger.error(
-                f"Failed to save session {session_id}: {e}",
-                session_id=session_id
+                f"Failed to save session {session_id}: {e}", session_id=session_id
             )
 
     def _load_session(self, session_id: str) -> Optional[SessionInfo]:
@@ -431,7 +435,7 @@ class SessionManager:
             if not info_path.exists():
                 return None
 
-            with open(info_path, 'r') as f:
+            with open(info_path, "r") as f:
                 data = json.load(f)
 
             session_info = SessionInfo.from_dict(data)
@@ -448,19 +452,18 @@ class SessionManager:
 
         except Exception as e:
             self.logger.error(
-                f"Failed to load session {session_id}: {e}",
-                session_id=session_id
+                f"Failed to load session {session_id}: {e}", session_id=session_id
             )
             return None
 
-    def _load_session_state(self, session_id: str) -> Optional[CVGenerationState]:
+    def _load_session_state(self, session_id: str) -> Optional[WorkflowState]:
         """Load session state from persistent storage."""
         try:
             state_path = self.storage_path / f"{session_id}_state.pkl"
             if not state_path.exists():
                 return None
 
-            with open(state_path, 'rb') as f:
+            with open(state_path, "rb") as f:
                 state = pickle.load(f)
 
             # Add to in-memory cache
@@ -470,8 +473,7 @@ class SessionManager:
 
         except Exception as e:
             self.logger.error(
-                f"Failed to load session state {session_id}: {e}",
-                session_id=session_id
+                f"Failed to load session state {session_id}: {e}", session_id=session_id
             )
             return None
 
@@ -479,7 +481,7 @@ class SessionManager:
         self,
         user_id: Optional[str] = None,
         status: Optional[SessionStatus] = None,
-        limit: int = 50
+        limit: int = 50,
     ) -> List[SessionInfo]:
         """List sessions with optional filtering."""
         sessions = []
@@ -530,7 +532,9 @@ class SessionManager:
                 status_counts[status] = status_counts.get(status, 0) + 1
 
             # Calculate total processing metrics
-            total_processing_time = sum(s.processing_time for s in self.active_sessions.values())
+            total_processing_time = sum(
+                s.processing_time for s in self.active_sessions.values()
+            )
             total_llm_calls = sum(s.llm_calls for s in self.active_sessions.values())
             total_tokens = sum(s.tokens_used for s in self.active_sessions.values())
 
@@ -540,7 +544,7 @@ class SessionManager:
                 "total_processing_time": total_processing_time,
                 "total_llm_calls": total_llm_calls,
                 "total_tokens_used": total_tokens,
-                "storage_path": str(self.storage_path)
+                "storage_path": str(self.storage_path),
             }
 
     @contextmanager

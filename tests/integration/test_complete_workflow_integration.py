@@ -20,9 +20,9 @@ from src.models.data_models import (
     Section, Item, ItemStatus, ItemType
 )
 from src.core.state_manager import StateManager
-from src.services.llm import EnhancedLLMService
+from src.services.llm_service import EnhancedLLMService
 from src.services.session_manager import SessionManager
-from src.services.template_manager import TemplateManager
+# TemplateManager import removed - not used in tests
 from src.agents.parser_agent import ParserAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
@@ -211,15 +211,10 @@ class TestCompleteWorkflowIntegration:
         mock_session_manager.create_session = AsyncMock(return_value=str(uuid4()))
         mock_session_manager.save_session = AsyncMock()
         
-        # Mock Template Manager
-        mock_template_manager = Mock(spec=TemplateManager)
-        mock_template_manager.render_template = Mock(return_value="Rendered template")
-        
         return {
             'llm': mock_llm,
             'state_manager': mock_state_manager,
-            'session_manager': mock_session_manager,
-            'template_manager': mock_template_manager
+            'session_manager': mock_session_manager
         }
 
     @pytest.mark.asyncio

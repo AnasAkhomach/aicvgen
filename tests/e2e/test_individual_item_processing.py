@@ -18,7 +18,7 @@ from src.models.data_models import (
     JobDescriptionData
 )
 from src.core.state_manager import StateManager
-from src.services.llm import EnhancedLLMService as LLMService
+from src.services.llm_service import EnhancedLLMService as LLMService
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 
 

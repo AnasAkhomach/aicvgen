@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from src.core.enhanced_orchestrator import EnhancedOrchestrator
 from src.core.state_manager import StateManager
-from src.models.workflow_models import AgentState, UserFeedback, UserAction
+from src.orchestration.state import AgentState, UserFeedback, UserAction
 from src.models.data_models import (
     StructuredCV, Section, Item, ItemStatus, ItemType,
     JobDescriptionData

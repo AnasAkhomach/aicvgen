@@ -1,15 +1,17 @@
 from typing import Dict, Any, Optional
 
 from jinja2 import Environment, FileSystemLoader
+from typing import Dict, Any, Optional
+from pathlib import Path
 
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.models.data_models import AgentIO, ContentData
-from src.orchestration.state import AgentState
-from src.core.async_optimizer import optimize_async
-from src.config.settings import get_config
-from src.config.logging_config import get_structured_logger
-from src.services.llm_service import get_llm_service
-from src.utils.template_renderer import recursively_escape_latex
+from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from ..models.data_models import AgentIO, ContentData
+from ..orchestration.state import AgentState
+from ..core.async_optimizer import optimize_async
+from ..config.settings import get_config
+from ..config.logging_config import get_structured_logger
+from ..services.llm_service import get_llm_service
+from ..utils.latex_utils import recursively_escape_latex
 
 try:
     from weasyprint import HTML, CSS
@@ -55,89 +57,38 @@ class FormatterAgent(EnhancedAgentBase):
         self.llm_service = get_llm_service()
 
     @optimize_async("agent_execution", "formatter")
-    async def run_as_node(self, state: AgentState) -> dict:
-        """
-        Takes the final StructuredCV from the state and renders it as a PDF.
-        This is the primary entry point for this agent in the LangGraph workflow.
-        """
-        logger.info("--- Executing Node: FormatterAgent ---")
-        cv_data = state.structured_cv
-        if not cv_data:
-            error_list = state.error_messages or []
-            error_list.append("FormatterAgent: No CV data found in state.")
-            return {"error_messages": error_list}
+    async def run_as_node(
+        self, state: AgentState, config: Optional[Dict[str, Any]] = None
+    ) -> AgentState:
+        """Run the formatter agent as a node in the workflow."""
+        self.logger.info("Starting CV formatting")
 
         try:
-            config = get_config()
-            template_dir = config.project_root / "src" / "templates"
-            static_dir = config.project_root / "src" / "frontend" / "static"
-            output_dir = config.project_root / "data" / "output"
-            output_dir.mkdir(parents=True, exist_ok=True)
+            # Execute the main run method
+            result = self.run(state)
 
-            # 1. Set up Jinja2 environment
-            env = Environment(
-                loader=FileSystemLoader(str(template_dir)), autoescape=True
-            )
-            template = env.get_template("pdf_template.html")
+            # Update state with results
+            if isinstance(result, dict) and result.get("final_output_path"):
+                if not hasattr(state, "formatted_output"):
+                    state.formatted_output = {}
+                state.formatted_output.update(result)
 
-            # 2. Apply LaTeX character escaping to CV data
-            # Convert CV data to dict for processing
-            cv_context_dict = (
-                cv_data.model_dump() if hasattr(cv_data, "model_dump") else cv_data
-            )
-            sanitized_cv_context = recursively_escape_latex(cv_context_dict)
-
-            # 3. Render HTML from template with sanitized data
-            html_out = template.render(cv=sanitized_cv_context)
-
-            # 4. Generate PDF using WeasyPrint (if available)
-            if not WEASYPRINT_AVAILABLE:
-                logger.warning(
-                    "WeasyPrint not available. Saving HTML output instead of PDF."
-                )
-                output_filename = f"CV_{cv_data.id}.html"
-                output_path = output_dir / output_filename
-                with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(html_out)
-                logger.info(
-                    f"FormatterAgent: HTML successfully generated at {output_path}"
-                )
-                return {"final_output_path": str(output_path)}
-
-            css_path = static_dir / "css" / "pdf_styles.css"
-            if not css_path.exists():
-                logger.warning(
-                    f"CSS file not found at {css_path}. PDF will have no styling."
-                )
-                css_stylesheet = None
-            else:
-                css_stylesheet = CSS(css_path)
-
-            pdf_bytes = HTML(string=html_out, base_url=str(template_dir)).write_pdf(
-                stylesheets=[css_stylesheet] if css_stylesheet else None
-            )
-
-            # 5. Save PDF to file
-            output_filename = f"CV_{cv_data.id}.pdf"
-            output_path = output_dir / output_filename
-            with open(output_path, "wb") as f:
-                f.write(pdf_bytes)
-
-            logger.info(f"FormatterAgent: PDF successfully generated at {output_path}")
-            return {"final_output_path": str(output_path)}
+            self.logger.info("CV formatting completed")
+            return state
 
         except Exception as e:
-            logger.error(f"FormatterAgent failed: {e}", exc_info=True)
-            error_list = state.error_messages or []
-            error_list.append(f"PDF generation failed: {e}")
-            return {"error_messages": error_list}
+            self.logger.error(f"Error in formatter agent: {str(e)}")
+            if not hasattr(state, "errors"):
+                state.errors = []
+            state.errors.append(f"Formatter error: {str(e)}")
+            return state
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
     ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
-        from src.models.validation_schemas import validate_agent_input, ValidationError
+        from ..models.validation_schemas import validate_agent_input, ValidationError
 
         try:
             # Validate input data using Pydantic schemas
@@ -180,7 +131,7 @@ class FormatterAgent(EnhancedAgentBase):
             format_specs = input_data.get("format_specs", {})
 
             try:
-                formatted_text = self.format_content(content_data, format_specs)
+                formatted_text = await self.format_content(content_data, format_specs)
                 result = {"formatted_cv_text": formatted_text}
             except Exception as e:
                 logger.error(f"Error formatting content: {e}")
@@ -191,7 +142,7 @@ class FormatterAgent(EnhancedAgentBase):
             return AgentResult(
                 success=True,
                 output_data=result,
-                confidence_score=1.0,
+                confidence_score=0.7,
                 metadata={"agent_type": "formatter"},
             )
 
@@ -206,7 +157,7 @@ class FormatterAgent(EnhancedAgentBase):
                 metadata={"agent_type": "formatter"},
             )
 
-    def format_content(
+    async def format_content(
         self, content_data: ContentData, specifications: Optional[Dict[str, Any]] = None
     ) -> str:
         """
@@ -224,12 +175,12 @@ class FormatterAgent(EnhancedAgentBase):
 
         # Try LLM-enhanced formatting first
         try:
-            return self._format_with_llm(content_data, specifications)
+            return await self._format_with_llm(content_data, specifications)
         except Exception as e:
             logger.warning(f"LLM formatting failed, falling back to template: {e}")
             return self._format_with_template(content_data, specifications)
 
-    def _format_with_llm(
+    async def _format_with_llm(
         self, content_data: ContentData, specifications: Dict[str, Any]
     ) -> str:
         """
@@ -256,9 +207,10 @@ Format this into a professional CV in markdown format:
 """
 
         try:
-            response = self.llm_service.generate_response(
-                prompt=formatting_prompt, max_tokens=2000, temperature=0.3
+            llm_response = await self.llm_service.generate_content(
+                prompt=formatting_prompt
             )
+            response = llm_response.content
 
             if response and response.strip():
                 return response.strip()
@@ -689,6 +641,384 @@ Format this into a professional CV in markdown format:
             formatted_text += "---\n\n"
 
         return formatted_text
+
+    def run(self, state_or_content: Any) -> Dict[str, Any]:
+        """
+        Main run method for the formatter agent.
+
+        Args:
+            state_or_content: AgentState or dictionary containing content to format
+
+        Returns:
+            Dictionary with formatted output
+        """
+        try:
+            # Extract content data from state or direct input
+            if hasattr(state_or_content, "structured_cv"):
+                structured_cv = state_or_content.structured_cv
+                format_type = getattr(state_or_content, "format_type", "pdf")
+                template_name = getattr(
+                    state_or_content, "template_name", "professional"
+                )
+                output_path = getattr(state_or_content, "output_path", None)
+            elif isinstance(state_or_content, dict):
+                structured_cv = state_or_content.get("structured_cv")
+                format_type = state_or_content.get("format_type", "pdf")
+                template_name = state_or_content.get("template_name", "professional")
+                output_path = state_or_content.get("output_path")
+            else:
+                # Assume it's a structured CV object
+                structured_cv = state_or_content
+                format_type = "pdf"
+                template_name = "professional"
+                output_path = None
+
+            if not structured_cv:
+                return {"success": False, "error": "No structured CV data provided"}
+
+            if format_type not in ["pdf", "html"]:
+                return {
+                    "success": False,
+                    "error": f"Unsupported format type: {format_type}",
+                }
+
+            if format_type == "pdf":
+                if not output_path:
+                    output_path = self._get_output_filename("pdf", None)
+                final_path = self._generate_pdf(
+                    structured_cv, template_name, output_path
+                )
+            else:
+                if not output_path:
+                    output_path = self._get_output_filename("html", None)
+                final_path = self._generate_html_file(
+                    structured_cv, template_name, output_path
+                )
+
+            # Validate the output
+            if not self._validate_output(final_path):
+                return {"success": False, "error": "Output validation failed"}
+
+            return {
+                "success": True,
+                "final_output_path": final_path,
+                "format_type": format_type,
+                "template_used": template_name,
+            }
+
+        except Exception as e:
+            logger.error(f"Error in formatter run: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def _generate_pdf(self, structured_cv, template_name: str, output_path: str) -> str:
+        """
+        Generate PDF from structured CV.
+
+        Args:
+            structured_cv: The structured CV data
+            template_name: Name of the template to use
+            output_path: Path where PDF should be saved
+
+        Returns:
+            Path to the generated PDF file
+        """
+        html_content = self._generate_html(structured_cv, template_name)
+
+        if not WEASYPRINT_AVAILABLE:
+            # Fallback to HTML if WeasyPrint not available
+            html_path = output_path.replace(".pdf", ".html")
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            return html_path
+
+        try:
+            html_doc = HTML(string=html_content)
+            html_doc.write_pdf(output_path)
+            return output_path
+        except Exception as e:
+            logger.error(f"PDF generation failed: {e}")
+            raise
+
+    def _generate_html(self, structured_cv, template_name: str) -> str:
+        """
+        Generate HTML content from structured CV.
+
+        Args:
+            structured_cv: The structured CV data
+            template_name: Name of the template to use
+
+        Returns:
+            HTML content as string
+        """
+        # Convert structured CV to content for HTML generation
+        content = self._format_section_content_from_cv(structured_cv)
+        styled_content = self._apply_template_styling(content, template_name)
+
+        html_template = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>CV</title>
+    {self._get_template_css(template_name)}
+</head>
+<body>
+    {styled_content}
+</body>
+</html>
+"""
+        return html_template
+
+    def _generate_html_file(
+        self, structured_cv, template_name: str, output_path: str
+    ) -> str:
+        """
+        Generate HTML file from structured CV.
+
+        Args:
+            structured_cv: The structured CV data
+            template_name: Name of the template to use
+            output_path: Path where HTML should be saved
+
+        Returns:
+            Path to the generated HTML file
+        """
+        html_content = self._generate_html(structured_cv, template_name)
+
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            return output_path
+        except Exception as e:
+            logger.error(f"HTML file generation failed: {e}")
+            raise
+
+    def _format_section_content_from_cv(self, structured_cv) -> str:
+        """
+        Format content from structured CV.
+
+        Args:
+            structured_cv: The structured CV data
+
+        Returns:
+            Formatted content as HTML string
+        """
+        content_parts = []
+
+        if hasattr(structured_cv, "sections") and structured_cv.sections:
+            for section in structured_cv.sections:
+                section_content = self._format_section_content(section)
+                if section_content.strip():
+                    content_parts.append(
+                        f"<div class='section'><h2>{section.name}</h2>{section_content}</div>"
+                    )
+
+        return "\n".join(content_parts)
+
+    def _format_section_content(self, section) -> str:
+        """
+        Format content for a single section.
+
+        Args:
+            section: Section object with name and items
+
+        Returns:
+            Formatted section content as HTML string
+        """
+        if not hasattr(section, "items") or not section.items:
+            return ""
+
+        content_parts = []
+        for item in section.items:
+            if hasattr(item, "content") and item.content:
+                content_parts.append(f"<p>{item.content}</p>")
+
+        return "\n".join(content_parts)
+
+    def _apply_template_styling(self, content: str, template_name: str) -> str:
+        """
+        Apply template-specific styling to content.
+
+        Args:
+            content: HTML content to style
+            template_name: Name of the template
+
+        Returns:
+            Styled HTML content
+        """
+        # Get template CSS
+        css = self._get_template_css(template_name)
+
+        # Apply styling to content
+        if css and "<style>" not in content:
+            styled_content = f"<style>{css}</style>\n{content}"
+        else:
+            styled_content = content
+
+        return styled_content
+
+    def _get_template_css(self, template_name: str) -> str:
+        """
+        Get CSS styles for the specified template.
+
+        Args:
+            template_name: Name of the template
+
+        Returns:
+            CSS styles as string
+        """
+        css_styles = {
+            "professional": """
+<style>
+body {
+    font-family: 'Times New Roman', serif;
+    line-height: 1.6;
+    color: #333;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+h1, h2 {
+    color: #2c3e50;
+    border-bottom: 2px solid #3498db;
+}
+.section {
+    margin-bottom: 20px;
+}
+p {
+    margin-bottom: 10px;
+}
+</style>
+""",
+            "modern": """
+<style>
+body {
+    font-family: 'Arial', sans-serif;
+    line-height: 1.5;
+    color: #444;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+h1, h2 {
+    color: #e74c3c;
+    font-weight: 300;
+}
+.section {
+    margin-bottom: 25px;
+    padding: 15px;
+    background-color: #f8f9fa;
+}
+p {
+    margin-bottom: 8px;
+}
+</style>
+""",
+            "creative": """
+<style>
+body {
+    font-family: 'Georgia', serif;
+    line-height: 1.7;
+    color: #2c3e50;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background-color: #ecf0f1;
+}
+h1, h2 {
+    color: #8e44ad;
+    font-style: italic;
+}
+.section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background-color: white;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+p {
+    margin-bottom: 12px;
+}
+</style>
+""",
+        }
+
+        return css_styles.get(template_name, css_styles["professional"])
+
+    def _validate_output(self, output_path: str) -> bool:
+        """
+        Validate that the output file was created successfully.
+
+        Args:
+            output_path: Path to the output file
+
+        Returns:
+            True if file exists and is not empty, False otherwise
+        """
+        try:
+            path = Path(output_path)
+            return path.exists() and path.stat().st_size > 0
+        except Exception:
+            return False
+
+    def _get_output_filename(
+        self, format_type: str, provided_filename: Optional[str]
+    ) -> str:
+        """
+        Generate output filename if not provided.
+
+        Args:
+            format_type: Type of format (pdf, html)
+            provided_filename: User-provided filename (optional)
+
+        Returns:
+            Output filename
+        """
+        if provided_filename:
+            return self._sanitize_filename(provided_filename)
+
+        import time
+
+        timestamp = int(time.time())
+        extension = ".pdf" if format_type == "pdf" else ".html"
+        return f"cv_{timestamp}{extension}"
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        Sanitize filename by removing invalid characters.
+
+        Args:
+            filename: Original filename
+
+        Returns:
+            Sanitized filename
+        """
+        import re
+
+        # Remove invalid characters
+        sanitized = re.sub(r'[<>:"/\\|?*]', "_", filename)
+        return sanitized
+
+    def get_confidence_score(self, output_data: Dict[str, Any]) -> float:
+        """Calculate confidence score based on output quality."""
+        # Simple confidence calculation based on output availability
+        score = 0.3  # Base score
+
+        if output_data.get("final_output_path"):
+            score += 0.3
+
+        if output_data.get("format_type"):
+            score += 0.1
+
+        if output_data.get("template_used"):
+            score += 0.1
+
+        # Check file size if available
+        file_size = output_data.get("file_size", 0)
+        if file_size > 1000:  # At least 1KB
+            score += 0.2
+
+        return min(score, 1.0)
 
     # Format the entry according to section-specific rules
     def _format_entry(

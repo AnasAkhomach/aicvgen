@@ -14,16 +14,19 @@ from uuid import uuid4
 
 # Import security utilities for safe error logging
 try:
-    from src.utils.security_utils import redact_sensitive_data, redact_log_message
+    from ..utils.security_utils import redact_sensitive_data, redact_log_message
 except ImportError:
+
     def redact_sensitive_data(data):
         return data
+
     def redact_log_message(message):
         return message
 
 
 class ErrorSeverity(str, Enum):
     """Error severity levels."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -32,6 +35,7 @@ class ErrorSeverity(str, Enum):
 
 class ErrorCategory(str, Enum):
     """Error categories for classification."""
+
     VALIDATION = "validation"
     AUTHENTICATION = "authentication"
     AUTHORIZATION = "authorization"
@@ -44,12 +48,14 @@ class ErrorCategory(str, Enum):
     FILE_IO = "file_io"
     DATABASE = "database"
     CONFIGURATION = "configuration"
+    AGENT_LIFECYCLE = "agent_lifecycle"
     UNKNOWN = "unknown"
 
 
 @dataclass
 class ErrorContext:
     """Contextual information for errors."""
+
     error_id: str = field(default_factory=lambda: str(uuid4()))
     timestamp: datetime = field(default_factory=datetime.now)
     component: Optional[str] = None
@@ -63,6 +69,7 @@ class ErrorContext:
 @dataclass
 class StructuredError:
     """Structured error information."""
+
     message: str
     category: ErrorCategory
     severity: ErrorSeverity
@@ -96,9 +103,11 @@ class StructuredError:
             ErrorCategory.FILE_IO: "File operation failed. Please check file permissions.",
             ErrorCategory.DATABASE: "Database error. Please try again later.",
             ErrorCategory.CONFIGURATION: "Configuration error. Please contact support.",
-            ErrorCategory.UNKNOWN: "An unexpected error occurred. Please try again."
+            ErrorCategory.UNKNOWN: "An unexpected error occurred. Please try again.",
         }
-        return category_messages.get(self.category, "An error occurred. Please try again.")
+        return category_messages.get(
+            self.category, "An error occurred. Please try again."
+        )
 
     def to_dict(self, include_sensitive: bool = False) -> Dict[str, Any]:
         """Convert to dictionary representation."""
@@ -111,18 +120,20 @@ class StructuredError:
             "user_message": self.user_message,
             "recovery_suggestions": self.recovery_suggestions,
             "component": self.context.component,
-            "operation": self.context.operation
+            "operation": self.context.operation,
         }
 
         if include_sensitive:
-            data.update({
-                "stack_trace": self.stack_trace,
-                "user_id": self.context.user_id,
-                "session_id": self.context.session_id,
-                "request_id": self.context.request_id,
-                "additional_data": self.context.additional_data,
-                "related_errors": self.related_errors
-            })
+            data.update(
+                {
+                    "stack_trace": self.stack_trace,
+                    "user_id": self.context.user_id,
+                    "session_id": self.context.session_id,
+                    "request_id": self.context.request_id,
+                    "additional_data": self.context.additional_data,
+                    "related_errors": self.related_errors,
+                }
+            )
 
         return redact_sensitive_data(data) if not include_sensitive else data
 
@@ -141,7 +152,7 @@ class ErrorHandler:
         severity: ErrorSeverity = ErrorSeverity.MEDIUM,
         context: Optional[ErrorContext] = None,
         user_message: Optional[str] = None,
-        recovery_suggestions: Optional[List[str]] = None
+        recovery_suggestions: Optional[List[str]] = None,
     ) -> StructuredError:
         """Handle and log an error with structured information."""
 
@@ -162,7 +173,7 @@ class ErrorHandler:
             context=context,
             original_exception=original_exception,
             user_message=user_message,
-            recovery_suggestions=recovery_suggestions or []
+            recovery_suggestions=recovery_suggestions or [],
         )
 
         # Log the error
@@ -217,7 +228,7 @@ def handle_error(
     severity: ErrorSeverity = ErrorSeverity.MEDIUM,
     context: Optional[ErrorContext] = None,
     user_message: Optional[str] = None,
-    recovery_suggestions: Optional[List[str]] = None
+    recovery_suggestions: Optional[List[str]] = None,
 ) -> StructuredError:
     """Global error handling function."""
     return _global_error_handler.handle_error(
@@ -226,7 +237,7 @@ def handle_error(
         severity=severity,
         context=context,
         user_message=user_message,
-        recovery_suggestions=recovery_suggestions
+        recovery_suggestions=recovery_suggestions,
     )
 
 
@@ -246,7 +257,7 @@ class ErrorBoundary:
         severity: ErrorSeverity = ErrorSeverity.MEDIUM,
         user_message: Optional[str] = None,
         recovery_suggestions: Optional[List[str]] = None,
-        reraise: bool = True
+        reraise: bool = True,
     ):
         self.component = component
         self.operation = operation
@@ -260,12 +271,9 @@ class ErrorBoundary:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, _exc_tb):
         if exc_type is not None:
-            context = ErrorContext(
-                component=self.component,
-                operation=self.operation
-            )
+            context = ErrorContext(component=self.component, operation=self.operation)
 
             self.error = handle_error(
                 exception=exc_val,
@@ -273,7 +281,7 @@ class ErrorBoundary:
                 severity=self.severity,
                 context=context,
                 user_message=self.user_message,
-                recovery_suggestions=self.recovery_suggestions
+                recovery_suggestions=self.recovery_suggestions,
             )
 
             if not self.reraise:
@@ -288,7 +296,7 @@ def create_error_context(
     user_id: Optional[str] = None,
     session_id: Optional[str] = None,
     request_id: Optional[str] = None,
-    **additional_data
+    **additional_data,
 ) -> ErrorContext:
     """Create an error context with the provided information."""
     return ErrorContext(
@@ -297,5 +305,5 @@ def create_error_context(
         user_id=user_id,
         session_id=session_id,
         request_id=request_id,
-        additional_data=additional_data
+        additional_data=additional_data,
     )

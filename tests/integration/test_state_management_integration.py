@@ -21,7 +21,7 @@ from src.agents.research_agent import ResearchAgent
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.formatter_agent import FormatterAgent
-from src.services.llm import EnhancedLLMService
+from src.services.llm_service import EnhancedLLMService
 
 
 @pytest.mark.integration

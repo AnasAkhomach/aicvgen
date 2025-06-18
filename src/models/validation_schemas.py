@@ -48,24 +48,24 @@ class LLMQualificationsOutput(BaseModel):
     soft_skills: List[str] = Field(..., description="List of soft skills and interpersonal abilities.")
 
 
-def validate_agent_input(input_data: Any, expected_type: type = None) -> bool:
-    """Validate agent input data.
+def validate_agent_input(agent_type: str, input_data: Any) -> Any:
+    """Validate agent input data and return validated model.
 
     Args:
+        agent_type: The type of agent (e.g., 'research', 'qa')
         input_data: The input data to validate
-        expected_type: Optional expected type for validation
 
     Returns:
-        bool: True if validation passes, False otherwise
+        Any: Validated input data (returns original data if no specific validation)
     """
     try:
-        if expected_type and not isinstance(input_data, expected_type):
-            logger.warning(f"Input type mismatch: expected {expected_type}, got {type(input_data)}")
-            return False
-        return True
+        # For now, return the input data as-is since we don't have specific
+        # validation schemas for each agent type
+        # TODO: Implement specific validation schemas for each agent
+        return input_data
     except Exception as e:
-        logger.error(f"Validation error: {e}")
-        return False
+        logger.error("Validation error for %s: %s", agent_type, e)
+        raise ValueError(f"Input validation failed for {agent_type}: {e}")
 
 
 def validate_agent_output(output_data: Any, required_fields: List[str] = None) -> bool:
@@ -82,9 +82,9 @@ def validate_agent_output(output_data: Any, required_fields: List[str] = None) -
         if required_fields and isinstance(output_data, dict):
             missing_fields = [field for field in required_fields if field not in output_data]
             if missing_fields:
-                logger.warning(f"Missing required fields: {missing_fields}")
+                logger.warning("Missing required fields: %s", missing_fields)
                 return False
         return True
     except Exception as e:
-        logger.error(f"Output validation error: {e}")
+        logger.error("Output validation error: %s", e)
         return False

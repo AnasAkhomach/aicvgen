@@ -17,10 +17,10 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
     retry_if_exception_type,
-    before_sleep_log
+    before_sleep_log,
 )
 
-from ..config.logging_config import get_structured_logger
+from ..config.logging_config import get_structured_logger, RateLimitLog
 from ..config.settings import LLMConfig
 from ..models.data_models import RateLimitState
 from ..utils.exceptions import RateLimitError, NetworkError
@@ -29,6 +29,7 @@ from ..utils.exceptions import RateLimitError, NetworkError
 @dataclass
 class RateLimitConfig:
     """Configuration for rate limiting."""
+
     requests_per_minute: int = 30
     tokens_per_minute: int = 50000
     max_retries: int = 3
@@ -50,11 +51,9 @@ class RateLimiter:
         """Get or create rate limit state for a model."""
         if model not in self.model_states:
             self.model_states[model] = RateLimitState(
-                model_name=model,
-                requests_per_minute=0,
-                tokens_per_minute=0,
-                max_requests_per_minute=self.config.requests_per_minute,
-                max_tokens_per_minute=self.config.tokens_per_minute
+                model=model,
+                requests_made=0,
+                requests_limit=self.config.requests_per_minute,
             )
         return self.model_states[model]
 
@@ -76,8 +75,10 @@ class RateLimiter:
         window_elapsed = (now - state.window_start).total_seconds()
         if window_elapsed < 60:
             # Check if we're at the limit
-            if (state.requests_per_minute >= self.config.requests_per_minute or
-                state.tokens_per_minute >= self.config.tokens_per_minute):
+            if (
+                state.requests_per_minute >= self.config.requests_per_minute
+                or state.tokens_per_minute >= self.config.tokens_per_minute
+            ):
                 return 60 - window_elapsed
 
         return 0.0
@@ -89,7 +90,7 @@ class RateLimiter:
             self.logger.info(
                 f"Rate limit wait required for model {model}",
                 wait_time=wait_time,
-                estimated_tokens=estimated_tokens
+                estimated_tokens=estimated_tokens,
             )
 
             # Log rate limit event
@@ -102,7 +103,7 @@ class RateLimiter:
                 window_start=state.window_start.isoformat(),
                 window_end=(state.window_start + timedelta(minutes=1)).isoformat(),
                 limit_exceeded=True,
-                wait_time_seconds=wait_time
+                wait_time_seconds=wait_time,
             )
             self.logger.log_rate_limit(rate_log)
 
@@ -121,7 +122,7 @@ class RateLimiter:
             tokens_in_window=state.tokens_per_minute,
             window_start=state.window_start.isoformat(),
             window_end=(state.window_start + timedelta(minutes=1)).isoformat(),
-            limit_exceeded=False
+            limit_exceeded=False,
         )
         self.logger.log_rate_limit(rate_log)
 
@@ -131,7 +132,7 @@ class RateLimiter:
         model: str,
         estimated_tokens: int = 0,
         *args,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Execute a function with rate limiting."""
         async with self._locks[model]:
@@ -143,10 +144,12 @@ class RateLimiter:
 
                 # Extract actual token usage if available
                 actual_tokens = estimated_tokens
-                if hasattr(result, 'usage') and hasattr(result.usage, 'total_tokens'):
+                if hasattr(result, "usage") and hasattr(result.usage, "total_tokens"):
                     actual_tokens = result.usage.total_tokens
-                elif isinstance(result, dict) and 'usage' in result:
-                    actual_tokens = result['usage'].get('total_tokens', estimated_tokens)
+                elif isinstance(result, dict) and "usage" in result:
+                    actual_tokens = result["usage"].get(
+                        "total_tokens", estimated_tokens
+                    )
 
                 self.record_request(model, actual_tokens, success=True)
                 return result
@@ -158,7 +161,9 @@ class RateLimiter:
                 # Check if it's a rate limit error
                 if self._is_rate_limit_error(e):
                     retry_after = self._extract_retry_after(e)
-                    raise RateLimitError(f"Rate limit exceeded for model {model}. Retry after {retry_after} seconds.")
+                    raise RateLimitError(
+                        f"Rate limit exceeded for model {model}. Retry after {retry_after} seconds."
+                    )
 
                 raise NetworkError(f"API call failed: {str(e)}") from e
 
@@ -166,12 +171,12 @@ class RateLimiter:
         """Check if an error is a rate limit error."""
         error_str = str(error).lower()
         rate_limit_indicators = [
-            'rate limit',
-            'too many requests',
-            'quota exceeded',
-            'rate_limit_exceeded',
-            '429',
-            'throttled'
+            "rate limit",
+            "too many requests",
+            "quota exceeded",
+            "rate_limit_exceeded",
+            "429",
+            "throttled",
         ]
         return any(indicator in error_str for indicator in rate_limit_indicators)
 
@@ -183,7 +188,8 @@ class RateLimiter:
 
         # Look for retry-after in seconds
         import re
-        retry_match = re.search(r'retry.after[:\s]+(\d+)', error_str, re.IGNORECASE)
+
+        retry_match = re.search(r"retry.after[:\s]+(\d+)", error_str, re.IGNORECASE)
         if retry_match:
             return float(retry_match.group(1))
 
@@ -191,7 +197,7 @@ class RateLimiter:
         state = self.get_model_state("unknown")
         return min(
             self.config.max_backoff_seconds,
-            self.config.base_backoff_seconds * (2 ** state.consecutive_failures)
+            self.config.base_backoff_seconds * (2**state.consecutive_failures),
         )
 
     def _calculate_backoff_delay(self, retry_attempt: int) -> float:
@@ -199,7 +205,7 @@ class RateLimiter:
         import random
 
         # Calculate base exponential backoff
-        base_delay = self.config.base_backoff_seconds * (2 ** retry_attempt)
+        base_delay = self.config.base_backoff_seconds * (2**retry_attempt)
         delay = min(base_delay, self.config.max_backoff_seconds)
 
         # Add jitter if enabled (but keep within bounds)
@@ -224,10 +230,10 @@ class RetryableRateLimiter(RateLimiter):
             stop=stop_after_attempt(self.config.max_retries),
             wait=wait_exponential(
                 multiplier=self.config.base_backoff_seconds,
-                max=self.config.max_backoff_seconds
+                max=self.config.max_backoff_seconds,
             ),
             retry=retry_if_exception_type((RateLimitError, NetworkError)),
-            before_sleep=before_sleep_log(self.logger.logger, logging.WARNING)
+            before_sleep=before_sleep_log(self.logger.logger, logging.WARNING),
         )
 
     async def execute_with_retry(
@@ -236,7 +242,7 @@ class RetryableRateLimiter(RateLimiter):
         model: str,
         estimated_tokens: int = 0,
         *args,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Execute a function with rate limiting and automatic retries."""
 
@@ -270,13 +276,16 @@ def reset_rate_limiter():
 # Decorator for easy rate limiting
 def rate_limited(model: str, estimated_tokens: int = 0):
     """Decorator to add rate limiting to async functions."""
+
     def decorator(func: Callable[..., Awaitable[Any]]):
         async def wrapper(*args, **kwargs):
             rate_limiter = get_rate_limiter()
             return await rate_limiter.execute_with_retry(
                 func, model, estimated_tokens, *args, **kwargs
             )
+
         return wrapper
+
     return decorator
 
 
@@ -286,7 +295,7 @@ async def rate_limited_llm_call(
     model: str,
     prompt: str,
     estimated_tokens: Optional[int] = None,
-    **kwargs
+    **kwargs,
 ) -> Any:
     """Make a rate-limited LLM call with automatic token estimation."""
     if estimated_tokens is None:
@@ -315,6 +324,8 @@ def get_rate_limit_status(model: str) -> Dict[str, Any]:
         "can_make_request": state.can_make_request(),
         "wait_time_seconds": rate_limiter.get_wait_time(model),
         "consecutive_failures": state.consecutive_failures,
-        "backoff_until": state.backoff_until.isoformat() if state.backoff_until else None,
-        "last_request_time": state.last_request_time.isoformat()
+        "backoff_until": (
+            state.backoff_until.isoformat() if state.backoff_until else None
+        ),
+        "last_request_time": state.last_request_time.isoformat(),
     }

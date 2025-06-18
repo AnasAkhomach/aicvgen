@@ -11,9 +11,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from dataclasses import dataclass
 from enum import Enum
-from dataclasses import field
 from uuid import UUID, uuid4
-from pydantic import HttpUrl
 
 
 class ItemStatus(str, Enum):
@@ -310,7 +308,7 @@ class StructuredCV(BaseModel):
                 self.metadata["personal_info"] = content_data["personal_info"]
 
             # Clear existing sections
-            self.sections.clear()
+            self.sections.clear()  # pylint: disable=no-member
 
             # Recreate sections from content_data
             section_mappings = {
@@ -332,7 +330,7 @@ class StructuredCV(BaseModel):
                         ]
                     )
                     if section.items:  # Only add section if it has items
-                        self.sections.append(section)
+                        self.sections.append(section)  # pylint: disable=no-member
 
             return True
         except Exception:
@@ -419,14 +417,14 @@ class WorkflowState(BaseModel):
     def advance_to_stage(self, stage: WorkflowStage):
         """Advance workflow to a new stage."""
         if self.current_stage not in self.completed_stages:
-            self.completed_stages.append(self.current_stage)
+            self.completed_stages.append(self.current_stage)  # pylint: disable=no-member
         self.current_stage = stage
         self.updated_at = datetime.now()
 
     def mark_stage_failed(self, stage: WorkflowStage):
         """Mark a stage as failed."""
         if stage not in self.failed_stages:
-            self.failed_stages.append(stage)
+            self.failed_stages.append(stage)  # pylint: disable=no-member
         self.updated_at = datetime.now()
 
 
@@ -449,22 +447,7 @@ class VectorStoreConfig(BaseModel):
     index_type: str = "IndexFlatL2"
 
 
-# Backward compatibility aliases for legacy imports
-class ProcessingMetadata(BaseModel):
-    """Legacy processing metadata class - replaced by Item.metadata."""
-    status: ProcessingStatus = ProcessingStatus.INITIAL
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    error_message: Optional[str] = None
-    retry_count: int = 0
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    def update_status(self, status: ProcessingStatus, error_message: Optional[str] = None):
-        """Update the processing status."""
-        self.status = status
-        self.updated_at = datetime.now()
-        if error_message:
-            self.error_message = error_message
 
 
 # API Model backward compatibility aliases
@@ -533,55 +516,24 @@ class Language(BaseModel):
     native: bool = False
 
 
-class CVGenerationState(BaseModel):
-    """Legacy CV generation state class - replaced by AgentState."""
-    session_id: str = Field(default_factory=lambda: str(uuid4()))
-    structured_cv: Optional[StructuredCV] = None
-    job_description_data: Optional[JobDescriptionData] = None
-    current_stage: WorkflowStage = WorkflowStage.INITIALIZATION
-    completed_stages: List[WorkflowStage] = Field(default_factory=list)
-    failed_stages: List[WorkflowStage] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    error_messages: List[str] = Field(default_factory=list)
-
-    # Additional legacy fields
-    current_section_key: Optional[str] = None
-    items_to_process_queue: List[str] = Field(default_factory=list)
-    current_item_id: Optional[str] = None
-    is_initial_generation: bool = True
-    user_feedback: Optional[UserFeedback] = None
-    research_findings: Optional[Dict[str, Any]] = None
-    final_output_path: Optional[str] = None
-
-    def advance_to_stage(self, stage: WorkflowStage):
-        """Advance workflow to a new stage."""
-        if self.current_stage not in self.completed_stages:
-            self.completed_stages.append(self.current_stage)
-        self.current_stage = stage
-        self.updated_at = datetime.now()
-
-    def mark_stage_failed(self, stage: WorkflowStage):
-        """Mark a stage as failed."""
-        if stage not in self.failed_stages:
-            self.failed_stages.append(stage)
-        self.updated_at = datetime.now()
-
-    class Config:
-        arbitrary_types_allowed = True
-
-
-class RateLimitState(BaseModel):
-    """Legacy rate limit state class - replaced by service-level rate limiting."""
+@dataclass
+class RateLimitState:
+    """State tracking for rate limiting per model."""
     model: str
     requests_made: int = 0
-    requests_limit: int = 100
-    window_start: datetime = Field(default_factory=datetime.now)
-    window_duration: timedelta = Field(default=timedelta(minutes=1))
+    requests_limit: int = 60
+    window_start: datetime = None
+    window_duration: timedelta = None
     last_request_time: Optional[datetime] = None
     backoff_until: Optional[datetime] = None
     consecutive_failures: int = 0
+    
+    def __post_init__(self):
+        """Initialize default values after dataclass creation."""
+        if self.window_start is None:
+            self.window_start = datetime.now()
+        if self.window_duration is None:
+            self.window_duration = timedelta(minutes=1)
 
     def is_rate_limited(self) -> bool:
         """Check if currently rate limited."""
@@ -621,6 +573,12 @@ class RateLimitState(BaseModel):
         """Record a successful request."""
         self.consecutive_failures = 0
         self.backoff_until = None
+    
+    def can_make_request(self, estimated_tokens: int = 0) -> bool:
+        """Check if a request can be made given current rate limits."""
+        if self.is_rate_limited():
+            return False
+        return True
 
 
 # Structured Logging Data Models

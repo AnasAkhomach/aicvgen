@@ -55,7 +55,7 @@ class ContentAggregator:
             Dictionary containing aggregated CV content in ContentData format
         """
         logger.info(
-            f"Starting content aggregation for {len(task_results)} task results"
+            "Starting content aggregation for %d task results", len(task_results)
         )
 
         # Start with base structure
@@ -65,7 +65,7 @@ class ContentAggregator:
         for i, result in enumerate(task_results):
             try:
                 agent_type = result.get("agent_type", "unknown")
-                logger.info(f"Processing result {i} from agent: {agent_type}")
+                logger.info("Processing result %d from agent: %s", i, agent_type)
 
                 # Handle content_writer agent results
                 if agent_type == "content_writer":
@@ -89,7 +89,7 @@ class ContentAggregator:
                     )
 
             except Exception as e:
-                logger.error(f"Error processing result {i}: {e}")
+                logger.error("Error processing result %d: %s", i, e)
                 continue
 
         # Populate Big 10 skills from state manager if available
@@ -98,7 +98,7 @@ class ContentAggregator:
 
         if content_found:
             logger.info(
-                f"Content aggregation successful. Fields populated: {[k for k, v in content_data.items() if v]}"
+                "Content aggregation successful. Fields populated: %s", [k for k, v in content_data.items() if v]
             )
         else:
             logger.warning("No valid content found during aggregation")
@@ -127,7 +127,7 @@ class ContentAggregator:
                 content_type = agent_content.get("content_type", "unknown")
 
                 logger.info(
-                    f"Found content writer content: type={content_type}, content_length={len(str(actual_content))}"
+                    "Found content writer content: type=%s, content_length=%d", content_type, len(str(actual_content))
                 )
 
                 # Map content type to appropriate field
@@ -143,7 +143,7 @@ class ContentAggregator:
                     else:
                         content_data[field] = actual_content
 
-                    logger.info(f"Mapped {content_type} content to {field}")
+                    logger.info("Mapped %s content to %s", content_type, field)
                     return True
                 else:
                     # Try to infer content type from content
@@ -154,7 +154,7 @@ class ContentAggregator:
                 return self._infer_and_assign_content(agent_content, content_data)
 
         except Exception as e:
-            logger.error(f"Error processing content writer result: {e}")
+            logger.error("Error processing content writer result: %s", e)
 
         return False
 
@@ -178,12 +178,12 @@ class ContentAggregator:
                 for field in self.base_structure.keys():
                     if field in optimized_content and optimized_content[field]:
                         content_data[field] = optimized_content[field]
-                        logger.info(f"Updated {field} from optimization agent")
+                        logger.info("Updated %s from optimization agent", field)
 
                 return any(optimized_content.values())
 
         except Exception as e:
-            logger.error(f"Error processing optimization result: {e}")
+            logger.error("Error processing optimization result: %s", e)
 
         return False
 
@@ -221,7 +221,7 @@ class ContentAggregator:
                     return self._infer_and_assign_content(content, content_data)
 
         except Exception as e:
-            logger.error(f"Error processing generic result: {e}")
+            logger.error("Error processing generic result: %s", e)
 
         return False
 
@@ -288,7 +288,7 @@ class ContentAggregator:
                     return True
 
         except Exception as e:
-            logger.error(f"Error inferring content type: {e}")
+            logger.error("Error inferring content type: %s", e)
 
         return False
 
@@ -321,7 +321,7 @@ class ContentAggregator:
                     )
                     content_data["key_qualifications"] = formatted_skills
                     logger.info(
-                        f"Populated {len(structured_cv.big_10_skills)} Big 10 skills"
+                        "Populated %d Big 10 skills", len(structured_cv.big_10_skills)
                     )
                 else:
                     logger.info("No Big 10 skills found in state manager")
@@ -331,7 +331,7 @@ class ContentAggregator:
                 )
 
         except Exception as e:
-            logger.error(f"Error populating Big 10 skills: {e}")
+            logger.error("Error populating Big 10 skills: %s", e)
 
     def validate_content_data(self, content_data: Dict[str, Any]) -> bool:
         """Validate that the content data has meaningful content.
@@ -363,5 +363,5 @@ class ContentAggregator:
             return False
 
         except Exception as e:
-            logger.error(f"Error validating content data: {e}")
+            logger.error("Error validating content data: %s", e)
             return False

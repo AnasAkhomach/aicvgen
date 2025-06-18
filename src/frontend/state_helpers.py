@@ -1,7 +1,7 @@
 # In src/frontend/state_helpers.py
 import streamlit as st
 from typing import Optional
-from src.orchestration.state import AgentState
+from ..orchestration.state import AgentState
 import uuid
 
 

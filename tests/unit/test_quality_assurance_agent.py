@@ -14,7 +14,7 @@ from typing import Dict, Any, List
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.agent_base import AgentExecutionContext, AgentResult
 from src.models.data_models import StructuredCV, Section, Item, ItemStatus
-from src.models.workflow_models import AgentState
+from src.orchestration.state import AgentState
 from src.utils.llm_service import LLM
 
 

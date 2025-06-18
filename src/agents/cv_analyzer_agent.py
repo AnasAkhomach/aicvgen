@@ -6,12 +6,12 @@ import os
 import time
 from typing import Any, Dict, TYPE_CHECKING
 
-from src.agents.agent_base import EnhancedAgentBase
-from src.config.logging_config import get_structured_logger
-from src.config.settings import get_config
-from src.models.data_models import AgentDecisionLog
-from src.models.validation_schemas import validate_agent_input, ValidationError
-from src.services.llm_service import get_llm_service
+from .agent_base import EnhancedAgentBase
+from ..config.logging_config import get_structured_logger
+from ..config.settings import get_config
+from ..models.data_models import AgentDecisionLog, AgentIO
+from ..models.validation_schemas import validate_agent_input, ValidationError
+from ..services.llm_service import get_llm_service
 
 if TYPE_CHECKING:
     from .agent_base import AgentExecutionContext
@@ -167,18 +167,16 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 prompt_template = f.read()
             self.log_decision(
                 "Successfully loaded CV analysis prompt template",
-                getattr(context, "current_item_id", None) if context else None,
+                context,
                 "template_loading",
                 confidence_score=1.0,
-                metadata={"template_path": str(prompt_path)},
             )
         except (OSError, IOError, UnicodeDecodeError) as e:
             self.log_decision(
                 f"Error loading CV analysis prompt template: {e}",
-                getattr(context, "current_item_id", None) if context else None,
+                context,
                 "template_loading",
                 confidence_score=0.0,
-                metadata={"error": str(e)},
             )
             # Fallback to basic prompt
             prompt_template = """

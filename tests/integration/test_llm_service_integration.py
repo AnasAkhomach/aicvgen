@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from typing import Dict, Any
 import json
 
-from src.services.llm import EnhancedLLMService
+from src.services.llm_service import EnhancedLLMService
 from src.agents.parser_agent import ParserAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent

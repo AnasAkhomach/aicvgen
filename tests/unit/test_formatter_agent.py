@@ -15,7 +15,7 @@ from pathlib import Path
 from src.agents.formatter_agent import FormatterAgent
 from src.agents.agent_base import AgentExecutionContext, AgentResult
 from src.models.data_models import StructuredCV, Section, Item, ItemStatus
-from src.models.workflow_models import AgentState
+from src.orchestration.state import AgentState
 
 
 class TestFormatterAgent:
@@ -131,7 +131,7 @@ class TestFormatterAgent:
         assert hasattr(agent, "input_schema")
         assert hasattr(agent, "output_schema")
 
-    async def test_run_success(self, formatter_agent, sample_content_data):
+    def test_run_success(self, formatter_agent, sample_content_data):
         """Test successful formatting execution."""
         # Mock the formatting methods
         with patch.object(formatter_agent, "_generate_pdf") as mock_pdf, patch.object(
@@ -488,21 +488,21 @@ class TestFormatterAgent:
         confidence = formatter_agent.get_confidence_score(minimal_output)
         assert confidence < 0.7  # Should be lower for minimal output
 
-    @patch("src.agents.formatter_agent.logger")
-    async def test_run_as_node_logs_execution(
-        self, mock_logger, formatter_agent, sample_agent_state
+    def test_run_as_node_logs_execution(
+        self, formatter_agent, sample_agent_state
     ):
         """Test that run_as_node logs execution properly."""
-        with patch.object(formatter_agent, "run") as mock_run:
+        with patch.object(formatter_agent, "run") as mock_run, \
+             patch.object(formatter_agent.logger, "info") as mock_logger_info:
             mock_run.return_value = {"final_output_path": "test.pdf"}
 
-            await formatter_agent.run_as_node(sample_agent_state)
+            formatter_agent.run_as_node(sample_agent_state)
 
             # Verify logging calls
-            mock_logger.info.assert_called()
+            mock_logger_info.assert_called()
             assert any(
                 "Starting CV formatting" in str(call)
-                for call in mock_logger.info.call_args_list
+                for call in mock_logger_info.call_args_list
             )
 
     def test_sanitize_filename(self, formatter_agent):

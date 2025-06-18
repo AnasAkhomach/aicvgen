@@ -14,12 +14,17 @@ from enum import Enum
 
 from ..config.logging_config import get_structured_logger
 from ..models.data_models import (
-    CVGenerationState, WorkflowStage, ProcessingStatus, ContentType
+    ProcessingStatus,
+    ContentType,
+    Item,
+    WorkflowStage,
 )
+from ..orchestration.state import AgentState
 
 
 class ProgressEventType(Enum):
     """Types of progress events."""
+
     WORKFLOW_STARTED = "workflow_started"
     STAGE_CHANGED = "stage_changed"
     ITEM_STARTED = "item_started"
@@ -34,6 +39,7 @@ class ProgressEventType(Enum):
 @dataclass
 class ProgressEvent:
     """Progress event data structure."""
+
     event_type: ProgressEventType
     timestamp: datetime
     session_id: str
@@ -45,13 +51,14 @@ class ProgressEvent:
             "event_type": self.event_type.value,
             "timestamp": self.timestamp.isoformat(),
             "session_id": self.session_id,
-            "data": self.data
+            "data": self.data,
         }
 
 
 @dataclass
 class ProgressMetrics:
     """Progress metrics for a workflow session."""
+
     session_id: str
     started_at: datetime
     current_stage: WorkflowStage
@@ -84,7 +91,7 @@ class ProgressMetrics:
     total_llm_calls: int = 0
     total_tokens_used: int = 0
 
-    def update_from_state(self, state: CVGenerationState):
+    def update_from_state(self, state: AgentState):
         """Update metrics from workflow state."""
         self.current_stage = state.current_stage
 
@@ -99,27 +106,25 @@ class ProgressMetrics:
         self.projects_completed = len(state.project_queue.completed_items)
 
         self.total_items = (
-            self.qualifications_total +
-            self.experiences_total +
-            self.projects_total
+            self.qualifications_total + self.experiences_total + self.projects_total
         )
 
         self.completed_items = (
-            self.qualifications_completed +
-            self.experiences_completed +
-            self.projects_completed
+            self.qualifications_completed
+            + self.experiences_completed
+            + self.projects_completed
         )
 
         self.failed_items = (
-            len(state.qualification_queue.failed_items) +
-            len(state.experience_queue.failed_items) +
-            len(state.project_queue.failed_items)
+            len(state.qualification_queue.failed_items)
+            + len(state.experience_queue.failed_items)
+            + len(state.project_queue.failed_items)
         )
 
         self.in_progress_items = (
-            len(state.qualification_queue.in_progress_items) +
-            len(state.experience_queue.in_progress_items) +
-            len(state.project_queue.in_progress_items)
+            len(state.qualification_queue.in_progress_items)
+            + len(state.experience_queue.in_progress_items)
+            + len(state.project_queue.in_progress_items)
         )
 
         # Update performance metrics
@@ -136,7 +141,9 @@ class ProgressMetrics:
         if self.completed_items > 0 and self.average_item_time > 0:
             remaining_items = self.total_items - self.completed_items
             estimated_remaining_time = remaining_items * self.average_item_time
-            self.estimated_completion_time = datetime.now() + timedelta(seconds=estimated_remaining_time)
+            self.estimated_completion_time = datetime.now() + timedelta(
+                seconds=estimated_remaining_time
+            )
 
     @property
     def completion_percentage(self) -> float:
@@ -169,27 +176,43 @@ class ProgressMetrics:
             "qualifications": {
                 "total": self.qualifications_total,
                 "completed": self.qualifications_completed,
-                "percentage": (self.qualifications_completed / self.qualifications_total * 100) if self.qualifications_total > 0 else 0
+                "percentage": (
+                    (self.qualifications_completed / self.qualifications_total * 100)
+                    if self.qualifications_total > 0
+                    else 0
+                ),
             },
             "experiences": {
                 "total": self.experiences_total,
                 "completed": self.experiences_completed,
-                "percentage": (self.experiences_completed / self.experiences_total * 100) if self.experiences_total > 0 else 0
+                "percentage": (
+                    (self.experiences_completed / self.experiences_total * 100)
+                    if self.experiences_total > 0
+                    else 0
+                ),
             },
             "projects": {
                 "total": self.projects_total,
                 "completed": self.projects_completed,
-                "percentage": (self.projects_completed / self.projects_total * 100) if self.projects_total > 0 else 0
+                "percentage": (
+                    (self.projects_completed / self.projects_total * 100)
+                    if self.projects_total > 0
+                    else 0
+                ),
             },
             "performance": {
                 "total_processing_time": self.total_processing_time,
                 "average_item_time": self.average_item_time,
-                "estimated_completion_time": self.estimated_completion_time.isoformat() if self.estimated_completion_time else None,
+                "estimated_completion_time": (
+                    self.estimated_completion_time.isoformat()
+                    if self.estimated_completion_time
+                    else None
+                ),
                 "total_rate_limit_hits": self.total_rate_limit_hits,
                 "total_retries": self.total_retries,
                 "total_llm_calls": self.total_llm_calls,
-                "total_tokens_used": self.total_tokens_used
-            }
+                "total_tokens_used": self.total_tokens_used,
+            },
         }
 
 
@@ -209,14 +232,14 @@ class ProgressTracker:
         # Event history limits
         self.max_events_per_session = 1000
 
-    def start_tracking(self, session_id: str, state: CVGenerationState):
+    def start_tracking(self, session_id: str, state: AgentState):
         """Start tracking progress for a session."""
 
         # Initialize metrics
         self.metrics[session_id] = ProgressMetrics(
             session_id=session_id,
             started_at=datetime.now(),
-            current_stage=state.current_stage
+            current_stage=state.current_stage,
         )
 
         # Update from initial state
@@ -228,17 +251,17 @@ class ProgressTracker:
             ProgressEventType.WORKFLOW_STARTED,
             {
                 "total_items": self.metrics[session_id].total_items,
-                "initial_stage": state.current_stage.value
-            }
+                "initial_stage": state.current_stage.value,
+            },
         )
 
         self.logger.info(
             "Started progress tracking",
             session_id=session_id,
-            total_items=self.metrics[session_id].total_items
+            total_items=self.metrics[session_id].total_items,
         )
 
-    def update_progress(self, session_id: str, state: CVGenerationState):
+    def update_progress(self, session_id: str, state: AgentState):
         """Update progress from workflow state."""
 
         if session_id not in self.metrics:
@@ -256,19 +279,20 @@ class ProgressTracker:
                 {
                     "old_stage": old_stage.value,
                     "new_stage": state.current_stage.value,
-                    "completion_percentage": self.metrics[session_id].completion_percentage
-                }
+                    "completion_percentage": self.metrics[
+                        session_id
+                    ].completion_percentage,
+                },
             )
 
-    def record_item_started(self, session_id: str, item_id: str, item_type: ContentType):
+    def record_item_started(
+        self, session_id: str, item_id: str, item_type: ContentType
+    ):
         """Record that an item has started processing."""
         self._record_event(
             session_id,
             ProgressEventType.ITEM_STARTED,
-            {
-                "item_id": item_id,
-                "item_type": item_type.value
-            }
+            {"item_id": item_id, "item_type": item_type.value},
         )
 
     def record_item_completed(
@@ -277,7 +301,7 @@ class ProgressTracker:
         item_id: str,
         item_type: ContentType,
         processing_time: float,
-        tokens_used: int = 0
+        tokens_used: int = 0,
     ):
         """Record that an item has completed processing."""
         self._record_event(
@@ -287,8 +311,8 @@ class ProgressTracker:
                 "item_id": item_id,
                 "item_type": item_type.value,
                 "processing_time": processing_time,
-                "tokens_used": tokens_used
-            }
+                "tokens_used": tokens_used,
+            },
         )
 
     def record_item_failed(
@@ -297,7 +321,7 @@ class ProgressTracker:
         item_id: str,
         item_type: ContentType,
         error: str,
-        retry_count: int = 0
+        retry_count: int = 0,
     ):
         """Record that an item has failed processing."""
         self._record_event(
@@ -307,16 +331,12 @@ class ProgressTracker:
                 "item_id": item_id,
                 "item_type": item_type.value,
                 "error": error,
-                "retry_count": retry_count
-            }
+                "retry_count": retry_count,
+            },
         )
 
     def record_item_rate_limited(
-        self,
-        session_id: str,
-        item_id: str,
-        item_type: ContentType,
-        retry_after: float
+        self, session_id: str, item_id: str, item_type: ContentType, retry_after: float
     ):
         """Record that an item hit rate limits."""
         self._record_event(
@@ -325,8 +345,8 @@ class ProgressTracker:
             {
                 "item_id": item_id,
                 "item_type": item_type.value,
-                "retry_after": retry_after
-            }
+                "retry_after": retry_after,
+            },
         )
 
     def record_batch_completed(
@@ -335,7 +355,7 @@ class ProgressTracker:
         batch_size: int,
         successful_items: int,
         failed_items: int,
-        processing_time: float
+        processing_time: float,
     ):
         """Record that a batch has completed processing."""
         self._record_event(
@@ -345,16 +365,14 @@ class ProgressTracker:
                 "batch_size": batch_size,
                 "successful_items": successful_items,
                 "failed_items": failed_items,
-                "processing_time": processing_time
-            }
+                "processing_time": processing_time,
+            },
         )
 
     def record_workflow_completed(self, session_id: str, final_metrics: Dict[str, Any]):
         """Record that the workflow has completed."""
         self._record_event(
-            session_id,
-            ProgressEventType.WORKFLOW_COMPLETED,
-            final_metrics
+            session_id, ProgressEventType.WORKFLOW_COMPLETED, final_metrics
         )
 
     def record_error(self, session_id: str, error: str, context: Dict[str, Any] = None):
@@ -362,19 +380,18 @@ class ProgressTracker:
         self._record_event(
             session_id,
             ProgressEventType.ERROR_OCCURRED,
-            {
-                "error": error,
-                "context": context or {}
-            }
+            {"error": error, "context": context or {}},
         )
 
-    def _record_event(self, session_id: str, event_type: ProgressEventType, data: Dict[str, Any]):
+    def _record_event(
+        self, session_id: str, event_type: ProgressEventType, data: Dict[str, Any]
+    ):
         """Record a progress event."""
         event = ProgressEvent(
             event_type=event_type,
             timestamp=datetime.now(),
             session_id=session_id,
-            data=data
+            data=data,
         )
 
         # Add to event history
@@ -382,7 +399,9 @@ class ProgressTracker:
 
         # Limit event history size
         if len(self.events[session_id]) > self.max_events_per_session:
-            self.events[session_id] = self.events[session_id][-self.max_events_per_session:]
+            self.events[session_id] = self.events[session_id][
+                -self.max_events_per_session :
+            ]
 
         # Notify subscribers
         self._notify_subscribers(session_id, event)
@@ -391,7 +410,7 @@ class ProgressTracker:
         self.logger.info(
             f"Progress event: {event_type.value}",
             session_id=session_id,
-            event_data=data
+            event_data=data,
         )
 
     def _notify_subscribers(self, session_id: str, event: ProgressEvent):
@@ -405,8 +424,7 @@ class ProgressTracker:
                     callback(event)
             except Exception as e:
                 self.logger.error(
-                    f"Error in progress subscriber callback: {e}",
-                    session_id=session_id
+                    f"Error in progress subscriber callback: {e}", session_id=session_id
                 )
 
     def subscribe(self, session_id: str, callback: Callable[[ProgressEvent], None]):
@@ -416,7 +434,7 @@ class ProgressTracker:
         self.logger.info(
             "Added progress subscriber",
             session_id=session_id,
-            total_subscribers=len(self.subscribers[session_id])
+            total_subscribers=len(self.subscribers[session_id]),
         )
 
     def unsubscribe(self, session_id: str, callback: Callable[[ProgressEvent], None]):
@@ -435,7 +453,7 @@ class ProgressTracker:
         self,
         session_id: str,
         event_types: Optional[List[ProgressEventType]] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
     ) -> List[ProgressEvent]:
         """Get events for a session."""
         events = self.events.get(session_id, [])
@@ -461,7 +479,8 @@ class ProgressTracker:
         return {
             "metrics": metrics.to_dict(),
             "recent_events": [event.to_dict() for event in recent_events],
-            "is_active": session_id in self.subscribers and len(self.subscribers[session_id]) > 0
+            "is_active": session_id in self.subscribers
+            and len(self.subscribers[session_id]) > 0,
         }
 
     def cleanup_session(self, session_id: str):
@@ -488,7 +507,7 @@ class ProgressTracker:
             "session_id": session_id,
             "metrics": metrics.to_dict() if metrics else None,
             "events": [event.to_dict() for event in events],
-            "exported_at": datetime.now().isoformat()
+            "exported_at": datetime.now().isoformat(),
         }
 
 

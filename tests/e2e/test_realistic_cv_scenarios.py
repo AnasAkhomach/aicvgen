@@ -18,7 +18,7 @@ from src.models.data_models import (
     StructuredCV, CVSection, CVItem, JobDescriptionData,
     Section, Item, ItemStatus, ItemType
 )
-from src.services.llm import EnhancedLLMService
+from src.services.llm_service import EnhancedLLMService
 from tests.e2e.mock_llm_service import MockLLMService
 
 

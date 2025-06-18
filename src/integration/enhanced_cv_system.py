@@ -25,7 +25,7 @@ import hashlib
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
 from ..agents.specialized_agents import (
     CVAnalysisAgent, ContentOptimizationAgent,
-    get_agent, list_available_agents
+    get_agent
 )
 from ..agents.quality_assurance_agent import QualityAssuranceAgent
 from ..templates.content_templates import (
@@ -424,7 +424,7 @@ class EnhancedCVIntegration:
                         self.logger.info("Structured CV data set in state manager")
                     else:
                         # Create an empty StructuredCV if not present
-                        from src.models.data_models import StructuredCV
+                        from ..models.data_models import StructuredCV
                         self._orchestrator.state_manager.set_structured_cv(StructuredCV())
                         self.logger.info("Empty Structured CV data set in state manager")
 

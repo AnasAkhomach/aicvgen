@@ -1,7 +1,7 @@
 """Unit tests for LaTeX character escaping utilities."""
 
 import pytest
-from src.utils.template_renderer import escape_latex, recursively_escape_latex
+from src.utils.latex_utils import escape_latex, recursively_escape_latex
 
 
 class TestEscapeLatex:

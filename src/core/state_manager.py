@@ -9,9 +9,9 @@ import time
 from datetime import datetime
 
 # Import standardized Pydantic models
-from src.models.data_models import (
+from ..models.data_models import (
     JobDescriptionData, StructuredCV, Section, Subsection, Item, ItemStatus, ItemType,
-    ContentData, CVData, SkillEntry, ExperienceEntry, WorkflowState, AgentIO, VectorStoreConfig
+    ContentData, AgentIO, VectorStoreConfig
 )
 
 # Set up logging
@@ -79,7 +79,7 @@ class StateManager:
         self.__structured_cv = None  # Private attribute using name mangling
         self._last_save_time = None
         self._state_changes = []  # Track state transitions
-        logger.info(f"Initialized StateManager with session ID: {session_id}")
+        logger.info("Initialized StateManager with session ID: %s", session_id)
 
     def create_new_cv(self, metadata=None):
         """
@@ -109,7 +109,7 @@ class StateManager:
             session_id = session_id or self.session_id
             state_file = f"data/sessions/{session_id}/state.json"
             if not os.path.exists(state_file):
-                logger.warning(f"State file not found: {state_file}")
+                logger.warning("State file not found: %s", state_file)
                 return None
 
             with open(state_file, "r") as f:
@@ -122,10 +122,10 @@ class StateManager:
                     self._state_changes = json.load(f)
 
             duration = time.time() - start_time
-            logger.info(f"State loaded from {state_file} in {duration:.2f}s")
+            logger.info("State loaded from %s in %.2fs", state_file, duration)
             return self.__structured_cv
         except Exception as e:
-            logger.error(f"Failed to load state: {str(e)}")
+            logger.error("Failed to load state: %s", str(e))
             return None
 
     def save_state(self):
@@ -154,10 +154,10 @@ class StateManager:
 
             duration = time.time() - start_time
             self._last_save_time = datetime.now().isoformat()
-            logger.info(f"State saved to {state_file} in {duration:.2f}s")
+            logger.info("State saved to %s in %.2fs", state_file, duration)
             return state_file
         except Exception as e:
-            logger.error(f"Failed to save state: {str(e)}")
+            logger.error("Failed to save state: %s", str(e))
             return None
 
     def get_structured_cv(self):
@@ -177,7 +177,7 @@ class StateManager:
             structured_cv: The StructuredCV instance to set.
         """
         self.__structured_cv = structured_cv
-        logger.info(f"StructuredCV set with session ID: {structured_cv.id if structured_cv else 'None'}")
+        logger.info("StructuredCV set with session ID: %s", structured_cv.id if structured_cv else 'None')
 
     def get_job_description_data(self) -> Optional[JobDescriptionData]:
         """
@@ -196,7 +196,7 @@ class StateManager:
                 try:
                     return JobDescriptionData.model_validate(job_data)
                 except Exception as e:
-                    logger.error(f"Failed to validate job_data from dict: {e}")
+                    logger.error("Failed to validate job_data from dict: %s", e)
                     return None
         return None
 
@@ -225,7 +225,7 @@ class StateManager:
             logger.info("Job description data set successfully in state manager")
             return True
         except Exception as e:
-            logger.error(f"Error setting job description data: {e}")
+            logger.error("Error setting job description data: %s", e)
             return False
 
     # Methods that delegate to StructuredCV - these provide a convenient interface
@@ -302,7 +302,7 @@ class StateManager:
             logger.info("CV data updated successfully")
             return True
         except Exception as e:
-            logger.error(f"Error updating CV data: {e}")
+            logger.error("Error updating CV data: %s", e)
             return False
     
     def update_section(self, section_data: Dict[str, Any]) -> bool:
@@ -333,13 +333,13 @@ class StateManager:
                         section.title = section_data['title']
                     if 'description' in section_data:
                         section.description = section_data['description']
-                    logger.info(f"Section {section_id} updated successfully")
+                    logger.info("Section %s updated successfully", section_id)
                     return True
             
-            logger.error(f"Section with ID {section_id} not found")
+            logger.error("Section with ID %s not found", section_id)
             return False
         except Exception as e:
-            logger.error(f"Error updating section: {e}")
+            logger.error("Error updating section: %s", e)
             return False
     
     def update_subsection(self, parent_section: Dict[str, Any], subsection_data: Dict[str, Any]) -> bool:
@@ -375,13 +375,13 @@ class StateManager:
                                 subsection.title = subsection_data['title']
                             if 'description' in subsection_data:
                                 subsection.description = subsection_data['description']
-                            logger.info(f"Subsection {subsection_id} updated successfully")
+                            logger.info("Subsection %s updated successfully", subsection_id)
                             return True
             
-            logger.error(f"Subsection with ID {subsection_id} not found in section {parent_section_id}")
+            logger.error("Subsection with ID %s not found in section %s", subsection_id, parent_section_id)
             return False
         except Exception as e:
-            logger.error(f"Error updating subsection: {e}")
+            logger.error("Error updating subsection: %s", e)
             return False
     
     def update_item_feedback(self, item_id: str, feedback: str) -> bool:
@@ -411,13 +411,13 @@ class StateManager:
                             else:
                                 # Create metadata if it doesn't exist
                                 item.metadata = {'feedback': feedback}
-                            logger.info(f"Feedback updated for item {item_id}")
+                            logger.info("Feedback updated for item %s", item_id)
                             return True
             
-            logger.error(f"Item with ID {item_id} not found")
+            logger.error("Item with ID %s not found", item_id)
             return False
         except Exception as e:
-            logger.error(f"Error updating item feedback: {e}")
+            logger.error("Error updating item feedback: %s", e)
             return False
     
     def update_item(self, section_data: Dict[str, Any], subsection_data: Dict[str, Any], item_data: Dict[str, Any]) -> bool:
@@ -459,13 +459,13 @@ class StateManager:
                                         item.content = item_data['content']
                                     if 'status' in item_data:
                                         item.status = item_data['status']
-                                    logger.info(f"Item {item_id} updated successfully")
+                                    logger.info("Item %s updated successfully", item_id)
                                     return True
             
-            logger.error(f"Item with ID {item_id} not found")
+            logger.error("Item with ID %s not found", item_id)
             return False
         except Exception as e:
-            logger.error(f"Error updating item: {e}")
+            logger.error("Error updating item: %s", e)
             return False
     
     def update_item_metadata(self, item_id: str, metadata: Dict[str, Any]) -> bool:
@@ -494,13 +494,13 @@ class StateManager:
                                 item.metadata.update(metadata)
                             else:
                                 item.metadata = metadata.copy()
-                            logger.info(f"Metadata updated for item {item_id}")
+                            logger.info("Metadata updated for item %s", item_id)
                             return True
             
-            logger.error(f"Item with ID {item_id} not found")
+            logger.error("Item with ID %s not found", item_id)
             return False
         except Exception as e:
-            logger.error(f"Error updating item metadata: {e}")
+            logger.error("Error updating item metadata: %s", e)
             return False
     
     def save_session(self, session_dir: str) -> bool:
@@ -533,10 +533,10 @@ class StateManager:
                 json.dump(state_data, f, indent=2, ensure_ascii=False)
             
             self._last_save_time = time.time()
-            logger.info(f"Session saved to {session_dir}")
+            logger.info("Session saved to %s", session_dir)
             return True
         except Exception as e:
-            logger.error(f"Error saving session: {e}")
+            logger.error("Error saving session: %s", e)
             return False
     
     def load_session(self, session_dir: str) -> bool:
@@ -566,8 +566,8 @@ class StateManager:
                 self._last_save_time = state_data.get('last_save_time')
                 self._state_changes = state_data.get('state_changes', [])
             
-            logger.info(f"Session loaded from {session_dir}")
+            logger.info("Session loaded from %s", session_dir)
             return True
         except Exception as e:
-            logger.error(f"Error loading session: {e}")
+            logger.error("Error loading session: %s", e)
             return False

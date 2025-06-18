@@ -5,7 +5,7 @@ import asyncio
 from unittest.mock import Mock, patch, MagicMock
 from tenacity import RetryError
 
-from src.services.llm import EnhancedLLMService, RETRYABLE_EXCEPTIONS
+from src.services.llm_service import EnhancedLLMService, RETRYABLE_EXCEPTIONS
 from src.models.data_models import ContentType
 
 

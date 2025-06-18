@@ -47,18 +47,18 @@ from typing import Dict, Any
 import asyncio
 
 # Project imports
-from src.config.logging_config import setup_logging
-from src.frontend.ui_components import (
+from ..config.logging_config import setup_logging
+from ..frontend.ui_components import (
     display_sidebar,
     display_input_form,
     display_review_and_edit_tab,
     display_export_tab,
 )
-from src.frontend.state_helpers import initialize_session_state
-from src.frontend.callbacks import handle_workflow_execution
-from src.core.state_helpers import create_agent_state_from_ui
-from src.orchestration.state import AgentState
-from src.orchestration.cv_workflow_graph import (
+from ..frontend.state_helpers import initialize_session_state
+from ..frontend.callbacks import handle_workflow_execution
+from ..core.state_helpers import create_agent_state_from_ui
+from ..orchestration.state import AgentState
+from ..orchestration.cv_workflow_graph import (
     cv_graph_app,
 )  # Assumes this is the compiled graph
 import uuid

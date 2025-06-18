@@ -5,30 +5,30 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
 
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.services.llm_service import get_llm_service
-from src.services.llm import LLMResponse
-from src.models.data_models import ContentType, ProcessingStatus
-from src.config.logging_config import get_structured_logger
-from src.config.settings import get_config
-from src.core.state_manager import (
+from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from ..services.llm_service import get_llm_service
+from ..services.llm_service import LLMResponse
+from ..models.data_models import ContentType, ProcessingStatus
+from ..config.logging_config import get_structured_logger
+from ..config.settings import get_config
+from ..core.state_manager import (
     ContentData,
     AgentIO,
-    ExperienceEntry,
-    CVData,
 )
-from src.models.data_models import (
+from ..models.data_models import (
     JobDescriptionData,
     StructuredCV,
     Section,
     Subsection,
     Item,
+    ExperienceEntry,
+    CVData,
     ItemStatus,
     ItemType,
 )
-from src.orchestration.state import AgentState
-from src.core.async_optimizer import optimize_async
-from src.utils.exceptions import (
+from ..orchestration.state import AgentState
+from ..core.async_optimizer import optimize_async
+from ..utils.exceptions import (
     ValidationError,
     LLMResponseParsingError,
     WorkflowPreconditionError,
@@ -137,7 +137,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             # This prevents AttributeError by ensuring job_data is always a valid JobDescriptionData structure
             try:
                 from pydantic import ValidationError
-                from src.models.data_models import JobDescriptionData
+                from ..models.data_models import JobDescriptionData
 
                 raw_job_data = input_data.get("job_description_data")
                 if isinstance(raw_job_data, dict):
@@ -411,8 +411,6 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             )
             return self._create_error_result(input_data, context, e, "unexpected")
 
-    # Legacy run method removed - use run_as_node for LangGraph integration
-
     async def _generate_content_with_llm(
         self,
         job_data: Dict[str, Any],
@@ -450,7 +448,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
                 json_content = self._extract_json_from_response(response.content)
 
                 # Parse and validate with Pydantic model
-                from src.models.validation_schemas import LLMRoleGenerationOutput
+                from ..models.validation_schemas import LLMRoleGenerationOutput
 
                 validated_data = LLMRoleGenerationOutput.model_validate(json_content)
 
@@ -1414,7 +1412,7 @@ Description: {description[:200] if description else f'{role_title} position with
 
     def _format_role_generation_output(self, validated_data) -> str:
         """Format the validated role generation data into the expected content format."""
-        from src.models.validation_schemas import LLMRoleGenerationOutput
+        from ..models.validation_schemas import LLMRoleGenerationOutput
 
         if not isinstance(validated_data, LLMRoleGenerationOutput):
             logger.error(

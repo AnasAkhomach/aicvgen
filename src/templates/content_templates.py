@@ -13,6 +13,7 @@ logger = get_structured_logger("content_templates")
 
 class TemplateCategory(Enum):
     """Categories of content templates."""
+
     PROMPT = "prompt"
     FORMAT = "format"
     VALIDATION = "validation"
@@ -22,6 +23,7 @@ class TemplateCategory(Enum):
 @dataclass
 class ContentTemplate:
     """Structured content template."""
+
     name: str
     category: TemplateCategory
     content_type: ContentType
@@ -30,7 +32,7 @@ class ContentTemplate:
     description: str
     version: str = "1.0"
     created_at: datetime = None
-    
+
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now()
@@ -38,51 +40,51 @@ class ContentTemplate:
 
 class ContentTemplateManager:
     """Manager for content templates with caching and validation."""
-    
+
     def __init__(self):
         self.templates: Dict[str, ContentTemplate] = {}
         self._load_default_templates()
-        
+
         logger.info(
-            "Content template manager initialized",
-            template_count=len(self.templates)
+            "Content template manager initialized", template_count=len(self.templates)
         )
-    
+
     def _load_default_templates(self):
         """Load default templates for all content types."""
-        
+
         # Qualification templates
         self._register_qualification_templates()
-        
+
         # Experience templates
         self._register_experience_templates()
-        
+
         # Project templates
         self._register_project_templates()
-        
+
         # Executive summary templates
         self._register_executive_summary_templates()
-        
+
         # Professional summary templates removed - using executive summary only
-        
+
         # Format templates
         self._register_format_templates()
-        
+
         # Validation templates
         self._register_validation_templates()
-        
+
         # Fallback templates
         self._register_fallback_templates()
-    
+
     def _register_qualification_templates(self):
         """Register qualification-specific templates."""
-        
+
         # Basic qualification prompt
-        self.register_template(ContentTemplate(
-            name="qualification_basic",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.QUALIFICATION,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="qualification_basic",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.QUALIFICATION,
+                template="""
 Generate a professional qualification statement for a {job_title} position at {company_name}.
 
 Job Requirements:
@@ -102,16 +104,25 @@ Generate a concise, impactful qualification statement (2-3 sentences) that:
 5. Avoids generic statements
 
 Qualification Statement:""",
-            variables=["job_title", "company_name", "job_description", "qualification_title", "qualification_description", "additional_context"],
-            description="Basic template for generating qualification statements"
-        ))
-        
+                variables=[
+                    "job_title",
+                    "company_name",
+                    "job_description",
+                    "qualification_title",
+                    "qualification_description",
+                    "additional_context",
+                ],
+                description="Basic template for generating qualification statements",
+            )
+        )
+
         # Technical qualification prompt
-        self.register_template(ContentTemplate(
-            name="qualification_technical",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.QUALIFICATION,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="qualification_technical",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.QUALIFICATION,
+                template="""
 Generate a technical qualification statement for a {job_title} position.
 
 Technical Requirements:
@@ -131,16 +142,24 @@ Generate a technical qualification statement that:
 5. Uses industry-standard terminology
 
 Technical Qualification:""",
-            variables=["job_title", "technical_requirements", "technical_skills", "experience_level", "specialization"],
-            description="Template for technical qualification statements"
-        ))
-        
+                variables=[
+                    "job_title",
+                    "technical_requirements",
+                    "technical_skills",
+                    "experience_level",
+                    "specialization",
+                ],
+                description="Template for technical qualification statements",
+            )
+        )
+
         # Leadership qualification prompt
-        self.register_template(ContentTemplate(
-            name="qualification_leadership",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.QUALIFICATION,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="qualification_leadership",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.QUALIFICATION,
+                template="""
 Generate a leadership qualification statement for a {job_title} position.
 
 Leadership Requirements:
@@ -160,19 +179,27 @@ Generate a leadership qualification statement that:
 5. Aligns with the leadership requirements
 
 Leadership Qualification:""",
-            variables=["job_title", "leadership_requirements", "leadership_experience", "team_size", "management_style"],
-            description="Template for leadership qualification statements"
-        ))
-    
+                variables=[
+                    "job_title",
+                    "leadership_requirements",
+                    "leadership_experience",
+                    "team_size",
+                    "management_style",
+                ],
+                description="Template for leadership qualification statements",
+            )
+        )
+
     def _register_experience_templates(self):
         """Register experience-specific templates."""
-        
+
         # Basic experience prompt
-        self.register_template(ContentTemplate(
-            name="experience_basic",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.EXPERIENCE,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="experience_basic",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.EXPERIENCE,
+                template="""
 Enhance the following work experience for a {job_title} position at {company_name}.
 
 Job Requirements:
@@ -195,16 +222,28 @@ Generate enhanced experience content that:
 5. Includes 3-5 impactful bullet points
 
 Enhanced Experience:""",
-            variables=["job_title", "company_name", "job_description", "position", "current_company", "duration", "experience_description", "achievements", "skills_used"],
-            description="Basic template for enhancing work experience"
-        ))
-        
+                variables=[
+                    "job_title",
+                    "company_name",
+                    "job_description",
+                    "position",
+                    "current_company",
+                    "duration",
+                    "experience_description",
+                    "achievements",
+                    "skills_used",
+                ],
+                description="Basic template for enhancing work experience",
+            )
+        )
+
         # Senior-level experience prompt
-        self.register_template(ContentTemplate(
-            name="experience_senior",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.EXPERIENCE,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="experience_senior",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.EXPERIENCE,
+                template="""
 Enhance senior-level experience for a {job_title} position.
 
 Senior Role Requirements:
@@ -226,19 +265,30 @@ Generate senior-level experience content that:
 5. Highlights innovation and process improvement
 
 Senior Experience:""",
-            variables=["job_title", "senior_requirements", "position", "current_company", "team_size", "budget_managed", "key_initiatives", "strategic_impact"],
-            description="Template for senior-level experience enhancement"
-        ))
-    
+                variables=[
+                    "job_title",
+                    "senior_requirements",
+                    "position",
+                    "current_company",
+                    "team_size",
+                    "budget_managed",
+                    "key_initiatives",
+                    "strategic_impact",
+                ],
+                description="Template for senior-level experience enhancement",
+            )
+        )
+
     def _register_project_templates(self):
         """Register project-specific templates."""
-        
+
         # Technical project prompt
-        self.register_template(ContentTemplate(
-            name="project_technical",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.PROJECT,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="project_technical",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.PROJECT,
+                template="""
 Enhance the following technical project for a {job_title} position.
 
 Job Technical Requirements:
@@ -264,16 +314,30 @@ Generate enhanced project content that:
 5. Shows collaboration and technical leadership
 
 Enhanced Project:""",
-            variables=["job_title", "technical_requirements", "project_name", "project_description", "technologies", "team_size", "duration", "role", "challenges", "solutions", "results"],
-            description="Template for technical project enhancement"
-        ))
-        
+                variables=[
+                    "job_title",
+                    "technical_requirements",
+                    "project_name",
+                    "project_description",
+                    "technologies",
+                    "team_size",
+                    "duration",
+                    "role",
+                    "challenges",
+                    "solutions",
+                    "results",
+                ],
+                description="Template for technical project enhancement",
+            )
+        )
+
         # Business project prompt
-        self.register_template(ContentTemplate(
-            name="project_business",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.PROJECT,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="project_business",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.PROJECT,
+                template="""
 Enhance the following business project for a {job_title} position.
 
 Business Requirements:
@@ -299,19 +363,33 @@ Generate enhanced project content that:
 5. Highlights cross-functional collaboration
 
 Enhanced Project:""",
-            variables=["job_title", "business_requirements", "project_name", "project_objective", "stakeholders", "budget", "timeline", "role", "business_impact", "kpis", "lessons_learned"],
-            description="Template for business project enhancement"
-        ))
-    
+                variables=[
+                    "job_title",
+                    "business_requirements",
+                    "project_name",
+                    "project_objective",
+                    "stakeholders",
+                    "budget",
+                    "timeline",
+                    "role",
+                    "business_impact",
+                    "kpis",
+                    "lessons_learned",
+                ],
+                description="Template for business project enhancement",
+            )
+        )
+
     def _register_executive_summary_templates(self):
         """Register executive summary templates."""
-        
+
         # Professional executive summary
-        self.register_template(ContentTemplate(
-            name="executive_summary_professional",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.EXECUTIVE_SUMMARY,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="executive_summary_professional",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.EXECUTIVE_SUMMARY,
+                template="""
 Generate a compelling executive summary for a {job_title} position at {company_name}.
 
 Job Requirements:
@@ -337,16 +415,29 @@ Generate a professional executive summary (3-4 sentences) that:
 6. Focuses on what you can deliver for the employer
 
 Executive Summary:""",
-            variables=["job_title", "company_name", "job_description", "years_experience", "industry_background", "core_competencies", "key_achievements", "education", "certifications", "career_highlights"],
-            description="Professional executive summary template"
-        ))
-        
+                variables=[
+                    "job_title",
+                    "company_name",
+                    "job_description",
+                    "years_experience",
+                    "industry_background",
+                    "core_competencies",
+                    "key_achievements",
+                    "education",
+                    "certifications",
+                    "career_highlights",
+                ],
+                description="Professional executive summary template",
+            )
+        )
+
         # Career transition executive summary
-        self.register_template(ContentTemplate(
-            name="executive_summary_transition",
-            category=TemplateCategory.PROMPT,
-            content_type=ContentType.EXECUTIVE_SUMMARY,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="executive_summary_transition",
+                category=TemplateCategory.PROMPT,
+                content_type=ContentType.EXECUTIVE_SUMMARY,
+                template="""
 Generate an executive summary for a career transition to {job_title}.
 
 Target Role:
@@ -370,49 +461,75 @@ Generate a transition-focused executive summary that:
 5. Shows clear understanding of target role
 
 Transition Executive Summary:""",
-            variables=["job_title", "target_role_description", "current_industry", "transferable_skills", "relevant_experience", "education_training", "motivation", "bridge_elements"],
-            description="Executive summary template for career transitions"
-        ))
-    
+                variables=[
+                    "job_title",
+                    "target_role_description",
+                    "current_industry",
+                    "transferable_skills",
+                    "relevant_experience",
+                    "education_training",
+                    "motivation",
+                    "bridge_elements",
+                ],
+                description="Executive summary template for career transitions",
+            )
+        )
+
     # _register_professional_summary_templates method removed - using executive summary only
-    
+
     def _register_format_templates(self):
         """Register formatting templates."""
-        
+
         # Bullet point format
-        self.register_template(ContentTemplate(
-            name="format_bullet_points",
-            category=TemplateCategory.FORMAT,
-            content_type=ContentType.EXPERIENCE,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="format_bullet_points",
+                category=TemplateCategory.FORMAT,
+                content_type=ContentType.EXPERIENCE,
+                template="""
 • {achievement_1}
 • {achievement_2}
 • {achievement_3}
 • {achievement_4}
 • {achievement_5}""",
-            variables=["achievement_1", "achievement_2", "achievement_3", "achievement_4", "achievement_5"],
-            description="Standard bullet point format for achievements"
-        ))
-        
+                variables=[
+                    "achievement_1",
+                    "achievement_2",
+                    "achievement_3",
+                    "achievement_4",
+                    "achievement_5",
+                ],
+                description="Standard bullet point format for achievements",
+            )
+        )
+
         # Paragraph format
-        self.register_template(ContentTemplate(
-            name="format_paragraph",
-            category=TemplateCategory.FORMAT,
-            content_type=ContentType.EXECUTIVE_SUMMARY,
-            template="{opening_statement} {experience_highlight} {key_strengths} {value_proposition}",
-            variables=["opening_statement", "experience_highlight", "key_strengths", "value_proposition"],
-            description="Paragraph format for executive summaries"
-        ))
-    
+        self.register_template(
+            ContentTemplate(
+                name="format_paragraph",
+                category=TemplateCategory.FORMAT,
+                content_type=ContentType.EXECUTIVE_SUMMARY,
+                template="{opening_statement} {experience_highlight} {key_strengths} {value_proposition}",
+                variables=[
+                    "opening_statement",
+                    "experience_highlight",
+                    "key_strengths",
+                    "value_proposition",
+                ],
+                description="Paragraph format for executive summaries",
+            )
+        )
+
     def _register_validation_templates(self):
         """Register validation templates."""
-        
+
         # Content quality validation
-        self.register_template(ContentTemplate(
-            name="validation_quality",
-            category=TemplateCategory.VALIDATION,
-            content_type=ContentType.QUALIFICATION,
-            template="""
+        self.register_template(
+            ContentTemplate(
+                name="validation_quality",
+                category=TemplateCategory.VALIDATION,
+                content_type=ContentType.QUALIFICATION,
+                template="""
 Validate the following content for quality and professionalism:
 
 Content: {content}
@@ -434,57 +551,60 @@ Provide validation results with:
 - Approval status (approved/needs_revision)
 
 Validation Results:""",
-            variables=["content", "content_type", "target_role"],
-            description="Template for content quality validation"
-        ))
-    
+                variables=["content", "content_type", "target_role"],
+                description="Template for content quality validation",
+            )
+        )
+
     def _register_fallback_templates(self):
         """Register fallback templates."""
-        
+
         # Generic fallback content
         fallback_content = {
             ContentType.QUALIFICATION: "Strong professional background with relevant skills and experience that align with the position requirements.",
             ContentType.EXPERIENCE: "Valuable professional experience contributing to organizational success and demonstrating growth in responsibilities and achievements.",
             ContentType.PROJECT: "Successfully completed project demonstrating technical capabilities, problem-solving skills, and ability to deliver results.",
-            ContentType.EXECUTIVE_SUMMARY: "Experienced professional with a proven track record of success and a strong commitment to delivering exceptional results in challenging environments."
+            ContentType.EXECUTIVE_SUMMARY: "Experienced professional with a proven track record of success and a strong commitment to delivering exceptional results in challenging environments.",
         }
-        
+
         for content_type, content in fallback_content.items():
-            self.register_template(ContentTemplate(
-                name=f"fallback_{content_type.value}",
-                category=TemplateCategory.FALLBACK,
-                content_type=content_type,
-                template=content,
-                variables=[],
-                description=f"Fallback content for {content_type.value}"
-            ))
-    
+            self.register_template(
+                ContentTemplate(
+                    name=f"fallback_{content_type.value}",
+                    category=TemplateCategory.FALLBACK,
+                    content_type=content_type,
+                    template=content,
+                    variables=[],
+                    description=f"Fallback content for {content_type.value}",
+                )
+            )
+
     def register_template(self, template: ContentTemplate):
         """Register a new template."""
-        template_key = f"{template.content_type.value}_{template.category.value}_{template.name}"
+        template_key = (
+            f"{template.content_type.value}_{template.category.value}_{template.name}"
+        )
         self.templates[template_key] = template
-        
+
         logger.debug(
             "Template registered",
             template_name=template.name,
             content_type=template.content_type.value,
-            category=template.category.value
+            category=template.category.value,
         )
-    
+
     def get_template(
-        self, 
-        name: str, 
-        content_type: ContentType, 
-        category: TemplateCategory = TemplateCategory.PROMPT
+        self,
+        name: str,
+        content_type: ContentType,
+        category: TemplateCategory = TemplateCategory.PROMPT,
     ) -> Optional[ContentTemplate]:
         """Get a specific template."""
         template_key = f"{content_type.value}_{category.value}_{name}"
         return self.templates.get(template_key)
-    
+
     def get_templates_by_type(
-        self, 
-        content_type: ContentType, 
-        category: Optional[TemplateCategory] = None
+        self, content_type: ContentType, category: Optional[TemplateCategory] = None
     ) -> List[ContentTemplate]:
         """Get all templates for a specific content type."""
         templates = []
@@ -493,11 +613,9 @@ Validation Results:""",
                 if category is None or template.category == category:
                     templates.append(template)
         return templates
-    
+
     def format_template(
-        self, 
-        template: ContentTemplate, 
-        variables: Dict[str, Any]
+        self, template: ContentTemplate, variables: Dict[str, Any]
     ) -> str:
         """Format a template with provided variables."""
         try:
@@ -507,55 +625,51 @@ Validation Results:""",
                 logger.warning(
                     "Missing template variables",
                     template_name=template.name,
-                    missing_variables=missing_vars
+                    missing_variables=missing_vars,
                 )
                 # Provide default values for missing variables
                 for var in missing_vars:
                     variables[var] = f"[{var}]"
-            
+
             # Format the template
             formatted_content = template.template.format(**variables)
-            
+
             logger.debug(
                 "Template formatted successfully",
                 template_name=template.name,
-                content_length=len(formatted_content)
+                content_length=len(formatted_content),
             )
-            
+
             return formatted_content
-            
+
         except Exception as e:
             logger.error(
-                "Template formatting failed",
-                template_name=template.name,
-                error=str(e)
+                "Template formatting failed", template_name=template.name, error=str(e)
             )
             return template.template  # Return unformatted template as fallback
-    
+
     def get_fallback_content(self, content_type: ContentType) -> str:
         """Get fallback content for a content type."""
         template = self.get_template(
-            f"fallback_{content_type.value}",
-            content_type,
-            TemplateCategory.FALLBACK
+            f"fallback_{content_type.value}", content_type, TemplateCategory.FALLBACK
         )
-        
+
         if template:
             return template.template
-        
+
         # Ultimate fallback
         return "Professional experience and qualifications relevant to the position."
-    
+
     def list_templates(self) -> Dict[str, List[str]]:
         """List all available templates by category."""
         template_list = {}
-        
+
         for template in self.templates.values():
             category_key = f"{template.content_type.value}_{template.category.value}"
             if category_key not in template_list:
                 template_list[category_key] = []
             template_list[category_key].append(template.name)
-        
+
         return template_list
 
 
@@ -573,44 +687,35 @@ def get_template_manager() -> ContentTemplateManager:
 
 # Convenience functions
 def get_prompt_template(
-    content_type: ContentType, 
-    template_name: str = "basic"
+    content_type: ContentType, template_name: str = "basic"
 ) -> Optional[ContentTemplate]:
     """Get a prompt template for a content type."""
     manager = get_template_manager()
     return manager.get_template(
-        f"{content_type.value}_{template_name}",
-        content_type,
-        TemplateCategory.PROMPT
+        f"{content_type.value}_{template_name}", content_type, TemplateCategory.PROMPT
     )
 
 
 def format_content_prompt(
-    content_type: ContentType,
-    template_name: str,
-    variables: Dict[str, Any]
+    content_type: ContentType, template_name: str, variables: Dict[str, Any]
 ) -> str:
     """Format a content prompt with variables."""
     manager = get_template_manager()
     template = manager.get_template(
-        f"{content_type.value}_{template_name}",
-        content_type,
-        TemplateCategory.PROMPT
+        f"{content_type.value}_{template_name}", content_type, TemplateCategory.PROMPT
     )
-    
+
     if template:
         return manager.format_template(template, variables)
-    
+
     # Fallback to basic template
     basic_template = manager.get_template(
-        f"{content_type.value}_basic",
-        content_type,
-        TemplateCategory.PROMPT
+        f"{content_type.value}_basic", content_type, TemplateCategory.PROMPT
     )
-    
+
     if basic_template:
         return manager.format_template(basic_template, variables)
-    
+
     return f"Generate professional {content_type.value} content."
 
 

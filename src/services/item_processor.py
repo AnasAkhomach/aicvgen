@@ -12,9 +12,15 @@ from dataclasses import asdict
 from ..config.logging_config import get_structured_logger, LLMCallLog
 from ..config.settings import get_config
 from ..models.data_models import (
-    Item, ProcessingStatus, ContentType, CVGenerationState,
-    ExperienceItem, ProjectItem, QualificationItem
+    Item,
+    ItemStatus,
+    ContentType,
+    ProcessingStatus,
+    ExperienceItem,
+    ProjectItem,
+    QualificationItem,
 )
+from ..orchestration.state import AgentState
 from ..services.rate_limiter import get_rate_limiter
 from ..utils.exceptions import RateLimitError, NetworkError
 
@@ -39,7 +45,7 @@ class ItemProcessor:
         self,
         item: Item,
         job_context: Dict[str, Any],
-        template_context: Optional[Dict[str, Any]] = None
+        template_context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Process a single content item.
 
@@ -54,7 +60,7 @@ class ItemProcessor:
         if item.metadata.status != ProcessingStatus.PENDING:
             self.logger.warning(
                 f"Item {item.metadata.item_id} is not in pending status",
-                current_status=item.metadata.status.value
+                current_status=item.metadata.status.value,
             )
             return False
 
@@ -88,7 +94,7 @@ class ItemProcessor:
                 f"Successfully processed item {item.metadata.item_id}",
                 item_type=item.content_type.value,
                 processing_time=item.metadata.processing_time_seconds,
-                tokens_used=item.metadata.tokens_used
+                tokens_used=item.metadata.tokens_used,
             )
 
             return True
@@ -100,9 +106,8 @@ class ItemProcessor:
 
             self.logger.warning(
                 f"Rate limit hit for item {item.metadata.item_id}",
-                model=e.model,
-                retry_after=e.retry_after,
-                attempt=item.metadata.processing_attempts
+                error=str(e),
+                attempt=item.metadata.processing_attempts,
             )
 
             return False
@@ -116,7 +121,7 @@ class ItemProcessor:
                 f"Failed to process item {item.metadata.item_id}",
                 error=str(e),
                 item_type=item.content_type.value,
-                attempt=item.metadata.processing_attempts
+                attempt=item.metadata.processing_attempts,
             )
 
             return False
@@ -125,7 +130,7 @@ class ItemProcessor:
         self,
         item: Item,
         job_context: Dict[str, Any],
-        template_context: Optional[Dict[str, Any]] = None
+        template_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Generate content for a specific item type."""
 
@@ -136,19 +141,19 @@ class ItemProcessor:
         elif item.content_type == ContentType.PROJECT_ITEM:
             return await self._generate_project_content(item, job_context)
         elif item.content_type == ContentType.EXECUTIVE_SUMMARY:
-            return await self._generate_summary_content(item, job_context, template_context)
+            return await self._generate_summary_content(
+                item, job_context, template_context
+            )
         else:
             raise ValueError(f"Unsupported content type: {item.content_type}")
 
     async def _generate_qualification_content(
-        self,
-        item: QualificationItem,
-        job_context: Dict[str, Any]
+        self, item: QualificationItem, job_context: Dict[str, Any]
     ) -> str:
         """Generate tailored qualification content."""
 
         prompt = self._build_qualification_prompt(item, job_context)
-        model = self.settings.llm.primary_model
+        model = self.settings.llm.generation_model
 
         # Estimate tokens (rough approximation)
         estimated_tokens = len(prompt) // 4 + 200
@@ -158,20 +163,18 @@ class ItemProcessor:
             model=model,
             estimated_tokens=estimated_tokens,
             item_id=item.metadata.item_id,
-            prompt_type="qualification_generation"
+            prompt_type="qualification_generation",
         )
 
         return self._extract_content_from_response(response)
 
     async def _generate_experience_content(
-        self,
-        item: ExperienceItem,
-        job_context: Dict[str, Any]
+        self, item: ExperienceItem, job_context: Dict[str, Any]
     ) -> str:
         """Generate tailored experience content."""
 
         prompt = self._build_experience_prompt(item, job_context)
-        model = self.settings.llm.primary_model
+        model = self.settings.llm.generation_model
 
         estimated_tokens = len(prompt) // 4 + 300
 
@@ -180,20 +183,18 @@ class ItemProcessor:
             model=model,
             estimated_tokens=estimated_tokens,
             item_id=item.metadata.item_id,
-            prompt_type="experience_tailoring"
+            prompt_type="experience_tailoring",
         )
 
         return self._extract_content_from_response(response)
 
     async def _generate_project_content(
-        self,
-        item: ProjectItem,
-        job_context: Dict[str, Any]
+        self, item: ProjectItem, job_context: Dict[str, Any]
     ) -> str:
         """Generate tailored project content."""
 
         prompt = self._build_project_prompt(item, job_context)
-        model = self.settings.llm.primary_model
+        model = self.settings.llm.generation_model
 
         estimated_tokens = len(prompt) // 4 + 250
 
@@ -202,7 +203,7 @@ class ItemProcessor:
             model=model,
             estimated_tokens=estimated_tokens,
             item_id=item.metadata.item_id,
-            prompt_type="project_tailoring"
+            prompt_type="project_tailoring",
         )
 
         return self._extract_content_from_response(response)
@@ -211,12 +212,12 @@ class ItemProcessor:
         self,
         item: Item,
         job_context: Dict[str, Any],
-        template_context: Optional[Dict[str, Any]] = None
+        template_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Generate executive summary content."""
 
         prompt = self._build_summary_prompt(item, job_context, template_context)
-        model = self.settings.llm.secondary_model or self.settings.llm.primary_model
+        model = self.settings.llm.cleaning_model or self.settings.llm.generation_model
 
         estimated_tokens = len(prompt) // 4 + 400
 
@@ -225,7 +226,7 @@ class ItemProcessor:
             model=model,
             estimated_tokens=estimated_tokens,
             item_id=item.metadata.item_id,
-            prompt_type="executive_summary"
+            prompt_type="executive_summary",
         )
 
         return self._extract_content_from_response(response)
@@ -236,7 +237,7 @@ class ItemProcessor:
         model: str,
         estimated_tokens: int,
         item_id: str,
-        prompt_type: str
+        prompt_type: str,
     ) -> Any:
         """Make a rate-limited LLM API call with logging."""
 
@@ -249,7 +250,7 @@ class ItemProcessor:
                 model=model,
                 estimated_tokens=estimated_tokens,
                 prompt=prompt,
-                model_name=model
+                model_name=model,
             )
 
             # Calculate actual metrics
@@ -270,7 +271,7 @@ class ItemProcessor:
                 total_tokens=actual_tokens,
                 duration_seconds=duration,
                 success=True,
-                session_id=item_id  # Using item_id as session reference
+                session_id=item_id,  # Using item_id as session reference
             )
 
             self.logger.log_llm_call(call_log)
@@ -292,7 +293,7 @@ class ItemProcessor:
                 success=False,
                 error_message=str(e),
                 rate_limit_hit=isinstance(e, RateLimitError),
-                session_id=item_id
+                session_id=item_id,
             )
 
             self.logger.log_llm_call(call_log)
@@ -308,34 +309,26 @@ class ItemProcessor:
 
         try:
             # Try different client interfaces
-            if hasattr(self.llm_client, 'chat'):
+            if hasattr(self.llm_client, "chat"):
                 # OpenAI-style interface
                 response = await self.llm_client.chat.completions.create(
                     model=model_name,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=[{"role": "user", "content": prompt}],
                     temperature=0.7,
-                    max_tokens=1000
+                    max_tokens=1000,
                 )
                 return response
 
-            elif hasattr(self.llm_client, 'generate'):
+            elif hasattr(self.llm_client, "generate"):
                 # Generic generate interface
                 response = await self.llm_client.generate(
-                    prompt=prompt,
-                    model=model_name,
-                    temperature=0.7,
-                    max_tokens=1000
+                    prompt=prompt, model=model_name, temperature=0.7, max_tokens=1000
                 )
                 return response
 
             else:
                 # Fallback: assume callable
-                response = await self.llm_client(
-                    prompt=prompt,
-                    model=model_name
-                )
+                response = await self.llm_client(prompt=prompt, model=model_name)
                 return response
 
         except Exception as e:
@@ -345,31 +338,31 @@ class ItemProcessor:
         """Extract content from LLM response."""
         try:
             # Handle different response formats
-            if hasattr(response, 'choices') and response.choices:
+            if hasattr(response, "choices") and response.choices:
                 # OpenAI-style response
-                if hasattr(response.choices[0], 'message'):
+                if hasattr(response.choices[0], "message"):
                     return response.choices[0].message.content
-                elif hasattr(response.choices[0], 'text'):
+                elif hasattr(response.choices[0], "text"):
                     return response.choices[0].text
 
-            elif hasattr(response, 'content'):
+            elif hasattr(response, "content"):
                 return response.content
 
-            elif hasattr(response, 'text'):
+            elif hasattr(response, "text"):
                 return response.text
 
             elif isinstance(response, dict):
                 # Dictionary response
-                if 'content' in response:
-                    return response['content']
-                elif 'text' in response:
-                    return response['text']
-                if 'choices' in response and response['choices']:
-                    choice = response['choices'][0]
-                    if 'message' in choice:
-                        return choice['message'].get('content', '')
-                    if 'text' in choice:
-                        return choice['text']
+                if "content" in response:
+                    return response["content"]
+                elif "text" in response:
+                    return response["text"]
+                if "choices" in response and response["choices"]:
+                    choice = response["choices"][0]
+                    if "message" in choice:
+                        return choice["message"].get("content", "")
+                    if "text" in choice:
+                        return choice["text"]
 
             elif isinstance(response, str):
                 return response
@@ -384,19 +377,23 @@ class ItemProcessor:
     def _extract_token_usage(self, response: Any) -> int:
         """Extract token usage from LLM response."""
         try:
-            if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens'):
+            if hasattr(response, "usage") and hasattr(response.usage, "total_tokens"):
                 return response.usage.total_tokens
-            if isinstance(response, dict) and 'usage' in response:
-                return response['usage'].get('total_tokens', 0)
+            if isinstance(response, dict) and "usage" in response:
+                return response["usage"].get("total_tokens", 0)
             # Fallback estimation
             content = self._extract_content_from_response(response)
             return len(content) // 4  # Rough estimation
         except Exception:
             return 0
 
-    def _build_qualification_prompt(self, item: QualificationItem, job_context: Dict[str, Any]) -> str:
+    def _build_qualification_prompt(
+        self, item: QualificationItem, job_context: Dict[str, Any]
+    ) -> str:
         """Build prompt for qualification generation."""
-        job_skills = job_context.get('required_skills', []) + job_context.get('preferred_skills', [])
+        job_skills = job_context.get("required_skills", []) + job_context.get(
+            "preferred_skills", []
+        )
 
         return f"""You are an expert CV writer. Generate a compelling, specific qualification statement that demonstrates expertise relevant to this job.
 
@@ -417,9 +414,13 @@ Instructions:
 
 Generate only the tailored qualification statement:"""
 
-    def _build_experience_prompt(self, item: ExperienceItem, job_context: Dict[str, Any]) -> str:
+    def _build_experience_prompt(
+        self, item: ExperienceItem, job_context: Dict[str, Any]
+    ) -> str:
         """Build prompt for experience tailoring."""
-        job_skills = job_context.get('required_skills', []) + job_context.get('preferred_skills', [])
+        job_skills = job_context.get("required_skills", []) + job_context.get(
+            "preferred_skills", []
+        )
 
         return f"""You are an expert CV writer. Tailor this professional experience to highlight relevance for the target job.
 
@@ -447,9 +448,13 @@ Instructions:
 
 Generate the tailored experience description:"""
 
-    def _build_project_prompt(self, item: ProjectItem, job_context: Dict[str, Any]) -> str:
+    def _build_project_prompt(
+        self, item: ProjectItem, job_context: Dict[str, Any]
+    ) -> str:
         """Build prompt for project tailoring."""
-        job_skills = job_context.get('required_skills', []) + job_context.get('preferred_skills', [])
+        job_skills = job_context.get("required_skills", []) + job_context.get(
+            "preferred_skills", []
+        )
 
         return f"""You are an expert CV writer. Tailor this side project to demonstrate skills relevant to the target job.
 
@@ -479,13 +484,17 @@ Generate the tailored project description:"""
         self,
         _item: Item,
         job_context: Dict[str, Any],
-        template_context: Optional[Dict[str, Any]] = None
+        template_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Build prompt for executive summary generation."""
 
-        qualifications = template_context.get('qualifications', []) if template_context else []
-        experiences = template_context.get('experiences', []) if template_context else []
-        projects = template_context.get('projects', []) if template_context else []
+        qualifications = (
+            template_context.get("qualifications", []) if template_context else []
+        )
+        experiences = (
+            template_context.get("experiences", []) if template_context else []
+        )
+        projects = template_context.get("projects", []) if template_context else []
 
         return f"""You are an expert CV writer. Create a compelling executive summary that positions the candidate perfectly for this job.
 
@@ -512,16 +521,30 @@ Generate only the executive summary:"""
 
     def get_processing_stats(self) -> Dict[str, Any]:
         """Get processing statistics."""
-        total_attempts = self.total_processed + self.total_failed + self.total_rate_limited
+        total_attempts = (
+            self.total_processed + self.total_failed + self.total_rate_limited
+        )
 
         return {
             "total_processed": self.total_processed,
             "total_failed": self.total_failed,
             "total_rate_limited": self.total_rate_limited,
             "total_attempts": total_attempts,
-            "success_rate": (self.total_processed / total_attempts * 100) if total_attempts > 0 else 0,
-            "rate_limit_rate": (self.total_rate_limited / total_attempts * 100) if total_attempts > 0 else 0,
-            "processing_start_time": self.processing_start_time.isoformat() if self.processing_start_time else None
+            "success_rate": (
+                (self.total_processed / total_attempts * 100)
+                if total_attempts > 0
+                else 0
+            ),
+            "rate_limit_rate": (
+                (self.total_rate_limited / total_attempts * 100)
+                if total_attempts > 0
+                else 0
+            ),
+            "processing_start_time": (
+                self.processing_start_time.isoformat()
+                if self.processing_start_time
+                else None
+            ),
         }
 
     def reset_stats(self):

@@ -11,7 +11,7 @@ from .parser_agent import ParserAgent
 from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
-from ..services.llm import get_llm_service
+from ..services.llm_service import get_llm_service
 
 logger = get_structured_logger("specialized_agents")
 
@@ -35,13 +35,11 @@ class CVAnalysisAgent(EnhancedAgentBase):
         # Initialize settings for prompt loading
         self.settings = get_config()
 
-    # Legacy run method removed - use run_as_node for LangGraph integration
-
     async def run_async(
         self, input_data: Any, context: AgentExecutionContext
     ) -> AgentResult:
         """Analyze CV content against job requirements."""
-        from src.models.validation_schemas import validate_agent_input
+        from ..models.validation_schemas import validate_agent_input
 
         try:
             # Validate input data
@@ -254,6 +252,46 @@ class CVAnalysisAgent(EnhancedAgentBase):
             "overall_assessment": text[:200] + "..." if len(text) > 200 else text,
         }
 
+    async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
+        """Execute CV analysis as a LangGraph node."""
+        from ..orchestration.state import AgentState
+
+        try:
+            # Extract data from state
+            cv_data = state.structured_cv.model_dump() if state.structured_cv else {}
+            job_data = (
+                state.job_description_data.model_dump()
+                if state.job_description_data
+                else {}
+            )
+
+            # Create execution context
+            context = AgentExecutionContext(
+                session_id=getattr(state, "session_id", "default")
+            )
+
+            # Run analysis
+            result = await self.run_async(
+                {"cv_data": cv_data, "job_description": job_data}, context
+            )
+
+            # Return state updates
+            return {
+                "cv_analysis_results": result.output_data if result.success else {},
+                "processing_status": (
+                    ProcessingStatus.COMPLETED
+                    if result.success
+                    else ProcessingStatus.FAILED
+                ),
+            }
+
+        except Exception as e:
+            self.logger.error(f"CV analysis node failed: {str(e)}")
+            return {
+                "cv_analysis_results": {},
+                "processing_status": ProcessingStatus.FAILED,
+            }
+
 
 class ContentOptimizationAgent(EnhancedAgentBase):
     """Agent specialized in optimizing existing CV content."""
@@ -281,13 +319,11 @@ class ContentOptimizationAgent(EnhancedAgentBase):
             for content_type in ContentType
         }
 
-    # Legacy run method removed - use run_as_node for LangGraph integration
-
     async def run_async(
         self, input_data: Any, context: AgentExecutionContext
     ) -> AgentResult:
         """Optimize content items for better performance."""
-        from src.models.validation_schemas import validate_agent_input
+        from ..models.validation_schemas import validate_agent_input
 
         try:
             # Validate input data
@@ -422,6 +458,65 @@ class ContentOptimizationAgent(EnhancedAgentBase):
         else:
             return ContentType.QUALIFICATION
 
+    async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
+        """Execute content optimization as a LangGraph node."""
+        from ..orchestration.state import AgentState
+
+        try:
+            # Extract content items from state
+            content_items = []
+            if state.structured_cv:
+                cv_dict = state.structured_cv.model_dump()
+                # Extract various content types
+                content_items.extend(cv_dict.get("experience", []))
+                content_items.extend(cv_dict.get("projects", []))
+                content_items.extend(cv_dict.get("qualifications", []))
+                if cv_dict.get("executive_summary"):
+                    content_items.append(
+                        {
+                            "type": "executive_summary",
+                            "content": cv_dict["executive_summary"],
+                        }
+                    )
+
+            job_requirements = (
+                state.job_description_data.model_dump()
+                if state.job_description_data
+                else {}
+            )
+
+            # Create execution context
+            context = AgentExecutionContext(
+                session_id=getattr(state, "session_id", "default")
+            )
+
+            # Run optimization
+            result = await self.run_async(
+                {
+                    "content_items": content_items,
+                    "job_requirements": job_requirements,
+                    "optimization_goals": ["relevance", "impact", "clarity"],
+                },
+                context,
+            )
+
+            # Return state updates
+            return {
+                "optimized_content": result.output_data if result.success else {},
+                "processing_status": (
+                    ProcessingStatus.COMPLETED
+                    if result.success
+                    else ProcessingStatus.FAILED
+                ),
+            }
+
+        except Exception as e:
+            self.logger.error(f"Content optimization node failed: {str(e)}")
+            return {
+                "optimized_content": {},
+                "processing_status": ProcessingStatus.FAILED,
+            }
+
 
 # QualityAssuranceAgent removed - using the one from quality_assurance_agent.py instead
 
@@ -530,13 +625,11 @@ class EnhancedParserAgent(EnhancedAgentBase):
             llm=llm_service,
         )
 
-    # Legacy run method removed - use run_as_node for LangGraph integration
-
     async def run_async(
         self, input_data: Any, context: AgentExecutionContext
     ) -> AgentResult:
         """Run the parser agent asynchronously."""
-        from src.models.validation_schemas import validate_agent_input
+        from ..models.validation_schemas import validate_agent_input
 
         try:
             # Validate input data
@@ -572,8 +665,8 @@ class EnhancedParserAgent(EnhancedAgentBase):
 
             # Use run_as_node for LangGraph integration
             # Create AgentState for run_as_node compatibility
-            from src.orchestration.state import AgentState
-            from src.models.data_models import StructuredCV, JobDescriptionData
+            from ..orchestration.state import AgentState
+            from ..models.data_models import StructuredCV, JobDescriptionData
 
             # Create proper StructuredCV and JobDescriptionData objects
             structured_cv = parser_input.get("structured_cv") or StructuredCV()
@@ -606,6 +699,20 @@ class EnhancedParserAgent(EnhancedAgentBase):
                 error_message=str(e),
                 metadata={"agent_type": "enhanced_parser"},
             )
+
+    async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
+        """Execute enhanced parser as a LangGraph node."""
+        try:
+            # Delegate to the wrapped parser agent's run_as_node method
+            return await self.parser_agent.run_as_node(state)
+
+        except Exception as e:
+            self.logger.error(f"Enhanced parser node failed: {str(e)}")
+            return {
+                "structured_cv": state.structured_cv,
+                "job_description_data": state.job_description_data,
+                "processing_status": ProcessingStatus.FAILED,
+            }
 
 
 # Agent registry for easy access

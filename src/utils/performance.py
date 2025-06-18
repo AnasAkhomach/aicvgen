@@ -27,6 +27,7 @@ logger = get_structured_logger("performance")
 @dataclass
 class PerformanceMetrics:
     """Container for performance metrics."""
+
     operation_name: str
     start_time: float
     end_time: float
@@ -61,7 +62,7 @@ class PerformanceMonitor:
             "agent_execution": 60.0,
             "file_processing": 10.0,
             "database_operation": 5.0,
-            "default": 15.0
+            "default": 15.0,
         }
 
         logger.info("Performance monitor initialized", max_history=max_history)
@@ -107,7 +108,7 @@ class PerformanceMonitor:
                 cpu_percent=cpu_percent,
                 success=success,
                 error_message=error_message,
-                metadata=metadata
+                metadata=metadata,
             )
 
             self._record_metrics(metrics)
@@ -144,7 +145,7 @@ class PerformanceMonitor:
                 cpu_percent=cpu_percent,
                 success=success,
                 error_message=error_message,
-                metadata=metadata
+                metadata=metadata,
             )
 
             self._record_metrics(metrics)
@@ -156,14 +157,16 @@ class PerformanceMonitor:
             self.operation_stats[metrics.operation_name].append(metrics.duration)
 
             # Check for performance issues
-            threshold = self.thresholds.get(metrics.operation_name, self.thresholds["default"])
+            threshold = self.thresholds.get(
+                metrics.operation_name, self.thresholds["default"]
+            )
             if metrics.duration > threshold:
                 logger.warning(
                     "Performance threshold exceeded",
                     operation=metrics.operation_name,
                     duration=metrics.duration,
                     threshold=threshold,
-                    memory_delta=metrics.memory_delta
+                    memory_delta=metrics.memory_delta,
                 )
 
             # Log successful operations at debug level
@@ -173,14 +176,14 @@ class PerformanceMonitor:
                     operation=metrics.operation_name,
                     duration_ms=metrics.duration_ms,
                     memory_delta_mb=round(metrics.memory_delta, 2),
-                    cpu_percent=metrics.cpu_percent
+                    cpu_percent=metrics.cpu_percent,
                 )
             else:
                 logger.error(
                     "Operation failed",
                     operation=metrics.operation_name,
                     duration_ms=metrics.duration_ms,
-                    error=metrics.error_message
+                    error=metrics.error_message,
                 )
 
     def get_operation_stats(self, operation_name: str) -> Dict[str, Any]:
@@ -198,7 +201,7 @@ class PerformanceMonitor:
                 "average_duration": sum(durations) / len(durations),
                 "min_duration": min(durations),
                 "max_duration": max(durations),
-                "last_duration": durations[-1] if durations else 0
+                "last_duration": durations[-1] if durations else 0,
             }
 
     def get_overall_stats(self) -> Dict[str, Any]:
@@ -206,7 +209,10 @@ class PerformanceMonitor:
         with self.lock:
             total_operations = len(self.metrics_history)
             if total_operations == 0:
-                return {"total_operations": 0, "uptime_seconds": time.time() - self._start_time}
+                return {
+                    "total_operations": 0,
+                    "uptime_seconds": time.time() - self._start_time,
+                }
 
             successful_ops = sum(1 for m in self.metrics_history if m.success)
             failed_ops = total_operations - successful_ops
@@ -228,7 +234,7 @@ class PerformanceMonitor:
                 "average_memory_delta_mb": avg_memory_delta,
                 "uptime_seconds": time.time() - self._start_time,
                 "current_memory_mb": self.get_memory_usage(),
-                "current_cpu_percent": self.get_cpu_percent()
+                "current_cpu_percent": self.get_cpu_percent(),
             }
 
     def get_recent_metrics(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -243,7 +249,7 @@ class PerformanceMonitor:
                     "cpu_percent": m.cpu_percent,
                     "success": m.success,
                     "timestamp": datetime.fromtimestamp(m.start_time).isoformat(),
-                    "metadata": m.metadata
+                    "metadata": m.metadata,
                 }
                 for m in recent
             ]
@@ -258,10 +264,10 @@ class PerformanceMonitor:
                     op: self.get_operation_stats(op)
                     for op in self.operation_stats.keys()
                 },
-                "recent_metrics": self.get_recent_metrics(100)
+                "recent_metrics": self.get_recent_metrics(100),
             }
 
-            with open(filepath, 'w') as f:
+            with open(filepath, "w") as f:
                 json.dump(data, f, indent=2)
 
             logger.info("Performance metrics exported", filepath=filepath)
@@ -296,7 +302,7 @@ class MemoryOptimizer:
             "vms_mb": memory_info.vms / 1024 / 1024,
             "percent": process.memory_percent(),
             "available_mb": psutil.virtual_memory().available / 1024 / 1024,
-            "total_mb": psutil.virtual_memory().total / 1024 / 1024
+            "total_mb": psutil.virtual_memory().total / 1024 / 1024,
         }
 
     def should_run_gc(self) -> bool:
@@ -306,8 +312,8 @@ class MemoryOptimizer:
 
         # Run GC if memory usage is high or enough time has passed
         return (
-            memory_info["rss_mb"] > self.gc_threshold or
-            current_time - self.last_gc_time > self.gc_interval
+            memory_info["rss_mb"] > self.gc_threshold
+            or current_time - self.last_gc_time > self.gc_interval
         )
 
     def optimize_memory(self) -> Dict[str, Any]:
@@ -327,13 +333,13 @@ class MemoryOptimizer:
             "memory_before_mb": memory_before["rss_mb"],
             "memory_after_mb": memory_after["rss_mb"],
             "memory_freed_mb": memory_freed,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         logger.info(
             "Memory optimization completed",
             objects_collected=collected,
-            memory_freed_mb=round(memory_freed, 2)
+            memory_freed_mb=round(memory_freed, 2),
         )
 
         return result
@@ -356,14 +362,14 @@ class BatchProcessor:
         logger.info(
             "Batch processor initialized",
             batch_size=batch_size,
-            max_concurrent=max_concurrent
+            max_concurrent=max_concurrent,
         )
 
     async def process_batch_async(
         self,
         items: List[Any],
         processor_func: Callable,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
     ) -> List[Any]:
         """Process items in optimized batches."""
         results = []
@@ -371,7 +377,7 @@ class BatchProcessor:
 
         # Split items into batches
         batches = [
-            items[i:i + self.batch_size]
+            items[i : i + self.batch_size]
             for i in range(0, len(items), self.batch_size)
         ]
 
@@ -379,14 +385,13 @@ class BatchProcessor:
             "Starting batch processing",
             total_items=total_items,
             num_batches=len(batches),
-            batch_size=self.batch_size
+            batch_size=self.batch_size,
         )
 
         for batch_idx, batch in enumerate(batches):
             async with self.semaphore:
                 batch_results = await asyncio.gather(
-                    *[processor_func(item) for item in batch],
-                    return_exceptions=True
+                    *[processor_func(item) for item in batch], return_exceptions=True
                 )
 
                 results.extend(batch_results)
@@ -399,13 +404,13 @@ class BatchProcessor:
                     "Batch completed",
                     batch_index=batch_idx + 1,
                     total_batches=len(batches),
-                    batch_size=len(batch)
+                    batch_size=len(batch),
                 )
 
         logger.info(
             "Batch processing completed",
             total_items=total_items,
-            results_count=len(results)
+            results_count=len(results),
         )
 
         return results
@@ -444,6 +449,7 @@ def get_batch_processor() -> BatchProcessor:
 # Decorator functions for easy performance monitoring
 def monitor_performance(operation_name: str = None, **metadata):
     """Decorator for monitoring function performance."""
+
     def decorator(func):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
@@ -472,6 +478,7 @@ def monitor_performance(operation_name: str = None, **metadata):
 
 def auto_memory_optimize(threshold_mb: float = 100):
     """Decorator for automatic memory optimization."""
+
     def decorator(func):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):

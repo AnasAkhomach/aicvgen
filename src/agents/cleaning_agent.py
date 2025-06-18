@@ -4,15 +4,18 @@ This agent implements the "Generate -> Clean" pattern described in Task 3.2 & 3.
 It takes raw LLM output and processes it into structured, clean content.
 """
 
+from typing import Dict, List, Any, Optional, Union
+from dataclasses import dataclass
 import re
 import json
-from typing import Any, List
+import asyncio
 from datetime import datetime
 
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.models.data_models import AgentIO
-from src.models.data_models import ContentType
-from src.services.llm_service import get_llm_service
+from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from ..config.logging_config import get_structured_logger
+from ..services.llm_service import get_llm_service
+from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
+from ..models.data_models import AgentIO, ContentType
 
 
 class CleaningAgent(EnhancedAgentBase):
@@ -284,6 +287,56 @@ class CleaningAgent(EnhancedAgentBase):
                 score += 0.2
 
         return min(1.0, score)
+
+    async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
+        """Execute cleaning agent as a LangGraph node."""
+        from ..orchestration.state import AgentState
+        from ..models.data_models import ProcessingStatus
+
+        try:
+            # Extract raw output from state - could be from various sources
+            raw_output = ""
+            output_type = "generic"
+
+            # Check for raw LLM output in state
+            if hasattr(state, "raw_llm_output") and state.raw_llm_output:
+                raw_output = state.raw_llm_output
+                output_type = "skills"  # Default for cleaning agent
+            elif hasattr(state, "generated_content") and state.generated_content:
+                raw_output = str(state.generated_content)
+                output_type = "content_item"
+
+            # Create execution context
+            context = AgentExecutionContext(
+                session_id=getattr(state, "session_id", "default")
+            )
+
+            # Run cleaning
+            result = await self.run_async(
+                {
+                    "raw_output": raw_output,
+                    "output_type": output_type,
+                    "context": {},
+                    "validation_rules": {},
+                },
+                context,
+            )
+
+            # Return state updates
+            return {
+                "cleaned_data": (
+                    result.output_data.get("cleaned_data", {}) if result.success else {}
+                ),
+                "processing_status": (
+                    ProcessingStatus.COMPLETED
+                    if result.success
+                    else ProcessingStatus.FAILED
+                ),
+            }
+
+        except Exception as e:
+            self.logger.error(f"Cleaning agent node failed: {str(e)}")
+            return {"cleaned_data": {}, "processing_status": ProcessingStatus.FAILED}
 
 
 def get_cleaning_agent() -> CleaningAgent:

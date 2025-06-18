@@ -1,6 +1,6 @@
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.services.llm_service import get_llm_service
-from src.core.state_manager import (
+from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from ..services.llm_service import get_llm_service
+from ..core.state_manager import (
     JobDescriptionData,
     AgentIO,
     StructuredCV,
@@ -8,11 +8,11 @@ from src.core.state_manager import (
     Subsection,
     Item,
 )
-from src.services.vector_db import VectorDB
-from src.config.logging_config import get_structured_logger
-from src.models.data_models import AgentDecisionLog, AgentExecutionLog
-from src.config.settings import get_config
-from src.services.llm import LLMResponse
+from ..services.vector_db import VectorDB
+from ..config.logging_config import get_structured_logger
+from ..models.data_models import AgentDecisionLog, AgentExecutionLog
+from ..config.settings import get_config
+from ..services.llm_service import LLMResponse
 from typing import Dict, Any, List, Optional
 import time
 import logging
@@ -20,8 +20,8 @@ import json
 import os
 import asyncio
 from datetime import datetime
-from src.orchestration.state import AgentState
-from src.core.async_optimizer import optimize_async
+from ..orchestration.state import AgentState
+from ..core.async_optimizer import optimize_async
 
 # Set up structured logging
 logger = get_structured_logger(__name__)
@@ -43,6 +43,7 @@ class ResearchAgent(EnhancedAgentBase):
         llm_service=None,
         vector_db: Optional[VectorDB] = None,
     ):
+        self._latest_research_results = {}  # Initialize research results storage
         """
         Initializes the ResearchAgent.
 
@@ -70,33 +71,26 @@ class ResearchAgent(EnhancedAgentBase):
         # Initialize settings for prompt loading
         self.settings = get_config()
 
-    # Legacy run method removed - use run_as_node for LangGraph integration
+
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
     ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
-        from src.models.validation_schemas import validate_agent_input, ValidationError
+        from ..models.validation_schemas import validate_agent_input, ValidationError
 
         try:
             # Validate input data using Pydantic schemas
             try:
                 validated_input = validate_agent_input("research", input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
+                # Use validated input data directly
+                input_data = validated_input
                 # Log validation success with structured logging
                 self.log_decision(
                     "Input validation passed for ResearchAgent",
-                    context.item_id if context else None,
-                    "validation",
-                    metadata={
-                        "input_keys": (
-                            list(input_data.keys())
-                            if isinstance(input_data, dict)
-                            else []
-                        )
-                    },
+                    context,
+                    "validation"
                 )
             except ValidationError as ve:
                 logger.error(f"Input validation failed for ResearchAgent: {ve.message}")
@@ -141,8 +135,8 @@ class ResearchAgent(EnhancedAgentBase):
 
             # Use run_as_node for LangGraph integration
             # Create AgentState for run_as_node compatibility
-            from src.orchestration.state import AgentState
-            from src.models.data_models import StructuredCV, JobDescriptionData
+            from ..orchestration.state import AgentState
+            from ..models.data_models import StructuredCV, JobDescriptionData
 
             # Create proper StructuredCV and JobDescriptionData objects
             structured_cv = input_data.get("structured_cv") or StructuredCV()
@@ -157,7 +151,7 @@ class ResearchAgent(EnhancedAgentBase):
             )
 
             node_result = await self.run_as_node(agent_state)
-            result = node_result.get("output_data", {})
+            result = node_result.get("output_data", {}) if node_result else {}
 
             return AgentResult(
                 success=True,

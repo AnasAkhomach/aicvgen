@@ -8,18 +8,18 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
-from src.config.logging_config import get_structured_logger
-from src.core.async_optimizer import optimize_async
-from src.core.state_manager import AgentIO
-from src.models.data_models import AgentExecutionLog, AgentDecisionLog
-from src.models.data_models import ContentType
-from src.services.error_recovery import get_error_recovery_service
-from src.services.llm_service import get_llm_service
-from src.services.progress_tracker import get_progress_tracker
-from src.services.session_manager import get_session_manager
+from ..config.logging_config import get_structured_logger
+from ..core.async_optimizer import optimize_async
+from ..core.state_manager import AgentIO
+from ..models.data_models import AgentExecutionLog, AgentDecisionLog
+from ..models.data_models import ContentType
+from ..services.error_recovery import get_error_recovery_service
+from ..services.llm_service import get_llm_service
+from ..services.progress_tracker import get_progress_tracker
+from ..services.session_manager import get_session_manager
 
 if TYPE_CHECKING:
-    from src.orchestration.state import AgentState
+    from ..orchestration.state import AgentState
 
 
 @dataclass
@@ -111,8 +111,6 @@ class EnhancedAgentBase(ABC):
         """Abstract async method to be implemented by each agent."""
         raise NotImplementedError
 
-    # Legacy run method removed - use run_as_node for LangGraph integration
-
     async def execute_with_context(
         self, input_data: Any, context: AgentExecutionContext, max_retries: int = 3
     ) -> AgentResult:
@@ -149,7 +147,7 @@ class EnhancedAgentBase(ABC):
 
         # Update progress
         if context.item_id:
-            await self.progress_tracker.record_item_start(
+            self.progress_tracker.record_item_started(
                 context.session_id,
                 context.item_id,
                 context.content_type or self.content_type,
@@ -279,11 +277,11 @@ class EnhancedAgentBase(ABC):
 
                 # Update progress with failure
                 if context.item_id:
-                    await self.progress_tracker.record_item_completion(
+                    self.progress_tracker.record_item_failed(
                         context.session_id,
                         context.item_id,
                         context.content_type or self.content_type,
-                        False,
+                        str(e),
                     )
 
                 # Return error result with fallback content if available
@@ -412,6 +410,7 @@ class EnhancedAgentBase(ABC):
     async def _generate_and_parse_json(
         self,
         prompt: str,
+        context: Optional[AgentExecutionContext] = None,
         model_name: str = "gemini-2.0-flash",
         temperature: float = 0.7,
     ) -> Dict[str, Any]:
@@ -439,8 +438,8 @@ class EnhancedAgentBase(ABC):
 
         try:
             # Generate response from LLM
-            response = await llm_service.generate_async(
-                prompt=prompt, model=model_name, temperature=temperature
+            response = await llm_service.generate_content(
+                prompt=prompt, session_id=context.session_id if hasattr(context, 'session_id') else None
             )
 
         except Exception as e:
@@ -478,20 +477,44 @@ class EnhancedAgentBase(ABC):
             str: Cleaned JSON string
         """
         # Remove markdown code blocks
-        response = re.sub(r"```json\s*", "", response)
+        response = re.sub(r"```(?:json)?\s*", "", response)
         response = re.sub(r"```\s*$", "", response)
 
         # Remove leading/trailing whitespace
         response = response.strip()
 
-        # Try to find JSON object boundaries
+        # Try to find JSON object boundaries with proper bracket counting
         json_start = response.find("{")
-        json_end = response.rfind("}") + 1
+        if json_start == -1:
+            # No opening brace found, return as-is
+            return response
 
-        if json_start != -1 and json_end > json_start:
-            return response[json_start:json_end]
+        # Count braces to find the matching closing brace
+        brace_count = 0
+        json_end = -1
 
-        # If no clear JSON boundaries, return cleaned response
+        for i in range(json_start, len(response)):
+            if response[i] == "{":
+                brace_count += 1
+            elif response[i] == "}":
+                brace_count -= 1
+                if brace_count == 0:
+                    json_end = i + 1
+                    break
+
+        if json_end > json_start:
+            extracted = response[json_start:json_end]
+            # Basic validation - try to parse to ensure it's valid JSON
+            try:
+                import json
+
+                json.loads(extracted)
+                return extracted
+            except json.JSONDecodeError:
+                # If extracted JSON is invalid, return the original response
+                pass
+
+        # If no clear JSON boundaries or invalid JSON, return cleaned response
         return response
 
     @abstractmethod
@@ -512,6 +535,3 @@ class EnhancedAgentBase(ABC):
                             that have been updated.
         """
         raise NotImplementedError("Subclasses must implement run_as_node method")
-
-
-# Legacy AgentBase class removed - all agents now use EnhancedAgentBase

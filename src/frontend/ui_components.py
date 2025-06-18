@@ -2,7 +2,7 @@
 import streamlit as st
 from pathlib import Path
 from typing import Optional
-from src.orchestration.state import AgentState
+from ..orchestration.state import AgentState
 from .callbacks import handle_user_action
 
 

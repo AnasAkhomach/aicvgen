@@ -4,7 +4,7 @@ Your task is to act as an expert job description analyzer. Extract the key infor
 
 **Job Description:**
 ```
-{{raw_text}}
+{raw_text}
 ```
 
 **Instructions:**
@@ -14,11 +14,11 @@ Your task is to act as an expert job description analyzer. Extract the key infor
 
 **JSON Schema:**
 ```json
-{
+{{
   "skills": ["string"],
   "experience_level": "string",
   "responsibilities": ["string"],
   "industry_terms": ["string"],
   "company_values": ["string"]
-}
+}}
 ```

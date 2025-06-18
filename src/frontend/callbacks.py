@@ -2,7 +2,7 @@
 import streamlit as st
 import asyncio
 from typing import Optional
-from src.orchestration.state import AgentState, UserFeedback
+from ..orchestration.state import AgentState, UserFeedback
 
 
 def handle_user_action(action: str, item_id: str):
@@ -56,8 +56,8 @@ def _execute_workflow_in_thread(initial_state: AgentState, trace_id: str):
     The target function for the background thread.
     Executes the LangGraph workflow in a separate thread to avoid blocking the UI.
     """
-    from src.orchestration.cv_workflow_graph import cv_graph_app
-    from src.config.logging_config import setup_logging
+    from ..orchestration.cv_workflow_graph import cv_graph_app
+    from ..config.logging_config import setup_logging
 
     logger = setup_logging()
 
@@ -115,7 +115,7 @@ def handle_workflow_execution(trace_id: str = None):
     Args:
         trace_id: Optional trace ID for observability tracking
     """
-    from src.config.logging_config import setup_logging
+    from ..config.logging_config import setup_logging
     import uuid
 
     logger = setup_logging()
@@ -130,7 +130,7 @@ def handle_workflow_execution(trace_id: str = None):
             "agent_state" not in st.session_state
             or st.session_state.agent_state is None
         ):
-            from src.core.state_helpers import create_agent_state_from_ui
+            from ..core.state_helpers import create_agent_state_from_ui
 
             st.session_state.agent_state = create_agent_state_from_ui()
 

@@ -24,7 +24,7 @@ from pythonjsonlogger.jsonlogger import JsonFormatter
 
 # Import security utilities for credential redaction
 try:
-    from src.utils.security_utils import redact_sensitive_data, redact_log_message
+    from ..utils.security_utils import redact_sensitive_data, redact_log_message
 except ImportError:
     # Fallback if security utils not available
     def redact_sensitive_data(data):
@@ -57,9 +57,32 @@ class SensitiveDataFilter(logging.Filter):
             elif isinstance(record.args, dict):
                 record.args = redact_sensitive_data(record.args)
 
-        # Redact sensitive data in record.extra if present
-        if hasattr(record, 'extra') and record.extra:
-            record.extra = redact_sensitive_data(record.extra)
+        # Redact sensitive data in record.__dict__ safely
+        # We need to be very careful not to interfere with Python's internal logging attributes
+        try:
+            # Create a safe copy of attributes to modify
+            safe_attrs = {}
+            for key, value in record.__dict__.items():
+                # Skip Python logging internal attributes that should not be modified
+                if key in ('name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 
+                          'filename', 'module', 'lineno', 'funcName', 'created', 'msecs',
+                          'relativeCreated', 'thread', 'threadName', 'processName', 
+                          'process', 'getMessage', 'exc_info', 'exc_text', 'stack_info'):
+                    continue
+                    
+                # Only redact custom attributes that might contain sensitive data
+                if isinstance(value, (str, dict, list, tuple)):
+                    safe_attrs[key] = redact_sensitive_data(value)
+                else:
+                    safe_attrs[key] = value
+            
+            # Update the record with redacted custom attributes
+            for key, value in safe_attrs.items():
+                setattr(record, key, value)
+                
+        except (TypeError, AttributeError, KeyError):
+            # If we can't safely process attributes, leave them as is
+            pass
 
         # Redact the message itself if it contains sensitive patterns
         if hasattr(record, 'msg') and isinstance(record.msg, str):
@@ -138,7 +161,7 @@ class RateLimitLog:
 
 
 # Import agent logging dataclasses from data models for clean architecture
-from src.models.data_models import (
+from ..models.data_models import (
     AgentExecutionLog,
     AgentDecisionLog,
     AgentPerformanceLog
@@ -224,7 +247,7 @@ class StructuredLogger:
 
         self.performance_logger.info(json.dumps(log_entry))
 
-    def info(self, message: str, extra=None, **kwargs):
+    def info(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log info message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
@@ -233,14 +256,20 @@ class StructuredLogger:
         if kwargs:
             log_data.update(kwargs)
 
+        # Prepare logging arguments
+        log_kwargs = {}
+        if exc_info is not None:
+            log_kwargs['exc_info'] = exc_info
+
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            self.logger.info(message, extra=safe_log_data)
+            log_kwargs['extra'] = safe_log_data
+            self.logger.info(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
-            self.logger.info(safe_message)
+            self.logger.info(safe_message, **log_kwargs)
 
-    def error(self, message: str, extra=None, **kwargs):
+    def error(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log error message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
@@ -249,14 +278,20 @@ class StructuredLogger:
         if kwargs:
             log_data.update(kwargs)
 
+        # Prepare logging arguments
+        log_kwargs = {}
+        if exc_info is not None:
+            log_kwargs['exc_info'] = exc_info
+
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            self.logger.error(message, extra=safe_log_data)
+            log_kwargs['extra'] = safe_log_data
+            self.logger.error(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
-            self.logger.error(safe_message)
+            self.logger.error(safe_message, **log_kwargs)
 
-    def warning(self, message: str, extra=None, **kwargs):
+    def warning(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log warning message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
@@ -265,14 +300,20 @@ class StructuredLogger:
         if kwargs:
             log_data.update(kwargs)
 
+        # Prepare logging arguments
+        log_kwargs = {}
+        if exc_info is not None:
+            log_kwargs['exc_info'] = exc_info
+
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            self.logger.warning(message, extra=safe_log_data)
+            log_kwargs['extra'] = safe_log_data
+            self.logger.warning(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
-            self.logger.warning(safe_message)
+            self.logger.warning(safe_message, **log_kwargs)
 
-    def debug(self, message: str, extra=None, **kwargs):
+    def debug(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log debug message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
@@ -281,12 +322,18 @@ class StructuredLogger:
         if kwargs:
             log_data.update(kwargs)
 
+        # Prepare logging arguments
+        log_kwargs = {}
+        if exc_info is not None:
+            log_kwargs['exc_info'] = exc_info
+
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            self.logger.debug(message, extra=safe_log_data)
+            log_kwargs['extra'] = safe_log_data
+            self.logger.debug(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
-            self.logger.debug(safe_message)
+            self.logger.debug(safe_message, **log_kwargs)
 
 
 def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True, config=None):
@@ -301,7 +348,7 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
     """
     # Import here to avoid circular imports
     try:
-        from src.config.environment import config as app_config
+        from ..config.environment import config as app_config
         if config is None:
             config = app_config
     except ImportError:
@@ -457,8 +504,8 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    logging.info(f"Logging initialized - Level: {logging.getLevelName(log_level)}")
-    logging.info(f"Log files location: {logs_dir.absolute()}")
+    logging.info("Logging initialized - Level: %s", logging.getLevelName(log_level))
+    logging.info("Log files location: %s", logs_dir.absolute())
 
     # Return the root logger
     return logging.getLogger()
@@ -506,7 +553,7 @@ def log_function_performance(func_name: str, duration: float, **kwargs):
         "timestamp": datetime.now().isoformat(),
         **kwargs
     }
-    perf_logger.info(f"PERFORMANCE: {json.dumps(metrics)}")
+    perf_logger.info("PERFORMANCE: %s", json.dumps(metrics))
 
 
 def log_security_event(event_type: str, details: Dict[str, Any] = None, severity: str = "info"):
@@ -572,10 +619,12 @@ def log_request(request_info: dict):
     """Log HTTP request information."""
     access_logger = logging.getLogger("access")
     access_logger.info(
-        f"{request_info.get('method', 'UNKNOWN')} {request_info.get('path', '/')} - "
-        f"Status: {request_info.get('status', 'UNKNOWN')} - "
-        f"Duration: {request_info.get('duration', 0):.3f}s - "
-        f"IP: {request_info.get('ip', 'UNKNOWN')}"
+        "%s %s - Status: %s - Duration: %.3fs - IP: %s",
+        request_info.get('method', 'UNKNOWN'),
+        request_info.get('path', '/'),
+        request_info.get('status', 'UNKNOWN'),
+        request_info.get('duration', 0),
+        request_info.get('ip', 'UNKNOWN')
     )
 
 

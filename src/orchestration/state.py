@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 import uuid
 
-from src.models.data_models import JobDescriptionData, StructuredCV, UserFeedback
+from ..models.data_models import JobDescriptionData, StructuredCV, UserFeedback
 
 
 class AgentState(BaseModel):

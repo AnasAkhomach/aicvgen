@@ -19,6 +19,9 @@ from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext
 from ..config.logging_config import get_structured_logger
 from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
 from ..models.data_models import ContentType
+from ..services.session_manager import get_session_manager
+from ..services.error_recovery import get_error_recovery_service
+from ..services.progress_tracker import get_progress_tracker
 
 logger = get_structured_logger(__name__)
 

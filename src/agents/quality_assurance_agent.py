@@ -1,6 +1,6 @@
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.services.llm_service import get_llm_service
-from src.core.state_manager import (
+from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from ..services.llm_service import get_llm_service
+from ..core.state_manager import (
     ContentData,
     AgentIO,
     StructuredCV,
@@ -15,13 +15,13 @@ import logging
 from datetime import datetime
 import re
 import asyncio
-from src.orchestration.state import AgentState
-from src.core.async_optimizer import optimize_async
-from src.models.data_models import StructuredCV as PydanticStructuredCV
+from ..orchestration.state import AgentState
+from ..core.async_optimizer import optimize_async
+from ..models.data_models import StructuredCV as PydanticStructuredCV
 
 # Set up structured logging
-from src.config.logging_config import get_structured_logger
-from src.models.data_models import AgentDecisionLog, AgentExecutionLog
+from ..config.logging_config import get_structured_logger
+from ..models.data_models import AgentDecisionLog, AgentExecutionLog
 
 logger = get_structured_logger(__name__)
 
@@ -69,26 +69,24 @@ class QualityAssuranceAgent(EnhancedAgentBase):
         )
         self.llm = llm_service or get_llm_service()
 
-    # Legacy run method removed - use run_as_node for LangGraph integration
-
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
     ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
-        from src.models.validation_schemas import validate_agent_input, ValidationError
+        from ..models.validation_schemas import validate_agent_input, ValidationError
 
         try:
             # Validate input data using Pydantic schemas
             try:
                 validated_input = validate_agent_input("quality_assurance", input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
+                # Use validated input data directly
+                input_data = validated_input
                 # Log validation success with structured logging
                 self.log_decision(
                     "Input validation passed for QualityAssuranceAgent",
                     context,
-                    "validation"
+                    "validation",
                 )
             except ValidationError as ve:
                 logger.error(
@@ -151,8 +149,8 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
             # Use run_as_node for LangGraph integration
             # Create AgentState for run_as_node compatibility
-            from src.orchestration.state import AgentState
-            from src.models.data_models import StructuredCV, JobDescriptionData
+            from ..orchestration.state import AgentState
+            from ..models.data_models import StructuredCV, JobDescriptionData
 
             # Create proper StructuredCV and JobDescriptionData objects
             structured_cv = input_data.get("structured_cv") or StructuredCV()
@@ -167,7 +165,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             )
 
             node_result = await self.run_as_node(agent_state)
-            result = node_result.get("output_data", {})
+            result = node_result.get("output_data", {}) if node_result else {}
 
             return AgentResult(
                 success=True,
@@ -226,6 +224,10 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             "industry_terms": [],
             "company_values": [],
         }
+
+        # Handle None case
+        if job_description_data is None:
+            return key_terms
 
         # Extract from dict or object
         if hasattr(job_description_data, "get") and callable(job_description_data.get):
@@ -467,7 +469,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                     }
                 )
 
-        elif item.item_type == ItemType.SUMMARY_PARAGRAPH:
+        elif item.item_type == ItemType.EXECUTIVE_SUMMARY_PARA:
             if word_count < 30:
                 item_result["checks"].append(
                     {

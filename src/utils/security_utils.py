@@ -15,28 +15,47 @@ class RedactionConfig:
     """Configuration for data redaction."""
 
     # Sensitive field patterns (case-insensitive)
-    sensitive_fields: List[str] = field(default_factory=lambda: [
-        'api_key', 'apikey', 'api-key',
-        'password', 'passwd', 'pwd',
-        'secret', 'token', 'auth',
-        'credential', 'key', 'private',
-        'gemini_api_key', 'openai_api_key',
-        'authorization', 'bearer',
-        'session_id', 'session-id',
-        'user_id', 'user-id',
-        'email', 'phone', 'ssn',
-        'credit_card', 'card_number'
-    ])
+    sensitive_fields: List[str] = field(
+        default_factory=lambda: [
+            "api_key",
+            "apikey",
+            "api-key",
+            "password",
+            "passwd",
+            "pwd",
+            "secret",
+            "token",
+            "auth",
+            "credential",
+            "key",
+            "private",
+            "gemini_api_key",
+            "openai_api_key",
+            "authorization",
+            "bearer",
+            "session_id",
+            "session-id",
+            "user_id",
+            "user-id",
+            "email",
+            "phone",
+            "ssn",
+            "credit_card",
+            "card_number",
+        ]
+    )
 
     # Regex patterns for sensitive data
-    sensitive_patterns: List[str] = field(default_factory=lambda: [
-        r'AIza[0-9A-Za-z\-_]{35}',  # Google API keys
-        r'sk-[a-zA-Z0-9]{48}',      # OpenAI API keys
-        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email addresses
-        r'\b\d{3}-\d{2}-\d{4}\b',   # SSN format
-        r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b',  # Credit card format
-        r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',  # UUIDs
-    ])
+    sensitive_patterns: List[str] = field(
+        default_factory=lambda: [
+            r"AIza[0-9A-Za-z\-_]{35}",  # Google API keys
+            r"sk-[a-zA-Z0-9]{48}",  # OpenAI API keys
+            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",  # Email addresses
+            r"\b\d{3}-\d{2}-\d{4}\b",  # SSN format
+            r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",  # Credit card format
+            r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",  # UUIDs
+        ]
+    )
 
     # Replacement text
     redaction_text: str = "[REDACTED]"
@@ -74,9 +93,15 @@ class CredentialRedactor:
 
         # Apply regex patterns
         for pattern in self._compiled_patterns:
-            if pattern.pattern.startswith(r'\b[A-Za-z0-9._%+-]+@') and not self.config.redact_emails:
+            if (
+                pattern.pattern.startswith(r"\b[A-Za-z0-9._%+-]+@")
+                and not self.config.redact_emails
+            ):
                 continue
-            if pattern.pattern.startswith(r'\b[0-9a-f]{8}-') and not self.config.redact_uuids:
+            if (
+                pattern.pattern.startswith(r"\b[0-9a-f]{8}-")
+                and not self.config.redact_uuids
+            ):
                 continue
             redacted_text = pattern.sub(self.config.redaction_text, redacted_text)
 
@@ -260,9 +285,9 @@ def create_safe_config_dict(config_obj: Any) -> Dict[str, Any]:
         Dictionary with sensitive fields redacted
     """
     try:
-        if hasattr(config_obj, '__dict__'):
+        if hasattr(config_obj, "__dict__"):
             config_dict = config_obj.__dict__.copy()
-        elif hasattr(config_obj, '_asdict'):
+        elif hasattr(config_obj, "_asdict"):
             config_dict = config_obj._asdict()
         elif isinstance(config_obj, dict):
             config_dict = config_obj.copy()
@@ -303,9 +328,9 @@ def validate_no_secrets_in_logs(log_content: str) -> List[str]:
 
     # Check for API key patterns
     api_key_patterns = [
-        (r'AIza[0-9A-Za-z\-_]{35}', 'Google API key'),
-        (r'sk-[a-zA-Z0-9]{48}', 'OpenAI API key'),
-        (r'[a-zA-Z0-9]{32,}', 'Potential API key or token'),
+        (r"AIza[0-9A-Za-z\-_]{35}", "Google API key"),
+        (r"sk-[a-zA-Z0-9]{48}", "OpenAI API key"),
+        (r"[a-zA-Z0-9]{32,}", "Potential API key or token"),
     ]
 
     for pattern, description in api_key_patterns:

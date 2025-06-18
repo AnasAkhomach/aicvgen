@@ -14,7 +14,7 @@ from typing import Dict, Any, List
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.agent_base import AgentExecutionContext, AgentResult
 from src.models.data_models import StructuredCV, Section, Item, ItemStatus
-from src.models.workflow_models import AgentState
+from src.orchestration.state import AgentState
 from src.services.llm_service import LLMService
 
 

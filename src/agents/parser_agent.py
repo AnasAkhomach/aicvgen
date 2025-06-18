@@ -1,8 +1,8 @@
-from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.services.llm_service import get_llm_service
-from src.services.vector_db import get_enhanced_vector_db
+from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from ..services.llm_service import get_llm_service
+from ..services.vector_db import get_enhanced_vector_db
 from .agent_base import EnhancedAgentBase
-from src.models.data_models import (
+from ..models.data_models import (
     JobDescriptionData,
     StructuredCV,
     Section,
@@ -19,13 +19,13 @@ from src.models.data_models import (
     Certification,
     Language,
 )
-from src.config.logging_config import get_structured_logger
-from src.models.data_models import AgentDecisionLog, AgentExecutionLog
-from src.config.settings import get_config
-from src.services.llm import LLMResponse
-from src.orchestration.state import AgentState
-from src.core.async_optimizer import optimize_async
-from src.utils.exceptions import (
+from ..config.logging_config import get_structured_logger
+from ..models.data_models import AgentDecisionLog, AgentExecutionLog
+from ..config.settings import get_config
+from ..services.llm_service import LLMResponse
+from ..orchestration.state import AgentState
+from ..core.async_optimizer import optimize_async
+from ..utils.exceptions import (
     LLMResponseParsingError,
     ValidationError,
     WorkflowPreconditionError,
@@ -47,6 +47,7 @@ class ParserAgent(EnhancedAgentBase):
     """Agent responsible for parsing job descriptions and extracting key information, and parsing CVs into StructuredCV objects."""
 
     def __init__(self, name: str, description: str, llm_service=None, llm=None):
+        self._job_data = {}  # Initialize job data storage
         """
         Initialize the ParserAgent.
 
@@ -148,7 +149,7 @@ class ParserAgent(EnhancedAgentBase):
             parsed_data = json.loads(json_str)
 
             # 4. Validate with Pydantic
-            from src.models.validation_schemas import LLMJobDescriptionOutput
+            from ..models.validation_schemas import LLMJobDescriptionOutput
 
             validated_output = LLMJobDescriptionOutput.model_validate(parsed_data)
 
@@ -1301,8 +1302,8 @@ class ParserAgent(EnhancedAgentBase):
         but is not the primary execution path for LangGraph workflows.
         """
         from .agent_base import AgentResult
-        from src.orchestration.state import AgentState
-        from src.models.data_models import JobDescriptionData, StructuredCV
+        from ..orchestration.state import AgentState
+        from ..models.data_models import JobDescriptionData, StructuredCV
 
         try:
             # Simple implementation that returns a basic result

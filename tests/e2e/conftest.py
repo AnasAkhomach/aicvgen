@@ -31,7 +31,7 @@ sys.path.insert(0, str(project_root))
 
 from src.core.enhanced_orchestrator import EnhancedOrchestrator
 from src.api.enhanced_cv_api import CVGenerationRequest
-from src.models.data_models import CVGenerationState
+from src.orchestration.state import AgentState
 from src.models.data_models import Item, ProcessingMetadata, ContentType, ItemType, ItemStatus
 from src.services.session_manager import SessionManager
 from src.core.state_manager import StateManager
