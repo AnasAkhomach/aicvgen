@@ -5,12 +5,12 @@ and contextual error information for better debugging and user experience.
 """
 
 import traceback
-import logging
 from datetime import datetime
 from enum import Enum
 from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, field
 from uuid import uuid4
+from ..config.logging_config import get_structured_logger
 
 # Import security utilities for safe error logging
 try:
@@ -141,8 +141,8 @@ class StructuredError:
 class ErrorHandler:
     """Centralized error handling and logging."""
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
-        self.logger = logger or logging.getLogger(__name__)
+    def __init__(self, logger=None):
+        self.logger = logger or get_structured_logger(__name__)
         self._error_history: List[StructuredError] = []
 
     def handle_error(

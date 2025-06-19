@@ -434,7 +434,20 @@ class EnhancedAgentBase(ABC):
         Raises:
             Exception: If LLM call fails or JSON parsing fails after retries
         """
-        llm_service = get_llm_service()
+        # Use the agent's LLM service if available, otherwise get default
+        try:
+            llm_service = getattr(self, 'llm', None) or get_llm_service()
+        except Exception as e:
+            self.logger.error(
+                f"Failed to get LLM service for agent {self.name}",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise ValueError(f"LLM service unavailable: {str(e)}") from e
+
+        if llm_service is None:
+            self.logger.error(f"LLM service is None for agent {self.name}")
+            raise ValueError("LLM service is None - initialization may have failed")
 
         try:
             # Generate response from LLM
@@ -452,7 +465,28 @@ class EnhancedAgentBase(ABC):
             raise
 
         # Clean and extract JSON from response
-        cleaned_response = self._extract_json_from_response(response)
+        # Handle LLMResponse object by extracting content
+        response_content = response.content if hasattr(response, 'content') else str(response)
+        
+        # Check if LLMResponse indicates failure
+        if hasattr(response, 'success') and not response.success:
+            error_msg = getattr(response, 'error_message', 'Unknown LLM error')
+            self.logger.error(
+                f"LLM generation failed for agent {self.name}",
+                error=error_msg,
+                response_content=response_content[:200],
+            )
+            raise ValueError(f"LLM generation failed: {error_msg}")
+        
+        # Check for empty or invalid content
+        if not response_content or response_content.strip() == "":
+            self.logger.error(
+                f"Empty response received for agent {self.name}",
+                response_preview=str(response)[:200],
+            )
+            raise ValueError("Received empty response from LLM")
+        
+        cleaned_response = self._extract_json_from_response(response_content)
 
         # Parse JSON
         try:
@@ -463,6 +497,7 @@ class EnhancedAgentBase(ABC):
                 f"JSON parsing failed for agent {self.name}",
                 error=str(e),
                 response_preview=cleaned_response[:200],
+                original_content=response_content[:200],
             )
             raise ValueError(f"Failed to parse JSON response: {str(e)}") from e
 

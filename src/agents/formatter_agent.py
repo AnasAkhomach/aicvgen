@@ -12,6 +12,12 @@ from ..config.settings import get_config
 from ..config.logging_config import get_structured_logger
 from ..services.llm_service import get_llm_service
 from ..utils.latex_utils import recursively_escape_latex
+from ..utils.agent_error_handling import (
+    AgentErrorHandler,
+    LLMErrorHandler,
+    with_error_handling,
+    with_node_error_handling
+)
 
 try:
     from weasyprint import HTML, CSS
@@ -45,13 +51,14 @@ class FormatterAgent(EnhancedAgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                description="Formats the generated CV content according to specifications.",
-                required_fields=["content_data"],
-                optional_fields=["format_specifications"],
+                description="Reads structured CV from AgentState for formatting and file generation.",
+                required_fields=["structured_cv"],
+                optional_fields=["job_description_data"],
             ),
             output_schema=AgentIO(
-                description="Formats the generated CV content according to specifications.",
-                required_fields=["formatted_cv", "output_path"],
+                description="Populates the 'final_output_path' field in AgentState with generated file location.",
+                required_fields=["final_output_path"],
+                optional_fields=["error_messages"],
             ),
         )
         self.llm_service = get_llm_service()
@@ -59,29 +66,31 @@ class FormatterAgent(EnhancedAgentBase):
     @optimize_async("agent_execution", "formatter")
     async def run_as_node(
         self, state: AgentState, config: Optional[Dict[str, Any]] = None
-    ) -> AgentState:
+    ) -> Dict[str, Any]:
         """Run the formatter agent as a node in the workflow."""
         self.logger.info("Starting CV formatting")
 
         try:
             # Execute the main run method
-            result = self.run(state)
+            result = await self.run(state)
 
-            # Update state with results
+            # Return the final output path as expected by AgentState
             if isinstance(result, dict) and result.get("final_output_path"):
-                if not hasattr(state, "formatted_output"):
-                    state.formatted_output = {}
-                state.formatted_output.update(result)
-
-            self.logger.info("CV formatting completed")
-            return state
+                self.logger.info("CV formatting completed")
+                return {"final_output_path": result["final_output_path"]}
+            else:
+                # If no output path, return empty dict
+                self.logger.warning("No final output path generated")
+                return {}
 
         except Exception as e:
-            self.logger.error(f"Error in formatter agent: {str(e)}")
-            if not hasattr(state, "errors"):
-                state.errors = []
-            state.errors.append(f"Formatter error: {str(e)}")
-            return state
+            error_result = AgentErrorHandler.handle_node_error(
+                e, "FormatterAgent", state
+            )
+            self.logger.error(f"Error in formatter agent: {error_result.error_message}")
+            error_list = state.error_messages or []
+            error_list.append(f"Formatter error: {error_result.error_message}")
+            return {"error_messages": error_list}
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
@@ -92,30 +101,23 @@ class FormatterAgent(EnhancedAgentBase):
 
         try:
             # Validate input data using Pydantic schemas
-            try:
-                validated_input = validate_agent_input("formatter", input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-            except ValidationError as ve:
+            validation_result = AgentErrorHandler.handle_validation_error(
+                lambda: validate_agent_input("formatter", input_data),
+                "FormatterAgent"
+            )
+            if not validation_result.success:
                 return AgentResult(
                     success=False,
                     output_data={
                         "formatted_cv_text": "# Validation Error\n\nInput data validation failed."
                     },
                     confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
+                    error_message=validation_result.error_message,
                     metadata={"agent_type": "formatter", "validation_error": True},
                 )
-            except Exception as e:
-                return AgentResult(
-                    success=False,
-                    output_data={
-                        "formatted_cv_text": "# Validation Error\n\nInput data validation failed."
-                    },
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
-                    metadata={"agent_type": "formatter", "validation_error": True},
-                )
+            
+            # Convert validated Pydantic model back to dict for processing
+            input_data = validation_result.result.model_dump()
 
             # Process the formatting directly
             content_data = input_data.get("content_data")
@@ -147,13 +149,16 @@ class FormatterAgent(EnhancedAgentBase):
             )
 
         except Exception as e:
+            error_result = AgentErrorHandler.handle_agent_error(
+                e, "FormatterAgent", context
+            )
             return AgentResult(
                 success=False,
                 output_data={
                     "formatted_cv_text": "# Error formatting CV\n\nAn error occurred during formatting."
                 },
                 confidence_score=0.0,
-                error_message=str(e),
+                error_message=error_result.error_message,
                 metadata={"agent_type": "formatter"},
             )
 
@@ -642,7 +647,7 @@ Format this into a professional CV in markdown format:
 
         return formatted_text
 
-    def run(self, state_or_content: Any) -> Dict[str, Any]:
+    async def run(self, state_or_content: Any) -> Dict[str, Any]:
         """
         Main run method for the formatter agent.
 

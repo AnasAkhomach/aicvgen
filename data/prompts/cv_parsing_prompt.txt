@@ -1,0 +1,83 @@
+You are an expert CV parser. Your task is to parse the provided CV text and extract structured information into a specific JSON format.
+
+Please analyze the CV text and extract the following information:
+
+1. **Personal Information**: Name, email, phone, LinkedIn, GitHub, location
+2. **Sections**: Organize content into logical sections with subsections and items
+3. **Content Classification**: Identify the type and status of each content item
+
+Return your response as a JSON object with this exact structure:
+
+```json
+{
+  "personal_info": {
+    "name": "Full Name",
+    "email": "email@example.com",
+    "phone": "+1234567890",
+    "linkedin": "https://linkedin.com/in/username",
+    "github": "https://github.com/username",
+    "location": "City, State/Country"
+  },
+  "sections": [
+    {
+      "name": "Section Name",
+      "content_type": "DYNAMIC",
+      "subsections": [
+        {
+          "name": "Subsection Name",
+          "items": [
+            {
+              "content": "Item content text",
+              "item_type": "BULLET_POINT",
+              "status": "INITIAL"
+            }
+          ]
+        }
+      ],
+      "items": [
+        {
+          "content": "Direct section item content",
+          "item_type": "BULLET_POINT",
+          "status": "INITIAL"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Important Guidelines:**
+
+1. **Section Classification**:
+   - Use `"content_type": "DYNAMIC"` for sections that should be tailored to job descriptions: Executive Summary, Key Qualifications, Professional Experience, Project Experience
+   - Use `"content_type": "STATIC"` for sections that remain constant: Education, Certifications, Languages, etc.
+
+2. **Item Types** (use these exact values):
+   - `"BULLET_POINT"` - General bullet points
+   - `"KEY_QUALIFICATION"` - Skills and qualifications
+   - `"EXECUTIVE_SUMMARY_PARA"` - Executive summary paragraphs
+   - `"EDUCATION_ENTRY"` - Education entries
+   - `"CERTIFICATION_ENTRY"` - Certification entries
+   - `"LANGUAGE_ENTRY"` - Language proficiency entries
+   - `"SUMMARY_PARAGRAPH"` - Summary text paragraphs
+
+3. **Item Status** (use these exact values):
+   - `"INITIAL"` - For dynamic content that can be tailored
+   - `"STATIC"` - For content that should remain unchanged
+
+4. **Section Organization**:
+   - Create subsections for grouped content (e.g., individual jobs, projects, education entries)
+   - Use direct section items for ungrouped content (e.g., summary paragraphs, skill lists)
+   - Preserve the logical structure and hierarchy of the original CV
+
+5. **Content Extraction**:
+   - Extract all meaningful content, including achievements, responsibilities, and technical details
+   - Maintain the original wording while ensuring clarity
+   - Group related items logically under appropriate subsections
+
+6. **Missing Information**:
+   - If personal information is not available, use empty strings
+   - If sections are empty, include them with empty arrays
+   - Ensure all required fields are present in the JSON structure
+
+Return only the JSON object, no additional text or explanations.

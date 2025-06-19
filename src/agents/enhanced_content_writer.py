@@ -4,6 +4,7 @@ import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
+# ValidationError imported from utils.exceptions
 
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..services.llm_service import get_llm_service
@@ -28,6 +29,7 @@ from ..models.data_models import (
 )
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
+from ..models.validation_schemas import validate_agent_input
 from ..utils.exceptions import (
     ValidationError,
     LLMResponseParsingError,
@@ -35,6 +37,12 @@ from ..utils.exceptions import (
     AgentExecutionError,
     ConfigurationError,
     StateManagerError,
+)
+from ..utils.agent_error_handling import (
+    AgentErrorHandler,
+    LLMErrorHandler,
+    with_error_handling,
+    with_node_error_handling
 )
 
 logger = get_structured_logger("enhanced_content_writer")
@@ -54,12 +62,14 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                description="Generates enhanced CV content with structured logging and error handling",
-                required_fields=["job_description_data", "content_item", "context"],
+                description="Reads structured CV, current item ID, and optional research data from AgentState for content generation.",
+                required_fields=["structured_cv", "current_item_id"],
+                optional_fields=["job_description_data", "research_findings"],
             ),
             output_schema=AgentIO(
-                description="Generated content with metadata and quality metrics",
-                required_fields=["content", "metadata", "quality_metrics"],
+                description="Updates the 'structured_cv' field in AgentState with enhanced content.",
+                required_fields=["structured_cv"],
+                optional_fields=["error_messages"],
             ),
             content_type=content_type,
         )
@@ -91,325 +101,55 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     async def run_async(
         self, input_data: Any, context: AgentExecutionContext
     ) -> AgentResult:
-        """Enhanced async content generation with structured processing and granular item support."""
-
+        """Simplified content generation focused on single-item processing.
+        
+        This method now exclusively processes one item at a time as specified by current_item_id.
+        The complex validation and batch processing logic has been removed for Task 3.3.
+        
+        Args:
+            input_data: Expected to contain structured_cv, job_description_data, and current_item_id
+            context: Agent execution context
+            
+        Returns:
+            AgentResult with updated structured_cv or error information
+        """
         try:
-            # Use provided input_data or fallback to context.input_data
-            if input_data is None:
-                input_data = context.input_data or {}
-
-            # Basic input validation
+            # Simple input validation - expect dictionary with required fields
             if not isinstance(input_data, dict):
-                logger.error(
-                    f"Input validation failed for EnhancedContentWriter: expected dict, got {type(input_data)}"
+                return self._create_error_result(
+                    {}, context, ValueError("Input must be a dictionary"), "validation"
                 )
-                return AgentResult(
-                    success=False,
-                    output_data={"error": "Input validation failed"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation failed: expected dict, got {type(input_data)}",
-                    metadata={
-                        "agent_type": "enhanced_content_writer",
-                        "validation_error": True,
-                    },
-                )
-
-            # Debug: Log input_data type and content
-            logger.info(
-                f"EnhancedContentWriter received input_data type: {type(input_data)}"
-            )
-            logger.info(f"EnhancedContentWriter received input_data: {input_data}")
-
-            # Extract and validate input data with enhanced defensive programming
-            job_data = input_data.get("job_description_data", {})
-
-            # Check for granular processing mode (Task 3.1)
-            current_item_id = input_data.get("current_item_id")
+            
+            # Extract required fields
             structured_cv_data = input_data.get("structured_cv")
-
-            if current_item_id and structured_cv_data:
-                logger.info(f"Processing single item: {current_item_id}")
-                return await self._process_single_item(
-                    structured_cv_data, job_data, current_item_id
+            job_data = input_data.get("job_description_data", {})
+            current_item_id = input_data.get("current_item_id")
+            research_findings = input_data.get("research_findings")
+            
+            # Validate required fields
+            if not structured_cv_data:
+                return self._create_error_result(
+                    input_data, context, ValueError("structured_cv is required"), "validation"
                 )
-
-            # FIXED: Defensive validation for job_description_data (Fix for CI-003)
-            # This prevents AttributeError by ensuring job_data is always a valid JobDescriptionData structure
-            try:
-                from pydantic import ValidationError
-                from ..models.data_models import JobDescriptionData
-
-                raw_job_data = input_data.get("job_description_data")
-                if isinstance(raw_job_data, dict):
-                    job_data = JobDescriptionData.model_validate(raw_job_data)
-                    logger.info("job_description_data validation passed")
-                elif isinstance(raw_job_data, JobDescriptionData):
-                    job_data = raw_job_data
-                    logger.info(
-                        "job_description_data is already a valid JobDescriptionData object"
-                    )
-                else:
-                    # If it's not a dict or JobDescriptionData, it's malformed. Raise a validation error.
-                    raise ValidationError.from_exception_data(
-                        title="JobDescriptionData",
-                        line_errors=[
-                            {
-                                "loc": ("job_description_data",),
-                                "input": raw_job_data,
-                                "msg": "Input should be a valid dictionary or JobDescriptionData object",
-                            }
-                        ],
-                    )
-            except ValidationError as e:
-                logger.error(
-                    f"Input validation failed for EnhancedContentWriterAgent: {e}",
-                    exc_info=True,
+                
+            if not current_item_id:
+                return self._create_error_result(
+                    input_data, context, ValueError("current_item_id is required"), "validation"
                 )
-                return AgentResult(
-                    success=False,
-                    error_message=f"Invalid job description data structure: {e}",
-                    output_data={
-                        "error": f"Invalid job description data structure: {e}"
-                    },
-                    confidence_score=0.0,
-                    metadata={
-                        "agent_type": "enhanced_content_writer",
-                        "validation_error": True,
-                    },
-                )
-            except Exception as validation_error:
-                logger.error(
-                    f"job_description_data validation failed: {str(validation_error)}"
-                )
-                return AgentResult(
-                    success=False,
-                    error_message=f"Job description data validation error: {str(validation_error)}",
-                    output_data={
-                        "error": f"Job description data validation error: {str(validation_error)}"
-                    },
-                    confidence_score=0.0,
-                    metadata={
-                        "agent_type": "enhanced_content_writer",
-                        "validation_error": True,
-                    },
-                )
-
-            # Enhanced type checking and validation for job_data parameter
-            if isinstance(job_data, str):
-                logger.warning(
-                    f"DATA STRUCTURE MISMATCH: job_description_data is a string instead of dict. "
-                    f"String length: {len(job_data)}, Preview: {job_data[:100]}..."
-                )
-                # Convert string job description to a structured JobDescriptionData format
-                job_data = {
-                    "raw_text": job_data,
-                    "skills": [],
-                    "experience_level": "N/A",
-                    "responsibilities": [],
-                    "industry_terms": [],
-                    "company_values": [],
-                }
-                logger.info(
-                    "Successfully converted string job_description_data to structured format"
-                )
-            elif isinstance(job_data, dict):
-                # Validate required fields and add missing ones with detailed logging
-                required_fields = [
-                    "raw_text",
-                    "skills",
-                    "experience_level",
-                    "responsibilities",
-                    "industry_terms",
-                    "company_values",
-                ]
-                missing_fields = [
-                    field for field in required_fields if field not in job_data
-                ]
-
-                if missing_fields:
-                    logger.warning(
-                        f"DATA STRUCTURE INCOMPLETE: job_description_data missing fields: {missing_fields}. "
-                        f"Available fields: {list(job_data.keys())}"
-                    )
-                    # Add missing fields with default values
-                    for field in missing_fields:
-                        if field == "raw_text":
-                            job_data[field] = job_data.get("description", "")
-                        elif field == "experience_level":
-                            job_data[field] = "N/A"
-                        else:
-                            job_data[field] = []
-                    logger.info(
-                        f"Added missing fields to job_description_data: {missing_fields}"
-                    )
-                else:
-                    logger.debug("job_description_data structure validation passed")
-            elif job_data is None:
-                logger.error("DATA STRUCTURE ERROR: job_description_data is None")
-                job_data = {
-                    "raw_text": "",
-                    "skills": [],
-                    "experience_level": "N/A",
-                    "responsibilities": [],
-                    "industry_terms": [],
-                    "company_values": [],
-                }
-            else:
-                logger.error(
-                    f"DATA STRUCTURE ERROR: job_description_data has unexpected type {type(job_data)}. "
-                    f"Value: {job_data}. Converting to empty structured format."
-                )
-                job_data = {
-                    "raw_text": str(job_data) if job_data else "",
-                    "skills": [],
-                    "experience_level": "N/A",
-                    "responsibilities": [],
-                    "industry_terms": [],
-                    "company_values": [],
-                }
-
-            # Enhanced validation for content_item with detailed error logging
-            content_item = input_data.get("content_item", {})
-            if not isinstance(content_item, dict):
-                logger.error(
-                    f"DATA STRUCTURE ERROR: content_item has unexpected type {type(content_item)}. "
-                    f"Value: {content_item}. Converting to empty dict."
-                )
-                content_item = {}
-
-            # Validate content_item structure
-            if content_item:
-                required_content_fields = ["type", "data"]
-                missing_content_fields = [
-                    field
-                    for field in required_content_fields
-                    if field not in content_item
-                ]
-                if missing_content_fields:
-                    logger.warning(
-                        f"DATA STRUCTURE INCOMPLETE: content_item missing fields: {missing_content_fields}. "
-                        f"Available fields: {list(content_item.keys())}"
-                    )
-                    # Add missing fields with defaults
-                    if "type" not in content_item:
-                        content_item["type"] = "unknown"
-                    if "data" not in content_item:
-                        content_item["data"] = {}
-                else:
-                    logger.debug("content_item structure validation passed")
-
-            # Enhanced validation for generation_context
-            generation_context = input_data.get(
-                "generation_context", input_data.get("context", {})
+            
+            # Process the single item
+            result = await self._process_single_item(
+                structured_cv_data, job_data, current_item_id, research_findings
             )
-            if not isinstance(generation_context, dict):
-                logger.error(
-                    f"DATA STRUCTURE ERROR: context has unexpected type {type(generation_context)}. "
-                    f"Value: {generation_context}. Converting to empty dict."
-                )
-                generation_context = {}
-
-            # Determine content type
-            content_type = context.content_type or self._determine_content_type(
-                content_item
-            )
-
-            # Log generation start
-            self.log_decision(
-                f"Starting content generation for {content_type.value}",
-                context if hasattr(context, "session_id") else None,
-            )
-
-            # Generate content using LLM service
-            generated_content = await self._generate_content_with_llm(
-                job_data, content_item, generation_context, content_type, context
-            )
-
-            # Post-process and validate content
-            processed_content = await self._post_process_content(
-                generated_content, content_type, context
-            )
-
-            # Calculate confidence score
-            confidence = self._calculate_confidence_score(
-                processed_content, job_data, content_item
-            )
-
-            # Prepare result
-            result_data = {
-                "content": processed_content.content,
-                "content_type": content_type.value,
-                "confidence_score": confidence,
-                "tokens_used": processed_content.tokens_used,
-                "processing_time": processed_content.processing_time,
-                "metadata": {
-                    "job_title": job_data.get("title", "Unknown"),
-                    "content_length": len(processed_content.content),
-                    "llm_model": processed_content.model_used,
-                    "generation_timestamp": datetime.now().isoformat(),
-                    **processed_content.metadata,
-                },
-            }
-
-            self.log_decision(
-                f"Content generation completed successfully for {content_type.value}",
-                context if hasattr(context, "session_id") else None,
-            )
-
-            return AgentResult(
-                success=True,
-                output_data=result_data,
-                confidence_score=confidence,
-                processing_time=processed_content.processing_time,
-                metadata=result_data["metadata"],
-            )
-
-        except (ValidationError, LLMResponseParsingError) as parse_error:
-            logger.error(
-                "Content parsing/validation failed",
-                session_id=getattr(context, "session_id", None),
-                item_id=getattr(context, "item_id", None),
-                error=str(parse_error),
-                agent_name=self.name,
-                error_type="parsing_validation",
-            )
-            return self._create_error_result(
-                input_data, context, parse_error, "parsing_validation"
-            )
-        except (ConfigurationError, StateManagerError) as system_error:
-            logger.error(
-                "System configuration error during content generation",
-                session_id=getattr(context, "session_id", None),
-                item_id=getattr(context, "item_id", None),
-                error=str(system_error),
-                agent_name=self.name,
-                error_type="system",
-            )
-            return self._create_error_result(
-                input_data, context, system_error, "system"
-            )
-        except AgentExecutionError as agent_error:
-            logger.error(
-                "Agent execution error during content generation",
-                session_id=getattr(context, "session_id", None),
-                item_id=getattr(context, "item_id", None),
-                error=str(agent_error),
-                agent_name=self.name,
-                error_type="agent_execution",
-            )
-            return self._create_error_result(
-                input_data, context, agent_error, "agent_execution"
-            )
+            
+            return result
+            
         except Exception as e:
-            logger.error(
-                "Unexpected error during content generation",
-                session_id=getattr(context, "session_id", None),
-                item_id=getattr(context, "item_id", None),
-                error=str(e),
-                agent_name=self.name,
-                error_type="unexpected",
+            # Use standardized error handling
+            fallback_data = AgentErrorHandler.create_fallback_data("content_writer")
+            return AgentErrorHandler.handle_general_error(
+                e, "content_writer", fallback_data, "run_async"
             )
-            return self._create_error_result(input_data, context, e, "unexpected")
 
     async def _generate_content_with_llm(
         self,
@@ -444,7 +184,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         # For Experience content type, parse JSON response and validate with Pydantic
         if content_type == ContentType.EXPERIENCE and response.success:
             try:
-                # Extract JSON from the response
+                # Extract JSON from the response using centralized method
                 json_content = self._extract_json_from_response(response.content)
 
                 # Parse and validate with Pydantic model
@@ -1261,7 +1001,7 @@ Description: {description[:200] if description else f'{role_title} position with
                     if job_description
                     else "No job description provided"
                 ),
-                "item_title": subsection.title,
+                "item_title": subsection.name,
                 "item_description": (
                     subsection.items[0].content
                     if subsection.items
@@ -1284,7 +1024,7 @@ Description: {description[:200] if description else f'{role_title} position with
             formatted_prompt = template.format(**context_vars)
 
             logger.info(
-                f"Built single item prompt for {subsection.title} with research insights: {bool(research_findings)}"
+                f"Built single item prompt for {subsection.name} with research insights: {bool(research_findings)}"
             )
             return formatted_prompt
 
@@ -1294,7 +1034,7 @@ Description: {description[:200] if description else f'{role_title} position with
                 job_title="Target Position",
                 company_name="Target Company",
                 job_description="No job description provided",
-                item_title=subsection.title,
+                item_title=subsection.name,
                 item_description="No existing content",
                 additional_context="CV content generation",
             )
@@ -1373,41 +1113,9 @@ Description: {description[:200] if description else f'{role_title} position with
         return content
 
     def _extract_json_from_response(self, response_content: str) -> dict:
-        """Extract JSON content from LLM response."""
-        import re
-
-        # Try to find JSON block markers
-        json_match = re.search(r"```json\s*\n(.*?)\n```", response_content, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1).strip()
-        else:
-            # Try to find content between { and }
-            start_idx = response_content.find("{")
-            if start_idx == -1:
-                raise json.JSONDecodeError(
-                    "No JSON object found in response", response_content, 0
-                )
-
-            # Find the matching closing brace
-            brace_count = 0
-            end_idx = start_idx
-            for i, char in enumerate(response_content[start_idx:], start_idx):
-                if char == "{":
-                    brace_count += 1
-                elif char == "}":
-                    brace_count -= 1
-                    if brace_count == 0:
-                        end_idx = i + 1
-                        break
-
-            if brace_count != 0:
-                raise json.JSONDecodeError(
-                    "Unmatched braces in JSON", response_content, start_idx
-                )
-
-            json_str = response_content[start_idx:end_idx]
-
-        # Parse the JSON string
+        """Extract JSON content from LLM response using centralized method."""
+        # Use the centralized JSON extraction from parent class
+        json_str = super()._extract_json_from_response(response_content)
         return json.loads(json_str)
 
     def _format_role_generation_output(self, validated_data) -> str:
@@ -1479,6 +1187,21 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         Returns:
             A dictionary containing the updated 'structured_cv'.
         """
+        # Validate input using proper validation function
+        try:
+            validated_input = validate_agent_input("enhanced_content_writer", state)
+            logger.info(
+                "Input validation passed for EnhancedContentWriterAgent",
+            )
+        except ValidationError as ve:
+            return AgentErrorHandler.handle_validation_error(
+                ve, "content_writer", state, "run_as_node"
+            )
+        except Exception as e:
+            return AgentErrorHandler.handle_node_error(
+                e, "content_writer", state, "run_as_node"
+            )
+        
         logger.info(
             f"EnhancedContentWriterAgent processing item: {state.current_item_id}"
         )
@@ -1486,7 +1209,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         if not state.current_item_id:
             logger.error("Content writer called without current_item_id")
             error_list = state.error_messages or []
-            error_list.append("ContentWriter failed: No item ID.")
+            error_list.append("ContentWriter failed: No current_item_id provided.")
             return {"error_messages": error_list}
 
         try:
@@ -1520,13 +1243,10 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             return {"error_messages": error_list}
 
         except Exception as e:
-            logger.error(
-                f"Exception in Content Writer node for item {state.current_item_id}: {e}",
-                exc_info=True,
+            # Use standardized error handling for node execution
+            return AgentErrorHandler.handle_node_error(
+                e, "content_writer", state, "run_as_node"
             )
-            error_list = state.error_messages or []
-            error_list.append(f"ContentWriter Exception: {str(e)}")
-            return {"error_messages": error_list}
 
     async def generate_big_10_skills(
         self, job_description: str, my_talents: str = ""
@@ -1883,7 +1603,8 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 )
 
                 return AgentResult(
-                    success=True,  # Still successful, just with fallback
+                    success=False,  # Return failure for LLM exceptions
+                    error_message=str(llm_error),
                     output_data={"structured_cv": structured_cv.model_dump()},
                     confidence_score=0.3,  # Lower confidence for fallback
                     metadata={

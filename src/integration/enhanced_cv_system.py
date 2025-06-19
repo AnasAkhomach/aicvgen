@@ -24,8 +24,8 @@ import hashlib
 # Enhanced CV system imports
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
 from ..agents.specialized_agents import (
-    CVAnalysisAgent, ContentOptimizationAgent,
-    get_agent
+    CVAnalysisAgent,
+    create_cv_analysis_agent
 )
 from ..agents.quality_assurance_agent import QualityAssuranceAgent
 from ..templates.content_templates import (
@@ -181,7 +181,7 @@ class EnhancedCVIntegration:
 
             # Specialized agents
             self._agents["cv_analysis"] = get_agent("cv_analysis")
-            self._agents["content_optimization"] = get_agent("content_optimization")
+            # content_optimization agent removed - was never implemented
             self._agents["quality_assurance"] = get_agent("quality_assurance")
 
             self.logger.info("Agents initialized", extra={

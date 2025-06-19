@@ -4,7 +4,6 @@ import enum
 import json
 import uuid
 import os
-import logging
 import time
 from datetime import datetime
 
@@ -13,15 +12,9 @@ from ..models.data_models import (
     JobDescriptionData, StructuredCV, Section, Subsection, Item, ItemStatus, ItemType,
     ContentData, AgentIO, VectorStoreConfig
 )
+from ..config.logging_config import get_structured_logger
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    filename="debug.log",
-    filemode="a",
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+logger = get_structured_logger(__name__)
 
 
 # VectorStoreConfig is now imported from standardized data models
@@ -372,7 +365,7 @@ class StateManager:
                         if subsection.id == subsection_id:
                             # Update subsection fields
                             if 'title' in subsection_data:
-                                subsection.title = subsection_data['title']
+                                subsection.name = subsection_data['title']
                             if 'description' in subsection_data:
                                 subsection.description = subsection_data['description']
                             logger.info("Subsection %s updated successfully", subsection_id)

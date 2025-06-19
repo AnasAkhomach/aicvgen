@@ -5,13 +5,14 @@ and implements retry logic with exponential backoff.
 """
 
 import asyncio
-import logging
 import time
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Callable, Any, Awaitable
 from dataclasses import dataclass, field
 from collections import defaultdict
 
+# Tenacity imports for retry logic
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -83,7 +84,7 @@ class RateLimiter:
 
         return 0.0
 
-    async def wait_if_needed(self, model: str, estimated_tokens: int = 0):
+    def wait_if_needed(self, model: str, estimated_tokens: int = 0):
         """Wait if rate limit requires it."""
         wait_time = self.get_wait_time(model)
         if wait_time > 0:
@@ -107,7 +108,7 @@ class RateLimiter:
             )
             self.logger.log_rate_limit(rate_log)
 
-            await asyncio.sleep(wait_time)
+            time.sleep(wait_time)
 
     def record_request(self, model: str, tokens_used: int, success: bool):
         """Record a request and update rate limit state."""
@@ -126,21 +127,30 @@ class RateLimiter:
         )
         self.logger.log_rate_limit(rate_log)
 
-    async def execute_with_rate_limit(
-        self,
-        func: Callable[..., Awaitable[Any]],
-        model: str,
-        estimated_tokens: int = 0,
-        *args,
-        **kwargs,
-    ) -> Any:
-        """Execute a function with rate limiting."""
-        async with self._locks[model]:
-            await self.wait_if_needed(model, estimated_tokens)
+    def execute_with_rate_limit(self, func, model: str, estimated_tokens: int = 100, *args, **kwargs):
+        """Execute a function with rate limiting.
+        
+        Note: Retry logic has been moved to EnhancedLLMService for centralized handling.
+        
+        Args:
+            func: Function to execute
+            model: Model name for rate limiting
+            estimated_tokens: Estimated token usage
+            *args, **kwargs: Arguments to pass to the function
+            
+        Returns:
+            Function result
+            
+        Raises:
+            RateLimitError: If rate limit is exceeded
+            NetworkError: If network error occurs
+        """
+        with self._locks[model]:
+            self.wait_if_needed(model, estimated_tokens)
 
             start_time = time.time()
             try:
-                result = await func(*args, **kwargs)
+                result = func(*args, **kwargs)
 
                 # Extract actual token usage if available
                 actual_tokens = estimated_tokens

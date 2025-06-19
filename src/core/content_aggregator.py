@@ -4,10 +4,10 @@ This module provides the ContentAggregator class that collects individual conten
 from different agents and assembles them into a complete ContentData structure.
 """
 
-import logging
 from typing import Dict, List, Any, Optional
+from ..config.logging_config import get_structured_logger
 
-logger = logging.getLogger(__name__)
+logger = get_structured_logger(__name__)
 
 
 class ContentAggregator:
@@ -74,12 +74,7 @@ class ContentAggregator:
                         or content_found
                     )
 
-                # Handle other agent types
-                elif agent_type == "content_optimization":
-                    content_found = (
-                        self._process_optimization_result(result, content_data)
-                        or content_found
-                    )
+                # Handle other agent types (content_optimization removed as it was never implemented)
 
                 # Handle generic content structure
                 else:
@@ -158,34 +153,7 @@ class ContentAggregator:
 
         return False
 
-    def _process_optimization_result(
-        self, result: Dict[str, Any], content_data: Dict[str, Any]
-    ) -> bool:
-        """Process content optimization agent results.
-
-        Args:
-            result: Task result from optimization agent
-            content_data: Content data structure to populate
-
-        Returns:
-            True if content was successfully processed, False otherwise
-        """
-        try:
-            optimized_content = result.get("content", {}).get("optimized_content", {})
-
-            if isinstance(optimized_content, dict):
-                # Merge optimized content with existing structure
-                for field in self.base_structure.keys():
-                    if field in optimized_content and optimized_content[field]:
-                        content_data[field] = optimized_content[field]
-                        logger.info("Updated %s from optimization agent", field)
-
-                return any(optimized_content.values())
-
-        except Exception as e:
-            logger.error("Error processing optimization result: %s", e)
-
-        return False
+    # _process_optimization_result method removed - ContentOptimizationAgent was never implemented
 
     def _process_generic_result(
         self, result: Dict[str, Any], content_data: Dict[str, Any]

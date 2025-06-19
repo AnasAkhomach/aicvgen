@@ -13,9 +13,15 @@ from pydantic import BaseModel, Field, DirectoryPath
 # Try to import python-dotenv, but don't fail if it's not available
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Load .env file from project root
+    env_path = Path(__file__).parent.parent.parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"Loaded environment variables from {env_path}")
+    else:
+        print(f"Warning: .env file not found at {env_path}")
 except ImportError:
-    pass
+    print("Warning: python-dotenv not available, environment variables must be set manually")
 
 
 class LLMSettings(BaseModel):
@@ -37,6 +43,7 @@ class PromptSettings(BaseModel):
     clean_big_6: str = "clean_big_6_prompt.md"
     clean_json_output: str = "clean_json_output_prompt.md"
     job_research_analysis: str = "job_research_analysis_prompt.md"
+    cv_parser: str = "cv_parsing_prompt.md"
 
 
 @dataclass

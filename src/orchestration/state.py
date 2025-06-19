@@ -33,6 +33,10 @@ class AgentState(BaseModel):
     current_item_id: Optional[str] = None
     # Flag to indicate if this is the first pass or a user-driven regeneration.
     is_initial_generation: bool = True
+    
+    # Content Generation Queue for Explicit Loop Processing
+    # Queue of item IDs that need content generation/optimization, supporting both batch and single-item processing
+    content_generation_queue: List[str] = Field(default_factory=list)
 
     # User Feedback for Regeneration
     # Stores feedback from the UI to guide the next generation cycle.
@@ -41,6 +45,8 @@ class AgentState(BaseModel):
     # Agent Outputs & Finalization
     # Research findings from the ResearchAgent
     research_findings: Optional[Dict[str, Any]] = None
+    # Quality check results from the QualityAssuranceAgent
+    quality_check_results: Optional[Dict[str, Any]] = None
     # Path to the final generated PDF file.
     final_output_path: Optional[str] = None
     # Accumulated error messages from the workflow.

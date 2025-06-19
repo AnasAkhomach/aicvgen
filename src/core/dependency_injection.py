@@ -8,7 +8,6 @@ from enum import Enum
 import weakref
 import time
 from datetime import datetime, timedelta
-import logging
 
 from ..config.logging_config import get_structured_logger
 from ..utils.error_handling import (

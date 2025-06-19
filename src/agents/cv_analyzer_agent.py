@@ -11,6 +11,12 @@ from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..models.data_models import AgentDecisionLog, AgentIO
 from ..models.validation_schemas import validate_agent_input, ValidationError
+from ..utils.agent_error_handling import (
+    AgentErrorHandler,
+    LLMErrorHandler,
+    with_error_handling,
+    with_node_error_handling
+)
 from ..services.llm_service import get_llm_service
 
 if TYPE_CHECKING:
@@ -193,9 +199,9 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
         print("Sending prompt to LLM for CV analysis...")
         try:
-            # Set a timeout for the LLM call
+            # Use centralized JSON generation and parsing
             start_time = time.time()
-            llm_response = self.llm.generate_content(prompt)
+            extracted_data = await self._generate_and_parse_json(prompt=prompt)
             elapsed_time = time.time() - start_time
 
             if elapsed_time > self.timeout:
@@ -205,16 +211,6 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 return fallback_extraction
 
             print("Received response from LLM.")
-
-            # Attempt to parse the JSON response (handle markdown formatting)
-            json_string = llm_response.strip()
-            if json_string.startswith("```json"):
-                json_string = json_string[len("```json") :].strip()
-                if json_string.endswith("```"):
-                    json_string = json_string[: -len("```")].strip()
-
-            # Load the JSON string into a Python dictionary
-            extracted_data = json.loads(json_string)
 
             # Ensure all expected keys are present, even if empty in the LLM output
             extracted_data.setdefault("summary", "")
@@ -250,65 +246,38 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
         try:
             # Validate input data using Pydantic schemas
-            try:
-                validated_input = validate_agent_input("cv_analyzer", input_data)
-                # Convert validated Pydantic model back to dict for processing
-                input_data = validated_input.model_dump()
-                decision_log = AgentDecisionLog(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    agent_name=self.name,
-                    session_id=getattr(context, "session_id", "unknown"),
-                    item_id=getattr(context, "current_item_id", None),
-                    decision_type="validation",
-                    decision_details="Input validation passed for CVAnalyzerAgent",
-                    confidence_score=1.0,
-                    metadata={
-                        "input_keys": (
-                            list(input_data.keys())
-                            if isinstance(input_data, dict)
-                            else ["non_dict_input"]
-                        )
-                    },
-                )
-                logger.log_agent_decision(decision_log)
-            except ValidationError as ve:
-                decision_log = AgentDecisionLog(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    agent_name=self.name,
-                    session_id=getattr(context, "session_id", "unknown"),
-                    item_id=getattr(context, "current_item_id", None),
-                    decision_type="validation",
-                    decision_details=f"Input validation failed for CVAnalyzerAgent: {ve.message}",
-                    confidence_score=0.0,
-                    metadata={"error": ve.message, "error_type": "ValidationError"},
-                )
-                logger.log_agent_decision(decision_log)
+            validation_result = AgentErrorHandler.handle_validation_error(
+                lambda: validate_agent_input("cv_analyzer", input_data),
+                "CVAnalyzerAgent"
+            )
+            if not validation_result.success:
                 return AgentResult(
                     success=False,
-                    output_data={"error": f"Input validation failed: {ve.message}"},
+                    output_data={"error": validation_result.error_message},
                     confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
+                    error_message=validation_result.error_message,
                     metadata={"agent_type": "cv_analyzer", "validation_error": True},
                 )
-            except (RuntimeError, ValueError, TypeError, AttributeError) as e:
-                decision_log = AgentDecisionLog(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    agent_name=self.name,
-                    session_id=getattr(context, "session_id", "unknown"),
-                    item_id=getattr(context, "current_item_id", None),
-                    decision_type="validation",
-                    decision_details=f"Input validation error for CVAnalyzerAgent: {str(e)}",
-                    confidence_score=0.0,
-                    metadata={"error": str(e), "error_type": type(e).__name__},
-                )
-                logger.log_agent_decision(decision_log)
-                return AgentResult(
-                    success=False,
-                    output_data={"error": f"Input validation error: {str(e)}"},
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
-                    metadata={"agent_type": "cv_analyzer", "validation_error": True},
-                )
+            
+            # Convert validated Pydantic model back to dict for processing
+            input_data = validation_result.result.model_dump()
+            decision_log = AgentDecisionLog(
+                timestamp=datetime.datetime.now().isoformat(),
+                agent_name=self.name,
+                session_id=getattr(context, "session_id", "unknown"),
+                item_id=getattr(context, "current_item_id", None),
+                decision_type="validation",
+                decision_details="Input validation passed for CVAnalyzerAgent",
+                confidence_score=1.0,
+                metadata={
+                    "input_keys": (
+                        list(input_data.keys())
+                        if isinstance(input_data, dict)
+                        else ["non_dict_input"]
+                    )
+                },
+            )
+            logger.log_agent_decision(decision_log)
 
             # Process the CV analysis directly
             if isinstance(input_data, dict):
@@ -328,11 +297,14 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 metadata={"agent_type": "cv_analyzer"},
             )
 
-        except (RuntimeError, ValueError, TypeError, AttributeError) as e:
+        except Exception as e:
+            error_result = AgentErrorHandler.handle_agent_error(
+                e, "CVAnalyzerAgent", context
+            )
             return AgentResult(
                 success=False,
                 output_data={},
                 confidence_score=0.0,
-                error_message=str(e),
+                error_message=error_result.error_message,
                 metadata={"agent_type": "cv_analyzer"},
             )

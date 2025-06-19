@@ -4,7 +4,6 @@ This module defines the state machine workflow using LangGraph's StateGraph.
 It implements granular, item-by-item processing with user feedback loops.
 """
 
-import logging
 from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 
@@ -16,8 +15,9 @@ from ..agents.research_agent import ResearchAgent
 from ..agents.formatter_agent import FormatterAgent
 from ..services.llm_service import get_llm_service
 from ..models.data_models import UserAction
+from ..config.logging_config import get_structured_logger
 
-logger = logging.getLogger(__name__)
+logger = get_structured_logger(__name__)
 
 # Define the workflow sequence for sections
 WORKFLOW_SEQUENCE = [
@@ -183,6 +183,69 @@ async def formatter_node(state: AgentState) -> Dict[str, Any]:
     return updated_state.model_dump()
 
 
+async def setup_generation_queue_node(state: AgentState) -> Dict[str, Any]:
+    """Setup content generation queue with all items that need processing."""
+    logger.info("--- Executing Node: setup_generation_queue_node ---")
+    
+    content_queue = []
+    
+    # Collect all items from all sections that need content generation
+    for section in state.structured_cv.sections:
+        for item in section.items:
+            content_queue.append(str(item.id))
+        # Include subsection items if any
+        if section.subsections:
+            for subsection in section.subsections:
+                for item in subsection.items:
+                    content_queue.append(str(item.id))
+    
+    logger.info(f"Setup content generation queue with {len(content_queue)} items: {content_queue}")
+    
+    return {
+        "content_generation_queue": content_queue
+    }
+
+
+async def pop_next_item_node(state: AgentState) -> Dict[str, Any]:
+    """Pop the next item from content generation queue and set as current."""
+    logger.info("--- Executing Node: pop_next_item_node ---")
+    
+    if not state.content_generation_queue:
+        logger.warning("Content generation queue is empty")
+        return {}
+    
+    # Pop the next item from the queue
+    queue_copy = state.content_generation_queue.copy()
+    next_item_id = queue_copy.pop(0)
+    
+    logger.info(f"Popped item {next_item_id} from content generation queue. Remaining: {len(queue_copy)}")
+    
+    return {
+        "current_item_id": next_item_id,
+        "content_generation_queue": queue_copy
+    }
+
+
+async def prepare_regeneration_node(state: AgentState) -> Dict[str, Any]:
+    """Prepare single-item regeneration based on user feedback."""
+    logger.info("--- Executing Node: prepare_regeneration_node ---")
+    
+    if not state.user_feedback or not state.user_feedback.item_id:
+        logger.error("No user feedback or item_id for regeneration")
+        return {
+            "error_messages": state.error_messages + ["No item specified for regeneration"]
+        }
+    
+    item_id = str(state.user_feedback.item_id)
+    logger.info(f"Preparing regeneration for item: {item_id}")
+    
+    return {
+        "content_generation_queue": [item_id],
+        "current_item_id": None,  # Will be set by pop_next_item_node
+        "is_initial_generation": False
+    }
+
+
 async def generate_skills_node(state: AgentState) -> Dict[str, Any]:
     """Generates the 'Big 10' skills and updates the CV state."""
     logger.info("--- Executing Node: generate_skills_node ---")
@@ -259,12 +322,31 @@ async def error_handler_node(state: AgentState) -> Dict[str, Any]:
     return {}
 
 
-async def route_after_review(state: Dict[str, Any]) -> str:
-    """Route based on user feedback, queue status, and error conditions."""
+def should_continue_generation(state: Dict[str, Any]) -> str:
+    """Router function to determine if content generation loop should continue."""
+    agent_state = AgentState.model_validate(state)
+    
+    # Check for errors first
+    if agent_state.error_messages:
+        logger.warning("Errors detected in state, routing to error handler")
+        return "error"
+    
+    # Check if there are more items in the content generation queue
+    if agent_state.content_generation_queue:
+        logger.info(f"Content generation queue has {len(agent_state.content_generation_queue)} items remaining, continuing loop")
+        return "continue"
+    
+    # No more items to process
+    logger.info("Content generation queue is empty, completing workflow")
+    return "complete"
+
+
+async def route_after_qa(state: Dict[str, Any]) -> str:
+    """Route after QA based on user feedback and workflow state."""
     agent_state = AgentState.model_validate(state)
 
-    # Priority 1: Check for errors first - if any previous node has populated error_messages, divert immediately
-    if state.error_messages:
+    # Priority 1: Check for errors first
+    if agent_state.error_messages:
         logger.warning("Errors detected in state, routing to error handler")
         return "error"
 
@@ -273,70 +355,56 @@ async def route_after_review(state: Dict[str, Any]) -> str:
         agent_state.user_feedback
         and agent_state.user_feedback.action == UserAction.REGENERATE
     ):
-        logger.info("User requested regeneration, routing to content_writer")
+        logger.info("User requested regeneration, routing to prepare_regeneration")
         return "regenerate"
 
-    # Priority 3: Check if there are more items in the current section queue
-    if agent_state.items_to_process_queue:
-        logger.info("More items in queue, processing next item")
-        return "next_item"
-
-    # Priority 4: Check if there are more sections to process
-    try:
-        current_index = WORKFLOW_SEQUENCE.index(agent_state.current_section_key)
-        if current_index + 1 < len(WORKFLOW_SEQUENCE):
-            logger.info("Moving to next section")
-            return "next_section"
-    except (ValueError, IndexError):
-        pass
-
-    # All sections and items completed
-    logger.info("All processing completed, routing to formatter")
-    return "complete"
+    # Priority 3: Continue with content generation loop
+    return should_continue_generation(state)
 
 
 def build_cv_workflow_graph() -> StateGraph:
-    """Build and return the granular CV workflow graph."""
+    """Build and return the refactored CV workflow graph with explicit content generation loop."""
 
     # Create the state graph
     workflow = StateGraph(AgentState)
 
-    # Add nodes for granular processing
+    # Add nodes for the new architecture
     workflow.add_node("parser", parser_node)
     workflow.add_node("research", research_node)
     workflow.add_node("generate_skills", generate_skills_node)
-    workflow.add_node("process_next_item", process_next_item_node)
+    workflow.add_node("setup_generation_queue", setup_generation_queue_node)
+    workflow.add_node("pop_next_item", pop_next_item_node)
     workflow.add_node("content_writer", content_writer_node)
     workflow.add_node("qa", qa_node)
-    workflow.add_node("prepare_next_section", prepare_next_section_node)
+    workflow.add_node("prepare_regeneration", prepare_regeneration_node)
     workflow.add_node("formatter", formatter_node)
     workflow.add_node("error_handler", error_handler_node)
 
     # Set entry point
     workflow.set_entry_point("parser")
 
-    # Add edges
+    # Add linear edges for initial setup
     workflow.add_edge("parser", "research")
     workflow.add_edge("research", "generate_skills")
-    workflow.add_edge("generate_skills", "process_next_item")
-    workflow.add_edge("process_next_item", "content_writer")
+    workflow.add_edge("generate_skills", "setup_generation_queue")
+    workflow.add_edge("setup_generation_queue", "pop_next_item")
+    workflow.add_edge("pop_next_item", "content_writer")
     workflow.add_edge("content_writer", "qa")
 
-    # Add conditional routing after QA/review
+    # Add conditional routing after QA
     workflow.add_conditional_edges(
         "qa",
-        route_after_review,
+        route_after_qa,
         {
             "error": "error_handler",  # Route to error handler if errors detected
-            "regenerate": "content_writer",  # User wants to regenerate current item
-            "next_item": "process_next_item",  # More items in current section
-            "next_section": "prepare_next_section",  # Move to next section
+            "regenerate": "prepare_regeneration",  # User wants to regenerate current item
+            "continue": "pop_next_item",  # More items in content generation queue
             "complete": "formatter",  # All processing done
         },
     )
 
-    # After preparing next section, process its first item
-    workflow.add_edge("prepare_next_section", "process_next_item")
+    # After preparing regeneration, pop the item and continue
+    workflow.add_edge("prepare_regeneration", "pop_next_item")
 
     # Formatter ends the workflow
     workflow.add_edge("formatter", END)

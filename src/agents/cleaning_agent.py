@@ -15,6 +15,12 @@ from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentR
 from ..config.logging_config import get_structured_logger
 from ..services.llm_service import get_llm_service
 from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
+from ..utils.agent_error_handling import (
+    AgentErrorHandler,
+    LLMErrorHandler,
+    with_error_handling,
+    with_node_error_handling
+)
 from ..models.data_models import AgentIO, ContentType
 
 
@@ -111,22 +117,18 @@ class CleaningAgent(EnhancedAgentBase):
                 processing_time=processing_time,
             )
 
-        except (ValueError, TypeError, AttributeError, KeyError) as e:
+        except Exception as e:
             processing_time = (datetime.now() - start_time).total_seconds()
-
-            self.logger.error(
-                "Cleaning failed",
-                session_id=context.session_id,
-                error=str(e),
-                processing_time=processing_time,
+            error_result = AgentErrorHandler.handle_agent_error(
+                e, "CleaningAgent", context
             )
-
+            
             return AgentResult(
                 success=False,
                 output_data=None,
                 confidence_score=0.0,
                 processing_time=processing_time,
-                error_message=str(e),
+                error_message=error_result.error_message,
             )
 
     async def _clean_big_10_skills(
@@ -142,15 +144,17 @@ class CleaningAgent(EnhancedAgentBase):
             List of cleaned skill strings
         """
         try:
-            # Try to parse as JSON first
+            # Try to parse as JSON first using centralized method
             if raw_output.strip().startswith("{") or raw_output.strip().startswith("["):
                 try:
-                    parsed = json.loads(raw_output)
+                    # Use centralized JSON extraction from parent class
+                    json_str = super()._extract_json_from_response(raw_output)
+                    parsed = json.loads(json_str)
                     if isinstance(parsed, list):
                         return [str(skill).strip() for skill in parsed[:10]]
                     if isinstance(parsed, dict) and "skills" in parsed:
                         return [str(skill).strip() for skill in parsed["skills"][:10]]
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, Exception):
                     pass
 
             # Extract skills using regex patterns
@@ -335,7 +339,9 @@ class CleaningAgent(EnhancedAgentBase):
             }
 
         except Exception as e:
-            self.logger.error(f"Cleaning agent node failed: {str(e)}")
+            error_result = AgentErrorHandler.handle_node_error(
+                e, "CleaningAgent", state
+            )
             return {"cleaned_data": {}, "processing_status": ProcessingStatus.FAILED}
 
 

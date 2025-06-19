@@ -9,7 +9,16 @@ from .data_models import (
     WorkflowState,
     WorkflowStage
 )
-# from .validation_schemas import ValidationSchemas  # ValidationSchemas class doesn't exist
+# Import validation functions and schemas
+from .validation_schemas import (
+    validate_agent_input,
+    validate_agent_output,
+    LLMJobDescriptionOutput,
+    LLMRoleGenerationOutput,
+    LLMProjectGenerationOutput,
+    LLMSummaryOutput,
+    LLMQualificationsOutput
+)
 
 __all__ = [
     "VectorStoreConfig",
@@ -19,5 +28,11 @@ __all__ = [
     "ItemType",
     "WorkflowState",
     "WorkflowStage",
-    "ValidationSchemas"
+    "validate_agent_input",
+    "validate_agent_output",
+    "LLMJobDescriptionOutput",
+    "LLMRoleGenerationOutput",
+    "LLMProjectGenerationOutput",
+    "LLMSummaryOutput",
+    "LLMQualificationsOutput"
 ]

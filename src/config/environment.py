@@ -7,11 +7,11 @@ It handles environment variable loading, validation, and provides typed configur
 """
 
 import os
+import logging
 from enum import Enum
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 from pathlib import Path
-import logging
 
 # Try to import python-dotenv, but don't fail if it's not available
 try:

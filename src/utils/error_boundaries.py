@@ -12,7 +12,6 @@ import traceback
 from typing import Any, Callable, Optional, Dict, Union
 from contextlib import contextmanager
 import streamlit as st
-import logging
 from datetime import datetime
 
 from ..config.logging_config import get_logger, log_error_with_context

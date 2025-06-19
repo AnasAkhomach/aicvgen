@@ -6,7 +6,6 @@ from ..models.data_models import (
     VectorStoreConfig,
 )  # vulture: aicvgen-suppress - SkillEntry, ExperienceEntry removed as unused
 from uuid import uuid4
-import logging
 import asyncio
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -183,10 +182,10 @@ class VectorDB:
 
             # Train the index if needed
             if hasattr(self.index, "is_trained") and not self.index.is_trained:
-                self.index.train(np.array([embedding], dtype=np.float32))
+                self.index.train(np.array([embedding], dtype=np.float32))  # pylint: disable=no-value-for-parameter
 
             # Add to the index
-            self.index.add(np.array([embedding]))
+            self.index.add(np.array([embedding], dtype=np.float32))
 
             # Map the index position to the ID
             self.id_map[self.next_index] = item_id

@@ -56,6 +56,7 @@ class ItemType(str, Enum):
     EDUCATION_ENTRY = "education_entry"
     CERTIFICATION_ENTRY = "certification_entry"
     LANGUAGE_ENTRY = "language_entry"
+    SUMMARY_PARAGRAPH = "summary_paragraph"
 
 
 class WorkflowStage(str, Enum):
@@ -340,6 +341,9 @@ class StructuredCV(BaseModel):
 class JobDescriptionData(BaseModel):
     """A structured representation of a parsed job description."""
     raw_text: str
+    job_title: Optional[str] = None
+    company_name: Optional[str] = None
+    main_job_description_raw: Optional[str] = None
     skills: List[str] = Field(default_factory=list)
     experience_level: Optional[str] = None
     responsibilities: List[str] = Field(default_factory=list)
@@ -450,6 +454,36 @@ class VectorStoreConfig(BaseModel):
 
 
 
+# Temporary model for CV parsing LLM output
+class CVParsingPersonalInfo(BaseModel):
+    """Personal information extracted from CV parsing."""
+    name: str
+    email: str
+    phone: str
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    location: Optional[str] = None
+
+
+class CVParsingSubsection(BaseModel):
+    """Subsection structure for CV parsing output."""
+    name: str
+    items: List[str] = Field(default_factory=list)
+
+
+class CVParsingSection(BaseModel):
+    """Section structure for CV parsing output."""
+    name: str
+    items: List[str] = Field(default_factory=list)
+    subsections: List[CVParsingSubsection] = Field(default_factory=list)
+
+
+class CVParsingResult(BaseModel):
+    """Complete CV parsing result from LLM."""
+    personal_info: CVParsingPersonalInfo
+    sections: List[CVParsingSection]
+
+
 # API Model backward compatibility aliases
 class PersonalInfo(BaseModel):
     """Personal information model."""
@@ -522,11 +556,23 @@ class RateLimitState:
     model: str
     requests_made: int = 0
     requests_limit: int = 60
+    tokens_made: int = 0
+    tokens_limit: int = 1000000
     window_start: datetime = None
     window_duration: timedelta = None
     last_request_time: Optional[datetime] = None
     backoff_until: Optional[datetime] = None
     consecutive_failures: int = 0
+    
+    @property
+    def requests_per_minute(self) -> int:
+        """Alias for requests_made for backward compatibility."""
+        return self.requests_made
+    
+    @property
+    def tokens_per_minute(self) -> int:
+        """Alias for tokens_made for backward compatibility."""
+        return self.tokens_made
     
     def __post_init__(self):
         """Initialize default values after dataclass creation."""
@@ -550,16 +596,18 @@ class RateLimitState:
 
         return self.requests_made >= self.requests_limit
 
-    def record_request(self):
+    def record_request(self, tokens_used: int = 0):
         """Record a new request."""
         now = datetime.now()
 
         # Reset window if needed
         if now - self.window_start > self.window_duration:
             self.requests_made = 0
+            self.tokens_made = 0
             self.window_start = now
 
         self.requests_made += 1
+        self.tokens_made += tokens_used
         self.last_request_time = now
 
     def record_failure(self):

@@ -1,7 +1,6 @@
 """Startup optimization utilities for the CV generation system."""
 
 import asyncio
-import logging
 import time
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
@@ -347,8 +346,7 @@ class StartupOptimizer:
                     [ContentType.CV_PARSING],
                 ),
                 (
-                    "content_optimization",
-                    lambda: get_agent("content_optimization"),
+                    # "content_optimization" removed - was never implemented
                     AgentPoolStrategy.ADAPTIVE,
                     1,
                     2,

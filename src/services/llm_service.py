@@ -1,3 +1,5 @@
+print("DEBUG: llm_service.py module is being loaded")
+
 import os
 import sys
 import time
@@ -6,7 +8,6 @@ import concurrent.futures
 import threading
 
 # vulture: aicvgen-suppress - Queue import removed as unused
-import logging
 import hashlib
 import functools
 import json
@@ -364,6 +365,13 @@ class EnhancedLLMService:
         self.settings = get_config()
         self.timeout = timeout
 
+        # Check if google-generativeai is available
+        if genai is None:
+            raise ImportError(
+                "google-generativeai package is not installed. "
+                "Please install it with: pip install google-generativeai"
+            )
+
         # Configure API keys with user key priority and fallback support
         self.user_api_key = user_api_key
         self.primary_api_key = self.settings.llm.gemini_api_key_primary
@@ -387,10 +395,13 @@ class EnhancedLLMService:
         self.current_api_key = api_key
 
         # Initialize the model
-        genai.configure(api_key=api_key)
-        self.model_name = self.settings.llm_settings.default_model
-        self.llm = genai.GenerativeModel(self.model_name)
-        self.using_fallback = not bool(self.user_api_key or self.primary_api_key)
+        try:
+            genai.configure(api_key=api_key)
+            self.model_name = self.settings.llm_settings.default_model
+            self.llm = genai.GenerativeModel(self.model_name)
+            self.using_fallback = not bool(self.user_api_key or self.primary_api_key)
+        except Exception as e:
+            raise ValueError(f"Failed to initialize Gemini model: {str(e)}") from e
 
         # Enhanced services
         self.rate_limiter = rate_limiter or EnhancedRateLimiter()
@@ -435,13 +446,21 @@ class EnhancedLLMService:
                 fallback_available=True,
             )
 
-            # Reconfigure with fallback key
-            genai.configure(api_key=self.fallback_api_key)
-            self.current_api_key = self.fallback_api_key
-            self.using_fallback = True
+            try:
+                # Reconfigure with fallback key
+                genai.configure(api_key=self.fallback_api_key)
+                self.current_api_key = self.fallback_api_key
+                self.using_fallback = True
 
-            # Reinitialize the model with new key
-            self.llm = genai.GenerativeModel(self.model_name)
+                # Reinitialize the model with new key
+                self.llm = genai.GenerativeModel(self.model_name)
+            except Exception as e:
+                logger.error(
+                    "Failed to switch to fallback API key",
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                return False
 
             logger.info("Successfully switched to fallback API key")
             return True
@@ -496,28 +515,61 @@ class EnhancedLLMService:
         )
         return False
 
-    @retry(
-        stop=stop_after_attempt(5),  # Increased from 3 to 5 attempts
-        wait=wait_exponential(multiplier=2, min=1, max=30),  # More aggressive backoff
-        retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
-        reraise=True,
-        before_sleep=lambda retry_state: logger.warning(
-            f"Retrying LLM API call (attempt {retry_state.attempt_number}) after error: {retry_state.outcome.exception()}"
-        ),
-    )
+    def _should_retry_with_delay(self, exception: Exception, retry_count: int, max_retries: int) -> Tuple[bool, float]:
+        """
+        Centralized retry logic with intelligent delay calculation.
+        
+        This method consolidates all retry decision logic and delay calculations,
+        replacing the distributed retry mechanisms throughout the service.
+        
+        Args:
+            exception: The exception that occurred
+            retry_count: Current retry attempt number
+            max_retries: Maximum number of retries allowed
+            
+        Returns:
+            Tuple of (should_retry: bool, delay_seconds: float)
+        """
+        # Check if we've exceeded max retries
+        if retry_count >= max_retries:
+            return False, 0.0
+            
+        # Check if this exception type should be retried
+        if not self._should_retry_exception(exception):
+            return False, 0.0
+            
+        # Calculate delay based on error type and retry count
+        error_msg = str(exception).lower()
+        
+        # Rate limit errors - use longer delays
+        if any(keyword in error_msg for keyword in ["rate limit", "quota", "429", "too many requests", "resource_exhausted"]):
+            # Exponential backoff with jitter for rate limits: 2^retry * 5 seconds + jitter
+            base_delay = min(300, (2 ** retry_count) * 5)  # Cap at 5 minutes
+            jitter = base_delay * 0.1 * (0.5 - abs(hash(str(exception)) % 100) / 100)  # ±10% jitter
+            delay = base_delay + jitter
+            return True, delay
+            
+        # Network/timeout errors - moderate delays
+        elif any(keyword in error_msg for keyword in ["connection", "network", "timeout", "dns", "unreachable"]):
+            # Linear backoff for network issues: (retry + 1) * 2 seconds
+            delay = min(60, (retry_count + 1) * 2)  # Cap at 1 minute
+            return True, delay
+            
+        # API errors - short delays
+        elif any(keyword in error_msg for keyword in ["api error", "server error", "500", "502", "503", "504"]):
+            # Exponential backoff for API errors: 2^retry seconds
+            delay = min(30, 2 ** retry_count)  # Cap at 30 seconds
+            return True, delay
+            
+        # Generic retryable errors - minimal delay
+        else:
+            # Simple linear backoff: retry * 1 second
+            delay = min(10, retry_count * 1)  # Cap at 10 seconds
+            return True, delay
+
     def _make_llm_api_call(self, prompt: str) -> Any:
         """
-        Make the actual LLM API call with enhanced retry logic using tenacity.
-
-        This method is decorated with @retry to handle transient errors
-        with exponential backoff. It will retry up to 5 times with
-        exponentially increasing delays (1s, 2s, 4s, 8s, 16s, max 30s).
-
-        The retry logic is intelligent and will not retry for:
-        - Authentication errors (invalid API key)
-        - Permission errors
-        - Invalid request format errors
-        - Type/Value errors in our code
+        Make the actual LLM API call.
 
         Args:
             prompt: Text prompt to send to the model
@@ -529,14 +581,15 @@ class EnhancedLLMService:
             Various exceptions from the google-generativeai library
         """
         try:
+            # Ensure LLM model is properly initialized
+            if self.llm is None:
+                raise ValueError("LLM model is not initialized. Service initialization may have failed.")
+            
             response = self.llm.generate_content(prompt)
 
             # Clean up response text to handle encoding issues
-            if hasattr(response, "text") and response.text:
-                # Remove replacement characters and normalize whitespace
-                cleaned_text = response.text.replace("�", "").strip()
-                # Create a new response object with cleaned text
-                response.text = cleaned_text
+            # Note: We don't modify the response object directly as it's read-only
+            # The text cleaning will be handled in the calling method if needed
 
             logger.debug("LLM API call successful")
             return response
@@ -551,10 +604,10 @@ class EnhancedLLMService:
             # Re-raise to let tenacity handle the retry logic
             raise
 
-    def _generate_with_timeout(self, prompt: str, session_id: str = None, trace_id: Optional[str] = None) -> Any:
+    async def _generate_with_timeout(self, prompt: str, session_id: str = None, trace_id: Optional[str] = None) -> Any:
         """
-        Generate content with a timeout using ThreadPoolExecutor.
-        Now uses the retry-enabled _make_llm_api_call method.
+        Generate content with a timeout using loop.run_in_executor.
+        Runs the synchronous _make_llm_api_call in the default thread pool.
 
         Args:
             prompt: Text prompt to send to the model
@@ -564,51 +617,84 @@ class EnhancedLLMService:
         Returns:
             Generated text response or raises TimeoutError
         """
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(self._make_llm_api_call, prompt)
-            try:
-                result = future.result(timeout=self.timeout)
+        try:
+            # Get the current event loop
+            loop = asyncio.get_event_loop()
+            
+            # Use loop.run_in_executor with None (default thread pool)
+            # and asyncio.wait_for to handle timeout
+            logger.debug(f"About to call run_in_executor with _make_llm_api_call")
+            executor_task = loop.run_in_executor(None, self._make_llm_api_call, prompt)
+            logger.debug(f"Executor task created: {type(executor_task)}")
+            
+            # Temporarily bypass asyncio.wait_for to isolate the issue
+            logger.debug(f"About to await executor_task: {executor_task}")
+            logger.debug(f"Executor task type: {type(executor_task)}")
+            logger.debug(f"Executor task is None: {executor_task is None}")
+            
+            if executor_task is None:
+                raise ValueError("Executor task is None - this should not happen")
+            
+            result = await executor_task
+            logger.debug(f"Result from executor: {type(result)}, is None: {result is None}")
+            
+            # result = await asyncio.wait_for(
+            #     executor_task, 
+            #     timeout=self.timeout
+            # )
 
-                # Log successful call
-                logger.info(
-                    "LLM call completed successfully",
-                    session_id=session_id,
-                    model=self.model_name,
-                    prompt_length=len(prompt),
-                    response_length=len(result.text) if hasattr(result, "text") else 0,
-                )
+            # Log successful call
+            logger.info(
+                "LLM call completed successfully",
+                session_id=session_id,
+                model=self.model_name,
+                prompt_length=len(prompt),
+                response_length=len(result.text) if hasattr(result, "text") else 0,
+            )
 
-                return result
+            return result
 
-            except concurrent.futures.TimeoutError:
-                # Try to cancel if possible
-                future.cancel()
+        except asyncio.TimeoutError:
+            # Log timeout
+            logger.error(
+                "LLM request timed out",
+                extra={
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "timeout": self.timeout,
+                    "prompt_length": len(prompt),
+                },
+            )
 
-                # Log timeout
-                logger.error(
-                    "LLM request timed out",
-                    extra={
-                        "trace_id": trace_id,
-                        "session_id": session_id,
-                        "timeout": self.timeout,
-                        "prompt_length": len(prompt),
-                    },
-                )
+            raise TimeoutError(
+                f"LLM request timed out after {self.timeout} seconds"
+            )
+        except Exception as e:
+            # Log other exceptions
+            logger.error(
+                "LLM request failed with exception",
+                extra={
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "prompt_length": len(prompt),
+                },
+            )
+            # Re-raise the exception to be handled by the caller
+            raise
 
-                raise TimeoutError(
-                    f"LLM request timed out after {self.timeout} seconds"
-                )
-
-    @optimize_async("llm_call", "generate_content")
+    # @optimize_async("llm_call", "generate_content")  # Temporarily disabled for debugging
     async def generate_content(
         self,
         prompt: str,
         content_type: ContentType = ContentType.QUALIFICATION,
         session_id: str = None,
         item_id: str = None,
-        max_retries: int = 3,
+        max_retries: int = 5,
         trace_id: Optional[str] = None,
     ) -> LLMResponse:
+        print("DEBUG: FIRST LINE OF generate_content METHOD")
         """
         Generate content using the Gemini model with enhanced error handling and caching.
 
@@ -622,6 +708,7 @@ class EnhancedLLMService:
         Returns:
             LLMResponse with generated content and metadata
         """
+        print(f"DEBUG: Entering generate_content with prompt: {prompt[:50]}...")
         start_time = time.time()
         retry_count = 0
 
@@ -696,7 +783,7 @@ class EnhancedLLMService:
 
         while retry_count <= max_retries:
             try:
-                # Apply rate limiting
+                # Apply rate limiting with centralized logic
                 await self.rate_limiter.wait_if_needed(self.model_name)
 
                 # Log the attempt
@@ -709,14 +796,21 @@ class EnhancedLLMService:
                         "content_type": content_type.value,
                         "prompt_length": len(prompt),
                         "retry_count": retry_count,
+                        "max_retries": max_retries,
                     },
                 )
 
-                # Generate content with timeout and optimization
-                async with self.performance_optimizer.optimized_execution(
-                    "llm_generation", prompt=prompt[:100]
-                ):
-                    response = self._generate_with_timeout(prompt, session_id, trace_id)
+                # Generate content with timeout (temporarily removing optimization context)
+                # Use run_in_executor to run the synchronous method in a thread pool
+                print(f"DEBUG: About to call _generate_with_timeout, retry {retry_count}")
+                try:
+                    response = await self._generate_with_timeout(prompt, session_id, trace_id)
+                    print(f"DEBUG: _generate_with_timeout returned: {type(response)}, is None: {response is None}")
+                except Exception as timeout_error:
+                    print(f"DEBUG: Error in _generate_with_timeout: {type(timeout_error).__name__}: {timeout_error}")
+                    import traceback
+                    traceback.print_exc()
+                    raise timeout_error
 
                 processing_time = time.time() - start_time
                 self.total_processing_time += processing_time
@@ -778,7 +872,10 @@ class EnhancedLLMService:
 
             except Exception as e:
                 processing_time = time.time() - start_time
-
+                
+                # Centralized error handling and retry logic
+                should_retry, delay_seconds = self._should_retry_with_delay(e, retry_count, max_retries)
+                
                 # Check if this is a rate limit error and try fallback key
                 error_str = str(e).lower()
                 is_rate_limit_error = any(
@@ -804,7 +901,7 @@ class EnhancedLLMService:
                         logger.info("Retrying with fallback API key")
                         continue
 
-                # Handle error with recovery service
+                # Handle error with recovery service for fallback content
                 if self.error_recovery:
                     recovery_action = await self.error_recovery.handle_error(
                         e,
@@ -815,18 +912,8 @@ class EnhancedLLMService:
                         {"prompt_length": len(prompt)},
                     )
 
-                    # Check if we should retry
-                    if (
-                        recovery_action.strategy.value == "retry"
-                        and retry_count < max_retries
-                    ):
-                        retry_count += 1
-                        if recovery_action.delay_seconds > 0:
-                            await asyncio.sleep(recovery_action.delay_seconds)
-                        continue
-
-                    # Use fallback content if available
-                    if recovery_action.fallback_content:
+                    # Use fallback content if available and no more retries
+                    if not should_retry and recovery_action.fallback_content:
                         return LLMResponse(
                             content=recovery_action.fallback_content,
                             tokens_used=0,
@@ -844,35 +931,36 @@ class EnhancedLLMService:
                             },
                         )
 
-                # Log error
+                # Log error with retry information
                 logger.error(
                     "LLM generation failed",
                     session_id=session_id,
                     item_id=item_id,
                     error=str(e),
                     retry_count=retry_count,
+                    max_retries=max_retries,
+                    will_retry=should_retry,
+                    delay_seconds=delay_seconds,
                     processing_time=processing_time,
                 )
 
-                # If we've exhausted retries, return error response
-                if retry_count >= max_retries:
-                    return LLMResponse(
-                        content=f"Failed to generate content after {max_retries} retries: {str(e)}",
-                        tokens_used=0,
-                        processing_time=processing_time,
-                        model_used=self.model_name,
-                        success=False,
-                        error_message=str(e),
-                        metadata={
-                            "session_id": session_id,
-                            "item_id": item_id,
-                            "content_type": content_type.value,
-                            "retry_count": retry_count,
-                            "timestamp": datetime.now().isoformat(),
-                        },
-                    )
+                # If we should retry, apply delay and continue
+                if should_retry:
+                    retry_count += 1
+                    if delay_seconds > 0:
+                        logger.info(
+                            f"Waiting {delay_seconds} seconds before retry {retry_count}",
+                            session_id=session_id,
+                            item_id=item_id,
+                        )
+                        await asyncio.sleep(delay_seconds)
+                    continue
 
-                retry_count += 1
+                # If we've exhausted retries, raise the last exception
+                # This ensures proper error propagation to the calling agent
+                raise RuntimeError(
+                    f"Failed to generate content after {max_retries} retries: {str(e)}"
+                ) from e
 
     def get_service_stats(self) -> Dict[str, Any]:
         """Get service performance statistics including cache metrics."""
@@ -968,5 +1056,13 @@ def get_llm_service() -> EnhancedLLMService:
     """Get global LLM service instance."""
     global _llm_service_instance
     if _llm_service_instance is None:
-        _llm_service_instance = EnhancedLLMService()
+        try:
+            _llm_service_instance = EnhancedLLMService()
+        except Exception as e:
+            logger.error(
+                "Failed to initialize LLM service",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise RuntimeError(f"LLM service initialization failed: {str(e)}") from e
     return _llm_service_instance

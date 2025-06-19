@@ -13,9 +13,22 @@ from ..config.logging_config import get_structured_logger
 from ..models.data_models import AgentDecisionLog, AgentExecutionLog
 from ..config.settings import get_config
 from ..services.llm_service import LLMResponse
+from ..utils.exceptions import (
+    ValidationError,
+    LLMResponseParsingError,
+    WorkflowPreconditionError,
+    AgentExecutionError,
+    ConfigurationError,
+    StateManagerError,
+)
+from ..utils.agent_error_handling import (
+    AgentErrorHandler,
+    LLMErrorHandler,
+    with_error_handling,
+    with_node_error_handling
+)
 from typing import Dict, Any, List, Optional
 import time
-import logging
 import json
 import os
 import asyncio
@@ -57,12 +70,14 @@ class ResearchAgent(EnhancedAgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                description="Conducts research on job information and finds relevant CV content.",
-                required_fields=["job_description_data", "structured_cv"],
+                description="Reads structured CV and job description data from AgentState for research analysis.",
+                required_fields=["structured_cv", "job_description_data"],
+                optional_fields=[],
             ),
             output_schema=AgentIO(
-                description="Relevant research findings and content matches for tailoring.",
-                required_fields=["research_results", "content_matches"],
+                description="Populates the 'research_findings' field in AgentState with analysis results.",
+                required_fields=["research_findings"],
+                optional_fields=["error_messages"],
             ),
         )
         self.llm = llm_service or get_llm_service()
@@ -93,50 +108,24 @@ class ResearchAgent(EnhancedAgentBase):
                     "validation"
                 )
             except ValidationError as ve:
-                logger.error(f"Input validation failed for ResearchAgent: {ve.message}")
-                fallback_result = {
-                    "research_results": {
-                        "error": f"Input validation failed: {ve.message}",
-                        "company_info": {},
-                        "industry_trends": [],
-                        "role_insights": {},
-                        "skill_requirements": [],
-                        "market_data": {},
-                    },
-                    "enhanced_job_description": None,
-                }
-                return AgentResult(
-                    success=False,
-                    output_data=fallback_result,
-                    confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={"agent_type": "research", "validation_error": True},
+                fallback_data = AgentErrorHandler.create_fallback_data("research")
+                return AgentErrorHandler.handle_validation_error(
+                    ve, "research", fallback_data, "run_async"
                 )
             except Exception as e:
-                logger.error(f"Input validation error for ResearchAgent: {str(e)}")
-                fallback_result = {
-                    "research_results": {
-                        "error": f"Input validation error: {str(e)}",
-                        "company_info": {},
-                        "industry_trends": [],
-                        "role_insights": {},
-                        "skill_requirements": [],
-                        "market_data": {},
-                    },
-                    "enhanced_job_description": None,
-                }
-                return AgentResult(
-                    success=False,
-                    output_data=fallback_result,
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
-                    metadata={"agent_type": "research", "validation_error": True},
+                fallback_data = AgentErrorHandler.create_fallback_data("research")
+                return AgentErrorHandler.handle_general_error(
+                    e, "research", fallback_data, "run_async"
                 )
 
             # Use run_as_node for LangGraph integration
             # Create AgentState for run_as_node compatibility
             from ..orchestration.state import AgentState
             from ..models.data_models import StructuredCV, JobDescriptionData
+
+            # Handle None input_data
+            if input_data is None:
+                input_data = {}
 
             # Create proper StructuredCV and JobDescriptionData objects
             structured_cv = input_data.get("structured_cv") or StructuredCV()
@@ -161,31 +150,10 @@ class ResearchAgent(EnhancedAgentBase):
             )
 
         except Exception as e:
-            logger.error(f"ResearchAgent error: {str(e)}")
-
-            # Return error result with fallback empty results
-            fallback_result = {
-                "research_results": {
-                    "error": str(e),
-                    "company_info": {},
-                    "industry_trends": [],
-                    "role_insights": {},
-                    "skill_requirements": [],
-                    "market_data": {},
-                },
-                "enhanced_job_description": (
-                    input_data.get("job_description")
-                    if isinstance(input_data, dict)
-                    else None
-                ),
-            }
-
-            return AgentResult(
-                success=False,
-                output_data=fallback_result,
-                confidence_score=0.0,
-                error_message=str(e),
-                metadata={"agent_type": "research"},
+            # Use standardized error handling
+            fallback_data = AgentErrorHandler.create_fallback_data("research")
+            return AgentErrorHandler.handle_general_error(
+                e, "research", fallback_data, "run_async"
             )
 
     def get_research_results(self) -> Dict[str, Any]:
@@ -364,7 +332,7 @@ class ResearchAgent(EnhancedAgentBase):
 
         return section_scores
 
-    def _analyze_job_requirements(
+    async def _analyze_job_requirements(
         self,
         raw_jd: str,
         skills: List[str],
@@ -413,61 +381,23 @@ class ResearchAgent(EnhancedAgentBase):
                 experience_level=experience_level,
             )
 
-            response = self.llm.generate_content(prompt)
-
-            # Check if LLM response was successful
-            if hasattr(response, "success") and not response.success:
-                logger.error(
-                    f"LLM request failed: {getattr(response, 'error_message', 'Unknown error')}"
-                )
+            # Use centralized JSON generation and parsing
+            try:
+                analysis = await self._generate_and_parse_json(prompt=prompt)
+                return analysis
+            except Exception as e:
+                logger.error(f"Failed to analyze job description with LLM: {str(e)}")
                 return {
                     "core_technical_skills": skills,
                     "soft_skills": [],
                     "error": "LLM analysis failed",
-                    "raw_analysis": getattr(response, "content", ""),
-                }
-
-            # Extract content from LLMResponse or use response directly for backward compatibility
-            response_content = (
-                getattr(response, "content", response)
-                if hasattr(response, "content")
-                else response
-            )
-
-            # Extract JSON from response
-            try:
-                # Find the first JSON-like structure in the response
-                json_start = response_content.find("{")
-                json_end = response_content.rfind("}") + 1
-                if json_start >= 0 and json_end > json_start:
-                    json_str = response_content[json_start:json_end]
-                    analysis = json.loads(json_str)
-                    return analysis
-
-                # If no JSON found, try to create basic structure from the text
-                return {
-                    "core_technical_skills": skills,
-                    "soft_skills": [
-                        s
-                        for s in skills
-                        if s.lower() in ["communication", "leadership", "teamwork"]
-                    ],
-                    "key_performance_metrics": [],
-                    "project_types": [],
-                    "working_environment": {},
-                }
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse LLM output as JSON")
-                return {
-                    "core_technical_skills": skills,
-                    "soft_skills": [],
-                    "raw_analysis": response_content,
+                    "raw_analysis": str(e),
                 }
         except Exception as e:
             logger.error(f"Error analyzing job requirements: {str(e)}")
             return {}
 
-    def _research_company_info(self, raw_jd: str) -> Dict[str, Any]:
+    async def _research_company_info(self, raw_jd: str) -> Dict[str, Any]:
         """
         Simulates research about the company mentioned in the job description.
 
@@ -493,13 +423,21 @@ class ResearchAgent(EnhancedAgentBase):
             IMPORTANT: Respond ONLY with a valid JSON object.
             """
 
-            response = self.llm.generate_content(company_prompt)
-
-            # Check if LLM response was successful
-            if hasattr(response, "success") and not response.success:
-                logger.error(
-                    f"Company research LLM request failed: {getattr(response, 'error_message', 'Unknown error')}"
+            # Use centralized JSON generation and parsing
+            try:
+                company_info = await self._generate_and_parse_json(prompt=company_prompt)
+                
+                # For MVP, simulate the rest of the company research
+                company_name = company_info.get("company_name", "Unknown Company")
+                company_info["description"] = (
+                    f"Research insights about {company_name}."
                 )
+                company_info["key_products"] = ["Product A", "Product B"]
+                company_info["market_position"] = "Market leader in their segment"
+
+                return company_info
+            except Exception as e:
+                logger.error(f"Company research LLM request failed: {str(e)}")
                 # Return fallback company info
                 return {
                     "company_name": "Unknown Company",
@@ -507,33 +445,6 @@ class ResearchAgent(EnhancedAgentBase):
                     "values": ["Innovation", "Teamwork"],
                     "error": "LLM company research failed",
                 }
-
-            # Extract content from LLMResponse or use response directly for backward compatibility
-            response_content = (
-                getattr(response, "content", response)
-                if hasattr(response, "content")
-                else response
-            )
-
-            # Extract JSON from response
-            try:
-                json_start = response_content.find("{")
-                json_end = response_content.rfind("}") + 1
-                if json_start >= 0 and json_end > json_start:
-                    json_str = response_content[json_start:json_end]
-                    company_info = json.loads(json_str)
-
-                    # For MVP, simulate the rest of the company research
-                    company_name = company_info.get("company_name", "Unknown Company")
-                    company_info["description"] = (
-                        f"Research insights about {company_name}."
-                    )
-                    company_info["key_products"] = ["Product A", "Product B"]
-                    company_info["market_position"] = "Market leader in their segment"
-
-                    return company_info
-            except json.JSONDecodeError:
-                pass
         except Exception as e:
             logger.error(f"Error researching company info: {str(e)}")
 
@@ -593,17 +504,20 @@ class ResearchAgent(EnhancedAgentBase):
             return {}
 
         try:
+            # Prepare input data for the async method
+            input_data = {
+                "structured_cv": cv.model_dump(),
+                "job_description_data": job_data.model_dump(),
+            }
+            
             # Create execution context for the async method
             context = AgentExecutionContext(
                 session_id="langraph_session",
-                input_data={
-                    "structured_cv": cv.model_dump(),
-                    "job_description_data": job_data.model_dump(),
-                },
+                input_data=input_data,
             )
 
             # Call the existing async method
-            result = await self.run_async(None, context)
+            result = await self.run_async(input_data, context)
 
             if result.success:
                 # Extract research findings
@@ -621,7 +535,7 @@ class ResearchAgent(EnhancedAgentBase):
             return {"error_messages": error_list}
 
         except Exception as e:
-            logger.error(f"Error in Research node: {e}", exc_info=True)
-            error_list = state.error_messages or []
-            error_list.append(f"Research Error: {e}")
-            return {"error_messages": error_list}
+            # Use standardized error handling for node execution
+            return AgentErrorHandler.handle_node_error(
+                e, "research", state, "run_as_node"
+            )

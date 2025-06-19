@@ -11,7 +11,6 @@ from ..core.state_manager import (
     Item,
 )
 from typing import Dict, Any, List, Tuple
-import logging
 from datetime import datetime
 import re
 import asyncio
@@ -22,6 +21,13 @@ from ..models.data_models import StructuredCV as PydanticStructuredCV
 # Set up structured logging
 from ..config.logging_config import get_structured_logger
 from ..models.data_models import AgentDecisionLog, AgentExecutionLog
+from ..models.validation_schemas import validate_agent_input, ValidationError
+from ..utils.agent_error_handling import (
+    AgentErrorHandler,
+    LLMErrorHandler,
+    with_error_handling,
+    with_node_error_handling
+)
 
 logger = get_structured_logger(__name__)
 
@@ -45,26 +51,14 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             name=name,
             description=description,
             input_schema=AgentIO(
-                input={
-                    "structured_cv": StructuredCV,
-                    "job_description_data": Dict[str, Any],
-                },
-                output={
-                    "quality_check_results": Dict[str, Any],
-                    "updated_structured_cv": StructuredCV,
-                },
-                description="Checks quality of generated CV content.",
+                description="Reads structured CV and job description data from AgentState for quality analysis.",
+                required_fields=["structured_cv", "job_description_data"],
+                optional_fields=[],
             ),
             output_schema=AgentIO(
-                input={
-                    "structured_cv": StructuredCV,
-                    "job_description_data": Dict[str, Any],
-                },
-                output={
-                    "quality_check_results": Dict[str, Any],
-                    "updated_structured_cv": StructuredCV,
-                },
-                description="Results of quality checks and updated CV structure.",
+                description="Populates the 'quality_check_results' field and optionally updates 'structured_cv' in AgentState.",
+                required_fields=["quality_check_results"],
+                optional_fields=["structured_cv", "error_messages"],
             ),
         )
         self.llm = llm_service or get_llm_service()
@@ -89,62 +83,14 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                     "validation",
                 )
             except ValidationError as ve:
-                logger.error(
-                    f"Input validation failed for QualityAssuranceAgent: {ve.message}"
-                )
-                fallback_result = {
-                    "quality_check_results": {
-                        "error": f"Input validation failed: {ve.message}",
-                        "item_checks": [],
-                        "section_checks": [],
-                        "overall_checks": [],
-                        "summary": {
-                            "total_items": 0,
-                            "passed_items": 0,
-                            "warning_items": 0,
-                            "failed_items": 0,
-                        },
-                    },
-                    "updated_structured_cv": None,
-                }
-                return AgentResult(
-                    success=False,
-                    output_data=fallback_result,
-                    confidence_score=0.0,
-                    error_message=f"Input validation failed: {ve.message}",
-                    metadata={
-                        "agent_type": "quality_assurance",
-                        "validation_error": True,
-                    },
+                fallback_data = AgentErrorHandler.create_fallback_data("quality_assurance")
+                return AgentErrorHandler.handle_validation_error(
+                    ve, "quality_assurance", fallback_data, "run_async"
                 )
             except Exception as e:
-                logger.error(
-                    f"Input validation error for QualityAssuranceAgent: {str(e)}"
-                )
-                fallback_result = {
-                    "quality_check_results": {
-                        "error": f"Input validation error: {str(e)}",
-                        "item_checks": [],
-                        "section_checks": [],
-                        "overall_checks": [],
-                        "summary": {
-                            "total_items": 0,
-                            "passed_items": 0,
-                            "warning_items": 0,
-                            "failed_items": 0,
-                        },
-                    },
-                    "updated_structured_cv": None,
-                }
-                return AgentResult(
-                    success=False,
-                    output_data=fallback_result,
-                    confidence_score=0.0,
-                    error_message=f"Input validation error: {str(e)}",
-                    metadata={
-                        "agent_type": "quality_assurance",
-                        "validation_error": True,
-                    },
+                fallback_data = AgentErrorHandler.create_fallback_data("quality_assurance")
+                return AgentErrorHandler.handle_general_error(
+                    e, "quality_assurance", fallback_data, "run_async"
                 )
 
             # Use run_as_node for LangGraph integration
@@ -175,35 +121,10 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             )
 
         except Exception as e:
-            logger.error(f"QualityAssuranceAgent error: {str(e)}")
-
-            # Return error result with fallback empty results
-            fallback_result = {
-                "quality_check_results": {
-                    "error": str(e),
-                    "item_checks": [],
-                    "section_checks": [],
-                    "overall_checks": [],
-                    "summary": {
-                        "total_items": 0,
-                        "passed_items": 0,
-                        "warning_items": 0,
-                        "failed_items": 0,
-                    },
-                },
-                "updated_structured_cv": (
-                    input_data.get("structured_cv")
-                    if isinstance(input_data, dict)
-                    else None
-                ),
-            }
-
-            return AgentResult(
-                success=False,
-                output_data=fallback_result,
-                confidence_score=0.0,
-                error_message=str(e),
-                metadata={"agent_type": "quality_assurance"},
+            # Use standardized error handling
+            fallback_data = AgentErrorHandler.create_fallback_data("quality_assurance")
+            return AgentErrorHandler.handle_general_error(
+                e, "quality_assurance", fallback_data, "run_async"
             )
 
     def _extract_key_terms(
@@ -740,6 +661,14 @@ class QualityAssuranceAgent(EnhancedAgentBase):
         Returns:
             A dictionary containing quality check results and potentially updated CV.
         """
+        # Validate input using proper validation function
+        validation_result = AgentErrorHandler.handle_validation_error(
+            lambda: validate_agent_input("quality_assurance", state),
+            "QualityAssuranceAgent"
+        )
+        if not validation_result.success:
+            return {"error_messages": [validation_result.error_message]}
+        
         logger.info("QualityAssuranceAgent node running.")
         cv = state.structured_cv
         job_data = state.job_description_data
@@ -749,17 +678,20 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             return {}
 
         try:
+            # Prepare input data for the async method
+            input_data = {
+                "structured_cv": cv.model_dump(),
+                "job_description_data": job_data.model_dump(),
+            }
+            
             # Create execution context for the async method
             context = AgentExecutionContext(
                 session_id="langraph_session",
-                input_data={
-                    "structured_cv": cv.model_dump(),
-                    "job_description_data": job_data.model_dump(),
-                },
+                input_data=input_data,
             )
 
             # Call the existing async method
-            result = await self.run_async(None, context)
+            result = await self.run_async(input_data, context)
 
             if result.success:
                 # Extract quality check results
@@ -768,10 +700,8 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
                 response = {}
                 if quality_results:
-                    # Store quality results in user feedback for visibility
-                    feedback_list = state.user_feedback or []
-                    feedback_list.append(f"QA Results: {quality_results}")
-                    response["user_feedback"] = feedback_list
+                    # Store quality results in the correct AgentState field
+                    response["quality_check_results"] = quality_results
 
                 if updated_cv_data:
                     # Convert back to StructuredCV model
@@ -786,7 +716,6 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             return {"error_messages": error_list}
 
         except Exception as e:
-            logger.error(f"Error in QA node: {e}", exc_info=True)
-            error_list = state.error_messages or []
-            error_list.append(f"QA Error: {e}")
-            return {"error_messages": error_list}
+            return AgentErrorHandler.handle_node_error(
+                e, "QualityAssuranceAgent", state
+            )
