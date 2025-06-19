@@ -4,6 +4,8 @@ from typing import Optional
 from ..orchestration.state import AgentState
 import uuid
 
+# NOTE: This module should only manage raw UI state (user input, flags, progress). Do NOT store complex objects like StructuredCV or AgentState here. See src/core/state_manager.py for architectural boundaries.
+
 
 def initialize_session_state():
     """

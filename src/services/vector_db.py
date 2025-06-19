@@ -72,67 +72,109 @@ class VectorDB:
     ):
         """
         Initializes the VectorDB with the given configuration.
+        Implements fail-fast pattern for early error detection.
 
         Args:
             config: The VectorStoreConfig object.
             embed_function: Optional. A function to generate embeddings.
                              If None, uses a default Gemini embedding function.
             db_path: Optional path for persistent storage.
+            
+        Raises:
+            ConfigurationError: If vector store initialization fails.
         """
-        if config.index_type == "IndexFlatL2":
-            self.index = faiss.IndexFlatL2(config.dimension)
-        elif config.index_type == "IndexIVFFlat":
-            quantizer = faiss.IndexFlatL2(config.dimension)
-            self.index = faiss.IndexIVFFlat(quantizer, config.dimension, 100)
-        else:
-            raise Exception("Invalid index type")
+        from ..utils.exceptions import ConfigurationError
+        
+        try:
+            # Validate configuration
+            if not config:
+                raise ConfigurationError("VectorStoreConfig is required")
+            
+            if config.dimension <= 0:
+                raise ConfigurationError(f"Invalid dimension: {config.dimension}. Must be positive.")
+            
+            # Initialize FAISS index with fail-fast validation
+            if config.index_type == "IndexFlatL2":
+                self.index = faiss.IndexFlatL2(config.dimension)
+            elif config.index_type == "IndexIVFFlat":
+                quantizer = faiss.IndexFlatL2(config.dimension)
+                self.index = faiss.IndexIVFFlat(quantizer, config.dimension, 100)
+            else:
+                raise ConfigurationError(f"Invalid index type: {config.index_type}")
 
-        self.data: Dict[str, Any] = {}  # Store data items with ids as keys
-        self.metadata: Dict[str, Dict[str, Any]] = {}  # Store metadata with ids as keys
-        self.id_map: Dict[int, str] = {}  # Map index positions to ids
-        self.next_index = 0  # Track the next index position
-        self.config = config
-        self.indexed_cv_ids = set()  # Track which CV IDs have been indexed
-        self._embed_function = (
-            embed_function
-            if embed_function is not None
-            else self._default_embed_function
-        )
+            self.data: Dict[str, Any] = {}  # Store data items with ids as keys
+            self.metadata: Dict[str, Dict[str, Any]] = {}  # Store metadata with ids as keys
+            self.id_map: Dict[int, str] = {}  # Map index positions to ids
+            self.next_index = 0  # Track the next index position
+            self.config = config
+            self.indexed_cv_ids = set()  # Track which CV IDs have been indexed
+            self._embed_function = (
+                embed_function
+                if embed_function is not None
+                else self._default_embed_function
+            )
 
-        # Enhanced features
-        self.settings = get_config()
-        self.error_recovery = get_error_recovery_service()
-        self.rate_limiter = RetryableRateLimiter()
-        self.db_path = (
-            Path(db_path or self.settings.data_directory) / "enhanced_vector_db"
-        )
-        self.db_path.mkdir(parents=True, exist_ok=True)
+            # Enhanced features
+            self.settings = get_config()
+            self.error_recovery = get_error_recovery_service()
+            self.rate_limiter = RetryableRateLimiter()
+            
+            # Validate and create database path
+            self.db_path = (
+                Path(db_path or self.settings.data_directory) / "enhanced_vector_db"
+            )
+            try:
+                self.db_path.mkdir(parents=True, exist_ok=True)
+                # Test write permissions
+                test_file = self.db_path / ".write_test"
+                test_file.touch()
+                test_file.unlink()
+            except (OSError, PermissionError) as e:
+                raise ConfigurationError(
+                    f"CRITICAL: Cannot access vector database directory '{self.db_path}'. "
+                    f"Please check the path exists and has write permissions. Error: {e}"
+                ) from e
 
-        # Enhanced documents storage
-        self.enhanced_documents: Dict[str, EnhancedVectorDocument] = {}
+            # Enhanced documents storage
+            self.enhanced_documents: Dict[str, EnhancedVectorDocument] = {}
 
-        # Performance tracking
-        self.stats = {
-            "documents_stored": 0,
-            "searches_performed": 0,
-            "average_search_time": 0.0,
-            "embedding_cache_hits": 0,
-            "last_updated": datetime.now(),
-        }
+            # Performance tracking
+            self.stats = {
+                "documents_stored": 0,
+                "searches_performed": 0,
+                "average_search_time": 0.0,
+                "embedding_cache_hits": 0,
+                "last_updated": datetime.now(),
+            }
 
-        # Embedding cache for performance
-        self.embedding_cache: Dict[str, List[float]] = {}
+            # Embedding cache for performance
+            self.embedding_cache: Dict[str, List[float]] = {}
 
-        # Load existing enhanced data
-        self._load_enhanced_database()
+            # Load existing enhanced data with fail-fast validation
+            try:
+                self._load_enhanced_database()
+            except Exception as e:
+                raise ConfigurationError(
+                    f"CRITICAL: Failed to load existing vector database from '{self.db_path}'. "
+                    f"Database may be corrupted. Error: {e}"
+                ) from e
 
-        logger.info(
-            "Enhanced VectorDB initialized",
-            config_dimension=config.dimension,
-            index_type=config.index_type,
-            enhanced_documents=len(self.enhanced_documents),
-            legacy_documents=len(self.data),
-        )
+            logger.info(
+                "Enhanced VectorDB initialized",
+                config_dimension=config.dimension,
+                index_type=config.index_type,
+                enhanced_documents=len(self.enhanced_documents),
+                legacy_documents=len(self.data),
+            )
+            
+        except ConfigurationError:
+            # Re-raise ConfigurationError as-is
+            raise
+        except Exception as e:
+            # Wrap any other exception in ConfigurationError
+            raise ConfigurationError(
+                f"CRITICAL: Vector store initialization failed. {str(e)}"
+            ) from e
 
     def _default_embed_function(self, text: str) -> List[float]:
         """
@@ -676,7 +718,20 @@ _enhanced_vector_db = None
 
 
 def get_enhanced_vector_db(config: Optional[VectorStoreConfig] = None) -> VectorDB:
-    """Get the global enhanced vector database instance."""
+    """Get the global enhanced vector database instance (fail-fast singleton).
+    
+    This function implements the fail-fast pattern by eagerly initializing
+    the vector database and allowing any ConfigurationError to propagate.
+    
+    Args:
+        config: Optional VectorStoreConfig. If None, uses default configuration.
+        
+    Returns:
+        VectorDB: The singleton vector database instance.
+        
+    Raises:
+        ConfigurationError: If vector database initialization fails.
+    """
     global _enhanced_vector_db
     if _enhanced_vector_db is None:
         if config is None:
@@ -684,8 +739,24 @@ def get_enhanced_vector_db(config: Optional[VectorStoreConfig] = None) -> Vector
             config = VectorStoreConfig(
                 dimension=768, index_type="IndexFlatL2"  # Standard embedding dimension
             )
+        # This will raise ConfigurationError if initialization fails
         _enhanced_vector_db = VectorDB(config)
     return _enhanced_vector_db
+
+
+def get_vector_store_service() -> VectorDB:
+    """Get the global VectorStoreService instance (singleton).
+    
+    This is an alias for get_enhanced_vector_db() to maintain compatibility
+    with the fail-fast pattern described in the task blueprint.
+    
+    Returns:
+        VectorDB: The singleton vector database instance.
+        
+    Raises:
+        ConfigurationError: If vector database initialization fails.
+    """
+    return get_enhanced_vector_db()
 
 
 # Convenience functions for enhanced functionality

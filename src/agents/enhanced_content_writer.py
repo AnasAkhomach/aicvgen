@@ -184,8 +184,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         # For Experience content type, parse JSON response and validate with Pydantic
         if content_type == ContentType.EXPERIENCE and response.success:
             try:
-                # Extract JSON from the response using centralized method
-                json_content = self._extract_json_from_response(response.content)
+                # Parse JSON from the response using centralized method
+                json_content = await self._generate_and_parse_json(
+                    prompt=prompt,
+                    session_id=getattr(context, "session_id", None),
+                    trace_id=getattr(context, "trace_id", None)
+                )
 
                 # Parse and validate with Pydantic model
                 from ..models.validation_schemas import LLMRoleGenerationOutput
@@ -993,7 +997,7 @@ Description: {description[:200] if description else f'{role_title} position with
                 ),
                 "company_name": (
                     job_description.company_name
-                    if job_description
+                    if job_description and job_description.company_name
                     else "Target Company"
                 ),
                 "job_description": (
@@ -1001,10 +1005,10 @@ Description: {description[:200] if description else f'{role_title} position with
                     if job_description
                     else "No job description provided"
                 ),
-                "item_title": subsection.name,
+                "item_title": subsection.name if subsection else section.name,
                 "item_description": (
                     subsection.items[0].content
-                    if subsection.items
+                    if subsection and subsection.items
                     else "No existing content"
                 ),
                 "additional_context": f"This is for the {section.title} section of a CV",
@@ -1024,7 +1028,7 @@ Description: {description[:200] if description else f'{role_title} position with
             formatted_prompt = template.format(**context_vars)
 
             logger.info(
-                f"Built single item prompt for {subsection.name} with research insights: {bool(research_findings)}"
+                f"Built single item prompt for {subsection.name if subsection else section.name} with research insights: {bool(research_findings)}"
             )
             return formatted_prompt
 
@@ -1034,7 +1038,7 @@ Description: {description[:200] if description else f'{role_title} position with
                 job_title="Target Position",
                 company_name="Target Company",
                 job_description="No job description provided",
-                item_title=subsection.name,
+                item_title=subsection.name if subsection else "Unknown Section",
                 item_description="No existing content",
                 additional_context="CV content generation",
             )
@@ -1112,11 +1116,7 @@ Description: {description[:200] if description else f'{role_title} position with
             content = content[:297] + "..."
         return content
 
-    def _extract_json_from_response(self, response_content: str) -> dict:
-        """Extract JSON content from LLM response using centralized method."""
-        # Use the centralized JSON extraction from parent class
-        json_str = super()._extract_json_from_response(response_content)
-        return json.loads(json_str)
+
 
     def _format_role_generation_output(self, validated_data) -> str:
         """Format the validated role generation data into the expected content format."""

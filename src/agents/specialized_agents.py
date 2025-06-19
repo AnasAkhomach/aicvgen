@@ -12,7 +12,7 @@ from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..services.llm_service import get_llm_service
-from ..exceptions.agent_exceptions import AgentErrorHandler
+from ..utils.agent_error_handling import AgentErrorHandler
 
 logger = get_structured_logger("specialized_agents")
 
@@ -169,6 +169,9 @@ class CVAnalysisAgent(EnhancedAgentBase):
         gap_penalty = len(analysis["gaps_identified"]) * 0.1
 
         return max(0.0, (skill_score + experience_score) / 2 - gap_penalty)
+
+
+# ContentOptimizationAgent and related logic have been removed as part of the architectural refactor. All content writing is now managed explicitly in the workflow graph.
 
 
 # Helper function for quality checks (used by other agents)

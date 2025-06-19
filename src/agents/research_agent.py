@@ -25,7 +25,7 @@ from ..utils.agent_error_handling import (
     AgentErrorHandler,
     LLMErrorHandler,
     with_error_handling,
-    with_node_error_handling
+    with_node_error_handling,
 )
 from typing import Dict, Any, List, Optional
 import time
@@ -86,8 +86,6 @@ class ResearchAgent(EnhancedAgentBase):
         # Initialize settings for prompt loading
         self.settings = get_config()
 
-
-
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
     ) -> "AgentResult":
@@ -103,9 +101,7 @@ class ResearchAgent(EnhancedAgentBase):
                 input_data = validated_input
                 # Log validation success with structured logging
                 self.log_decision(
-                    "Input validation passed for ResearchAgent",
-                    context,
-                    "validation"
+                    "Input validation passed for ResearchAgent", context, "validation"
                 )
             except ValidationError as ve:
                 fallback_data = AgentErrorHandler.create_fallback_data("research")
@@ -118,9 +114,7 @@ class ResearchAgent(EnhancedAgentBase):
                     e, "research", fallback_data, "run_async"
                 )
 
-            # Use run_as_node for LangGraph integration
-            # Create AgentState for run_as_node compatibility
-            from ..orchestration.state import AgentState
+            # Perform research analysis directly without circular dependency
             from ..models.data_models import StructuredCV, JobDescriptionData
 
             # Handle None input_data
@@ -128,19 +122,25 @@ class ResearchAgent(EnhancedAgentBase):
                 input_data = {}
 
             # Create proper StructuredCV and JobDescriptionData objects
-            structured_cv = input_data.get("structured_cv") or StructuredCV()
+            structured_cv = input_data.get("structured_cv")
+            if isinstance(structured_cv, dict):
+                structured_cv = StructuredCV(**structured_cv)
+            elif not structured_cv:
+                structured_cv = StructuredCV()
+
             job_desc_data = input_data.get("job_description_data")
-            if not job_desc_data or isinstance(job_desc_data, dict):
+            if isinstance(job_desc_data, dict):
+                job_desc_data = JobDescriptionData(**job_desc_data)
+            elif not job_desc_data:
                 job_desc_data = JobDescriptionData(
                     raw_text=input_data.get("job_description", "")
                 )
 
-            agent_state = AgentState(
-                structured_cv=structured_cv, job_description_data=job_desc_data
+            # Perform the actual research work
+            research_findings = await self._perform_research_analysis(
+                structured_cv, job_desc_data
             )
-
-            node_result = await self.run_as_node(agent_state)
-            result = node_result.get("output_data", {}) if node_result else {}
+            result = {"research_findings": research_findings}
 
             return AgentResult(
                 success=True,
@@ -155,6 +155,69 @@ class ResearchAgent(EnhancedAgentBase):
             return AgentErrorHandler.handle_general_error(
                 e, "research", fallback_data, "run_async"
             )
+
+    async def _perform_research_analysis(
+        self, structured_cv: "StructuredCV", job_desc_data: "JobDescriptionData"
+    ) -> Dict[str, Any]:
+        """Perform the core research analysis without circular dependencies."""
+        try:
+            # Set current session and trace IDs for centralized JSON parsing
+            self.current_session_id = getattr(self, "current_session_id", None)
+            self.current_trace_id = getattr(self, "current_trace_id", None)
+
+            # Index CV content if vector DB is available
+            if self.vector_db:
+                self._index_cv_content(structured_cv)
+
+            # Extract basic job data for analysis
+            skills = getattr(job_desc_data, "skills", []) or []
+            responsibilities = getattr(job_desc_data, "responsibilities", []) or []
+            experience_level = getattr(
+                job_desc_data, "experience_level", "Not specified"
+            )
+
+            # Analyze job requirements
+            job_analysis = await self._analyze_job_requirements(
+                job_desc_data.raw_text, skills, responsibilities, experience_level
+            )
+
+            # Research company information
+            company_info = await self._research_company_info(job_desc_data.raw_text)
+
+            # Find relevant CV content
+            relevant_content = []
+            if job_analysis.get("key_skills"):
+                for skill in job_analysis["key_skills"][:3]:  # Limit to top 3 skills
+                    content = self._search_relevant_content(
+                        skill, structured_cv, num_results=2
+                    )
+                    relevant_content.extend(content)
+
+            # Research industry insights
+            industry_insights = self._research_industry_insights(
+                job_analysis.get("key_skills", [])
+            )
+
+            # Compile research findings
+            research_findings = {
+                "job_analysis": job_analysis,
+                "company_info": company_info,
+                "relevant_cv_content": relevant_content,
+                "industry_insights": industry_insights,
+                "research_timestamp": datetime.now().isoformat(),
+            }
+
+            # Store for later retrieval
+            self._latest_research_results = research_findings
+
+            return research_findings
+
+        except Exception as e:
+            logger.error(f"Error in research analysis: {str(e)}")
+            return {
+                "error": f"Research analysis failed: {str(e)}",
+                "research_timestamp": datetime.now().isoformat(),
+            }
 
     def get_research_results(self) -> Dict[str, Any]:
         """
@@ -383,7 +446,11 @@ class ResearchAgent(EnhancedAgentBase):
 
             # Use centralized JSON generation and parsing
             try:
-                analysis = await self._generate_and_parse_json(prompt=prompt)
+                analysis = await self._generate_and_parse_json(
+                    prompt=prompt,
+                    session_id=getattr(self, "current_session_id", None),
+                    trace_id=getattr(self, "current_trace_id", None),
+                )
                 return analysis
             except Exception as e:
                 logger.error(f"Failed to analyze job description with LLM: {str(e)}")
@@ -425,13 +492,15 @@ class ResearchAgent(EnhancedAgentBase):
 
             # Use centralized JSON generation and parsing
             try:
-                company_info = await self._generate_and_parse_json(prompt=company_prompt)
-                
+                company_info = await self._generate_and_parse_json(
+                    prompt=company_prompt,
+                    session_id=getattr(self, "current_session_id", None),
+                    trace_id=getattr(self, "current_trace_id", None),
+                )
+
                 # For MVP, simulate the rest of the company research
                 company_name = company_info.get("company_name", "Unknown Company")
-                company_info["description"] = (
-                    f"Research insights about {company_name}."
-                )
+                company_info["description"] = f"Research insights about {company_name}."
                 company_info["key_products"] = ["Product A", "Product B"]
                 company_info["market_position"] = "Market leader in their segment"
 
@@ -504,12 +573,16 @@ class ResearchAgent(EnhancedAgentBase):
             return {}
 
         try:
+            # Set current session and trace IDs for centralized JSON parsing
+            self.current_session_id = getattr(state, "session_id", None)
+            self.current_trace_id = state.trace_id
+
             # Prepare input data for the async method
             input_data = {
                 "structured_cv": cv.model_dump(),
                 "job_description_data": job_data.model_dump(),
             }
-            
+
             # Create execution context for the async method
             context = AgentExecutionContext(
                 session_id="langraph_session",

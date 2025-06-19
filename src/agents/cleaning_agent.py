@@ -155,6 +155,11 @@ class CleaningAgent(EnhancedAgentBase):
                     if isinstance(parsed, dict) and "skills" in parsed:
                         return [str(skill).strip() for skill in parsed["skills"][:10]]
                 except (json.JSONDecodeError, Exception):
+                    # Log the JSON parsing failure and continue with regex fallback
+                    self.logger.warning(
+                        "JSON parsing failed for skills extraction, using regex fallback",
+                        session_id=getattr(context, 'session_id', None)
+                    )
                     pass
 
             # Extract skills using regex patterns

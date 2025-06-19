@@ -116,11 +116,12 @@ def _initialize_ui_state() -> None:
         st.session_state.regeneration_flags = {}
 
 
-def create_agent_state_from_ui() -> AgentState:
+def create_initial_agent_state() -> AgentState:
     """Create an AgentState object from current UI session state.
 
-    This function acts as the bridge between UI state and backend workflow state.
-    Uses the input data stored by the frontend components.
+    This function acts as the single point of conversion from UI state to AgentState,
+    establishing AgentState as the source of truth for workflow execution.
+    Uses only raw input data stored by the frontend components.
 
     Returns:
         AgentState: A fully initialized AgentState object ready for the workflow.

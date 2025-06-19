@@ -85,7 +85,7 @@ class RateLimiter:
         return 0.0
 
     def wait_if_needed(self, model: str, estimated_tokens: int = 0):
-        """Wait if rate limit requires it."""
+        """Wait if rate limit requires it (synchronous version)."""
         wait_time = self.get_wait_time(model)
         if wait_time > 0:
             self.logger.info(
@@ -109,6 +109,32 @@ class RateLimiter:
             self.logger.log_rate_limit(rate_log)
 
             time.sleep(wait_time)
+
+    async def wait_if_needed_async(self, model: str, estimated_tokens: int = 0):
+        """Wait if rate limit requires it (async version)."""
+        wait_time = self.get_wait_time(model)
+        if wait_time > 0:
+            self.logger.info(
+                f"Rate limit wait required for model {model}",
+                wait_time=wait_time,
+                estimated_tokens=estimated_tokens,
+            )
+
+            # Log rate limit event
+            state = self.get_model_state(model)
+            rate_log = RateLimitLog(
+                timestamp=datetime.now().isoformat(),
+                model=model,
+                requests_in_window=state.requests_per_minute,
+                tokens_in_window=state.tokens_per_minute,
+                window_start=state.window_start.isoformat(),
+                window_end=(state.window_start + timedelta(minutes=1)).isoformat(),
+                limit_exceeded=True,
+                wait_time_seconds=wait_time,
+            )
+            self.logger.log_rate_limit(rate_log)
+
+            await asyncio.sleep(wait_time)
 
     def record_request(self, model: str, tokens_used: int, success: bool):
         """Record a request and update rate limit state."""

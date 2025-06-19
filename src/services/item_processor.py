@@ -1,7 +1,7 @@
 """Individual item processor for CV generation.
 
-This module handles the processing of individual CV items (qualifications, experiences, projects)
-with rate limiting and retry logic to mitigate LLM API limits.
+This module handles the processing of individual CV items (qualifications, experiences, projects).
+Retry logic is now centralized in the EnhancedLLMService.
 """
 
 import time
@@ -21,7 +21,8 @@ from ..models.data_models import (
     QualificationItem,
 )
 from ..orchestration.state import AgentState
-from ..services.rate_limiter import get_rate_limiter
+# Rate limiting and retry logic is now handled by EnhancedLLMService
+# from ..services.rate_limiter import get_rate_limiter
 from ..utils.exceptions import RateLimitError, NetworkError
 
 
@@ -30,7 +31,7 @@ class ItemProcessor:
 
     def __init__(self, llm_client=None, qa_callback=None):
         self.llm_client = llm_client
-        self.rate_limiter = get_rate_limiter()
+        # Rate limiting is now handled by EnhancedLLMService
         self.logger = get_structured_logger("item_processor")
         self.settings = get_config()
         self.qa_callback = qa_callback  # Callback for quality assurance
@@ -239,14 +240,13 @@ class ItemProcessor:
         item_id: str,
         prompt_type: str,
     ) -> Any:
-        """Make a rate-limited LLM API call with logging."""
+        """Make an LLM API call with logging. Retry logic is handled by EnhancedLLMService."""
 
         start_time = time.time()
 
         try:
-            # Use rate limiter to make the call
-            response = await self.rate_limiter.execute_with_retry(
-                self._call_llm_api,
+            # Direct call to LLM API - retry logic is now handled by EnhancedLLMService
+            response = await self._call_llm_api(
                 model=model,
                 estimated_tokens=estimated_tokens,
                 prompt=prompt,
@@ -256,10 +256,6 @@ class ItemProcessor:
             # Calculate actual metrics
             duration = time.time() - start_time
             actual_tokens = self._extract_token_usage(response)
-
-            # Update item metadata
-            item_metadata = None
-            # Note: We'd need to pass item reference or find another way to update metadata
 
             # Log the successful call
             call_log = LLMCallLog(

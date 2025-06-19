@@ -130,9 +130,9 @@ def handle_workflow_execution(trace_id: str = None):
             "agent_state" not in st.session_state
             or st.session_state.agent_state is None
         ):
-            from ..core.state_helpers import create_agent_state_from_ui
+            from ..core.state_helpers import create_initial_agent_state
 
-            st.session_state.agent_state = create_agent_state_from_ui()
+            st.session_state.agent_state = create_initial_agent_state()
 
         initial_state = st.session_state.agent_state
         initial_state.trace_id = trace_id

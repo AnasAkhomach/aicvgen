@@ -408,15 +408,12 @@ class EnhancedAgentBase(ABC):
         self.logger.info("Agent statistics reset", agent_name=self.name)
 
     async def _generate_and_parse_json(
-        self,
-        prompt: str,
-        context: Optional[AgentExecutionContext] = None,
-        model_name: str = "gemini-2.0-flash",
-        temperature: float = 0.7,
+        self, prompt: str, session_id: str, trace_id: str
     ) -> Dict[str, Any]:
         """
-        Shared utility method for LLM interaction with JSON parsing.
-
+        Generates content from the LLM and robustly parses the JSON output.
+        Handles common LLM response formats like markdown code blocks.
+        
         This method consolidates the common pattern of:
         1. Sending a prompt to an LLM
         2. Receiving a response
@@ -425,14 +422,14 @@ class EnhancedAgentBase(ABC):
 
         Args:
             prompt: The prompt to send to the LLM
-            model_name: The model to use (default: gemini-2.0-flash)
-            temperature: The temperature setting for generation (default: 0.7)
+            session_id: Session identifier for tracking
+            trace_id: Trace identifier for debugging
 
         Returns:
             Dict[str, Any]: Parsed JSON response from the LLM
 
         Raises:
-            Exception: If LLM call fails or JSON parsing fails after retries
+            AgentError: If LLM call fails or JSON parsing fails after retries
         """
         # Use the agent's LLM service if available, otherwise get default
         try:
@@ -451,59 +448,56 @@ class EnhancedAgentBase(ABC):
 
         try:
             # Generate response from LLM
-            response = await llm_service.generate_content(
-                prompt=prompt, session_id=context.session_id if hasattr(context, 'session_id') else None
+            llm_response = await llm_service.generate_content(
+                prompt=prompt, session_id=session_id, trace_id=trace_id
             )
 
         except Exception as e:
             self.logger.error(
                 f"LLM generation failed for agent {self.name}",
                 error=str(e),
-                model=model_name,
                 prompt_preview=prompt[:200],
             )
             raise
 
-        # Clean and extract JSON from response
-        # Handle LLMResponse object by extracting content
-        response_content = response.content if hasattr(response, 'content') else str(response)
-        
         # Check if LLMResponse indicates failure
-        if hasattr(response, 'success') and not response.success:
-            error_msg = getattr(response, 'error_message', 'Unknown LLM error')
-            self.logger.error(
-                f"LLM generation failed for agent {self.name}",
-                error=error_msg,
-                response_content=response_content[:200],
-            )
-            raise ValueError(f"LLM generation failed: {error_msg}")
+        if not llm_response.success:
+            from ..utils.exceptions import AgentError
+            raise AgentError(f"LLM generation failed: {llm_response.error_message}")
+
+        raw_text = llm_response.content
         
         # Check for empty or invalid content
-        if not response_content or response_content.strip() == "":
+        if not raw_text or raw_text.strip() == "":
             self.logger.error(
                 f"Empty response received for agent {self.name}",
-                response_preview=str(response)[:200],
+                response_preview=str(llm_response)[:200],
             )
             raise ValueError("Received empty response from LLM")
-        
-        cleaned_response = self._extract_json_from_response(response_content)
 
-        # Parse JSON
+        # Regex to find JSON within ```json ... ``` code blocks
+        json_match = re.search(r"```json\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Fallback for raw JSON or JSON embedded in text
+            start_index = raw_text.find('{')
+            end_index = raw_text.rfind('}') + 1
+            if start_index == -1 or end_index == 0:
+                raise ValueError("No valid JSON object found in the LLM response.")
+            json_str = raw_text[start_index:end_index]
+
         try:
-            parsed_json = json.loads(cleaned_response)
-            return parsed_json
+            return json.loads(json_str)
         except json.JSONDecodeError as e:
-            self.logger.error(
-                f"JSON parsing failed for agent {self.name}",
-                error=str(e),
-                response_preview=cleaned_response[:200],
-                original_content=response_content[:200],
-            )
-            raise ValueError(f"Failed to parse JSON response: {str(e)}") from e
+            self.logger.error("Failed to decode JSON from LLM response: %s", e)
+            self.logger.debug("Malformed JSON string: %s", json_str)
+            raise ValueError(f"Could not parse JSON from LLM response. Error: {e}")
 
     def _extract_json_from_response(self, response: str) -> str:
         """
         Extract JSON content from LLM response, handling common formatting issues.
+        This method is kept for backward compatibility with existing agent implementations.
 
         Args:
             response: Raw response from LLM

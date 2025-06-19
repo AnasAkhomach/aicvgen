@@ -662,11 +662,12 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             A dictionary containing quality check results and potentially updated CV.
         """
         # Validate input using proper validation function
-        validation_result = AgentErrorHandler.handle_validation_error(
-            lambda: validate_agent_input("quality_assurance", state),
-            "QualityAssuranceAgent"
-        )
-        if not validation_result.success:
+        try:
+            validate_agent_input("quality_assurance", state)
+        except ValidationError as e:
+            validation_result = AgentErrorHandler.handle_validation_error(
+                e, "QualityAssuranceAgent"
+            )
             return {"error_messages": [validation_result.error_message]}
         
         logger.info("QualityAssuranceAgent node running.")

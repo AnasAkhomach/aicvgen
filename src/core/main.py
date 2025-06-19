@@ -56,11 +56,14 @@ from ..frontend.ui_components import (
 )
 from ..frontend.state_helpers import initialize_session_state
 from ..frontend.callbacks import handle_workflow_execution
-from ..core.state_helpers import create_agent_state_from_ui
+from ..core.state_helpers import create_initial_agent_state
 from ..orchestration.state import AgentState
 from ..orchestration.cv_workflow_graph import (
     cv_graph_app,
 )  # Assumes this is the compiled graph
+from ..utils.exceptions import ConfigurationError
+from ..services.llm_service import get_llm_service
+from ..services.vector_store_service import get_vector_store_service
 import uuid
 import time
 
@@ -83,6 +86,12 @@ def main():
     Orchestrates the UI rendering and backend workflow invocations.
     """
     try:
+        # Initialize critical services with fail-fast pattern
+        user_api_key = st.session_state.get("user_gemini_api_key", "")
+        get_llm_service(user_api_key=user_api_key)
+        # Initialize vector store service with fail-fast pattern
+        get_vector_store_service()
+
         # 1. Initialize State
         initialize_session_state()
 
@@ -156,15 +165,15 @@ def main():
             for error in st.session_state.agent_state.error_messages:
                 st.error(error)
 
-    except Exception as e:
-        logger.error(
-            f"Error in main application: {str(e)}",
-            extra={
-                "session_id": st.session_state.get("session_id"),
-                "error_type": type(e).__name__,
-            },
+    except ConfigurationError as e:
+        st.error(f"**Application Startup Failed:**\n\n{e}")
+        st.warning(
+            "Please check your configuration (.env file, database paths) and restart."
         )
-        st.error(f"❌ Application error: {str(e)}")
+        st.stop()
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {e}")
+        st.stop()
 
         # Show error details in expander for debugging
         with st.expander("🔍 Error Details", expanded=False):

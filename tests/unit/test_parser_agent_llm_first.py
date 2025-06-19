@@ -98,10 +98,16 @@ University of Technology (2014-2018)
                 },
                 {
                     "name": "Professional Experience",
-                    "subsections": [],
-                    "items": [
-                        "Senior Software Engineer | Tech Corp | 2020-2023 | San Francisco, CA"
-                    ]
+                    "subsections": [
+                        {
+                            "name": "Senior Software Engineer at TechCorp (2020-2023)",
+                            "items": [
+                                "Led development of microservices architecture",
+                                "Mentored junior developers and improved team productivity"
+                            ]
+                        }
+                    ],
+                    "items": []
                 },
                 {
                     "name": "Education",
@@ -142,8 +148,9 @@ University of Technology (2014-2018)
             # Check Professional Experience section
             prof_exp = result.sections[1]
             assert prof_exp.name == "Professional Experience"
-            assert len(prof_exp.items) == 1
-            assert "Senior Software Engineer" in prof_exp.items[0].content
+            assert len(prof_exp.items) == 0  # Items are now in subsections
+            assert len(prof_exp.subsections) == 1
+            assert "Senior Software Engineer" in prof_exp.subsections[0].name
             
             # Verify the generate method was called with correct parameters
             mock_generate.assert_called_once()
@@ -209,7 +216,7 @@ University of Technology (2014-2018)
             # Should return an empty StructuredCV with error metadata
             assert isinstance(result, StructuredCV)
             assert len(result.sections) == 0
-            assert "error" in result.metadata
+            assert "parsing_error" in result.metadata
 
     @pytest.mark.asyncio
     async def test_convert_parsing_result_to_structured_cv(self, parser_agent, sample_llm_response):
@@ -277,4 +284,4 @@ University of Technology (2014-2018)
             # Should handle the error gracefully and return empty CV
             assert isinstance(result, StructuredCV)
             assert len(result.sections) == 0
-            assert "error" in result.metadata
+            assert "parsing_error" in result.metadata
