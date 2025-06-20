@@ -344,7 +344,7 @@ class StateManager:
                 if section.id == section_id:
                     # Update section fields
                     if "title" in section_data:
-                        section.title = section_data["title"]
+                        section.name = section_data["title"]
                     if "description" in section_data:
                         section.description = section_data["description"]
                     logger.info("Section %s updated successfully", section_id)

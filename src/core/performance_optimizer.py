@@ -524,7 +524,7 @@ class MultiLevelCache:
                 )
                 try:
                     os.remove(cache_file)
-                except:
+                except Exception:
                     pass
 
         return None
@@ -780,8 +780,9 @@ def reset_performance_optimizer():
 # Decorator for automatic performance optimization
 def optimize_performance(operation_name: str = None, **metadata):
     """Decorator for automatic performance optimization."""
+    from ..utils.decorators import create_async_sync_decorator
 
-    def decorator(func):
+    def create_async_wrapper(func):
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
             optimizer = get_performance_optimizer()
@@ -789,17 +790,15 @@ def optimize_performance(operation_name: str = None, **metadata):
 
             async with optimizer.optimized_execution(name, **metadata):
                 return await func(*args, **kwargs)
+        return async_wrapper
 
+    def create_sync_wrapper(func):
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
             # For sync functions, just use performance monitoring
             monitor = get_performance_monitor()
             with monitor.measure_sync(operation_name or func.__name__, **metadata):
                 return func(*args, **kwargs)
+        return sync_wrapper
 
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
-
-    return decorator
+    return create_async_sync_decorator(create_async_wrapper, create_sync_wrapper)

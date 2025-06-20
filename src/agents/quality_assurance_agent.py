@@ -17,6 +17,7 @@ import asyncio
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
 from ..models.data_models import StructuredCV as PydanticStructuredCV
+from ..models.quality_models import QualityCheckResults, QualityStatus, QualityCheck, QualityCheckType, ItemQualityResult, SectionQualityResult
 
 # Set up structured logging
 from ..config.logging_config import get_structured_logger
@@ -68,7 +69,6 @@ class QualityAssuranceAgent(EnhancedAgentBase):
     ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
-        from ..models.validation_schemas import validate_agent_input, ValidationError
 
         try:
             # Validate input data using Pydantic schemas
@@ -203,31 +203,31 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
         # Check items directly in the section
         for item in section.items:
-            item_check = self._check_item(item, section, None, key_terms)
-            section_result["item_checks"].append(item_check)
+            item_check = self._check_item_quality(item, section, None, key_terms)
+            section_result["item_checks"].append(item_check.to_dict())
 
             # Update section counts
             section_result["total_items"] += 1
-            if item_check["status"] == "pass":
+            if item_check.status == QualityStatus.SUCCESS:
                 section_result["passed_items"] += 1
-            elif item_check["status"] == "warning":
+            elif item_check.status == QualityStatus.WARNING:
                 section_result["warning_items"] += 1
-            elif item_check["status"] == "fail":
+            elif item_check.status == QualityStatus.FAILED:
                 section_result["failed_items"] += 1
 
         # Check items in subsections
         for subsection in section.subsections:
             for item in subsection.items:
-                item_check = self._check_item(item, section, subsection, key_terms)
-                section_result["item_checks"].append(item_check)
+                item_check = self._check_item_quality(item, section, subsection, key_terms)
+                section_result["item_checks"].append(item_check.to_dict())
 
                 # Update section counts
                 section_result["total_items"] += 1
-                if item_check["status"] == "pass":
+                if item_check.status == QualityStatus.SUCCESS:
                     section_result["passed_items"] += 1
-                elif item_check["status"] == "warning":
+                elif item_check.status == QualityStatus.WARNING:
                     section_result["warning_items"] += 1
-                elif item_check["status"] == "fail":
+                elif item_check.status == QualityStatus.FAILED:
                     section_result["failed_items"] += 1
 
         # Add section-level checks
@@ -317,13 +317,13 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
         return section_result
 
-    def _check_item(
+    def _check_item_quality(
         self,
         item: Item,
         section: Section,
         subsection: Subsection = None,
         key_terms: Dict[str, List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> ItemQualityResult:
         """
         Checks the quality of an individual item.
 
@@ -357,7 +357,38 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                     "message": "Content is empty",
                 }
             )
-            return item_result
+            # Convert checks to QualityCheck objects
+        quality_checks = []
+        for check in item_result["checks"]:
+            quality_checks.append(QualityCheck(
+                check_type=QualityCheckType.CONTENT,
+                description=check["message"],
+                passed=check["status"] == "pass",
+                severity=check["status"] if check["status"] in ["warning", "fail"] else "info",
+                suggestion=check.get("message") if check["status"] != "pass" else None
+            ))
+        
+        # Calculate quality score based on checks
+        total_checks = len(quality_checks)
+        passed_checks = sum(1 for check in quality_checks if check.passed)
+        quality_score = passed_checks / total_checks if total_checks > 0 else 1.0
+        
+        # Determine status
+        if item_result["status"] == "pass":
+            status = QualityStatus.SUCCESS
+        elif item_result["status"] == "warning":
+            status = QualityStatus.WARNING
+        else:
+            status = QualityStatus.FAILED
+        
+        return ItemQualityResult(
+            status=status,
+            item_id=item_result["item_id"],
+            quality_score=quality_score,
+            checks=quality_checks,
+            suggestions=[check.suggestion for check in quality_checks if check.suggestion],
+            processing_time_seconds=0.0
+        )
 
         # Check content length
         word_count = len(re.findall(r"\b\w+\b", item.content))
@@ -650,73 +681,59 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
         return overall_checks
 
+    @with_node_error_handling
     @optimize_async("agent_execution", "quality_assurance")
-    async def run_as_node(self, state: AgentState) -> dict:
+    async def run_as_node(self, state: AgentState) -> AgentState:
         """
-        Executes the quality assurance logic as a LangGraph node.
-
+        Run the agent as a LangGraph node.
+        
         Args:
             state: The current state of the workflow.
-
+            
         Returns:
-            A dictionary containing quality check results and potentially updated CV.
+            Updated AgentState with quality check results.
         """
-        # Validate input using proper validation function
-        try:
-            validate_agent_input("quality_assurance", state)
-        except ValidationError as e:
-            validation_result = AgentErrorHandler.handle_validation_error(
-                e, "QualityAssuranceAgent"
-            )
-            return {"error_messages": [validation_result.error_message]}
+        logger.info("Quality Assurance Agent: Starting node execution")
         
-        logger.info("QualityAssuranceAgent node running.")
-        cv = state.structured_cv
-        job_data = state.job_description_data
-
-        if not cv or not job_data:
-            logger.warning("QA agent called without required CV or job data.")
-            return {}
-
         try:
-            # Prepare input data for the async method
-            input_data = {
-                "structured_cv": cv.model_dump(),
-                "job_description_data": job_data.model_dump(),
+            # Extract key terms from job description
+            key_terms = self._extract_key_terms(state.job_description_data)
+            
+            # Perform quality checks
+            section_results = []
+            for section in state.structured_cv.sections:
+                section_result = self._check_section(section, key_terms)
+                section_results.append(section_result)
+            
+            # Perform overall CV checks
+            overall_checks = self._check_overall_cv(state.structured_cv, key_terms)
+            
+            # Create quality check results
+            quality_results = {
+                "overall_status": "pass",
+                "section_results": section_results,
+                "overall_checks": overall_checks,
+                "timestamp": datetime.now().isoformat(),
+                "agent_name": self.name
             }
             
-            # Create execution context for the async method
-            context = AgentExecutionContext(
-                session_id="langraph_session",
-                input_data=input_data,
-            )
-
-            # Call the existing async method
-            result = await self.run_async(input_data, context)
-
-            if result.success:
-                # Extract quality check results
-                quality_results = result.output_data.get("quality_check_results", {})
-                updated_cv_data = result.output_data.get("updated_structured_cv")
-
-                response = {}
-                if quality_results:
-                    # Store quality results in the correct AgentState field
-                    response["quality_check_results"] = quality_results
-
-                if updated_cv_data:
-                    # Convert back to StructuredCV model
-                    updated_cv = PydanticStructuredCV.model_validate(updated_cv_data)
-                    response["structured_cv"] = updated_cv
-
-                return response
-
-            # If not successful, add error to state
-            error_list = state.error_messages or []
-            error_list.append(f"QA Error: {result.error_message}")
-            return {"error_messages": error_list}
-
+            # Determine overall status
+            total_failed = sum(sr.get("failed_items", 0) for sr in section_results)
+            total_warnings = sum(sr.get("warning_items", 0) for sr in section_results)
+            
+            if total_failed > 0:
+                quality_results["overall_status"] = "fail"
+            elif total_warnings > 0:
+                quality_results["overall_status"] = "warning"
+            
+            # Update state
+            state.quality_check_results = quality_results
+            
+            logger.info(f"Quality Assurance Agent: Completed with status {quality_results['overall_status']}")
+            
         except Exception as e:
-            return AgentErrorHandler.handle_node_error(
-                e, "QualityAssuranceAgent", state
-            )
+            error_msg = f"Quality Assurance Agent failed: {str(e)}"
+            logger.error(error_msg)
+            state.error_messages.append(error_msg)
+            
+        return state

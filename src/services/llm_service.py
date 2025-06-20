@@ -1,19 +1,17 @@
 print("DEBUG: llm_service.py module is being loaded")
 
 import os
-import sys
 import time
 import asyncio
 import concurrent.futures
 import threading
-
-# vulture: aicvgen-suppress - Queue import removed as unused
 import hashlib
 import functools
 import json
 import pickle
-from typing import Dict, Any, Optional, List, Union, Tuple
-from dataclasses import dataclass, field
+import traceback
+from typing import Dict, Any, Optional, Tuple
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from collections import OrderedDict
 
@@ -29,10 +27,6 @@ from tenacity import (
     wait_exponential,
     retry_if_exception_type,
 )
-try:
-    from google.api_core import exceptions as google_exceptions
-except ImportError:
-    google_exceptions = None
 
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
@@ -40,27 +34,10 @@ from ..models.data_models import ContentType
 from .rate_limiter import RateLimiter as EnhancedRateLimiter
 from .error_recovery import get_error_recovery_service
 from ..core.performance_optimizer import get_performance_optimizer
-from ..core.async_optimizer import get_async_optimizer, optimize_async
-from ..utils.exceptions import ConfigurationError
+from ..core.async_optimizer import get_async_optimizer
+from ..utils.exceptions import ConfigurationError, OperationTimeoutError
 
-# Define what errors are transient and should be retried
-def is_transient_error(e: Exception) -> bool:
-    """Return True if the exception is a transient network or rate limit error."""
-    if google_exceptions:
-        return isinstance(e, (
-            google_exceptions.ResourceExhausted,  # Rate limit
-            google_exceptions.ServiceUnavailable,  # Temporary server issue
-            TimeoutError,
-            ConnectionError,
-            OSError  # Network-related OS errors
-        ))
-    else:
-        # Fallback when google.api_core is not available
-        return isinstance(e, (
-            TimeoutError,
-            ConnectionError,
-            OSError
-        ))
+# is_transient_error function removed - using _should_retry_exception instead
 
 logger = get_structured_logger("llm_service")
 
@@ -69,7 +46,7 @@ logger = get_structured_logger("llm_service")
 RETRYABLE_EXCEPTIONS = (
     # Network and connection errors
     ConnectionError,
-    TimeoutError,
+    OperationTimeoutError,
     OSError,  # Covers network-related OS errors
     # HTTP and API errors that are typically transient
     Exception,  # Temporary catch-all until we identify specific google.generativeai exceptions
@@ -278,21 +255,21 @@ class AdvancedCache:
 
 
 # Global advanced cache instance
-_advanced_cache = None
+_ADVANCED_CACHE = None
 
 
 def get_advanced_cache() -> AdvancedCache:
     """Get global advanced cache instance."""
-    global _advanced_cache
-    if _advanced_cache is None:
+    global _ADVANCED_CACHE
+    if _ADVANCED_CACHE is None:
         settings = get_config()
         cache_file = (
             os.path.join(settings.data_dir, "llm_cache.pkl")
             if hasattr(settings, "data_dir")
             else None
         )
-        _advanced_cache = AdvancedCache(persist_file=cache_file)
-    return _advanced_cache
+        _ADVANCED_CACHE = AdvancedCache(persist_file=cache_file)
+    return _ADVANCED_CACHE
 
 
 # --- Response Caching Mechanism ---
@@ -308,43 +285,7 @@ def create_cache_key(prompt: str, model_name: str, content_type: str = "") -> st
 
 # Global cache for LLM responses
 @functools.lru_cache(maxsize=128)
-def _get_cached_response(cache_key: str) -> Optional[str]:
-    """Internal cache lookup function."""
-    # This function exists to provide a cacheable interface
-    # The actual caching is handled by the decorator
-    return None
-
-
-# Cache storage for actual responses
-_response_cache: Dict[str, Dict[str, Any]] = {}
-_cache_lock = threading.Lock()
-
-
-def get_cached_response(cache_key: str) -> Optional[Dict[str, Any]]:
-    """Get cached response if available."""
-    with _cache_lock:
-        return _response_cache.get(cache_key)
-
-
-def set_cached_response(cache_key: str, response_data: Dict[str, Any]):
-    """Cache a response with LRU eviction."""
-    with _cache_lock:
-        # Simple LRU: if cache is full, remove oldest entry
-        if len(_response_cache) >= 128:
-            # Remove the first (oldest) item
-            oldest_key = next(iter(_response_cache))
-            del _response_cache[oldest_key]
-            logger.debug(f"Cache evicted oldest entry: {oldest_key[:20]}...")
-
-        _response_cache[cache_key] = response_data
-        logger.debug(f"Response cached with key: {cache_key[:20]}...")
-
-
-def clear_cache():
-    """Clear the entire response cache."""
-    with _cache_lock:
-        _response_cache.clear()
-        logger.info("LLM response cache cleared")
+# Legacy cache functions removed - now using AdvancedCache only
 
 
 @dataclass
@@ -364,7 +305,7 @@ class LLMResponse:
             self.metadata = {}
 
 
-class EnhancedLLMService:
+class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
     """
     Enhanced LLM service with Phase 1 infrastructure integration.
     Provides structured logging, rate limiting, and error recovery.
@@ -396,37 +337,17 @@ class EnhancedLLMService:
                 "Please install it with: pip install google-generativeai"
             )
 
-        # Configure API keys with user key priority and fallback support
-        self.user_api_key = user_api_key
-        self.primary_api_key = self.settings.llm.gemini_api_key_primary
+        # Simplified API key management with clear priority and fallback
+        self.active_api_key = self._determine_active_api_key(user_api_key)
         self.fallback_api_key = self.settings.llm.gemini_api_key_fallback
+        self.using_fallback = False
+        self.using_user_key = bool(user_api_key)
 
-        # Prioritize user-provided key, then primary, then fallback
-        if self.user_api_key:
-            api_key = self.user_api_key
-            self.using_user_key = True
-        elif self.primary_api_key:
-            api_key = self.primary_api_key
-            self.using_user_key = False
-        elif self.fallback_api_key:
-            api_key = self.fallback_api_key
-            self.using_user_key = False
-        else:
-            # Fail fast with a clear, actionable error message.
-            raise ConfigurationError(
-                "CRITICAL: Gemini API key is not configured. "
-                "Please set the GEMINI_API_KEY in your .env file or provide it in the UI. "
-                "Application cannot start without a valid API key."
-            )
-
-        self.current_api_key = api_key
-
-        # Initialize the model
+        # Initialize the model with active API key
         try:
-            genai.configure(api_key=api_key)
+            genai.configure(api_key=self.active_api_key)
             self.model_name = self.settings.llm_settings.default_model
             self.llm = genai.GenerativeModel(self.model_name)
-            self.using_fallback = not bool(self.user_api_key or self.primary_api_key)
         except Exception as e:
             raise ValueError(f"Failed to initialize Gemini model: {str(e)}") from e
 
@@ -461,27 +382,104 @@ class EnhancedLLMService:
             timeout=timeout,
             using_user_key=self.using_user_key,
             using_fallback_key=self.using_fallback,
+            has_fallback_key=bool(self.fallback_api_key),
             cache_enabled=True,
         )
 
-    def _switch_to_fallback_key(self):
-        """Switch to fallback API key when rate limits are encountered."""
+    def _determine_active_api_key(self, user_api_key: Optional[str]) -> str:
+        """
+        Determine the active API key based on priority: user > primary > fallback.
+        
+        Args:
+            user_api_key: Optional user-provided API key
+            
+        Returns:
+            str: The API key to use
+            
+        Raises:
+            ConfigurationError: If no valid API key is found
+        """
+        # Priority order: user-provided > primary > fallback
+        if user_api_key:
+            return user_api_key
+        if self.settings.llm.gemini_api_key_primary:
+            return self.settings.llm.gemini_api_key_primary
+        if self.settings.llm.gemini_api_key_fallback:
+            return self.settings.llm.gemini_api_key_fallback
+        raise ConfigurationError(
+            "CRITICAL: Gemini API key is not configured. "
+            "Please set the GEMINI_API_KEY in your .env file or provide it in the UI. "
+            "Application cannot start without a valid API key."
+        )
+
+    async def validate_api_key(self) -> bool:
+        """
+        Validate the current API key by making a lightweight API call.
+        
+        This method performs a simple, low-cost API call (listing models)
+        to verify that the API key is valid and the service is accessible.
+        
+        Returns:
+            bool: True if the API key is valid, False otherwise.
+        """
+        try:
+            # Use the current event loop to run the synchronous API call
+            loop = asyncio.get_event_loop()
+            
+            # Make a lightweight API call to validate the key
+            # genai.list_models() is a simple call that requires authentication
+            models = await loop.run_in_executor(
+                None, 
+                lambda: list(genai.list_models())
+            )
+            
+            # If we get here without exception, the key is valid
+            logger.info(
+                "API key validation successful",
+                extra={
+                    "models_count": len(models),
+                    "using_user_key": self.using_user_key,
+                    "using_fallback": self.using_fallback
+                }
+            )
+            return True
+            
+        except (ValueError, ConnectionError, OperationTimeoutError) as e:
+            # Log the validation failure
+            logger.warning(
+                "API key validation failed",
+                extra={
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "using_user_key": self.using_user_key,
+                    "using_fallback": self.using_fallback
+                }
+            )
+            return False
+
+    def _switch_to_fallback_key(self) -> bool:
+        """
+        Switch to fallback API key when rate limits are encountered.
+        
+        Returns:
+            bool: True if successfully switched to fallback, False otherwise
+        """
         if not self.using_fallback and self.fallback_api_key:
             logger.warning(
                 "Switching to fallback API key due to rate limit or error",
-                previous_key_type="primary",
+                current_key_type="primary" if not self.using_user_key else "user",
                 fallback_available=True,
             )
 
             try:
                 # Reconfigure with fallback key
                 genai.configure(api_key=self.fallback_api_key)
-                self.current_api_key = self.fallback_api_key
+                self.active_api_key = self.fallback_api_key
                 self.using_fallback = True
 
                 # Reinitialize the model with new key
                 self.llm = genai.GenerativeModel(self.model_name)
-            except Exception as e:
+            except (ValueError, ConnectionError) as e:
                 logger.error(
                     "Failed to switch to fallback API key",
                     error=str(e),
@@ -499,22 +497,35 @@ class EnhancedLLMService:
             )
             return False
 
-    def _should_retry_exception(self, exception: Exception) -> bool:
+    def get_current_api_key_info(self) -> Dict[str, Any]:
         """
-        Determine if an exception should trigger a retry.
-
-        Args:
-            exception: The exception that occurred
-
+        Get information about the currently active API key.
+        
         Returns:
-            True if the exception indicates a transient failure
+            Dict containing API key status information
+        """
+        return {
+            "using_user_key": self.using_user_key,
+            "using_fallback": self.using_fallback,
+            "has_fallback_available": bool(self.fallback_api_key),
+            "key_source": (
+                "user" if self.using_user_key 
+                else "fallback" if self.using_fallback 
+                else "primary"
+            )
+        }
+
+    def _is_retryable_error(self, exception: Exception, retry_count: int = 0, max_retries: int = 5) -> Tuple[bool, float]:
+        """
+        Centralized retry logic with intelligent delay calculation and error-type-specific strategies.
+        Returns (should_retry: bool, delay_seconds: float)
         """
         # Don't retry non-retryable exceptions
         if isinstance(exception, NON_RETRYABLE_EXCEPTIONS):
             logger.debug(
                 f"Non-retryable exception detected: {type(exception).__name__}"
             )
-            return False
+            return False, 0.0
 
         # Check for specific error messages that indicate non-retryable failures
         error_msg = str(exception).lower()
@@ -526,73 +537,112 @@ class EnhancedLLMService:
             "invalid request",
             "malformed request",
         ]
-
         if any(pattern in error_msg for pattern in non_retryable_patterns):
             logger.debug(f"Non-retryable error pattern detected: {error_msg}")
-            return False
+            return False, 0.0
+
+        # Check if we've exceeded max retries
+        if retry_count >= max_retries:
+            return False, 0.0
 
         # Retry for retryable exceptions
         if isinstance(exception, RETRYABLE_EXCEPTIONS):
-            logger.debug(f"Retryable exception detected: {type(exception).__name__}")
-            return True
-
+            # Rate limit errors - use longer delays
+            if any(keyword in error_msg for keyword in ["rate limit", "quota", "429", "too many requests", "resource_exhausted"]):
+                base_delay = (2 ** retry_count) * 5
+                jitter = base_delay * 0.1 * (0.5 - abs(hash(str(exception)) % 100) / 100)
+                delay = min(300, base_delay + jitter)
+                return True, delay
+            # Network/timeout errors - moderate delays
+            elif any(keyword in error_msg for keyword in ["connection", "network", "timeout", "dns", "unreachable"]):
+                delay = min(60, (retry_count + 1) * 2)
+                return True, delay
+            # API errors - short delays
+            elif any(keyword in error_msg for keyword in ["api error", "server error", "500", "502", "503", "504"]):
+                delay = min(30, 2 ** retry_count)
+                return True, delay
+            # Generic retryable errors - minimal delay
+            else:
+                delay = min(10, retry_count * 1)
+                return True, delay
         # Default to not retrying unknown exceptions
         logger.debug(
             f"Unknown exception type, not retrying: {type(exception).__name__}"
         )
-        return False
+        return False, 0.0
 
-    def _should_retry_with_delay(self, exception: Exception, retry_count: int, max_retries: int) -> Tuple[bool, float]:
+    async def _generate_with_timeout(self, prompt: str, session_id: str = None, trace_id: Optional[str] = None) -> Any:
         """
-        Centralized retry logic with intelligent delay calculation.
+        Generate content with timeout and consolidated retry logic.
         
-        This method consolidates all retry decision logic and delay calculations,
-        replacing the distributed retry mechanisms throughout the service.
-        
+        This method now handles both timeout and executor management internally,
+        consolidating the async execution pattern.
+
         Args:
-            exception: The exception that occurred
-            retry_count: Current retry attempt number
-            max_retries: Maximum number of retries allowed
-            
+            prompt: Text prompt to send to the model
+            session_id: Optional session ID for tracking
+            trace_id: Optional trace ID for tracking
+
         Returns:
-            Tuple of (should_retry: bool, delay_seconds: float)
+            Generated text response or raises TimeoutError
         """
-        # Check if we've exceeded max retries
-        if retry_count >= max_retries:
-            return False, 0.0
+        try:
+            # Get the current event loop
+            loop = asyncio.get_event_loop()
             
-        # Check if this exception type should be retried
-        if not self._should_retry_exception(exception):
-            return False, 0.0
+            # Create executor task and wrap with timeout
+            executor_task = loop.run_in_executor(
+                self.executor, 
+                self._make_llm_api_call, 
+                prompt
+            )
             
-        # Calculate delay based on error type and retry count
-        error_msg = str(exception).lower()
-        
-        # Rate limit errors - use longer delays
-        if any(keyword in error_msg for keyword in ["rate limit", "quota", "429", "too many requests", "resource_exhausted"]):
-            # Exponential backoff with jitter for rate limits: 2^retry * 5 seconds + jitter
-            base_delay = (2 ** retry_count) * 5
-            jitter = base_delay * 0.1 * (0.5 - abs(hash(str(exception)) % 100) / 100)  # ±10% jitter
-            delay = min(300, base_delay + jitter)  # Cap at 5 minutes after adding jitter
-            return True, delay
-            
-        # Network/timeout errors - moderate delays
-        elif any(keyword in error_msg for keyword in ["connection", "network", "timeout", "dns", "unreachable"]):
-            # Linear backoff for network issues: (retry + 1) * 2 seconds
-            delay = min(60, (retry_count + 1) * 2)  # Cap at 1 minute
-            return True, delay
-            
-        # API errors - short delays
-        elif any(keyword in error_msg for keyword in ["api error", "server error", "500", "502", "503", "504"]):
-            # Exponential backoff for API errors: 2^retry seconds
-            delay = min(30, 2 ** retry_count)  # Cap at 30 seconds
-            return True, delay
-            
-        # Generic retryable errors - minimal delay
-        else:
-            # Simple linear backoff: retry * 1 second
-            delay = min(10, retry_count * 1)  # Cap at 10 seconds
-            return True, delay
+            # Use asyncio.wait_for to handle timeout
+            result = await asyncio.wait_for(
+                executor_task, 
+                timeout=self.timeout
+            )
+
+            # Log successful call
+            logger.info(
+                "LLM call completed successfully",
+                session_id=session_id,
+                model=self.model_name,
+                prompt_length=len(prompt),
+                response_length=len(result.text) if hasattr(result, "text") else 0,
+            )
+
+            return result
+
+        except asyncio.TimeoutError:
+            # Log timeout
+            logger.error(
+                "LLM request timed out",
+                extra={
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "timeout": self.timeout,
+                    "prompt_length": len(prompt),
+                },
+            )
+
+            raise OperationTimeoutError(
+                "LLM request timed out after {} seconds".format(self.timeout)
+            )
+        except Exception as e:
+            # Log other exceptions
+            logger.error(
+                "LLM request failed with exception",
+                extra={
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "prompt_length": len(prompt),
+                },
+            )
+            # Re-raise the exception to be handled by the caller
+            raise
 
     def _make_llm_api_call(self, prompt: str) -> Any:
         """
@@ -631,90 +681,19 @@ class EnhancedLLMService:
             # Re-raise to let tenacity handle the retry logic
             raise
 
-    async def _generate_with_timeout(self, prompt: str, session_id: str = None, trace_id: Optional[str] = None) -> Any:
-        """
-        Generate content with a timeout using loop.run_in_executor.
-        Runs the synchronous _make_llm_api_call in the default thread pool.
-
-        Args:
-            prompt: Text prompt to send to the model
-            session_id: Optional session ID for tracking
-            trace_id: Optional trace ID for tracking
-
-        Returns:
-            Generated text response or raises TimeoutError
-        """
-        try:
-            # Get the current event loop
-            loop = asyncio.get_event_loop()
-            
-            # Use loop.run_in_executor with None (default thread pool)
-            # and asyncio.wait_for to handle timeout
-            logger.debug(f"About to call run_in_executor with _make_llm_api_call")
-            executor_task = loop.run_in_executor(None, self._make_llm_api_call, prompt)
-            logger.debug(f"Executor task created: {type(executor_task)}")
-            
-            # Temporarily bypass asyncio.wait_for to isolate the issue
-            logger.debug(f"About to await executor_task: {executor_task}")
-            logger.debug(f"Executor task type: {type(executor_task)}")
-            logger.debug(f"Executor task is None: {executor_task is None}")
-            
-            if executor_task is None:
-                raise ValueError("Executor task is None - this should not happen")
-            
-            result = await executor_task
-            logger.debug(f"Result from executor: {type(result)}, is None: {result is None}")
-            
-            # result = await asyncio.wait_for(
-            #     executor_task, 
-            #     timeout=self.timeout
-            # )
-
-            # Log successful call
-            logger.info(
-                "LLM call completed successfully",
-                session_id=session_id,
-                model=self.model_name,
-                prompt_length=len(prompt),
-                response_length=len(result.text) if hasattr(result, "text") else 0,
-            )
-
-            return result
-
-        except asyncio.TimeoutError:
-            # Log timeout
-            logger.error(
-                "LLM request timed out",
-                extra={
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "timeout": self.timeout,
-                    "prompt_length": len(prompt),
-                },
-            )
-
-            raise TimeoutError(
-                f"LLM request timed out after {self.timeout} seconds"
-            )
-        except Exception as e:
-            # Log other exceptions
-            logger.error(
-                "LLM request failed with exception",
-                extra={
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "prompt_length": len(prompt),
-                },
-            )
-            # Re-raise the exception to be handled by the caller
-            raise
-
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=2, max=60),
-        retry=is_transient_error,
+        retry=lambda retry_state: (
+            hasattr(retry_state.fn, '__self__') and
+            hasattr(retry_state.fn.__self__, '_is_retryable_error') and
+            retry_state.fn.__self__._is_retryable_error(
+                retry_state.outcome.exception(),
+                retry_state.attempt_number - 1,
+                5
+            )[0]
+            if retry_state.outcome and retry_state.outcome.failed else False
+        ),
         reraise=True
     )
     async def generate_content(
@@ -726,7 +705,7 @@ class EnhancedLLMService:
         max_retries: int = 5,
         trace_id: Optional[str] = None,
     ) -> LLMResponse:
-        print("DEBUG: FIRST LINE OF generate_content METHOD")
+
         """
         Generate content using the Gemini model with enhanced error handling and caching.
 
@@ -740,7 +719,7 @@ class EnhancedLLMService:
         Returns:
             LLMResponse with generated content and metadata
         """
-        print(f"DEBUG: Entering generate_content with prompt: {prompt[:50]}...")
+
         start_time = time.time()
 
         # Create cache key for this request
@@ -770,32 +749,7 @@ class EnhancedLLMService:
 
             return LLMResponse(**cached_response)
 
-        # Try local cache
-        cached_response = get_cached_response(cache_key)
-        if cached_response:
-            self.cache_hits += 1
-            # Promote to performance cache
-            self.performance_optimizer.cache.set(
-                cache_key, cached_response, ttl_hours=1
-            )
-            logger.info(
-                "Local cache hit for LLM request",
-                extra={
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "item_id": item_id,
-                    "content_type": content_type.value,
-                    "cache_key": cache_key[:20] + "...",
-                },
-            )
-
-            # Return cached response with updated metadata
-            cached_response["metadata"]["cache_hit"] = True
-            cached_response["metadata"]["session_id"] = session_id
-            cached_response["metadata"]["item_id"] = item_id
-            cached_response["processing_time"] = 0.001  # Minimal cache lookup time
-
-            return LLMResponse(**cached_response)
+        # Legacy local cache removed - using AdvancedCache only
 
         # Cache miss - proceed with LLM call
         self.cache_misses += 1
@@ -831,14 +785,15 @@ class EnhancedLLMService:
 
             # Generate content with timeout (temporarily removing optimization context)
             # Use run_in_executor to run the synchronous method in a thread pool
-            print(f"DEBUG: About to call _generate_with_timeout")
             try:
                 response = await self._generate_with_timeout(prompt, session_id, trace_id)
-                print(f"DEBUG: _generate_with_timeout returned: {type(response)}, is None: {response is None}")
             except Exception as timeout_error:
-                print(f"DEBUG: Error in _generate_with_timeout: {type(timeout_error).__name__}: {timeout_error}")
-                import traceback
-                traceback.print_exc()
+                logger.error(
+                    "Error in _generate_with_timeout",
+                    error_type=type(timeout_error).__name__,
+                    error_message=str(timeout_error),
+                    traceback=traceback.format_exc()
+                )
                 raise timeout_error
 
             processing_time = time.time() - start_time
@@ -881,7 +836,7 @@ class EnhancedLLMService:
                     "cache_hit": False,
                 },
             }
-            set_cached_response(cache_key, cache_data)
+            # Store only in AdvancedCache
             self.performance_optimizer.cache.set(cache_key, cache_data, ttl_hours=2)
 
             # Log successful generation
@@ -990,7 +945,7 @@ class EnhancedLLMService:
                 "cache_misses": self.cache_misses,
                 "total_requests": total_requests,
                 "cache_hit_rate_percent": round(cache_hit_rate, 2),
-                "cache_size": len(_response_cache),
+                "cache_size": 0,  # Legacy cache removed
             },
             "advanced_cache": cache_stats,
             "performance_optimizer": optimizer_stats,
@@ -1009,7 +964,6 @@ class EnhancedLLMService:
 
     def clear_cache(self):
         """Clear the LLM response cache."""
-        clear_cache()
         self.cache.clear()
         self.cache_hits = 0
         self.cache_misses = 0
@@ -1048,20 +1002,20 @@ class EnhancedLLMService:
 
 
 # Global service instance
-_llm_service_instance = None
+_LLM_SERVICE_INSTANCE = None
 
 
 def get_llm_service(user_api_key: Optional[str] = None) -> EnhancedLLMService:
     """Get the global LLM service instance (singleton)."""
-    global _llm_service_instance
-    if _llm_service_instance is None:
+    global _LLM_SERVICE_INSTANCE
+    if _LLM_SERVICE_INSTANCE is None:
         # The constructor now raises ConfigurationError on failure.
         # This critical error should halt the application, so no try/except is needed.
-        _llm_service_instance = EnhancedLLMService(user_api_key=user_api_key)
+        _LLM_SERVICE_INSTANCE = EnhancedLLMService(user_api_key=user_api_key)
         logger.info("LLM service singleton created.")
-    # Update the user_api_key if a new one is provided on subsequent calls
-    elif user_api_key and _llm_service_instance.user_api_key != user_api_key:
-        _llm_service_instance = EnhancedLLMService(user_api_key=user_api_key)
+    # Update the API key if a new user key is provided on subsequent calls
+    elif user_api_key and (_LLM_SERVICE_INSTANCE.active_api_key != user_api_key or not _LLM_SERVICE_INSTANCE.using_user_key):
+        _LLM_SERVICE_INSTANCE = EnhancedLLM_SERVICE_INSTANCE(user_api_key=user_api_key)
         logger.info("LLM service re-initialized with new user-provided API key.")
 
-    return _llm_service_instance
+    return _LLM_SERVICE_INSTANCE

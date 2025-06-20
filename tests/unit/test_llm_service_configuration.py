@@ -47,7 +47,7 @@ class TestLLMServiceConfiguration:
                     
                     # Test that service initializes successfully with user API key
                     service = EnhancedLLMService(user_api_key="test-api-key")
-                    assert service.user_api_key == "test-api-key"
+                    assert service.active_api_key == "test-api-key"
                     assert service.using_user_key is True
 
     def test_get_llm_service_raises_configuration_error_no_api_key(self):
@@ -92,7 +92,7 @@ class TestLLMServiceConfiguration:
                     
                     # Test that service initializes successfully with user API key
                     service = get_llm_service(user_api_key="test-api-key")
-                    assert service.user_api_key == "test-api-key"
+                    assert service.active_api_key == "test-api-key"
                     assert service.using_user_key is True
 
     def test_get_llm_service_reinitializes_with_new_user_api_key(self):
@@ -116,12 +116,12 @@ class TestLLMServiceConfiguration:
                     
                     # First call with initial API key
                     service1 = get_llm_service(user_api_key="test-api-key-1")
-                    assert service1.user_api_key == "test-api-key-1"
+                    assert service1.active_api_key == "test-api-key-1"
                     
                     # Second call with different API key should reinitialize
                     service2 = get_llm_service(user_api_key="test-api-key-2")
-                    assert service2.user_api_key == "test-api-key-2"
+                    assert service2.active_api_key == "test-api-key-2"
                     
                     # Should be a new instance with the updated key
                     # (The singleton creates a new instance when API key changes)
-                    assert service2.user_api_key == "test-api-key-2"
+                    assert service2.active_api_key == "test-api-key-2"

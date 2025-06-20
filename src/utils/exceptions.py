@@ -9,13 +9,9 @@ a clear contract between error-producing and error-handling code.
 class AicvgenError(Exception):
     """Base class for all application-specific errors."""
 
-    pass
-
 
 class WorkflowPreconditionError(ValueError, AicvgenError):
     """Raised when a condition for starting a workflow is not met (e.g., missing data)."""
-
-    pass
 
 
 class LLMResponseParsingError(ValueError, AicvgenError):
@@ -42,40 +38,34 @@ class AgentExecutionError(AicvgenError):
 class ConfigurationError(AicvgenError):
     """Raised for configuration-related issues."""
 
-    pass
+
+class ServiceInitializationError(AicvgenError):
+    """Raised when a service fails to initialize properly."""
 
 
 class StateManagerError(AicvgenError):
     """Raised for state management related issues."""
 
-    pass
-
 
 class ValidationError(ValueError, AicvgenError):
     """Raised for data validation errors."""
-
-    pass
 
 
 class TemplateError(AicvgenError):
     """Raised for template-related errors."""
 
-    pass
-
 
 class RateLimitError(AicvgenError):
     """Raised when rate limits are exceeded."""
-
-    pass
 
 
 class NetworkError(AicvgenError):
     """Raised for network-related errors."""
 
-    pass
 
-
-class TimeoutError(AicvgenError):
+class OperationTimeoutError(AicvgenError):
     """Raised when operations timeout."""
 
-    pass
+
+class VectorStoreError(AicvgenError):
+    """Raised when vector store operations fail."""

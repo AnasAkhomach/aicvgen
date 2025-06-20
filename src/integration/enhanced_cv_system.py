@@ -6,6 +6,7 @@ vector database, and workflows.
 """
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Callable, Union
 from dataclasses import dataclass, asdict
@@ -31,7 +32,7 @@ from ..agents.quality_assurance_agent import QualityAssuranceAgent
 from ..templates.content_templates import (
     get_template_manager, ContentTemplateManager
 )
-from ..services.vector_db import get_enhanced_vector_db
+from ..services.vector_store_service import get_vector_store_service
 from ..core.enhanced_orchestrator import EnhancedOrchestrator
 from ..core.state_manager import StateManager
 from ..models.data_models import WorkflowType
@@ -139,7 +140,7 @@ class EnhancedCVIntegration:
 
             # Initialize vector database
             if self.config.enable_vector_db:
-                self._vector_db = get_enhanced_vector_db()
+                self._vector_db = get_vector_store_service()
                 self.logger.info("Vector database initialized")
 
             # Initialize orchestrator
@@ -180,9 +181,9 @@ class EnhancedCVIntegration:
             self._agents["enhanced_content_writer"] = EnhancedContentWriterAgent()
 
             # Specialized agents
-            self._agents["cv_analysis"] = get_agent("cv_analysis")
+            self._agents["cv_analysis"] = create_cv_analysis_agent()
             # content_optimization agent removed - was never implemented
-            self._agents["quality_assurance"] = get_agent("quality_assurance")
+            self._agents["quality_assurance"] = QualityAssuranceAgent()
 
             self.logger.info("Agents initialized", extra={
                 "agent_count": len(self._agents),
@@ -255,11 +256,13 @@ class EnhancedCVIntegration:
             return None
 
         try:
-            return await store_enhanced_document(
+            # Use vector store service to add content
+            item_id = self._vector_db.add_item(
+                item=content,
                 content=content,
-                content_type=content_type,
-                metadata=metadata or {}
+                metadata={"content_type": content_type.value, **(metadata or {})}
             )
+            return item_id
         except Exception as e:
             self.logger.error("Failed to store content", extra={
                 "content_type": content_type.value,
@@ -278,11 +281,13 @@ class EnhancedCVIntegration:
             return []
 
         try:
-            return await search_enhanced_documents(
+            # Use vector store service to search content
+            results = self._vector_db.search(
                 query=query,
-                content_type=content_type,
-                limit=limit
+                n_results=limit,
+                where={"content_type": content_type.value} if content_type else None
             )
+            return results
         except Exception as e:
             self.logger.error("Failed to search content", extra={
                 "query": query,
@@ -302,11 +307,13 @@ class EnhancedCVIntegration:
             return []
 
         try:
-            return await find_similar_content(
-                content=content,
-                content_type=content_type,
-                limit=limit
+            # Use vector store service to find similar content
+            results = self._vector_db.search(
+                query=content,
+                n_results=limit,
+                where={"content_type": content_type.value} if content_type else None
             )
+            return results
         except Exception as e:
             self.logger.error("Failed to find similar content", extra={
                 "content_type": content_type.value if content_type else None,

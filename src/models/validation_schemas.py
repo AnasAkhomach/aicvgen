@@ -1,6 +1,7 @@
 """Validation schemas and functions for agent inputs and outputs.
 
-This module provides validation functions and error handling for agent inputs and outputs."""
+This module provides validation functions and error handling for agent inputs and outputs.
+"""
 
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field, ValidationError

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import threading
 import psutil
 import os
+import logging
 
 from .dependency_injection import get_container, reset_container
 from .agent_lifecycle_manager import (

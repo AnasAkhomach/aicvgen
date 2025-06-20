@@ -216,7 +216,7 @@ class ProgressMetrics:
         }
 
 
-class ProgressTracker:
+class ProgressTracker:  # pylint: disable=too-many-instance-attributes
     """Progress tracker for CV generation workflow."""
 
     def __init__(self):

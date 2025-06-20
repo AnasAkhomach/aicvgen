@@ -16,6 +16,9 @@ from ..agents.formatter_agent import FormatterAgent
 from ..services.llm_service import get_llm_service
 from ..models.data_models import UserAction
 from ..config.logging_config import get_structured_logger
+from ..utils.node_validation import validate_node_output
+from ..models.research_models import ResearchFindings
+from ..models.quality_models import QualityCheckResults
 
 logger = get_structured_logger(__name__)
 
@@ -36,14 +39,12 @@ content_writer_agent = EnhancedContentWriterAgent()
 qa_agent = QualityAssuranceAgent(
     name="QAAgent", description="Performs quality checks.", llm_service=llm_service
 )
-from ..services.vector_db import get_enhanced_vector_db
+from ..services.vector_store_service import get_vector_store_service
 
-vector_db = get_enhanced_vector_db()
 research_agent = ResearchAgent(
     name="ResearchAgent",
     description="Conducts research and finds relevant CV content.",
     llm_service=llm_service,
-    vector_db=vector_db,
 )
 formatter_agent = FormatterAgent(
     name="FormatterAgent", description="Generates PDF output from structured CV data."
@@ -51,6 +52,7 @@ formatter_agent = FormatterAgent(
 
 
 # Node wrapper functions for granular workflow
+@validate_node_output
 async def parser_node(state: AgentState) -> Dict[str, Any]:
     """Parse job description and CV. Queue setup is now handled by generate_skills_node."""
     logger.info("Executing parser_node")
@@ -73,6 +75,7 @@ async def parser_node(state: AgentState) -> Dict[str, Any]:
     return result
 
 
+@validate_node_output
 async def content_writer_node(state: AgentState) -> Dict[str, Any]:
     """Generate content for the current item specified in state.current_item_id."""
     logger.info(f"Executing content_writer_node for item: {state.current_item_id}")
@@ -97,20 +100,41 @@ async def content_writer_node(state: AgentState) -> Dict[str, Any]:
     return result
 
 
+@validate_node_output
 async def qa_node(state: AgentState) -> Dict[str, Any]:
     """Perform quality assurance on the generated content."""
     logger.info(f"Executing qa_node for item: {state.current_item_id}")
     result = await qa_agent.run_as_node(state)
+    
+    # Convert Dict result to QualityCheckResults if needed
+    if isinstance(result.get('quality_check_results'), dict):
+        try:
+            result['quality_check_results'] = QualityCheckResults.from_dict(result['quality_check_results'])
+        except Exception as e:
+            logger.warning(f"Failed to convert quality check results to Pydantic model: {e}")
+            result['quality_check_results'] = QualityCheckResults.create_failed(str(e))
+    
     return result
 
 
+@validate_node_output
 async def research_node(state: AgentState) -> Dict[str, Any]:
     """Conduct research on job description and find relevant CV content."""
     logger.info("Executing research_node")
     result = await research_agent.run_as_node(state)
+    
+    # Convert Dict result to ResearchFindings if needed
+    if isinstance(result.get('research_findings'), dict):
+        try:
+            result['research_findings'] = ResearchFindings.from_dict(result['research_findings'])
+        except Exception as e:
+            logger.warning(f"Failed to convert research findings to Pydantic model: {e}")
+            result['research_findings'] = ResearchFindings.create_failed(str(e))
+    
     return result
 
 
+@validate_node_output
 async def process_next_item_node(state: AgentState) -> Dict[str, Any]:
     """Pop the next item from the queue and set it as current."""
     logger.info("Executing process_next_item_node")
@@ -127,6 +151,7 @@ async def process_next_item_node(state: AgentState) -> Dict[str, Any]:
     return {"current_item_id": next_item_id, "items_to_process_queue": queue_copy}
 
 
+@validate_node_output
 async def prepare_next_section_node(state: AgentState) -> Dict[str, Any]:
     """Move to the next section in the workflow sequence."""
     logger.info("Executing prepare_next_section_node")
@@ -166,6 +191,7 @@ async def prepare_next_section_node(state: AgentState) -> Dict[str, Any]:
     return {}
 
 
+@validate_node_output
 async def formatter_node(state: AgentState) -> Dict[str, Any]:
     """Generate the final PDF output using FormatterAgent."""
     logger.info("Executing formatter_node")
@@ -183,6 +209,7 @@ async def formatter_node(state: AgentState) -> Dict[str, Any]:
     return updated_state.model_dump()
 
 
+@validate_node_output
 async def setup_generation_queue_node(state: AgentState) -> Dict[str, Any]:
     """Setup content generation queue with all items that need processing."""
     logger.info("--- Executing Node: setup_generation_queue_node ---")
@@ -206,6 +233,7 @@ async def setup_generation_queue_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+@validate_node_output
 async def pop_next_item_node(state: AgentState) -> Dict[str, Any]:
     """Pop the next item from content generation queue and set as current."""
     logger.info("--- Executing Node: pop_next_item_node ---")
@@ -226,6 +254,7 @@ async def pop_next_item_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+@validate_node_output
 async def prepare_regeneration_node(state: AgentState) -> Dict[str, Any]:
     """Prepare single-item regeneration based on user feedback."""
     logger.info("--- Executing Node: prepare_regeneration_node ---")
@@ -246,6 +275,7 @@ async def prepare_regeneration_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+@validate_node_output
 async def generate_skills_node(state: AgentState) -> Dict[str, Any]:
     """Generates the 'Big 10' skills and updates the CV state."""
     logger.info("--- Executing Node: generate_skills_node ---")
@@ -307,6 +337,7 @@ async def generate_skills_node(state: AgentState) -> Dict[str, Any]:
         }
 
 
+@validate_node_output
 async def error_handler_node(state: AgentState) -> Dict[str, Any]:
     """
     Handle workflow errors by logging them and preparing for termination.

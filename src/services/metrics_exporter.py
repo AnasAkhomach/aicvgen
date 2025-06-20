@@ -75,7 +75,7 @@ MEMORY_USAGE_BYTES = Gauge(
 def record_workflow_start():
     """Record the start of a workflow execution."""
     # This can be used to track concurrent workflows if needed
-    pass
+    # Currently no-op, but placeholder for future concurrent workflow tracking
 
 
 def record_workflow_completion(duration: float):

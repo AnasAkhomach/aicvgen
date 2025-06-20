@@ -3,13 +3,20 @@ import streamlit as st
 import asyncio
 from typing import Optional
 from ..orchestration.state import AgentState, UserFeedback
+from ..services.llm_service import get_llm_service
+from ..utils.exceptions import ConfigurationError
 
 
 def handle_user_action(action: str, item_id: str):
     """
-    Handle user actions like 'accept' or 'regenerate' for CV items.
+    Handle user actions like 'accept', 'regenerate', or 'validate_api_key'.
     Updates the agent_state in session state and sets a flag to run the backend workflow.
     """
+    # Handle API key validation separately
+    if action == "validate_api_key":
+        handle_api_key_validation()
+        return
+        
     # Get current state
     agent_state: Optional[AgentState] = st.session_state.get("agent_state")
 
@@ -45,6 +52,53 @@ def handle_user_action(action: str, item_id: str):
         st.info(f"🔄 Regenerating item...")
 
     # Trigger rerun to process the feedback
+    st.rerun()
+
+
+def handle_api_key_validation():
+    """
+    Handle API key validation by calling the LLM service validate_api_key method.
+    Updates session state with validation results.
+    """
+    user_api_key = st.session_state.get("user_gemini_api_key", "")
+    
+    if not user_api_key:
+        st.error("Please enter an API key first")
+        return
+    
+    # Reset validation states
+    st.session_state.api_key_validated = False
+    st.session_state.api_key_validation_failed = False
+    
+    try:
+        # Show validation in progress
+        with st.spinner("Validating API key..."):
+            # Get LLM service instance
+            llm_service = get_llm_service(user_api_key=user_api_key)
+            
+            # Run validation asynchronously
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                is_valid = loop.run_until_complete(llm_service.validate_api_key())
+            finally:
+                loop.close()
+            
+            if is_valid:
+                st.session_state.api_key_validated = True
+                st.success("✅ API key is valid and ready to use!")
+            else:
+                st.session_state.api_key_validation_failed = True
+                st.error("❌ API key validation failed. Please check your key.")
+                
+    except ConfigurationError as e:
+        st.session_state.api_key_validation_failed = True
+        st.error(f"❌ Configuration error: {e}")
+    except Exception as e:
+        st.session_state.api_key_validation_failed = True
+        st.error(f"❌ Validation failed: {e}")
+    
+    # Trigger rerun to update UI
     st.rerun()
 
 

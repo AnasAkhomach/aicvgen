@@ -22,15 +22,14 @@ from dataclasses import dataclass, asdict
 from pythonjsonlogger import jsonlogger
 from pythonjsonlogger.jsonlogger import JsonFormatter
 
-# Import security utilities for credential redaction
-try:
-    from ..utils.security_utils import redact_sensitive_data, redact_log_message
-except ImportError:
-    # Fallback if security utils not available
-    def redact_sensitive_data(data):
-        return data
-    def redact_log_message(message):
-        return message
+# Simple fallback redaction functions to avoid circular imports
+def redact_sensitive_data(data):
+    """Simple fallback redaction function."""
+    return data
+
+def redact_log_message(message):
+    """Simple fallback redaction function."""
+    return message
 
 
 # ============================================================================

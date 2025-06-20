@@ -13,15 +13,8 @@ from uuid import uuid4
 from ..config.logging_config import get_structured_logger
 
 # Import security utilities for safe error logging
-try:
-    from ..utils.security_utils import redact_sensitive_data, redact_log_message
-except ImportError:
-
-    def redact_sensitive_data(data):
-        return data
-
-    def redact_log_message(message):
-        return message
+from .import_fallbacks import get_security_utils
+redact_sensitive_data, redact_log_message = get_security_utils()
 
 
 class ErrorSeverity(str, Enum):

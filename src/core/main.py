@@ -1,6 +1,5 @@
 import sys
 import os
-import sys
 from pathlib import Path
 
 # Add project root to Python path for imports
@@ -27,18 +26,9 @@ import streamlit as st
 # Page configuration - MUST be first Streamlit command when running directly
 # Only set page config if this file is being run directly (not imported)
 try:
-    # Check if page config has already been set
-    import streamlit.runtime.state as state
-
-    if not hasattr(state, "_page_config_set"):
-        st.set_page_config(
-            page_title="AI CV Generator",
-            page_icon="📄",
-            layout="wide",
-            initial_sidebar_state="expanded",
-        )
-        state._page_config_set = True
-except:
+    from ..utils.streamlit_utils import configure_page
+    configure_page()
+except Exception:
     # If we can't access the state or page config is already set, continue
     pass
 
@@ -47,7 +37,8 @@ from typing import Dict, Any
 import asyncio
 
 # Project imports
-from ..config.logging_config import setup_logging
+from ..core.application_startup import initialize_application, validate_application
+from ..config.logging_config import get_logger
 from ..frontend.ui_components import (
     display_sidebar,
     display_input_form,
@@ -61,14 +52,12 @@ from ..orchestration.state import AgentState
 from ..orchestration.cv_workflow_graph import (
     cv_graph_app,
 )  # Assumes this is the compiled graph
-from ..utils.exceptions import ConfigurationError
-from ..services.llm_service import get_llm_service
-from ..services.vector_store_service import get_vector_store_service
+from ..utils.exceptions import ConfigurationError, ServiceInitializationError
 import uuid
 import time
 
-# Initialize logging
-logger = setup_logging()
+# Get logger (will be initialized by startup service)
+logger = get_logger(__name__)
 
 # Constants
 TEMPLATE_FILE_PATH = "src/templates/cv_template.md"
@@ -86,16 +75,42 @@ def main():
     Orchestrates the UI rendering and backend workflow invocations.
     """
     try:
-        # Initialize critical services with fail-fast pattern
+        # 1. Initialize Application Services
         user_api_key = st.session_state.get("user_gemini_api_key", "")
-        get_llm_service(user_api_key=user_api_key)
-        # Initialize vector store service with fail-fast pattern
-        get_vector_store_service()
+        startup_result = initialize_application(user_api_key=user_api_key)
+        
+        if not startup_result.success:
+            st.error("**Application Startup Failed:**")
+            for error in startup_result.errors:
+                st.error(f"• {error}")
+            st.warning("Please check your configuration and restart the application.")
+            
+            # Show startup details in expander
+            with st.expander("🔍 Startup Details", expanded=False):
+                st.json({
+                    "total_time": f"{startup_result.total_time:.2f}s",
+                    "services": {name: {
+                        "status": "✅ Success" if service.initialized else "❌ Failed",
+                        "time": f"{service.initialization_time:.3f}s",
+                        "error": service.error
+                    } for name, service in startup_result.services.items()}
+                })
+            st.stop()
+        
+        # Validate critical services
+        validation_errors = validate_application()
+        if validation_errors:
+            st.error("**Critical Service Validation Failed:**")
+            for error in validation_errors:
+                st.error(f"• {error}")
+            st.stop()
+        
+        logger.info(f"Application started successfully in {startup_result.total_time:.2f}s")
 
-        # 1. Initialize State
+        # 2. Initialize Session State
         initialize_session_state()
 
-        # 2. Display Static UI Components
+        # 3. Display Static UI Components
         display_sidebar(st.session_state.agent_state)
         st.title("🤖 AI CV Generator")
         st.markdown(
@@ -103,7 +118,7 @@ def main():
             "Get personalized, ATS-friendly CVs that highlight your most relevant skills and experience."
         )
 
-        # 3. Handle background thread results
+        # 4. Handle background thread results
         if st.session_state.get("processing"):
             st.spinner("Processing your CV... Please wait.")
             # The UI is not blocked here. You could add a progress bar that updates.
@@ -127,7 +142,7 @@ def main():
             st.error(f"An error occurred during CV generation: {error}")
             st.session_state.workflow_error = None  # Clear the error
 
-        # 4. Main Interaction & Backend Loop
+        # 5. Main Interaction & Backend Loop
         if st.session_state.get("run_workflow"):
             st.session_state.processing = True
             st.session_state.run_workflow = False  # Reset flag
@@ -146,7 +161,7 @@ def main():
             handle_workflow_execution(trace_id)
             st.rerun()  # Rerun to show the spinner immediately
 
-        # 5. Render UI Tabs based on the current state
+        # 6. Render UI Tabs based on the current state
         tab1, tab2, tab3 = st.tabs(
             ["📝 Input & Generate", "✏️ Review & Edit", "📄 Export"]
         )
@@ -165,21 +180,21 @@ def main():
             for error in st.session_state.agent_state.error_messages:
                 st.error(error)
 
-    except ConfigurationError as e:
+    except (ConfigurationError, ServiceInitializationError) as e:
         st.error(f"**Application Startup Failed:**\n\n{e}")
         st.warning(
-            "Please check your configuration (.env file, database paths) and restart."
+            "Please check your configuration (.env file, database paths, API keys) and restart."
         )
         st.stop()
     except Exception as e:
         st.error(f"An unexpected error occurred: {e}")
-        st.stop()
-
+        
         # Show error details in expander for debugging
         with st.expander("🔍 Error Details", expanded=False):
             import traceback
-
             st.code(traceback.format_exc(), language="text")
+        
+        st.stop()
 
 
 if __name__ == "__main__":

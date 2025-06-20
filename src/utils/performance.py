@@ -10,12 +10,11 @@ import functools
 import threading
 import psutil
 import gc
-from typing import Dict, Any, Optional, List, Callable, Union
+from typing import Dict, Any, Optional, List, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict, deque
 import json
-import os
 from contextlib import asynccontextmanager, contextmanager
 
 from ..config.logging_config import get_structured_logger
@@ -266,7 +265,7 @@ class PerformanceMonitor:
                 "recent_metrics": self.get_recent_metrics(100),
             }
 
-            with open(filepath, "w") as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
             logger.info("Performance metrics exported", filepath=filepath)
@@ -415,34 +414,50 @@ class BatchProcessor:
         return results
 
 
-# Global instances
-_performance_monitor = None
-_memory_optimizer = None
-_batch_processor = None
+class _SingletonManager:
+    """Manages singleton instances to avoid global statements."""
+    
+    def __init__(self):
+        self._performance_monitor = None
+        self._memory_optimizer = None
+        self._batch_processor = None
+    
+    def get_performance_monitor(self) -> PerformanceMonitor:
+        """Get performance monitor instance."""
+        if self._performance_monitor is None:
+            self._performance_monitor = PerformanceMonitor()
+        return self._performance_monitor
+    
+    def get_memory_optimizer(self) -> MemoryOptimizer:
+        """Get memory optimizer instance."""
+        if self._memory_optimizer is None:
+            self._memory_optimizer = MemoryOptimizer()
+        return self._memory_optimizer
+    
+    def get_batch_processor(self) -> BatchProcessor:
+        """Get batch processor instance."""
+        if self._batch_processor is None:
+            self._batch_processor = BatchProcessor()
+        return self._batch_processor
+
+
+# Module-level singleton manager
+_singleton_manager = _SingletonManager()
 
 
 def get_performance_monitor() -> PerformanceMonitor:
     """Get global performance monitor instance."""
-    global _performance_monitor
-    if _performance_monitor is None:
-        _performance_monitor = PerformanceMonitor()
-    return _performance_monitor
+    return _singleton_manager.get_performance_monitor()
 
 
 def get_memory_optimizer() -> MemoryOptimizer:
     """Get global memory optimizer instance."""
-    global _memory_optimizer
-    if _memory_optimizer is None:
-        _memory_optimizer = MemoryOptimizer()
-    return _memory_optimizer
+    return _singleton_manager.get_memory_optimizer()
 
 
 def get_batch_processor() -> BatchProcessor:
     """Get global batch processor instance."""
-    global _batch_processor
-    if _batch_processor is None:
-        _batch_processor = BatchProcessor()
-    return _batch_processor
+    return _singleton_manager.get_batch_processor()
 
 
 # Decorator functions for easy performance monitoring
@@ -483,9 +498,6 @@ def auto_memory_optimize(threshold_mb: float = 100):
         async def async_wrapper(*args, **kwargs):
             optimizer = get_memory_optimizer()
 
-            # Check memory before execution
-            memory_before = optimizer.get_memory_info()["rss_mb"]
-
             try:
                 result = await func(*args, **kwargs)
             finally:
@@ -499,9 +511,6 @@ def auto_memory_optimize(threshold_mb: float = 100):
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
             optimizer = get_memory_optimizer()
-
-            # Check memory before execution
-            memory_before = optimizer.get_memory_info()["rss_mb"]
 
             try:
                 result = func(*args, **kwargs)

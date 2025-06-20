@@ -40,10 +40,8 @@ class NetworkError(AicvgenError):
     pass
 
 
-class TimeoutError(AicvgenError):
+class OperationTimeoutError(AicvgenError):
     """Raised when operations timeout."""
-
-    pass
 
 
 class ErrorType(Enum):
@@ -222,7 +220,7 @@ class ErrorRecoveryService:
             return ErrorType.RATE_LIMIT
         if isinstance(exception, NetworkError):
             return ErrorType.NETWORK_ERROR
-        if isinstance(exception, TimeoutError):
+        if isinstance(exception, OperationTimeoutError):
             return ErrorType.TIMEOUT_ERROR
 
         # --- String-based classification (fallback for generic errors) ---

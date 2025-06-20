@@ -6,23 +6,19 @@ import os
 import time
 from typing import Any, Dict, TYPE_CHECKING
 
-from .agent_base import EnhancedAgentBase
+from .agent_base import EnhancedAgentBase, AgentResult
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
-from ..models.data_models import AgentDecisionLog, AgentIO
-from ..models.validation_schemas import validate_agent_input, ValidationError
+from ..models.data_models import AgentIO, AgentDecisionLog
+from ..models.validation_schemas import validate_agent_input
 from ..utils.agent_error_handling import (
     AgentErrorHandler,
-    LLMErrorHandler,
-    with_error_handling,
     with_node_error_handling
 )
 from ..services.llm_service import get_llm_service
 
 if TYPE_CHECKING:
     from .agent_base import AgentExecutionContext
-
-from .agent_base import AgentResult
 
 
 class CVAnalyzerAgent(EnhancedAgentBase):
@@ -120,7 +116,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
         return result
 
-    def analyze_cv(self, input_data, context=None):
+    async def analyze_cv(self, input_data, context=None):
         """Process and analyze the user CV data.
 
         Args:
@@ -166,7 +162,6 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         fallback_extraction = self.extract_basic_info(raw_cv_text)
 
         # Load prompt template from external file
-        logger = get_structured_logger(__name__)
         try:
             prompt_path = self.settings.get_prompt_path("cv_analysis_prompt")
             with open(prompt_path, "r", encoding="utf-8") as f:
@@ -201,7 +196,11 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         try:
             # Use centralized JSON generation and parsing
             start_time = time.time()
-            extracted_data = await self._generate_and_parse_json(prompt=prompt)
+            extracted_data = await self._generate_and_parse_json(
+                prompt=prompt,
+                session_id=getattr(context, 'session_id', 'default'),
+                trace_id=getattr(context, 'trace_id', 'default')
+            )
             elapsed_time = time.time() - start_time
 
             if elapsed_time > self.timeout:
@@ -229,7 +228,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 f"Error parsing CV: {fallback_extraction.get('summary', '')}"
             )
             return fallback_extraction
-        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
+        except Exception as e:
             print(f"An unexpected error occurred during CV analysis: {e}")
             print("Using fallback extraction instead.")
             fallback_extraction["summary"] = (
@@ -281,14 +280,14 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
             # Process the CV analysis directly
             if isinstance(input_data, dict):
-                result = self.analyze_cv(input_data, context)
+                result = await self.analyze_cv(input_data, context)
             else:
                 # Convert string input to expected format
                 formatted_input = {
                     "user_cv": {"raw_text": str(input_data)},
                     "job_description": "",
                 }
-                result = self.analyze_cv(formatted_input, context)
+                result = await self.analyze_cv(formatted_input, context)
 
             return AgentResult(
                 success=True,
@@ -298,8 +297,8 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             )
 
         except Exception as e:
-            error_result = AgentErrorHandler.handle_agent_error(
-                e, "CVAnalyzerAgent", context
+            error_result = AgentErrorHandler.handle_general_error(
+                e, "CVAnalyzerAgent", context="run_async"
             )
             return AgentResult(
                 success=False,
@@ -308,3 +307,43 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 error_message=error_result.error_message,
                 metadata={"agent_type": "cv_analyzer"},
             )
+
+    @with_node_error_handling
+    async def run_as_node(self, state) -> Dict[str, Any]:
+        """
+        Executes the CV analyzer agent as a node within the LangGraph.
+        
+        Args:
+            state: The current state of the LangGraph workflow.
+            
+        Returns:
+            Dict[str, Any]: Updated state with CV analysis results.
+        """
+        from ..core.state_manager import AgentExecutionContext
+        
+        # Create execution context from state
+        context = AgentExecutionContext(
+            session_id=getattr(state, 'session_id', 'default'),
+            item_id=getattr(state, 'current_item_id', None),
+            trace_id=getattr(state, 'trace_id', 'default'),
+            content_type=getattr(state, 'content_type', None),
+            retry_count=getattr(state, 'retry_count', 0)
+        )
+        
+        # Extract input data from state
+        input_data = {
+            "user_cv": getattr(state, 'user_cv', {}),
+            "job_description": getattr(state, 'job_description', ""),
+            "template_cv_path": getattr(state, 'template_cv_path', "")
+        }
+        
+        # Execute the agent
+        result = await self.run_async(input_data, context)
+        
+        # Return updated state slice
+        return {
+            "cv_analysis_results": result.output_data,
+            "cv_analyzer_success": result.success,
+            "cv_analyzer_confidence": result.confidence_score,
+            "cv_analyzer_error": result.error_message
+        }

@@ -6,17 +6,27 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING, Union, List
 
 from ..config.logging_config import get_structured_logger
 from ..core.async_optimizer import optimize_async
 from ..core.state_manager import AgentIO
-from ..models.data_models import AgentExecutionLog, AgentDecisionLog
+from ..models.data_models import AgentExecutionLog, AgentDecisionLog, JobDescriptionData, StructuredCV
 from ..models.data_models import ContentType
+from ..models.validation_schemas import validate_agent_input, ValidationError
 from ..services.error_recovery import get_error_recovery_service
 from ..services.llm_service import get_llm_service
 from ..services.progress_tracker import get_progress_tracker
 from ..services.session_manager import get_session_manager
+from ..utils.agent_error_handling import (
+    LLMErrorHandler, with_error_handling, AgentErrorHandler, with_node_error_handling
+)
+from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
+from ..utils.exceptions import (
+    LLMResponseParsingError, WorkflowPreconditionError, 
+    AgentExecutionError, ConfigurationError, StateManagerError
+)
+# Removed duplicate import - already imported from config.logging_config
 
 if TYPE_CHECKING:
     from ..orchestration.state import AgentState
@@ -462,7 +472,7 @@ class EnhancedAgentBase(ABC):
 
         # Check if LLMResponse indicates failure
         if not llm_response.success:
-            from ..utils.exceptions import AgentError
+            from ..utils.exceptions import AgentError  # pylint: disable=import-outside-toplevel
             raise AgentError(f"LLM generation failed: {llm_response.error_message}")
 
         raw_text = llm_response.content
@@ -535,8 +545,6 @@ class EnhancedAgentBase(ABC):
             extracted = response[json_start:json_end]
             # Basic validation - try to parse to ensure it's valid JSON
             try:
-                import json
-
                 json.loads(extracted)
                 return extracted
             except json.JSONDecodeError:

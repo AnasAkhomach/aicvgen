@@ -6,7 +6,7 @@ exposed in logs, error messages, and other outputs.
 
 import re
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
 
@@ -271,7 +271,7 @@ def safe_str(obj: Any) -> str:
             return json.dumps(redacted_obj, indent=2, default=str)
         else:
             return _global_redactor.redact_string(str(obj))
-    except Exception:
+    except (TypeError, ValueError, AttributeError):
         return "[OBJECT_CONVERSION_ERROR]"
 
 
@@ -295,7 +295,7 @@ def create_safe_config_dict(config_obj: Any) -> Dict[str, Any]:
             config_dict = {"config": str(config_obj)}
 
         return _global_redactor.redact_dict(config_dict)
-    except Exception:
+    except (TypeError, ValueError, AttributeError):
         return {"error": "Failed to create safe config representation"}
 
 

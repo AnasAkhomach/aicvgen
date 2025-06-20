@@ -1,22 +1,15 @@
 """Enhanced Content Writer Agent with Phase 1 infrastructure integration."""
 
-import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
-# ValidationError imported from utils.exceptions
 
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..services.llm_service import get_llm_service
-from ..services.llm_service import LLMResponse
-from ..models.data_models import ContentType, ProcessingStatus
-from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
-from ..core.state_manager import (
-    ContentData,
-    AgentIO,
-)
+from .parser_agent import ParserAgent
+from ..services.llm_service import get_llm_service, LLMResponse
 from ..models.data_models import (
+    ContentType,
+    ProcessingStatus,
     JobDescriptionData,
     StructuredCV,
     Section,
@@ -27,21 +20,18 @@ from ..models.data_models import (
     ItemStatus,
     ItemType,
 )
+from ..config.logging_config import get_structured_logger
+from ..config.settings import get_config
+from ..core.state_manager import ContentData, AgentIO
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
 from ..models.validation_schemas import validate_agent_input
 from ..utils.exceptions import (
     ValidationError,
     LLMResponseParsingError,
-    WorkflowPreconditionError,
-    AgentExecutionError,
-    ConfigurationError,
-    StateManagerError,
 )
 from ..utils.agent_error_handling import (
     AgentErrorHandler,
-    LLMErrorHandler,
-    with_error_handling,
     with_node_error_handling
 )
 
@@ -79,6 +69,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
 
         # Initialize settings for prompt loading
         self.settings = get_config()
+        
+        # Initialize parser agent for parsing methods
+        self.parser_agent = ParserAgent(
+            name="ContentWriterParser",
+            description="Parser agent for content writer parsing methods"
+        )
 
         # Content generation templates - load from external files
         self.content_templates = {
@@ -600,195 +596,9 @@ Description: {description[:200] if description else f'{role_title} position with
 
         return role_info
 
-    def _extract_company_from_cv(
-        self, role_name: str, generation_context: Dict[str, Any]
-    ) -> str:
-        """Extract company name from original CV text based on role name."""
 
-        # Get original CV text from generation context
-        original_cv = generation_context.get("original_cv_text", "")
 
-        # Define company mappings based on the CV content
-        company_mappings = {
-            "Trainee Data Analyst": "STE Smart-Send",
-            "IT trainer": "Supply Chain Management Center",
-            "Mathematics teacher": "Martile Secondary School",
-            "Indie Mobile Game Developer": "Unity (Independent)",
-        }
 
-        # Return mapped company or try to extract from CV text
-        if role_name in company_mappings:
-            return company_mappings[role_name]
-
-        # Fallback: try to find company in original CV text near the role name
-        if original_cv and role_name in original_cv:
-            # Simple extraction logic - this could be improved
-            lines = original_cv.split("\n")
-            for i, line in enumerate(lines):
-                if role_name in line and i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    if next_line and not next_line.startswith("*"):
-                        # Extract company from next line
-                        if "|" in next_line:
-                            company_part = next_line.split("|")[0].strip()
-                            if company_part.startswith("[") and "]" in company_part:
-                                return company_part.split("]")[0][1:]
-                            return company_part
-
-        return "Previous Company"
-
-    def _parse_cv_text_to_content_item(
-        self, cv_text: str, generation_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Parse CV text to extract content item structure."""
-
-        if not cv_text or not isinstance(cv_text, str):
-            logger.warning(f"Invalid CV text input: {type(cv_text)}")
-            return {"name": "Professional Experience", "items": []}
-
-        import re
-
-        # Define enhanced role patterns to look for
-        role_patterns = [
-            # More comprehensive patterns
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+?)\s*\(([^)]+)\)",  # Title - Company (Duration)
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+?)\s*\(([^)]+)\)",  # Title at Company (Duration)
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+?)\s*[,|]\s*([A-Za-z\s0-9-]+)",  # Title - Company, Duration
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+?)\s*[,|]\s*([A-Za-z\s0-9-]+)",  # Title at Company, Duration
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+)",  # Title - Company
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+)",  # Title at Company
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*\|\s*([A-Za-z\s&,.()-]+)",  # Title | Company
-            r"(?i)^\s*([A-Za-z\s,.-]{3,})$",  # Single line that could be a role title
-        ]
-
-        # Split text into lines and clean them
-        lines = [line.strip() for line in cv_text.strip().split("\n") if line.strip()]
-
-        if not lines:
-            logger.warning("No content found in CV text")
-            return {"name": "Professional Experience", "items": []}
-
-        roles = []
-        current_role = None
-
-        for i, line in enumerate(lines):
-            # Skip very short lines that are unlikely to be role titles
-            if len(line) < 3:
-                continue
-
-            # Check if this line matches a role pattern
-            role_match = None
-            matched_pattern_index = -1
-
-            for pattern_index, pattern in enumerate(role_patterns):
-                try:
-                    match = re.match(pattern, line)
-                    if match:
-                        role_match = match
-                        matched_pattern_index = pattern_index
-                        break
-                except re.error as e:
-                    logger.warning(f"Regex error with pattern {pattern_index}: {e}")
-                    continue
-
-            if role_match:
-                # Save previous role if exists
-                if current_role and current_role.get("items"):
-                    roles.append(current_role)
-
-                # Start new role based on matched pattern
-                groups = role_match.groups()
-
-                if (
-                    matched_pattern_index <= 3 and len(groups) >= 2
-                ):  # Patterns with company info
-                    title = groups[0].strip()
-                    company = groups[1].strip()
-                    duration = groups[2].strip() if len(groups) > 2 else ""
-
-                    role_name = f"{title} at {company}"
-                    if duration:
-                        role_name += f" ({duration})"
-
-                    current_role = {"name": role_name, "items": []}
-                elif (
-                    matched_pattern_index <= 6 and len(groups) >= 2
-                ):  # Simple Title - Company patterns
-                    title = groups[0].strip()
-                    company = groups[1].strip()
-                    current_role = {"name": f"{title} at {company}", "items": []}
-                else:  # Single line role title
-                    current_role = {"name": groups[0].strip(), "items": []}
-
-            elif line.startswith(("•", "-", "*", "◦", "▪", "▫")) or re.match(
-                r"^\s*\d+[.)].", line
-            ):
-                # This is a bullet point/accomplishment
-                if current_role:
-                    # Clean the accomplishment text
-                    accomplishment = re.sub(r"^[•\-*◦▪▫\d+.)\s]+", "", line).strip()
-                    if (
-                        accomplishment and len(accomplishment) > 5
-                    ):  # Filter out very short items
-                        current_role["items"].append(
-                            {"item_type": "bullet_point", "content": accomplishment}
-                        )
-                elif not roles:  # No current role but we have accomplishments
-                    # Create a generic role for orphaned accomplishments
-                    current_role = {"name": "Professional Experience", "items": []}
-                    accomplishment = re.sub(r"^[•\-*◦▪▫\d+.)\s]+", "", line).strip()
-                    if accomplishment and len(accomplishment) > 5:
-                        current_role["items"].append(
-                            {"item_type": "bullet_point", "content": accomplishment}
-                        )
-            else:
-                # Check if this could be a continuation of an accomplishment
-                if current_role and current_role.get("items") and not role_match:
-                    # If the line doesn't look like a new role and we have a current role,
-                    # it might be a continuation of the previous accomplishment
-                    if len(line) > 10 and not line.isupper():  # Avoid headers
-                        current_role["items"].append(
-                            {"item_type": "bullet_point", "content": line}
-                        )
-
-        # Add the last role
-        if current_role and (current_role.get("items") or not roles):
-            roles.append(current_role)
-
-        # If no roles were found, try to extract any meaningful content
-        if not roles:
-            # Look for any bullet points or numbered lists in the text
-            accomplishments = []
-            for line in lines:
-                if line.startswith(("•", "-", "*", "◦", "▪", "▫")) or re.match(
-                    r"^\s*\d+[.)].", line
-                ):
-                    accomplishment = re.sub(r"^[•\-*◦▪▫\d+.)\s]+", "", line).strip()
-                    if accomplishment and len(accomplishment) > 5:
-                        accomplishments.append(
-                            {"item_type": "bullet_point", "content": accomplishment}
-                        )
-
-            return {
-                "name": "Professional Experience",
-                "items": (
-                    accomplishments
-                    if accomplishments
-                    else [
-                        {
-                            "item_type": "bullet_point",
-                            "content": "No specific accomplishments extracted",
-                        }
-                    ]
-                ),
-            }
-
-        # If only one role, return it directly
-        if len(roles) == 1:
-            return roles[0]
-
-        # Multiple roles, return as subsections
-        return {"name": "Professional Experience", "subsections": roles}
 
     async def _post_process_content(
         self,
@@ -1011,7 +821,7 @@ Description: {description[:200] if description else f'{role_title} position with
                     if subsection and subsection.items
                     else "No existing content"
                 ),
-                "additional_context": f"This is for the {section.title} section of a CV",
+                "additional_context": f"This is for the {section.name} section of a CV",
             }
 
             # Add research findings to context if available
@@ -1175,6 +985,7 @@ Additional Context:
 Generate enhanced content that aligns with the job requirements and demonstrates value to the employer.
 """
 
+    @with_node_error_handling
     @optimize_async("agent_execution", "enhanced_content_writer")
     async def run_as_node(self, state: AgentState) -> dict:
         """
@@ -1188,19 +999,10 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             A dictionary containing the updated 'structured_cv'.
         """
         # Validate input using proper validation function
-        try:
-            validated_input = validate_agent_input("enhanced_content_writer", state)
-            logger.info(
-                "Input validation passed for EnhancedContentWriterAgent",
-            )
-        except ValidationError as ve:
-            return AgentErrorHandler.handle_validation_error(
-                ve, "content_writer", state, "run_as_node"
-            )
-        except Exception as e:
-            return AgentErrorHandler.handle_node_error(
-                e, "content_writer", state, "run_as_node"
-            )
+        validated_input = validate_agent_input("enhanced_content_writer", state)
+        logger.info(
+            "Input validation passed for EnhancedContentWriterAgent",
+        )
         
         logger.info(
             f"EnhancedContentWriterAgent processing item: {state.current_item_id}"
@@ -1212,41 +1014,36 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             error_list.append("ContentWriter failed: No current_item_id provided.")
             return {"error_messages": error_list}
 
-        try:
-            # Process the single item using the async method with research findings
-            result = await self._process_single_item(
-                state.structured_cv.model_dump(),
-                (
-                    state.job_description_data.model_dump()
-                    if state.job_description_data
-                    else {}
-                ),
-                state.current_item_id,
-                state.research_findings,
-            )
+        # Process the single item using the async method with research findings
+        result = await self._process_single_item(
+            state.structured_cv.model_dump(),
+            (
+                state.job_description_data.model_dump()
+                if state.job_description_data
+                else {}
+            ),
+            state.current_item_id,
+            state.research_findings,
+        )
 
-            if result.success:
-                # Extract the updated CV from the result
-                updated_cv_data = result.output_data.get("structured_cv")
-                if updated_cv_data:
-                    # Convert back to StructuredCV model
-                    updated_cv = StructuredCV.model_validate(updated_cv_data)
-                    logger.info(f"Successfully processed item {state.current_item_id}")
-                    return {"structured_cv": updated_cv}
+        if result.success:
+            # Extract the updated CV from the result
+            updated_cv_data = result.output_data.get("structured_cv")
+            if updated_cv_data:
+                # Convert back to StructuredCV model
+                updated_cv = StructuredCV.model_validate(updated_cv_data)
+                logger.info(f"Successfully processed item {state.current_item_id}")
+                return {"structured_cv": updated_cv}
 
-            # If not successful, add error to state
-            logger.error(
-                f"Failed to process item {state.current_item_id}: {result.error_message}"
-            )
-            error_list = state.error_messages or []
-            error_list.append(f"ContentWriter Error: {result.error_message}")
-            return {"error_messages": error_list}
+        # If not successful, add error to state
+        logger.error(
+            f"Failed to process item {state.current_item_id}: {result.error_message}"
+        )
+        error_list = state.error_messages or []
+        error_list.append(f"ContentWriter Error: {result.error_message}")
+        return {"error_messages": error_list}
 
-        except Exception as e:
-            # Use standardized error handling for node execution
-            return AgentErrorHandler.handle_node_error(
-                e, "content_writer", state, "run_as_node"
-            )
+
 
     async def generate_big_10_skills(
         self, job_description: str, my_talents: str = ""
@@ -1283,15 +1080,18 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 }
 
             # Parse the response into individual skills
-            skills_list = self._parse_big_10_skills(response.content)
+            skills_list = self.parser_agent._parse_big_10_skills(response.content)
 
             logger.info(f"Successfully generated {len(skills_list)} skills")
+
+            # Format the skills for display
+            formatted_content = self._format_big_10_skills_display(skills_list)
 
             return {
                 "skills": skills_list,
                 "raw_llm_output": response.content,
                 "success": True,
-                "formatted_content": self._format_big_10_skills_display(skills_list),
+                "formatted_content": formatted_content,
             }
 
         except Exception as e:
@@ -1303,124 +1103,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 "error": str(e),
             }
 
-    def _parse_big_10_skills(self, llm_response: str) -> List[str]:
-        """
-        Parse the LLM response to extract exactly 10 skills.
-        """
-        try:
-            # Split by newlines and clean up
-            lines = [line.strip() for line in llm_response.split("\n") if line.strip()]
 
-            # Filter out template content and system instructions
-            filtered_lines = []
-            skip_patterns = [
-                "[System Instruction]",
-                "[Instructions for Skill Generation]",
-                "[Job Description]",
-                "[Additional Context",
-                "[Output Example]",
-                "You are an expert",
-                "Analyze Job Description",
-                "Identify Key Skills",
-                "Synthesize and Condense",
-                "Format Output",
-                'Generate the "Big 10" Skills',
-                "Highly relevant to the job",
-                "Concise (under 30 characters)",
-                "Action-oriented and impactful",
-                "Directly aligned with employer",
-                "{{main_job_description_raw}}",
-                "{{my_talents}}",
-            ]
-
-            for line in lines:
-                # Skip lines that contain template instructions
-                should_skip = False
-                for pattern in skip_patterns:
-                    if pattern.lower() in line.lower():
-                        should_skip = True
-                        break
-
-                # Skip lines that are too long (likely instructions)
-                if len(line) > 100:
-                    should_skip = True
-
-                # Skip lines with brackets (likely template markers)
-                if line.startswith("[") and line.endswith("]"):
-                    should_skip = True
-
-                if not should_skip:
-                    filtered_lines.append(line)
-
-            # Remove any bullet points, numbers, or formatting
-            skills = []
-            for line in filtered_lines:
-                # Remove common prefixes
-                cleaned_line = line
-                for prefix in [
-                    "•",
-                    "*",
-                    "-",
-                    "1.",
-                    "2.",
-                    "3.",
-                    "4.",
-                    "5.",
-                    "6.",
-                    "7.",
-                    "8.",
-                    "9.",
-                    "10.",
-                ]:
-                    if cleaned_line.startswith(prefix):
-                        cleaned_line = cleaned_line[len(prefix) :].strip()
-                        break
-
-                # Remove numbering patterns like "1)", "2)", etc.
-                import re
-
-                cleaned_line = re.sub(r"^\d+[.):]\s*", "", cleaned_line)
-
-                if cleaned_line and len(cleaned_line) <= 50:  # Reasonable skill length
-                    skills.append(cleaned_line)
-
-            # Ensure we have exactly 10 skills
-            if len(skills) > 10:
-                skills = skills[:10]
-            elif len(skills) < 10:
-                # Pad with generic skills if needed
-                generic_skills = [
-                    "Problem Solving",
-                    "Team Collaboration",
-                    "Communication Skills",
-                    "Analytical Thinking",
-                    "Project Management",
-                    "Technical Documentation",
-                    "Quality Assurance",
-                    "Process Improvement",
-                    "Client Relations",
-                    "Strategic Planning",
-                ]
-                while len(skills) < 10 and generic_skills:
-                    skills.append(generic_skills.pop(0))
-
-            return skills[:10]  # Ensure exactly 10
-
-        except Exception as e:
-            logger.error(f"Error parsing Big 10 skills: {str(e)}")
-            # Return fallback skills
-            return [
-                "Problem Solving",
-                "Team Collaboration",
-                "Communication Skills",
-                "Analytical Thinking",
-                "Project Management",
-                "Technical Documentation",
-                "Quality Assurance",
-                "Process Improvement",
-                "Client Relations",
-                "Strategic Planning",
-            ]
 
     def _format_big_10_skills_display(self, skills: List[str]) -> str:
         """
@@ -1681,41 +1364,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
 
         return prompt
 
-    def _parse_bullet_points(self, content: str) -> List[str]:
-        """
-        Parse generated content into individual bullet points.
 
-        Args:
-            content: Raw LLM output content
-
-        Returns:
-            List of bullet point strings
-        """
-        lines = content.strip().split("\n")
-        bullet_points = []
-
-        for line in lines:
-            line = line.strip()
-            if line and (
-                line.startswith("-") or line.startswith("•") or line.startswith("*")
-            ):
-                # Remove bullet point markers and clean up
-                clean_line = line.lstrip("-•* ").strip()
-                if clean_line:
-                    bullet_points.append(clean_line)
-            elif line and not any(
-                marker in line
-                for marker in ["Role:", "Company:", "Dates:", "bullet points:"]
-            ):
-                # Handle lines that might be bullet points without markers
-                if len(line) > 10:  # Avoid very short lines that might be headers
-                    bullet_points.append(line)
-
-        # Ensure we have at least some content
-        if not bullet_points and content.strip():
-            bullet_points = [content.strip()]
-
-        return bullet_points[:5]  # Limit to 5 bullet points max
 
     def _create_error_result(
         self,
@@ -1751,7 +1400,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             metadata={"fallback_used": True, "error_type": error_type},
         )
 
-    def _generate_fallback_content(
+    def _generate_item_fallback_content(
         self,
         target_item: "Item",
         target_section: "Section",
@@ -1759,7 +1408,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         job_description: Optional["JobDescriptionData"],
     ) -> str:
         """
-        Generate fallback content when LLM fails.
+        Generate fallback content when LLM fails for specific items.
 
         Args:
             target_item: The item to generate fallback content for

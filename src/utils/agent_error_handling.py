@@ -4,14 +4,15 @@ This module provides consistent error handling patterns that all agents should u
 to ensure uniform error reporting, logging, and recovery across the system.
 """
 
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from functools import wraps
-from datetime import datetime
 from ..models.validation_schemas import ValidationError
-from ..agents.agent_base import AgentResult, AgentExecutionContext
 from ..orchestration.state import AgentState
-from ..models.data_models import AgentExecutionLog
+
 from ..config.logging_config import get_structured_logger
+
+if TYPE_CHECKING:
+    from ..agents.agent_base import AgentResult
 
 logger = get_structured_logger(__name__)
 
@@ -24,7 +25,7 @@ class AgentErrorHandler:
         error: ValidationError,
         agent_type: str,
         fallback_data: Optional[Dict[str, Any]] = None
-    ) -> AgentResult:
+    ) -> "AgentResult":
         """Handle validation errors consistently across agents.
         
         Args:
@@ -35,6 +36,9 @@ class AgentErrorHandler:
         Returns:
             AgentResult with error details and fallback data
         """
+        # Import at runtime to avoid cyclic import
+        from ..agents.agent_base import AgentResult
+        
         error_msg = f"Input validation failed for {agent_type}: {str(error)}"
         logger.error(error_msg)
         
@@ -56,7 +60,7 @@ class AgentErrorHandler:
         agent_type: str,
         fallback_data: Optional[Dict[str, Any]] = None,
         context: Optional[str] = None
-    ) -> AgentResult:
+    ) -> "AgentResult":
         """Handle general exceptions consistently across agents.
         
         Args:
@@ -68,6 +72,9 @@ class AgentErrorHandler:
         Returns:
             AgentResult with error details and fallback data
         """
+        # Import at runtime to avoid cyclic import
+        from ..agents.agent_base import AgentResult
+        
         context_msg = f" in {context}" if context else ""
         error_msg = f"{agent_type} error{context_msg}: {str(error)}"
         logger.error(error_msg, exc_info=True)
@@ -179,7 +186,9 @@ def with_error_handling(agent_type: str, context: Optional[str] = None):
     Returns:
         Decorated function with error handling
     """
-    def decorator(func: Callable) -> Callable:
+    from .decorators import create_async_sync_decorator
+    
+    def create_async_wrapper(func):
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
             try:
@@ -194,7 +203,9 @@ def with_error_handling(agent_type: str, context: Optional[str] = None):
                 return AgentErrorHandler.handle_general_error(
                     e, agent_type, fallback_data, context
                 )
-        
+        return async_wrapper
+    
+    def create_sync_wrapper(func):
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
             try:
@@ -209,15 +220,9 @@ def with_error_handling(agent_type: str, context: Optional[str] = None):
                 return AgentErrorHandler.handle_general_error(
                     e, agent_type, fallback_data, context
                 )
-        
-        # Return appropriate wrapper based on whether function is async
-        import asyncio
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
+        return sync_wrapper
     
-    return decorator
+    return create_async_sync_decorator(create_async_wrapper, create_sync_wrapper)
 
 
 def with_node_error_handling(agent_type: str, context: Optional[str] = None):
@@ -230,7 +235,9 @@ def with_node_error_handling(agent_type: str, context: Optional[str] = None):
     Returns:
         Decorated function with node error handling
     """
-    def decorator(func: Callable) -> Callable:
+    from .decorators import create_async_sync_decorator
+    
+    def create_async_wrapper(func):
         @wraps(func)
         async def async_wrapper(self, state: AgentState, *args, **kwargs):
             try:
@@ -239,7 +246,9 @@ def with_node_error_handling(agent_type: str, context: Optional[str] = None):
                 return AgentErrorHandler.handle_node_error(
                     e, agent_type, state, context
                 )
-        
+        return async_wrapper
+    
+    def create_sync_wrapper(func):
         @wraps(func)
         def sync_wrapper(self, state: AgentState, *args, **kwargs):
             try:
@@ -248,15 +257,9 @@ def with_node_error_handling(agent_type: str, context: Optional[str] = None):
                 return AgentErrorHandler.handle_node_error(
                     e, agent_type, state, context
                 )
-        
-        # Return appropriate wrapper based on whether function is async
-        import asyncio
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
+        return sync_wrapper
     
-    return decorator
+    return create_async_sync_decorator(create_async_wrapper, create_sync_wrapper)
 
 
 class LLMErrorHandler:

@@ -15,16 +15,16 @@ def escape_latex(text: str) -> str:
     Escape special LaTeX characters in a string to prevent compilation errors.
 
     This function replaces LaTeX special characters with their escaped equivalents:
-    - & -> \&
-    - % -> \%
-    - $ -> \$
-    - # -> \#
-    - ^ -> \textasciicircum{}
-    - _ -> \_
-    - { -> \{
-    - } -> \}
-    - ~ -> \textasciitilde{}
-    - \ -> \textbackslash{}
+    - & -> \\&
+    - % -> \\%
+    - $ -> \\$
+    - # -> \\#
+    - ^ -> \\textasciicircum{}
+    - _ -> \\_
+    - { -> \\{
+    - } -> \\}
+    - ~ -> \\textasciitilde{}
+    - \\ -> \\textbackslash{}
 
     Args:
         text: The input string that may contain LaTeX special characters
@@ -34,24 +34,24 @@ def escape_latex(text: str) -> str:
 
     Example:
         >>> escape_latex("Hello _world_ & Co. 100% #1 {awesome}")
-        "Hello \_world\_ \& Co. 100\% \#1 \{awesome\}"
+        'Hello \\_world\\_ \\& Co. 100\\% \\#1 \\{awesome\\}'
     """
     if not isinstance(text, str):
         return text
 
     # Define escape mappings based on web search results
     conv = {
-        "&": "\&",
-        "%": "\%",
-        "$": "\$",
-        "#": "\#",
-        "_": "\_",
-        "{": "\{",
-        "}": "\}",
-        "~": "\textasciitilde{}",
-        "^": "\textasciicircum{}",
-        "+": "\textasciicircum{}",  # Map + to ^ for programming contexts
-        "\\": "\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+        "+": r"\textasciicircum{}",  # Map + to ^ for programming contexts
+        "\\": r"\textbackslash{}",
     }
 
     # Create regex pattern, sorting by length (longest first) to handle backslash correctly
@@ -88,9 +88,9 @@ def recursively_escape_latex(data: Any) -> Any:
         ... }
         >>> recursively_escape_latex(data)
         {
-            "name": "John \& Jane",
-            "skills": ["C\+\+", "Data Analysis 100\%"],
-            "metadata": {"score": 95, "notes": "Top \#1 candidate"}
+            "name": "John & Jane",
+            "skills": ["C++", "Data Analysis 100%"],
+            "metadata": {"score": 95, "notes": "Top #1 candidate"}
         }
     """
     if isinstance(data, dict):

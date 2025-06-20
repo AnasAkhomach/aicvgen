@@ -28,6 +28,7 @@ These deprecated test files were removed as their functionality has been integra
 
 ### Fixed
 - Critical startup errors in formatter_agent.py (SyntaxError)
+- Agent output contract validation - Added `validate_node_output` decorator to ensure consistent data structures across all workflow nodes (Task CB-06)
 - Import resolution issues in models/__init__.py and environment.py
 - Missing tenacity imports in rate_limiter.py preventing application startup
 - Module loading and dependency injection problems

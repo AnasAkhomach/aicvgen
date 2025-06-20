@@ -64,16 +64,8 @@ class SecurityConfig:
     allowed_file_types: List[str] = field(default_factory=lambda: [".txt", ".md", ".pdf", ".docx"])
 
 
-@dataclass
-class UIConfig:
-    """UI configuration settings."""
-    page_title: str = "AI CV Generator"
-    page_icon: str = "📄"
-    layout: str = "wide"
-    sidebar_state: str = "expanded"
-    theme_primary_color: str = "#1f77b4"
-    show_debug_info: bool = False
-    auto_save_interval_seconds: int = 30
+# UIConfig is imported from settings.py to avoid duplication
+from .settings import UIConfig
 
 
 @dataclass

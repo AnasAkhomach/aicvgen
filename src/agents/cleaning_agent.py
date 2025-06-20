@@ -4,24 +4,19 @@ This agent implements the "Generate -> Clean" pattern described in Task 3.2 & 3.
 It takes raw LLM output and processes it into structured, clean content.
 """
 
-from typing import Dict, List, Any, Optional, Union
-from dataclasses import dataclass
+from typing import Dict, List, Any
 import re
 import json
-import asyncio
 from datetime import datetime
 
 from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..config.logging_config import get_structured_logger
 from ..services.llm_service import get_llm_service
-from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
 from ..utils.agent_error_handling import (
     AgentErrorHandler,
-    LLMErrorHandler,
-    with_error_handling,
     with_node_error_handling
 )
 from ..models.data_models import AgentIO, ContentType
+from ..orchestration.state import AgentState
 
 
 class CleaningAgent(EnhancedAgentBase):
@@ -119,10 +114,10 @@ class CleaningAgent(EnhancedAgentBase):
 
         except Exception as e:
             processing_time = (datetime.now() - start_time).total_seconds()
-            error_result = AgentErrorHandler.handle_agent_error(
-                e, "CleaningAgent", context
+            error_result = AgentErrorHandler.handle_general_error(
+                e, "CleaningAgent", context="run_async"
             )
-            
+
             return AgentResult(
                 success=False,
                 output_data=None,
@@ -160,7 +155,6 @@ class CleaningAgent(EnhancedAgentBase):
                         "JSON parsing failed for skills extraction, using regex fallback",
                         session_id=getattr(context, 'session_id', None)
                     )
-                    pass
 
             # Extract skills using regex patterns
             skills = []
@@ -297,57 +291,50 @@ class CleaningAgent(EnhancedAgentBase):
 
         return min(1.0, score)
 
-    async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
+    @with_node_error_handling("CleaningAgent", "run_as_node")
+    async def run_as_node(self, state: AgentState) -> Dict[str, Any]:
         """Execute cleaning agent as a LangGraph node."""
-        from ..orchestration.state import AgentState
         from ..models.data_models import ProcessingStatus
 
-        try:
-            # Extract raw output from state - could be from various sources
-            raw_output = ""
-            output_type = "generic"
+        # Extract raw output from state - could be from various sources
+        raw_output = ""
+        output_type = "generic"
 
-            # Check for raw LLM output in state
-            if hasattr(state, "raw_llm_output") and state.raw_llm_output:
-                raw_output = state.raw_llm_output
-                output_type = "skills"  # Default for cleaning agent
-            elif hasattr(state, "generated_content") and state.generated_content:
-                raw_output = str(state.generated_content)
-                output_type = "content_item"
+        # Check for raw LLM output in state
+        if hasattr(state, "raw_llm_output") and state.raw_llm_output:
+            raw_output = state.raw_llm_output
+            output_type = "skills"  # Default for cleaning agent
+        elif hasattr(state, "generated_content") and state.generated_content:
+            raw_output = str(state.generated_content)
+            output_type = "content_item"
 
-            # Create execution context
-            context = AgentExecutionContext(
-                session_id=getattr(state, "session_id", "default")
-            )
+        # Create execution context
+        context = AgentExecutionContext(
+            session_id=getattr(state, "session_id", "default")
+        )
 
-            # Run cleaning
-            result = await self.run_async(
-                {
-                    "raw_output": raw_output,
-                    "output_type": output_type,
-                    "context": {},
-                    "validation_rules": {},
-                },
-                context,
-            )
+        # Run cleaning
+        result = await self.run_async(
+            {
+                "raw_output": raw_output,
+                "output_type": output_type,
+                "context": {},
+                "validation_rules": {},
+            },
+            context,
+        )
 
-            # Return state updates
-            return {
-                "cleaned_data": (
-                    result.output_data.get("cleaned_data", {}) if result.success else {}
-                ),
-                "processing_status": (
-                    ProcessingStatus.COMPLETED
-                    if result.success
-                    else ProcessingStatus.FAILED
-                ),
-            }
-
-        except Exception as e:
-            error_result = AgentErrorHandler.handle_node_error(
-                e, "CleaningAgent", state
-            )
-            return {"cleaned_data": {}, "processing_status": ProcessingStatus.FAILED}
+        # Return state updates
+        return {
+            "cleaned_data": (
+                result.output_data.get("cleaned_data", {}) if result.success else {}
+            ),
+            "processing_status": (
+                ProcessingStatus.COMPLETED
+                if result.success
+                else ProcessingStatus.FAILED
+            ),
+        }
 
 
 def get_cleaning_agent() -> CleaningAgent:

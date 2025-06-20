@@ -247,8 +247,6 @@ class ItemProcessor:
         try:
             # Direct call to LLM API - retry logic is now handled by EnhancedLLMService
             response = await self._call_llm_api(
-                model=model,
-                estimated_tokens=estimated_tokens,
                 prompt=prompt,
                 model_name=model,
             )

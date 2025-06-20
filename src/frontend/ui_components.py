@@ -32,12 +32,22 @@ def display_sidebar(state: AgentState):
                 False  # Reset validation when key changes
             )
 
-        # Show validation status
+        # API Key Validation Button and Status
         if st.session_state.get("user_gemini_api_key"):
-            if st.session_state.get("api_key_validated"):
-                st.success("✅ API Key validated and ready to use!")
-            else:
-                st.info("🔄 API Key will be validated when you start processing")
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                if st.session_state.get("api_key_validated"):
+                    st.success("✅ API Key validated and ready to use!")
+                elif st.session_state.get("api_key_validation_failed"):
+                    st.error("❌ API Key validation failed. Please check your key.")
+                else:
+                    st.info("🔄 Click 'Validate' to test your API key")
+            
+            with col2:
+                if st.button("🔍 Validate", key="validate_api_key", help="Test your API key"):
+                    handle_user_action("validate_api_key", "")
+                    
         else:
             st.error("⚠️ Please enter your Gemini API key to use the application")
             st.markdown(
@@ -161,12 +171,19 @@ def display_input_form(state: Optional[AgentState]):
     can_generate = bool(job_description.strip()) and (
         bool(cv_content.strip()) or start_from_scratch
     )
-
+    
+    # Check API key validation status
+    api_key_validated = st.session_state.get("api_key_validated", False)
+    
+    # Show validation warning if API key is not validated
+    if not api_key_validated and st.session_state.get("user_gemini_api_key"):
+        st.warning("⚠️ Please validate your API key in the sidebar before generating a CV.")
+    
     if st.button(
         "🚀 Generate Tailored CV",
         type="primary",
         use_container_width=True,
-        disabled=not can_generate or st.session_state.get("processing", False),
+        disabled=not can_generate or not api_key_validated or st.session_state.get("processing", False),
     ):
         if can_generate:
             # Store inputs in session state for the workflow

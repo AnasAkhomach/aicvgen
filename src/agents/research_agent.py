@@ -8,7 +8,7 @@ from ..core.state_manager import (
     Subsection,
     Item,
 )
-from ..services.vector_db import VectorDB
+from ..services.vector_store_service import get_vector_store_service
 from ..config.logging_config import get_structured_logger
 from ..models.data_models import AgentDecisionLog, AgentExecutionLog
 from ..config.settings import get_config
@@ -33,6 +33,7 @@ import json
 import os
 import asyncio
 from datetime import datetime
+from ..models.research_models import ResearchFindings, ResearchStatus, CompanyInsight, IndustryInsight, RoleInsight
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
 
@@ -54,7 +55,6 @@ class ResearchAgent(EnhancedAgentBase):
         name: str,
         description: str,
         llm_service=None,
-        vector_db: Optional[VectorDB] = None,
     ):
         self._latest_research_results = {}  # Initialize research results storage
         """
@@ -64,7 +64,6 @@ class ResearchAgent(EnhancedAgentBase):
             name: The name of the agent.
             description: A description of the agent.
             llm_service: Optional LLM service instance for analysis.
-            vector_db: Vector database instance for storing and searching embeddings.
         """
         super().__init__(
             name=name,
@@ -81,7 +80,7 @@ class ResearchAgent(EnhancedAgentBase):
             ),
         )
         self.llm = llm_service or get_llm_service()
-        self.vector_db = vector_db
+        self.vector_db = get_vector_store_service()
 
         # Initialize settings for prompt loading
         self.settings = get_config()
@@ -91,7 +90,7 @@ class ResearchAgent(EnhancedAgentBase):
     ) -> "AgentResult":
         """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
-        from ..models.validation_schemas import validate_agent_input, ValidationError
+        from ..models.validation_schemas import validate_agent_input
 
         try:
             # Validate input data using Pydantic schemas
@@ -158,7 +157,7 @@ class ResearchAgent(EnhancedAgentBase):
 
     async def _perform_research_analysis(
         self, structured_cv: "StructuredCV", job_desc_data: "JobDescriptionData"
-    ) -> Dict[str, Any]:
+    ) -> ResearchFindings:
         """Perform the core research analysis without circular dependencies."""
         try:
             # Set current session and trace IDs for centralized JSON parsing
@@ -199,13 +198,40 @@ class ResearchAgent(EnhancedAgentBase):
             )
 
             # Compile research findings
-            research_findings = {
-                "job_analysis": job_analysis,
-                "company_info": company_info,
-                "relevant_cv_content": relevant_content,
-                "industry_insights": industry_insights,
-                "research_timestamp": datetime.now().isoformat(),
-            }
+            research_findings = ResearchFindings(
+                status=ResearchStatus.SUCCESS,
+                key_terms=job_analysis.get("key_skills", []),
+                skill_gaps=[],
+                enhancement_suggestions=[],
+                company_insights=CompanyInsight(
+                    company_name=company_info.get("company_name", ""),
+                    industry=company_info.get("industry"),
+                    size=None,
+                    culture=company_info.get("values"),
+                    recent_news=[],
+                    key_values=company_info.get("values", []),
+                    confidence_score=0.8
+                ) if company_info else None,
+                industry_insights=IndustryInsight(
+                    industry_name=company_info.get("industry", "") if company_info else "",
+                    trends=industry_insights.get("trends", []),
+                    key_skills=industry_insights.get("technologies", []),
+                    growth_areas=industry_insights.get("growth_areas", []),
+                    challenges=[],
+                    confidence_score=0.7
+                ) if industry_insights else None,
+                role_insights=RoleInsight(
+                    role_title="",
+                    required_skills=job_analysis.get("key_skills", []),
+                    preferred_qualifications=[],
+                    responsibilities=job_analysis.get("responsibilities", []),
+                    career_progression=[],
+                    salary_range=None,
+                    confidence_score=0.8
+                ) if job_analysis else None,
+                confidence_score=0.8,
+                processing_time_seconds=0.0
+            )
 
             # Store for later retrieval
             self._latest_research_results = research_findings
@@ -214,21 +240,21 @@ class ResearchAgent(EnhancedAgentBase):
 
         except Exception as e:
             logger.error(f"Error in research analysis: {str(e)}")
-            return {
-                "error": f"Research analysis failed: {str(e)}",
-                "research_timestamp": datetime.now().isoformat(),
-            }
+            return ResearchFindings.create_failed(f"Research analysis failed: {str(e)}")
 
-    def get_research_results(self) -> Dict[str, Any]:
+    def get_research_results(self) -> ResearchFindings:
         """
         Returns the previously generated research results.
 
         Returns:
-            The research results as a dictionary, or an empty dict if no research has been performed
+            The research results as ResearchFindings, or empty findings if no research has been performed
         """
         if hasattr(self, "_latest_research_results") and self._latest_research_results:
-            return self._latest_research_results
-        return {}
+            if isinstance(self._latest_research_results, ResearchFindings):
+                return self._latest_research_results
+            elif isinstance(self._latest_research_results, dict):
+                return ResearchFindings.from_dict(self._latest_research_results)
+        return ResearchFindings.create_empty()
 
     def _extract_field(self, data: Dict[str, Any], field: str, default: Any) -> Any:
         """Helper to extract a field from job description data, handling different formats."""
@@ -553,62 +579,33 @@ class ResearchAgent(EnhancedAgentBase):
             ],
         }
 
-    @optimize_async("agent_execution", "research")
-    async def run_as_node(self, state: AgentState) -> dict:
-        """
-        Executes the research logic as a LangGraph node.
-
-        Args:
-            state: The current state of the workflow.
-
-        Returns:
-            A dictionary containing research findings.
-        """
-        logger.info("ResearchAgent node running.")
-        cv = state.structured_cv
-        job_data = state.job_description_data
-
-        if not cv or not job_data:
-            logger.warning("Research agent called without required CV or job data.")
-            return {}
-
-        try:
-            # Set current session and trace IDs for centralized JSON parsing
-            self.current_session_id = getattr(state, "session_id", None)
-            self.current_trace_id = state.trace_id
-
-            # Prepare input data for the async method
-            input_data = {
-                "structured_cv": cv.model_dump(),
-                "job_description_data": job_data.model_dump(),
-            }
-
-            # Create execution context for the async method
-            context = AgentExecutionContext(
-                session_id="langraph_session",
-                input_data=input_data,
-            )
-
-            # Call the existing async method
-            result = await self.run_async(input_data, context)
-
-            if result.success:
-                # Extract research findings
-                research_data = result.output_data.get("research_findings", {})
-
-                # Store research findings in state
-                current_findings = state.research_findings or {}
-                current_findings.update(research_data)
-
-                return {"research_findings": current_findings}
-
-            # If not successful, add error to state
-            error_list = state.error_messages or []
-            error_list.append(f"Research Error: {result.error_message}")
-            return {"error_messages": error_list}
-
-        except Exception as e:
-            # Use standardized error handling for node execution
-            return AgentErrorHandler.handle_node_error(
-                e, "research", state, "run_as_node"
-            )
+    @with_node_error_handling
+    async def run_as_node(self, state: AgentState) -> AgentState:
+        """Run the agent as a LangGraph node."""
+        logger.info("Research Agent: Starting node execution")
+        
+        # Create input for the agent
+        agent_input = AgentIO(
+            structured_cv=state.structured_cv,
+            job_description=state.job_description,
+            metadata={"agent_name": self.name}
+        )
+        
+        # Run the agent
+        result = await self.run_async(agent_input)
+        
+        if result.success:
+            # Update state with research findings
+            if result.data and "research_findings" in result.data:
+                state.research_findings = result.data["research_findings"]
+                logger.info("Research Agent: Successfully completed research")
+            else:
+                error_msg = "Research Agent: No research findings in result"
+                logger.error(error_msg)
+                state.error_messages.append(error_msg)
+        else:
+            error_msg = f"Research Agent failed: {result.error_message}"
+            logger.error(error_msg)
+            state.error_messages.append(error_msg)
+            
+        return state

@@ -22,7 +22,7 @@ class TestEnhancedLLMServiceRetries:
         with patch('src.services.llm_service.genai') as mock_genai:
             mock_model = Mock()
             mock_genai.GenerativeModel.return_value = mock_model
-            service = EnhancedLLMService(api_key="test-key")
+            service = EnhancedLLMService(user_api_key="test-key")
             service.llm = mock_model
             return service
 
@@ -136,19 +136,19 @@ class TestEnhancedLLMServiceConfiguration:
     def test_service_initialization_with_api_key(self):
         """Test successful service initialization with API key."""
         with patch('src.services.llm_service.genai') as mock_genai:
-            service = EnhancedLLMService(api_key="test-key")
+            service = EnhancedLLMService(user_api_key="test-key")
             assert service.api_key == "test-key"
             mock_genai.configure.assert_called_once_with(api_key="test-key")
 
     def test_service_initialization_without_api_key(self):
         """Test that service fails fast without API key."""
         with pytest.raises(ConfigurationError, match="GEMINI_API_KEY is required"):
-            EnhancedLLMService(api_key=None)
+            EnhancedLLMService(user_api_key=None)
 
     def test_service_initialization_empty_api_key(self):
         """Test that service fails fast with empty API key."""
         with pytest.raises(ConfigurationError, match="GEMINI_API_KEY is required"):
-            EnhancedLLMService(api_key="")
+            EnhancedLLMService(user_api_key="")
 
 
 class TestEnhancedLLMServiceErrorHandling:
@@ -160,7 +160,7 @@ class TestEnhancedLLMServiceErrorHandling:
         with patch('src.services.llm_service.genai') as mock_genai:
             mock_model = Mock()
             mock_genai.GenerativeModel.return_value = mock_model
-            service = EnhancedLLMService(api_key="test-key")
+            service = EnhancedLLMService(user_api_key="test-key")
             service.llm = mock_model
             return service
 
@@ -222,7 +222,7 @@ class TestEnhancedLLMServiceMetrics:
         with patch('src.services.llm_service.genai') as mock_genai:
             mock_model = Mock()
             mock_genai.GenerativeModel.return_value = mock_model
-            service = EnhancedLLMService(api_key="test-key")
+            service = EnhancedLLMService(user_api_key="test-key")
             service.llm = mock_model
             return service
 

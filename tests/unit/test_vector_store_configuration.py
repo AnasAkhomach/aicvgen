@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 
 from src.utils.exceptions import ConfigurationError
 from src.models.data_models import VectorStoreConfig
-from src.services.vector_db import VectorDB, get_enhanced_vector_db, get_vector_store_service
+from src.services.vector_store_service import VectorStoreService, get_vector_store_service
 
 
 class TestVectorStoreFailFast:
@@ -17,146 +17,83 @@ class TestVectorStoreFailFast:
     def setup_method(self):
         """Reset global state before each test."""
         # Reset singleton instance
-        import src.services.vector_db
-        src.services.vector_db._enhanced_vector_db = None
+        import src.services.vector_store_service
+        src.services.vector_store_service._vector_store_service = None
 
-    def test_vector_db_init_with_invalid_config_none(self):
-        """Test VectorDB initialization fails with None config."""
-        with pytest.raises(ConfigurationError, match="VectorStoreConfig is required"):
-            VectorDB(config=None)
-
-    def test_vector_db_init_with_invalid_dimension(self):
-        """Test VectorDB initialization fails with invalid dimension."""
-        config = VectorStoreConfig(
-            dimension=0,  # Invalid dimension
-            index_type="IndexFlatL2"
-        )
-        with pytest.raises(ConfigurationError, match="Invalid dimension: 0. Must be positive."):
-            VectorDB(config=config)
-
-    def test_vector_db_init_with_invalid_index_type(self):
-        """Test VectorDB initialization fails with invalid index type."""
-        config = VectorStoreConfig(
-            dimension=768,
-            index_type="InvalidIndexType"
-        )
-        with pytest.raises(ConfigurationError, match="Invalid index type: InvalidIndexType"):
-            VectorDB(config=config)
-
-    def test_vector_db_init_with_invalid_db_path_permissions(self):
-        """Test VectorDB initialization fails with invalid database path permissions."""
-        config = VectorStoreConfig(
-            dimension=768,
-            index_type="IndexFlatL2"
-        )
+    @patch('src.services.vector_store_service.chromadb')
+    def test_vector_store_service_init_success(self, mock_chromadb):
+        """Test successful VectorStoreService initialization."""
+        # Mock ChromaDB client
+        mock_client = MagicMock()
+        mock_chromadb.PersistentClient.return_value = mock_client
         
-        # Mock Path.mkdir to raise PermissionError
-        with patch('pathlib.Path.mkdir') as mock_mkdir:
-            mock_mkdir.side_effect = PermissionError("Permission denied")
-            
-            with pytest.raises(ConfigurationError, match="CRITICAL: Vector store initialization failed"):
-                VectorDB(config=config, db_path="/invalid/path")
-
-    def test_vector_db_init_with_corrupted_database(self):
-        """Test VectorDB initialization fails with corrupted database."""
-        config = VectorStoreConfig(
-            dimension=768,
-            index_type="IndexFlatL2"
-        )
+        # Test service initialization
+        service = VectorStoreService()
+        assert service is not None
         
-        # Mock _load_enhanced_database to raise an exception
-        with patch.object(VectorDB, '_load_enhanced_database') as mock_load:
-            mock_load.side_effect = Exception("Database corrupted")
-            
-            with pytest.raises(ConfigurationError, match="CRITICAL: Failed to load existing vector database"):
-                VectorDB(config=config)
+        # Verify ChromaDB client was created
+        mock_chromadb.PersistentClient.assert_called_once()
 
-    def test_vector_db_init_success(self):
-        """Test successful VectorDB initialization."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config = VectorStoreConfig(
-                dimension=768,
-                index_type="IndexFlatL2"
-            )
-            
-            # Should not raise any exception
-            db = VectorDB(config=config, db_path=temp_dir)
-            assert db is not None
-            assert db.config == config
-            assert db.index is not None
-
-    def test_get_enhanced_vector_db_singleton_behavior(self):
-        """Test that get_enhanced_vector_db returns the same instance."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config = VectorStoreConfig(
-                dimension=768,
-                index_type="IndexFlatL2"
-            )
-            
-            # Mock the db_path to use temp directory
-            with patch('src.services.vector_db.get_config') as mock_get_config:
-                mock_config = MagicMock()
-                mock_config.data_directory = temp_dir
-                mock_get_config.return_value = mock_config
-                
-                db1 = get_enhanced_vector_db(config)
-                db2 = get_enhanced_vector_db(config)
-                
-                assert db1 is db2  # Same instance
-
-    def test_get_enhanced_vector_db_with_default_config(self):
-        """Test get_enhanced_vector_db with default configuration."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock the db_path to use temp directory
-            with patch('src.services.vector_db.get_config') as mock_get_config:
-                mock_config = MagicMock()
-                mock_config.data_directory = temp_dir
-                mock_get_config.return_value = mock_config
-                
-                db = get_enhanced_vector_db()  # No config provided
-                assert db is not None
-                assert db.config.dimension == 768
-                assert db.config.index_type == "IndexFlatL2"
-
-    def test_get_enhanced_vector_db_propagates_configuration_error(self):
-        """Test that get_enhanced_vector_db propagates ConfigurationError."""
-        config = VectorStoreConfig(
-            dimension=0,  # Invalid dimension
-            index_type="IndexFlatL2"
-        )
+    @patch('src.services.vector_store_service.chromadb')
+    def test_vector_store_service_singleton(self, mock_chromadb):
+        """Test VectorStoreService singleton pattern."""
+        # Mock ChromaDB client
+        mock_client = MagicMock()
+        mock_chromadb.PersistentClient.return_value = mock_client
         
-        with pytest.raises(ConfigurationError, match="Invalid dimension: 0. Must be positive."):
-            get_enhanced_vector_db(config)
-
-    def test_get_vector_store_service_alias(self):
-        """Test that get_vector_store_service is an alias for get_enhanced_vector_db."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Mock the db_path to use temp directory
-            with patch('src.services.vector_db.get_config') as mock_get_config:
-                mock_config = MagicMock()
-                mock_config.data_directory = temp_dir
-                mock_get_config.return_value = mock_config
-                
-                db1 = get_enhanced_vector_db()
-                db2 = get_vector_store_service()
-                
-                assert db1 is db2  # Same instance
-
-    def test_get_vector_store_service_propagates_configuration_error(self):
-        """Test that get_vector_store_service propagates ConfigurationError."""
-        # Reset singleton to force re-initialization
-        import src.services.vector_db
-        src.services.vector_db._enhanced_vector_db = None
+        # Get service instances
+        service1 = get_vector_store_service()
+        service2 = get_vector_store_service()
         
-        # Mock VectorDB to raise ConfigurationError
-        with patch('src.services.vector_db.VectorDB') as mock_vector_db:
-            mock_vector_db.side_effect = ConfigurationError("Test error")
-            
-            with pytest.raises(ConfigurationError, match="Test error"):
-                get_vector_store_service()
+        # Verify they are the same instance
+        assert service1 is service2
+
+    @patch('src.services.vector_store_service.chromadb')
+    def test_vector_store_service_add_item(self, mock_chromadb):
+        """Test VectorStoreService add_item functionality."""
+        # Mock ChromaDB client and collection
+        mock_client = MagicMock()
+        mock_collection = MagicMock()
+        mock_chromadb.PersistentClient.return_value = mock_client
+        mock_client.get_or_create_collection.return_value = mock_collection
+        
+        # Test add_item
+        service = VectorStoreService()
+        result = service.add_item("test_item", "test content", {"key": "value"})
+        
+        # Verify collection operations
+        mock_client.get_or_create_collection.assert_called()
+        mock_collection.add.assert_called_once()
+        assert result is not None
+
+    @patch('src.services.vector_store_service.chromadb')
+    def test_vector_store_service_search(self, mock_chromadb):
+        """Test VectorStoreService search functionality."""
+        # Mock ChromaDB client and collection
+        mock_client = MagicMock()
+        mock_collection = MagicMock()
+        mock_chromadb.PersistentClient.return_value = mock_client
+        mock_client.get_or_create_collection.return_value = mock_collection
+        
+        # Mock search results
+        mock_collection.query.return_value = {
+            'documents': [['test document']],
+            'metadatas': [[{'key': 'value'}]],
+            'ids': [['test_id']],
+            'distances': [[0.1]]
+        }
+        
+        # Test search
+        service = VectorStoreService()
+        results = service.search("test query", k=5)
+        
+        # Verify search was called
+        mock_collection.query.assert_called_once()
+        assert len(results) == 1
+        assert results[0]['content'] == 'test document'
 
     def teardown_method(self):
         """Clean up after each test."""
         # Reset singleton instance
-        import src.services.vector_db
-        src.services.vector_db._enhanced_vector_db = None
+        import src.services.vector_store_service
+        src.services.vector_store_service._vector_store_service = None

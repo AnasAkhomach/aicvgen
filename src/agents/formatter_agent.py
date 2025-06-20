@@ -1,7 +1,5 @@
 from typing import Dict, Any, Optional
-
 from jinja2 import Environment, FileSystemLoader
-from typing import Dict, Any, Optional
 from pathlib import Path
 
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
@@ -64,33 +62,24 @@ class FormatterAgent(EnhancedAgentBase):
         self.llm_service = get_llm_service()
 
     @optimize_async("agent_execution", "formatter")
+    @with_node_error_handling
     async def run_as_node(
         self, state: AgentState, config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Run the formatter agent as a node in the workflow."""
         self.logger.info("Starting CV formatting")
 
-        try:
-            # Execute the main run method
-            result = await self.run(state)
+        # Execute the main run method
+        result = await self.run(state)
 
-            # Return the final output path as expected by AgentState
-            if isinstance(result, dict) and result.get("final_output_path"):
-                self.logger.info("CV formatting completed")
-                return {"final_output_path": result["final_output_path"]}
-            else:
-                # If no output path, return empty dict
-                self.logger.warning("No final output path generated")
-                return {}
-
-        except Exception as e:
-            error_result = AgentErrorHandler.handle_node_error(
-                e, "FormatterAgent", state
-            )
-            self.logger.error(f"Error in formatter agent: {error_result.error_message}")
-            error_list = state.error_messages or []
-            error_list.append(f"Formatter error: {error_result.error_message}")
-            return {"error_messages": error_list}
+        # Return the final output path as expected by AgentState
+        if isinstance(result, dict) and result.get("final_output_path"):
+            self.logger.info("CV formatting completed")
+            return {"final_output_path": result["final_output_path"]}
+        else:
+            # If no output path, return empty dict
+            self.logger.warning("No final output path generated")
+            return {}
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
@@ -101,23 +90,13 @@ class FormatterAgent(EnhancedAgentBase):
 
         try:
             # Validate input data using Pydantic schemas
-            validation_result = AgentErrorHandler.handle_validation_error(
-                lambda: validate_agent_input("formatter", input_data),
-                "FormatterAgent"
-            )
-            if not validation_result.success:
-                return AgentResult(
-                    success=False,
-                    output_data={
-                        "formatted_cv_text": "# Validation Error\n\nInput data validation failed."
-                    },
-                    confidence_score=0.0,
-                    error_message=validation_result.error_message,
-                    metadata={"agent_type": "formatter", "validation_error": True},
+            try:
+                validated_input = validate_agent_input("formatter", input_data)
+                input_data = validated_input.model_dump()
+            except ValidationError as ve:
+                return AgentErrorHandler.handle_validation_error(
+                    ve, "FormatterAgent"
                 )
-            
-            # Convert validated Pydantic model back to dict for processing
-            input_data = validation_result.result.model_dump()
 
             # Process the formatting directly
             content_data = input_data.get("content_data")

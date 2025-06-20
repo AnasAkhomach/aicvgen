@@ -9,12 +9,13 @@ user-friendly error messages.
 
 import functools
 import traceback
-from typing import Any, Callable, Optional, Dict, Union
+from typing import Any, Callable, Optional, Dict
 from contextlib import contextmanager
 import streamlit as st
 from datetime import datetime
 
 from ..config.logging_config import get_logger, log_error_with_context
+from .exceptions import OperationTimeoutError
 
 logger = get_logger(__name__)
 
@@ -157,7 +158,7 @@ def handle_api_errors(func: Callable) -> Callable:
                 "🌐 Connection Error: Unable to connect to the service. Please check your internet connection."
             )
             logger.error(f"Connection error in {func.__name__}: {str(e)}")
-        except TimeoutError as e:
+        except OperationTimeoutError as e:
             st.error("⏱️ Timeout Error: The request took too long. Please try again.")
             logger.error(f"Timeout error in {func.__name__}: {str(e)}")
         except ValueError as e:
@@ -252,7 +253,8 @@ class ErrorRecovery:
 
                 wait_time = backoff_factor * (2**attempt)
                 logger.warning(
-                    f"Attempt {attempt + 1} failed, retrying in {wait_time}s: {str(e)}"
+                    "Attempt %d failed, retrying in %ss: %s",
+                    attempt + 1, wait_time, str(e)
                 )
                 time.sleep(wait_time)
 
@@ -267,7 +269,7 @@ class ErrorRecovery:
             except Exception as e:
                 last_error = e
                 logger.warning(
-                    f"Function {func.__name__} failed, trying next: {str(e)}"
+                    "Function %s failed, trying next: %s", func.__name__, str(e)
                 )
                 continue
 

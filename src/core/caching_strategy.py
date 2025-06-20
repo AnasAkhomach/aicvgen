@@ -766,17 +766,20 @@ def intelligent_cache(
     pattern: CachePattern = CachePattern.MIXED,
 ):
     """Decorator for intelligent caching of function results."""
+    from ..utils.decorators import create_async_sync_decorator
 
-    def decorator(func):
+    def _generate_cache_key(func, args, kwargs):
+        """Generate cache key for function call."""
+        key_data = {"function": func.__name__, "args": args, "kwargs": kwargs}
+        return hashlib.md5(
+            json.dumps(key_data, sort_keys=True, default=str).encode()
+        ).hexdigest()
+
+    def create_async_wrapper(func):
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
             cache_manager = get_intelligent_cache_manager()
-
-            # Generate cache key
-            key_data = {"function": func.__name__, "args": args, "kwargs": kwargs}
-            cache_key = hashlib.md5(
-                json.dumps(key_data, sort_keys=True, default=str).encode()
-            ).hexdigest()
+            cache_key = _generate_cache_key(func, args, kwargs)
 
             # Try cache first
             cached_result = cache_manager.get(cache_key)
@@ -795,18 +798,14 @@ def intelligent_cache(
                 priority=priority,
                 pattern=pattern,
             )
-
             return result
+        return async_wrapper
 
+    def create_sync_wrapper(func):
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
             cache_manager = get_intelligent_cache_manager()
-
-            # Generate cache key
-            key_data = {"function": func.__name__, "args": args, "kwargs": kwargs}
-            cache_key = hashlib.md5(
-                json.dumps(key_data, sort_keys=True, default=str).encode()
-            ).hexdigest()
+            cache_key = _generate_cache_key(func, args, kwargs)
 
             # Try cache first
             cached_result = cache_manager.get(cache_key)
@@ -825,12 +824,7 @@ def intelligent_cache(
                 priority=priority,
                 pattern=pattern,
             )
-
             return result
+        return sync_wrapper
 
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
-
-    return decorator
+    return create_async_sync_decorator(create_async_wrapper, create_sync_wrapper)
