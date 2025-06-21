@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 """Comprehensive tests for EnhancedLLMService.
 
 Tests the retry consolidation implementation, error handling,
@@ -9,7 +14,8 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from google.api_core import exceptions as google_exceptions
 
-from src.services.llm_service import EnhancedLLMService, LLMResponse
+from src.services.llm_service import EnhancedLLMService
+from src.models.data_models import LLMResponse
 from src.utils.exceptions import ConfigurationError, RateLimitError, NetworkError
 
 
@@ -19,7 +25,7 @@ class TestEnhancedLLMServiceRetries:
     @pytest.fixture
     def llm_service(self):
         """Create LLM service instance for testing."""
-        with patch('src.services.llm_service.genai') as mock_genai:
+        with patch("src.services.llm_service.genai") as mock_genai:
             mock_model = Mock()
             mock_genai.GenerativeModel.return_value = mock_model
             service = EnhancedLLMService(user_api_key="test-key")
@@ -33,13 +39,11 @@ class TestEnhancedLLMServiceRetries:
         mock_response = Mock()
         mock_response.text = "Generated content"
         llm_service.llm.generate_content_async = AsyncMock(return_value=mock_response)
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is True
         assert result.content == "Generated content"
         assert llm_service.llm.generate_content_async.call_count == 1
@@ -50,21 +54,19 @@ class TestEnhancedLLMServiceRetries:
         # Mock to fail twice with rate limit, then succeed
         mock_response = Mock()
         mock_response.text = "Generated content"
-        
+
         llm_service.llm.generate_content_async = AsyncMock(
             side_effect=[
                 google_exceptions.ResourceExhausted("Rate limit exceeded"),
                 google_exceptions.ServiceUnavailable("Service temporarily unavailable"),
-                mock_response
+                mock_response,
             ]
         )
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is True
         assert result.content == "Generated content"
         assert llm_service.llm.generate_content_async.call_count == 3
@@ -76,14 +78,12 @@ class TestEnhancedLLMServiceRetries:
         llm_service.llm.generate_content_async = AsyncMock(
             side_effect=ConfigurationError("Invalid API key")
         )
-        
+
         with pytest.raises(ConfigurationError, match="Invalid API key"):
             await llm_service.generate_content(
-                prompt="Test prompt",
-                session_id="test-session",
-                trace_id="test-trace"
+                prompt="Test prompt", session_id="test-session", trace_id="test-trace"
             )
-        
+
         # Should only be called once (no retries)
         assert llm_service.llm.generate_content_async.call_count == 1
 
@@ -94,13 +94,11 @@ class TestEnhancedLLMServiceRetries:
         llm_service.llm.generate_content_async = AsyncMock(
             side_effect=google_exceptions.ResourceExhausted("Rate limit exceeded")
         )
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is False
         assert "Rate limit exceeded" in result.error_message
         # Should be called 5 times (initial + 4 retries)
@@ -111,20 +109,15 @@ class TestEnhancedLLMServiceRetries:
         """Test that timeout errors are retried."""
         mock_response = Mock()
         mock_response.text = "Generated content"
-        
+
         llm_service.llm.generate_content_async = AsyncMock(
-            side_effect=[
-                TimeoutError("Request timeout"),
-                mock_response
-            ]
+            side_effect=[TimeoutError("Request timeout"), mock_response]
         )
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is True
         assert result.content == "Generated content"
         assert llm_service.llm.generate_content_async.call_count == 2
@@ -135,7 +128,7 @@ class TestEnhancedLLMServiceConfiguration:
 
     def test_service_initialization_with_api_key(self):
         """Test successful service initialization with API key."""
-        with patch('src.services.llm_service.genai') as mock_genai:
+        with patch("src.services.llm_service.genai") as mock_genai:
             service = EnhancedLLMService(user_api_key="test-key")
             assert service.api_key == "test-key"
             mock_genai.configure.assert_called_once_with(api_key="test-key")
@@ -157,7 +150,7 @@ class TestEnhancedLLMServiceErrorHandling:
     @pytest.fixture
     def llm_service(self):
         """Create LLM service instance for testing."""
-        with patch('src.services.llm_service.genai') as mock_genai:
+        with patch("src.services.llm_service.genai") as mock_genai:
             mock_model = Mock()
             mock_genai.GenerativeModel.return_value = mock_model
             service = EnhancedLLMService(user_api_key="test-key")
@@ -170,13 +163,11 @@ class TestEnhancedLLMServiceErrorHandling:
         llm_service.llm.generate_content_async = AsyncMock(
             side_effect=NetworkError("Network connection failed")
         )
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is False
         assert "Network connection failed" in result.error_message
 
@@ -186,13 +177,11 @@ class TestEnhancedLLMServiceErrorHandling:
         llm_service.llm.generate_content_async = AsyncMock(
             side_effect=RateLimitError("Rate limit exceeded")
         )
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is False
         assert "Rate limit exceeded" in result.error_message
 
@@ -202,13 +191,11 @@ class TestEnhancedLLMServiceErrorHandling:
         llm_service.llm.generate_content_async = AsyncMock(
             side_effect=ValueError("Unexpected error")
         )
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is False
         assert "Unexpected error" in result.error_message
 
@@ -219,7 +206,7 @@ class TestEnhancedLLMServiceMetrics:
     @pytest.fixture
     def llm_service(self):
         """Create LLM service instance for testing."""
-        with patch('src.services.llm_service.genai') as mock_genai:
+        with patch("src.services.llm_service.genai") as mock_genai:
             mock_model = Mock()
             mock_genai.GenerativeModel.return_value = mock_model
             service = EnhancedLLMService(user_api_key="test-key")
@@ -232,13 +219,11 @@ class TestEnhancedLLMServiceMetrics:
         mock_response = Mock()
         mock_response.text = "Generated content"
         llm_service.llm.generate_content_async = AsyncMock(return_value=mock_response)
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is True
         # Verify metrics are available
         metrics = llm_service.get_metrics()
@@ -251,13 +236,11 @@ class TestEnhancedLLMServiceMetrics:
         llm_service.llm.generate_content_async = AsyncMock(
             side_effect=ValueError("Test error")
         )
-        
+
         result = await llm_service.generate_content(
-            prompt="Test prompt",
-            session_id="test-session",
-            trace_id="test-trace"
+            prompt="Test prompt", session_id="test-session", trace_id="test-trace"
         )
-        
+
         assert result.success is False
         # Verify metrics are available
         metrics = llm_service.get_metrics()

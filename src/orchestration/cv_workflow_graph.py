@@ -90,7 +90,9 @@ async def content_writer_node(state: AgentState) -> Dict[str, Any]:
             state.current_item_id = next_item_id
             state.items_to_process_queue = queue_copy
         else:
-            logger.error("ContentWriter called without current_item_id and no items in queue")
+            logger.error(
+                "ContentWriter called without current_item_id and no items in queue"
+            )
             return {
                 "error_messages": state.error_messages
                 + ["ContentWriter failed: No item ID."]
@@ -105,15 +107,19 @@ async def qa_node(state: AgentState) -> Dict[str, Any]:
     """Perform quality assurance on the generated content."""
     logger.info(f"Executing qa_node for item: {state.current_item_id}")
     result = await qa_agent.run_as_node(state)
-    
+
     # Convert Dict result to QualityCheckResults if needed
-    if isinstance(result.get('quality_check_results'), dict):
+    if isinstance(result.get("quality_check_results"), dict):
         try:
-            result['quality_check_results'] = QualityCheckResults.from_dict(result['quality_check_results'])
+            result["quality_check_results"] = QualityCheckResults.from_dict(
+                result["quality_check_results"]
+            )
         except Exception as e:
-            logger.warning(f"Failed to convert quality check results to Pydantic model: {e}")
-            result['quality_check_results'] = QualityCheckResults.create_failed(str(e))
-    
+            logger.warning(
+                f"Failed to convert quality check results to Pydantic model: {e}"
+            )
+            result["quality_check_results"] = QualityCheckResults.create_failed(str(e))
+
     return result
 
 
@@ -122,15 +128,19 @@ async def research_node(state: AgentState) -> Dict[str, Any]:
     """Conduct research on job description and find relevant CV content."""
     logger.info("Executing research_node")
     result = await research_agent.run_as_node(state)
-    
+
     # Convert Dict result to ResearchFindings if needed
-    if isinstance(result.get('research_findings'), dict):
+    if isinstance(result.get("research_findings"), dict):
         try:
-            result['research_findings'] = ResearchFindings.from_dict(result['research_findings'])
+            result["research_findings"] = ResearchFindings.from_dict(
+                result["research_findings"]
+            )
         except Exception as e:
-            logger.warning(f"Failed to convert research findings to Pydantic model: {e}")
-            result['research_findings'] = ResearchFindings.create_failed(str(e))
-    
+            logger.warning(
+                f"Failed to convert research findings to Pydantic model: {e}"
+            )
+            result["research_findings"] = ResearchFindings.create_failed(str(e))
+
     return result
 
 
@@ -213,9 +223,9 @@ async def formatter_node(state: AgentState) -> Dict[str, Any]:
 async def setup_generation_queue_node(state: AgentState) -> Dict[str, Any]:
     """Setup content generation queue with all items that need processing."""
     logger.info("--- Executing Node: setup_generation_queue_node ---")
-    
+
     content_queue = []
-    
+
     # Collect all items from all sections that need content generation
     for section in state.structured_cv.sections:
         for item in section.items:
@@ -225,53 +235,53 @@ async def setup_generation_queue_node(state: AgentState) -> Dict[str, Any]:
             for subsection in section.subsections:
                 for item in subsection.items:
                     content_queue.append(str(item.id))
-    
-    logger.info(f"Setup content generation queue with {len(content_queue)} items: {content_queue}")
-    
-    return {
-        "content_generation_queue": content_queue
-    }
+
+    logger.info(
+        f"Setup content generation queue with {len(content_queue)} items: {content_queue}"
+    )
+
+    return {"content_generation_queue": content_queue}
 
 
 @validate_node_output
 async def pop_next_item_node(state: AgentState) -> Dict[str, Any]:
     """Pop the next item from content generation queue and set as current."""
     logger.info("--- Executing Node: pop_next_item_node ---")
-    
+
     if not state.content_generation_queue:
         logger.warning("Content generation queue is empty")
         return {}
-    
+
     # Pop the next item from the queue
     queue_copy = state.content_generation_queue.copy()
     next_item_id = queue_copy.pop(0)
-    
-    logger.info(f"Popped item {next_item_id} from content generation queue. Remaining: {len(queue_copy)}")
-    
-    return {
-        "current_item_id": next_item_id,
-        "content_generation_queue": queue_copy
-    }
+
+    logger.info(
+        f"Popped item {next_item_id} from content generation queue. Remaining: {len(queue_copy)}"
+    )
+
+    return {"current_item_id": next_item_id, "content_generation_queue": queue_copy}
 
 
 @validate_node_output
 async def prepare_regeneration_node(state: AgentState) -> Dict[str, Any]:
     """Prepare single-item regeneration based on user feedback."""
     logger.info("--- Executing Node: prepare_regeneration_node ---")
-    
+
     if not state.user_feedback or not state.user_feedback.item_id:
         logger.error("No user feedback or item_id for regeneration")
         return {
-            "error_messages": state.error_messages + ["No item specified for regeneration"]
+            "error_messages": state.error_messages
+            + ["No item specified for regeneration"]
         }
-    
+
     item_id = str(state.user_feedback.item_id)
     logger.info(f"Preparing regeneration for item: {item_id}")
-    
+
     return {
         "content_generation_queue": [item_id],
         "current_item_id": None,  # Will be set by pop_next_item_node
-        "is_initial_generation": False
+        "is_initial_generation": False,
     }
 
 
@@ -354,26 +364,28 @@ async def error_handler_node(state: AgentState) -> Dict[str, Any]:
 
 
 def should_continue_generation(state: Dict[str, Any]) -> str:
-    """Router function to determine if content generation loop should continue."""
+    """Router function to determine if content generation loop should continue. Validates state."""
     agent_state = AgentState.model_validate(state)
-    
+
     # Check for errors first
     if agent_state.error_messages:
         logger.warning("Errors detected in state, routing to error handler")
         return "error"
-    
+
     # Check if there are more items in the content generation queue
     if agent_state.content_generation_queue:
-        logger.info(f"Content generation queue has {len(agent_state.content_generation_queue)} items remaining, continuing loop")
+        logger.info(
+            f"Content generation queue has {len(agent_state.content_generation_queue)} items remaining, continuing loop"
+        )
         return "continue"
-    
+
     # No more items to process
     logger.info("Content generation queue is empty, completing workflow")
     return "complete"
 
 
 async def route_after_qa(state: Dict[str, Any]) -> str:
-    """Route after QA based on user feedback and workflow state."""
+    """Route after QA based on user feedback and workflow state. Validates state."""
     agent_state = AgentState.model_validate(state)
 
     # Priority 1: Check for errors first

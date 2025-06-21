@@ -11,7 +11,12 @@ from typing import Any, Dict, Optional, TYPE_CHECKING, Union, List
 from ..config.logging_config import get_structured_logger
 from ..core.async_optimizer import optimize_async
 from ..core.state_manager import AgentIO
-from ..models.data_models import AgentExecutionLog, AgentDecisionLog, JobDescriptionData, StructuredCV
+from ..models.data_models import (
+    AgentExecutionLog,
+    AgentDecisionLog,
+    JobDescriptionData,
+    StructuredCV,
+)
 from ..models.data_models import ContentType
 from ..models.validation_schemas import validate_agent_input, ValidationError
 from ..services.error_recovery import get_error_recovery_service
@@ -19,13 +24,20 @@ from ..services.llm_service import get_llm_service
 from ..services.progress_tracker import get_progress_tracker
 from ..services.session_manager import get_session_manager
 from ..utils.agent_error_handling import (
-    LLMErrorHandler, with_error_handling, AgentErrorHandler, with_node_error_handling
+    LLMErrorHandler,
+    with_error_handling,
+    AgentErrorHandler,
+    with_node_error_handling,
 )
 from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
 from ..utils.exceptions import (
-    LLMResponseParsingError, WorkflowPreconditionError, 
-    AgentExecutionError, ConfigurationError, StateManagerError
+    LLMResponseParsingError,
+    WorkflowPreconditionError,
+    AgentExecutionError,
+    ConfigurationError,
+    StateManagerError,
 )
+
 # Removed duplicate import - already imported from config.logging_config
 
 if TYPE_CHECKING:
@@ -142,8 +154,10 @@ class EnhancedAgentBase(ABC):
         start_log = AgentExecutionLog(
             timestamp=start_time.isoformat(),
             agent_name=self.name,
-            session_id=context.session_id,
-            item_id=context.item_id,
+            session_id=(
+                getattr(context, "trace_id", "unknown") if context else "unknown"
+            ),
+            item_id=getattr(context, "current_item_id", None) if context else None,
             content_type=context.content_type.value if context.content_type else None,
             execution_phase="start",
             retry_count=context.retry_count,
@@ -328,18 +342,20 @@ class EnhancedAgentBase(ABC):
         decision_log = AgentDecisionLog(
             timestamp=datetime.now().isoformat(),
             agent_name=self.name,
-            session_id=context.session_id if context else "unknown",
-            item_id=context.item_id if context else None,
+            session_id=(
+                getattr(context, "trace_id", "unknown") if context else "unknown"
+            ),
+            item_id=getattr(context, "current_item_id", None) if context else None,
             decision_type=decision_type,
             decision_details=message,
             confidence_score=confidence_score,
             metadata={
                 "content_type": (
-                    context.content_type.value
-                    if context and context.content_type
+                    getattr(context, "content_type", None).value
+                    if context and getattr(context, "content_type", None) is not None
                     else None
                 ),
-                "retry_count": context.retry_count if context else 0,
+                "retry_count": getattr(context, "retry_count", 0) if context else 0,
                 "execution_count": self.execution_count,
                 "success_rate": self.success_count / max(self.execution_count, 1),
             },
@@ -423,7 +439,7 @@ class EnhancedAgentBase(ABC):
         """
         Generates content from the LLM and robustly parses the JSON output.
         Handles common LLM response formats like markdown code blocks.
-        
+
         This method consolidates the common pattern of:
         1. Sending a prompt to an LLM
         2. Receiving a response
@@ -443,12 +459,12 @@ class EnhancedAgentBase(ABC):
         """
         # Use the agent's LLM service if available, otherwise get default
         try:
-            llm_service = getattr(self, 'llm', None) or get_llm_service()
+            llm_service = getattr(self, "llm", None) or get_llm_service()
         except Exception as e:
             self.logger.error(
                 f"Failed to get LLM service for agent {self.name}",
                 error=str(e),
-                error_type=type(e).__name__
+                error_type=type(e).__name__,
             )
             raise ValueError(f"LLM service unavailable: {str(e)}") from e
 
@@ -472,11 +488,14 @@ class EnhancedAgentBase(ABC):
 
         # Check if LLMResponse indicates failure
         if not llm_response.success:
-            from ..utils.exceptions import AgentError  # pylint: disable=import-outside-toplevel
+            from ..utils.exceptions import (
+                AgentError,
+            )  # pylint: disable=import-outside-toplevel
+
             raise AgentError(f"LLM generation failed: {llm_response.error_message}")
 
         raw_text = llm_response.content
-        
+
         # Check for empty or invalid content
         if not raw_text or raw_text.strip() == "":
             self.logger.error(
@@ -491,8 +510,8 @@ class EnhancedAgentBase(ABC):
             json_str = json_match.group(1)
         else:
             # Fallback for raw JSON or JSON embedded in text
-            start_index = raw_text.find('{')
-            end_index = raw_text.rfind('}') + 1
+            start_index = raw_text.find("{")
+            end_index = raw_text.rfind("}") + 1
             if start_index == -1 or end_index == 0:
                 raise ValueError("No valid JSON object found in the LLM response.")
             json_str = raw_text[start_index:end_index]

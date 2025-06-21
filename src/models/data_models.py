@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 
 class ItemStatus(str, Enum):
     """Enumeration for the status of a content item."""
+
     INITIAL = "initial"
     GENERATED = "generated"
     USER_MODIFIED = "user_modified"
@@ -28,6 +29,7 @@ class ItemStatus(str, Enum):
 
 class ProcessingStatus(str, Enum):
     """Enumeration for processing status - backward compatibility alias for ItemStatus."""
+
     INITIAL = "initial"
     GENERATED = "generated"
     USER_MODIFIED = "user_modified"
@@ -48,6 +50,7 @@ class ProcessingStatus(str, Enum):
 
 class ItemType(str, Enum):
     """Enumeration for the type of a content item."""
+
     BULLET_POINT = "bullet_point"
     KEY_QUALIFICATION = "key_qualification"
     EXECUTIVE_SUMMARY_PARA = "executive_summary_para"
@@ -61,6 +64,7 @@ class ItemType(str, Enum):
 
 class WorkflowStage(str, Enum):
     """Enumeration for workflow stages."""
+
     INITIALIZATION = "initialization"
     CV_PARSING = "cv_parsing"
     JOB_ANALYSIS = "job_analysis"
@@ -72,6 +76,7 @@ class WorkflowStage(str, Enum):
 
 class ContentType(str, Enum):
     """Enumeration for content types."""
+
     QUALIFICATION = "qualification"
     EXPERIENCE = "experience"
     EXPERIENCE_ITEM = "experience_item"
@@ -94,12 +99,14 @@ class ContentType(str, Enum):
 
 class UserAction(str, Enum):
     """Enumeration for user actions in the UI."""
+
     ACCEPT = "accept"
     REGENERATE = "regenerate"
 
 
 class UserFeedback(BaseModel):
     """User feedback for item review."""
+
     action: UserAction
     item_id: str
     feedback_text: Optional[str] = None
@@ -109,6 +116,7 @@ class UserFeedback(BaseModel):
 
 class WorkflowType(Enum):
     """Types of predefined workflows."""
+
     BASIC_CV_GENERATION = "basic_cv_generation"
     JOB_TAILORED_CV = "job_tailored_cv"
     CV_OPTIMIZATION = "cv_optimization"
@@ -119,28 +127,44 @@ class WorkflowType(Enum):
     INDUSTRY_SPECIFIC = "industry_specific"
 
 
+class MetadataModel(BaseModel):
+    # Extend this model as needed for common metadata fields
+    company: Optional[str] = None
+    position: Optional[str] = None
+    location: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    # Add more fields as required by the application
+    extra: Optional[dict] = Field(default_factory=dict)
+
+
 class Item(BaseModel):
     """A granular piece of content within the CV (e.g., a bullet point)."""
+
     id: UUID = Field(default_factory=uuid4)
     content: str
     status: ItemStatus = ItemStatus.INITIAL
     item_type: ItemType = ItemType.BULLET_POINT
-    raw_llm_output: Optional[str] = Field(default=None, description="Raw LLM output for this item for transparency and debugging")  # REQ-FUNC-UI-6
+    raw_llm_output: Optional[str] = Field(
+        default=None,
+        description="Raw LLM output for this item for transparency and debugging",
+    )  # REQ-FUNC-UI-6
     confidence_score: Optional[float] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
     user_feedback: Optional[str] = None
 
 
 # Content Item Classes for Processing
 class ContentItem(BaseModel):
     """Base class for content items that can be processed."""
+
     id: UUID = Field(default_factory=uuid4)
     content_type: str
     original_content: str
     generated_content: Optional[str] = None
     status: ItemStatus = ItemStatus.INITIAL
     priority: int = 0
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -152,6 +176,7 @@ class ContentItem(BaseModel):
 
 class QualificationItem(ContentItem):
     """Represents a key qualification item for processing."""
+
     content_type: str = Field(default="qualification")
     skill_category: Optional[str] = None
     relevance_score: Optional[float] = None
@@ -159,6 +184,7 @@ class QualificationItem(ContentItem):
 
 class ExperienceItem(ContentItem):
     """Represents a work experience item for processing."""
+
     content_type: str = Field(default="experience_item")
     company: str = ""
     position: str = ""
@@ -170,6 +196,7 @@ class ExperienceItem(ContentItem):
 
 class ProjectItem(ContentItem):
     """Represents a project item for processing."""
+
     content_type: str = Field(default="project_item")
     name: str = ""
     description: str = ""
@@ -180,14 +207,18 @@ class ProjectItem(ContentItem):
 
 class Subsection(BaseModel):
     """A subsection within a section (e.g., a specific job role)."""
+
     id: UUID = Field(default_factory=uuid4)
     name: str  # e.g., "Senior Software Engineer @ TechCorp Inc."
     items: List[Item] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)  # e.g., dates, company, location
+    metadata: MetadataModel = Field(
+        default_factory=MetadataModel
+    )  # e.g., dates, company, location
 
 
 class Section(BaseModel):
     """A major section of the CV (e.g., "Professional Experience")."""
+
     id: UUID = Field(default_factory=uuid4)
     name: str
     content_type: str = "DYNAMIC"  # DYNAMIC or STATIC
@@ -199,15 +230,24 @@ class Section(BaseModel):
 
 class StructuredCV(BaseModel):
     """The main data model representing the entire CV structure."""
+
     id: UUID = Field(default_factory=uuid4)
     sections: List[Section] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
 
     # New fields for "Big 10" Skills (Task 3.2)
-    big_10_skills: List[str] = Field(default_factory=list, description="Top 10 most relevant skills extracted from CV and job description")
-    big_10_skills_raw_output: Optional[str] = Field(default=None, description="Raw LLM output for Big 10 skills generation for transparency")
+    big_10_skills: List[str] = Field(
+        default_factory=list,
+        description="Top 10 most relevant skills extracted from CV and job description",
+    )
+    big_10_skills_raw_output: Optional[str] = Field(
+        default=None,
+        description="Raw LLM output for Big 10 skills generation for transparency",
+    )
 
-    def find_item_by_id(self, item_id: str) -> tuple[Optional[Item], Optional[Section], Optional[Subsection]]:
+    def find_item_by_id(
+        self, item_id: str
+    ) -> tuple[Optional[Item], Optional[Section], Optional[Subsection]]:
         """Find an item by its ID and return the item along with its parent section and subsection.
 
         Returns:
@@ -278,18 +318,24 @@ class StructuredCV(BaseModel):
             "professional_experience": [],
             "key_qualifications": [],
             "projects": [],
-            "education": []
+            "education": [],
         }
 
         for section in self.sections:
             section_name = section.name.lower().replace(" ", "_")
 
             if "executive" in section_name or "summary" in section_name:
-                content_data["executive_summary"] = [item.content for item in section.items]
+                content_data["executive_summary"] = [
+                    item.content for item in section.items
+                ]
             elif "experience" in section_name or "employment" in section_name:
-                content_data["professional_experience"] = [item.content for item in section.items]
+                content_data["professional_experience"] = [
+                    item.content for item in section.items
+                ]
             elif "qualification" in section_name or "skill" in section_name:
-                content_data["key_qualifications"] = [item.content for item in section.items]
+                content_data["key_qualifications"] = [
+                    item.content for item in section.items
+                ]
             elif "project" in section_name:
                 content_data["projects"] = [item.content for item in section.items]
             elif "education" in section_name:
@@ -317,7 +363,7 @@ class StructuredCV(BaseModel):
                 "professional_experience": "Professional Experience",
                 "key_qualifications": "Key Qualifications",
                 "projects": "Projects",
-                "education": "Education"
+                "education": "Education",
             }
 
             for content_key, section_name in section_mappings.items():
@@ -328,7 +374,7 @@ class StructuredCV(BaseModel):
                             Item(content=content, status=ItemStatus.INITIAL)
                             for content in content_data[content_key]
                             if content  # Skip empty content
-                        ]
+                        ],
                     )
                     if section.items:  # Only add section if it has items
                         self.sections.append(section)  # pylint: disable=no-member
@@ -340,6 +386,7 @@ class StructuredCV(BaseModel):
 
 class JobDescriptionData(BaseModel):
     """A structured representation of a parsed job description."""
+
     raw_text: str
     job_title: Optional[str] = None
     company_name: Optional[str] = None
@@ -352,13 +399,10 @@ class JobDescriptionData(BaseModel):
     error: Optional[str] = None
 
 
-
-
-
-
 # Missing models that are imported by state_manager.py
 class ContentData(BaseModel):
     """Data model for CV content used in template rendering and state management."""
+
     summary: Optional[str] = None
     experience_bullets: Optional[List[str]] = Field(default_factory=list)
     skills_section: Optional[str] = None
@@ -376,6 +420,7 @@ class ContentData(BaseModel):
 
 class CVData(BaseModel):
     """Data model for CV data used in analysis and processing."""
+
     raw_text: str
     parsed_sections: Dict[str, Any] = Field(default_factory=dict)
     skills: List[str] = Field(default_factory=list)
@@ -387,16 +432,18 @@ class CVData(BaseModel):
 
 class SkillEntry(BaseModel):
     """Data model for individual skill entries."""
+
     name: str
     category: Optional[str] = None
     proficiency_level: Optional[str] = None
     years_experience: Optional[int] = None
     is_primary: bool = False
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
 
 
 class ExperienceEntry(BaseModel):
     """Data model for individual experience entries."""
+
     company: str
     position: str
     duration: str
@@ -405,23 +452,26 @@ class ExperienceEntry(BaseModel):
     responsibilities: List[str] = Field(default_factory=list)
     achievements: List[str] = Field(default_factory=list)
     technologies: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
 
 
 class WorkflowState(BaseModel):
     """Data model for tracking workflow state."""
+
     current_stage: WorkflowStage = WorkflowStage.INITIALIZATION
     completed_stages: List[WorkflowStage] = Field(default_factory=list)
     failed_stages: List[WorkflowStage] = Field(default_factory=list)
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
 
     def advance_to_stage(self, stage: WorkflowStage):
         """Advance workflow to a new stage."""
         if self.current_stage not in self.completed_stages:
-            self.completed_stages.append(self.current_stage)  # pylint: disable=no-member
+            self.completed_stages.append(
+                self.current_stage
+            )  # pylint: disable=no-member
         self.current_stage = stage
         self.updated_at = datetime.now()
 
@@ -434,16 +484,18 @@ class WorkflowState(BaseModel):
 
 class AgentIO(BaseModel):
     """Data model for agent input/output schema definition."""
+
     description: str
     required_fields: List[str] = Field(default_factory=list)
     optional_fields: List[str] = Field(default_factory=list)
     input: Optional[Dict[str, Any]] = Field(default_factory=dict)
     output: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
 
 
 class VectorStoreConfig(BaseModel):
     """Configuration for vector store database."""
+
     collection_name: str = "cv_content"
     persist_directory: str = "data/vector_store"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -451,12 +503,10 @@ class VectorStoreConfig(BaseModel):
     index_type: str = "IndexFlatL2"
 
 
-
-
-
 # Temporary model for CV parsing LLM output
 class CVParsingPersonalInfo(BaseModel):
     """Personal information extracted from CV parsing."""
+
     name: str
     email: str
     phone: str
@@ -467,12 +517,14 @@ class CVParsingPersonalInfo(BaseModel):
 
 class CVParsingSubsection(BaseModel):
     """Subsection structure for CV parsing output."""
+
     name: str
     items: List[str] = Field(default_factory=list)
 
 
 class CVParsingSection(BaseModel):
     """Section structure for CV parsing output."""
+
     name: str
     items: List[str] = Field(default_factory=list)
     subsections: List[CVParsingSubsection] = Field(default_factory=list)
@@ -480,6 +532,7 @@ class CVParsingSection(BaseModel):
 
 class CVParsingResult(BaseModel):
     """Complete CV parsing result from LLM."""
+
     personal_info: CVParsingPersonalInfo
     sections: List[CVParsingSection]
 
@@ -487,6 +540,7 @@ class CVParsingResult(BaseModel):
 # API Model backward compatibility aliases
 class PersonalInfo(BaseModel):
     """Personal information model."""
+
     name: str
     email: str
     phone: Optional[str] = None
@@ -495,8 +549,10 @@ class PersonalInfo(BaseModel):
     website: Optional[str] = None
     summary: Optional[str] = None
 
+
 class Experience(BaseModel):
     """Work experience model."""
+
     title: str
     company: str
     location: Optional[str] = None
@@ -507,8 +563,10 @@ class Experience(BaseModel):
     achievements: Optional[List[str]] = None
     technologies: Optional[List[str]] = None
 
+
 class Education(BaseModel):
     """Education model."""
+
     degree: str
     institution: str
     location: Optional[str] = None
@@ -517,8 +575,10 @@ class Education(BaseModel):
     honors: Optional[List[str]] = None
     relevant_coursework: Optional[List[str]] = None
 
+
 class Project(BaseModel):
     """Project model."""
+
     name: str
     description: str
     technologies: Optional[List[str]] = None
@@ -527,15 +587,19 @@ class Project(BaseModel):
     end_date: Optional[str] = None
     achievements: Optional[List[str]] = None
 
+
 class Skill(BaseModel):
     """Skill model."""
+
     name: str
     level: Optional[str] = None
     category: Optional[str] = None
     years_experience: Optional[int] = None
 
+
 class Certification(BaseModel):
     """Certification model."""
+
     name: str
     issuer: str
     date_obtained: Optional[str] = None
@@ -543,8 +607,10 @@ class Certification(BaseModel):
     credential_id: Optional[str] = None
     url: Optional[str] = None
 
+
 class Language(BaseModel):
     """Language model."""
+
     name: str
     proficiency: Optional[str] = None
     native: bool = False
@@ -553,6 +619,7 @@ class Language(BaseModel):
 @dataclass
 class RateLimitState:
     """State tracking for rate limiting per model."""
+
     model: str
     requests_made: int = 0
     requests_limit: int = 60
@@ -563,17 +630,17 @@ class RateLimitState:
     last_request_time: Optional[datetime] = None
     backoff_until: Optional[datetime] = None
     consecutive_failures: int = 0
-    
+
     @property
     def requests_per_minute(self) -> int:
         """Alias for requests_made for backward compatibility."""
         return self.requests_made
-    
+
     @property
     def tokens_per_minute(self) -> int:
         """Alias for tokens_made for backward compatibility."""
         return self.tokens_made
-    
+
     def __post_init__(self):
         """Initialize default values after dataclass creation."""
         if self.window_start is None:
@@ -614,14 +681,14 @@ class RateLimitState:
         """Record a request failure."""
         self.consecutive_failures += 1
         # Exponential backoff
-        backoff_seconds = min(300, 2 ** self.consecutive_failures)  # Max 5 minutes
+        backoff_seconds = min(300, 2**self.consecutive_failures)  # Max 5 minutes
         self.backoff_until = datetime.now() + timedelta(seconds=backoff_seconds)
 
     def record_success(self):
         """Record a successful request."""
         self.consecutive_failures = 0
         self.backoff_until = None
-    
+
     def can_make_request(self, estimated_tokens: int = 0) -> bool:
         """Check if a request can be made given current rate limits."""
         if self.is_rate_limited():
@@ -633,6 +700,7 @@ class RateLimitState:
 @dataclass
 class AgentExecutionLog:
     """Structured log entry for agent execution tracking."""
+
     timestamp: str
     agent_name: str
     session_id: str
@@ -651,6 +719,7 @@ class AgentExecutionLog:
 @dataclass
 class AgentDecisionLog:
     """Structured log entry for agent decision tracking."""
+
     timestamp: str
     agent_name: str
     session_id: str
@@ -664,6 +733,7 @@ class AgentDecisionLog:
 @dataclass
 class AgentPerformanceLog:
     """Structured log entry for agent performance metrics."""
+
     timestamp: str
     agent_name: str
     session_id: str
@@ -671,3 +741,15 @@ class AgentPerformanceLog:
     metric_value: float
     time_window: str  # 'session', 'hour', 'day'
     metadata: Optional[Dict[str, Any]] = None
+
+
+class LLMResponse(BaseModel):
+    """Structured response from LLM calls."""
+
+    content: str
+    tokens_used: int = 0
+    processing_time: float = 0.0
+    model_used: str = ""
+    success: bool = True
+    error_message: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)

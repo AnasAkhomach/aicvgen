@@ -1,21 +1,17 @@
-from typing import Dict, Any, Optional
-from jinja2 import Environment, FileSystemLoader
+from typing import Any, Optional, Dict
 from pathlib import Path
 
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..models.data_models import AgentIO, ContentData
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
-from ..config.settings import get_config
 from ..config.logging_config import get_structured_logger
 from ..services.llm_service import get_llm_service
-from ..utils.latex_utils import recursively_escape_latex
 from ..utils.agent_error_handling import (
     AgentErrorHandler,
-    LLMErrorHandler,
-    with_error_handling,
-    with_node_error_handling
+    with_node_error_handling,
 )
+from ..models.formatter_agent_models import FormatterAgentNodeResult
 
 try:
     from weasyprint import HTML, CSS
@@ -64,22 +60,26 @@ class FormatterAgent(EnhancedAgentBase):
     @optimize_async("agent_execution", "formatter")
     @with_node_error_handling
     async def run_as_node(
-        self, state: AgentState, config: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, state: AgentState, config: Optional[dict] = None
+    ) -> FormatterAgentNodeResult:
         """Run the formatter agent as a node in the workflow."""
         self.logger.info("Starting CV formatting")
+        try:
+            # Execute the main run method
+            result = await self.run(state)
 
-        # Execute the main run method
-        result = await self.run(state)
-
-        # Return the final output path as expected by AgentState
-        if isinstance(result, dict) and result.get("final_output_path"):
-            self.logger.info("CV formatting completed")
-            return {"final_output_path": result["final_output_path"]}
-        else:
-            # If no output path, return empty dict
-            self.logger.warning("No final output path generated")
-            return {}
+            # Return the final output path as expected by AgentState
+            if isinstance(result, dict) and result.get("final_output_path"):
+                self.logger.info("CV formatting completed")
+                return FormatterAgentNodeResult(
+                    final_output_path=result["final_output_path"]
+                )
+            else:
+                # If no output path, return empty result
+                return FormatterAgentNodeResult()
+        except Exception as e:
+            self.logger.error(f"FormatterAgent error: {e}")
+            return FormatterAgentNodeResult(error_messages=[str(e)])
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
@@ -94,9 +94,7 @@ class FormatterAgent(EnhancedAgentBase):
                 validated_input = validate_agent_input("formatter", input_data)
                 input_data = validated_input.model_dump()
             except ValidationError as ve:
-                return AgentErrorHandler.handle_validation_error(
-                    ve, "FormatterAgent"
-                )
+                return AgentErrorHandler.handle_validation_error(ve, "FormatterAgent")
 
             # Process the formatting directly
             content_data = input_data.get("content_data")
@@ -128,21 +126,13 @@ class FormatterAgent(EnhancedAgentBase):
             )
 
         except Exception as e:
-            error_result = AgentErrorHandler.handle_agent_error(
-                e, "FormatterAgent", context
-            )
-            return AgentResult(
-                success=False,
-                output_data={
-                    "formatted_cv_text": "# Error formatting CV\n\nAn error occurred during formatting."
-                },
-                confidence_score=0.0,
-                error_message=error_result.error_message,
-                metadata={"agent_type": "formatter"},
+            # Correct contract: return error dict from handle_node_error
+            return AgentErrorHandler.handle_node_error(
+                e, "FormatterAgent", context="run_async"
             )
 
     async def format_content(
-        self, content_data: ContentData, specifications: Optional[Dict[str, Any]] = None
+        self, content_data: ContentData, specifications: Optional[dict] = None
     ) -> str:
         """
         Formats the content data according to the specifications using LLM for intelligent formatting.
@@ -165,7 +155,7 @@ class FormatterAgent(EnhancedAgentBase):
             return self._format_with_template(content_data, specifications)
 
     async def _format_with_llm(
-        self, content_data: ContentData, specifications: Dict[str, Any]
+        self, content_data: ContentData, specifications: dict
     ) -> str:
         """
         Use LLM to intelligently format the CV content.
@@ -280,7 +270,7 @@ Format this into a professional CV in markdown format:
         return "\n\n".join(content_parts)
 
     def _format_with_template(
-        self, content_data: ContentData, _specifications: Dict[str, Any]
+        self, content_data: ContentData, _specifications: Optional[dict] = None
     ) -> str:
         """
         Fallback template-based formatting.
@@ -626,7 +616,7 @@ Format this into a professional CV in markdown format:
 
         return formatted_text
 
-    async def run(self, state_or_content: Any) -> Dict[str, Any]:
+    async def run(self, state_or_content: Any) -> dict:
         """
         Main run method for the formatter agent.
 
@@ -983,7 +973,7 @@ p {
         sanitized = re.sub(r'[<>:"/\\|?*]', "_", filename)
         return sanitized
 
-    def get_confidence_score(self, output_data: Dict[str, Any]) -> float:
+    def get_confidence_score(self, output_data: dict) -> float:
         """Calculate confidence score based on output quality."""
         # Simple confidence calculation based on output availability
         score = 0.3  # Base score

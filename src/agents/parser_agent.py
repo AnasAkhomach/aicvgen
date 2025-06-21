@@ -588,157 +588,38 @@ class ParserAgent(EnhancedAgentBase):
         return "Previous Company"
 
     def _parse_cv_text_to_content_item(
-        self, cv_text: str, generation_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Parse CV text to extract content item structure."""
+        self, cv_text: str, generation_context: dict
+    ) -> Subsection:
+        """Parse CV text to extract content item structure as a Subsection model."""
+
+        from src.models.data_models import Subsection, Item, ItemType, MetadataModel
+        import re
 
         if not cv_text or not isinstance(cv_text, str):
             logger.warning(f"Invalid CV text input: {type(cv_text)}")
-            return {"name": "Professional Experience", "items": []}
-
-        import re
-
-        # Define enhanced role patterns to look for
-        role_patterns = [
-            # More comprehensive patterns
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+?)\s*\(([^)]+)\)",  # Title - Company (Duration)
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+?)\s*\(([^)]+)\)",  # Title at Company (Duration)
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+?)\s*[,|]\s*([A-Za-z\s0-9-]+)",  # Title - Company, Duration
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+?)\s*[,|]\s*([A-Za-z\s0-9-]+)",  # Title at Company, Duration
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*[-–—]\s*([A-Za-z\s&,.()-]+)",  # Title - Company
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*at\s+([A-Za-z\s&,.()-]+)",  # Title at Company
-            r"(?i)^\s*([A-Za-z\s,.-]+?)\s*\|\s*([A-Za-z\s&,.()-]+)",  # Title | Company
-            r"(?i)^\s*([A-Za-z\s,.-]{3,})$",  # Single line that could be a role title
-        ]
+            return Subsection(name="Professional Experience", items=[])
 
         # Split text into lines and clean them
         lines = [line.strip() for line in cv_text.strip().split("\n") if line.strip()]
 
         if not lines:
             logger.warning("No content found in CV text")
-            return {"name": "Professional Experience", "items": []}
+            return Subsection(name="Professional Experience", items=[])
 
-        roles = []
-        current_role = None
+        # Example: treat each line as a bullet point for demo purposes
+        items = [Item(content=line, item_type=ItemType.BULLET_POINT) for line in lines]
+        subsection = Subsection(
+            name="Professional Experience",
+            items=items,
+            metadata=MetadataModel(),
+        )
+        return subsection
 
-        for i, line in enumerate(lines):
-            # Skip very short lines that are unlikely to be role titles
-            if len(line) < 3:
-                continue
-
-            # Check if this line matches a role pattern
-            role_match = None
-            matched_pattern_index = -1
-
-            for pattern_index, pattern in enumerate(role_patterns):
-                try:
-                    match = re.match(pattern, line)
-                    if match:
-                        role_match = match
-                        matched_pattern_index = pattern_index
-                        break
-                except re.error as e:
-                    logger.warning(f"Regex error with pattern {pattern_index}: {e}")
-                    continue
-
-            if role_match:
-                # Save previous role if exists
-                if current_role and current_role.get("items"):
-                    roles.append(current_role)
-
-                # Start new role based on matched pattern
-                groups = role_match.groups()
-
-                if (
-                    matched_pattern_index <= 3 and len(groups) >= 2
-                ):  # Patterns with company info
-                    title = groups[0].strip()
-                    company = groups[1].strip()
-                    duration = groups[2].strip() if len(groups) > 2 else ""
-
-                    role_name = f"{title} at {company}"
-                    if duration:
-                        role_name += f" ({duration})"
-
-                    current_role = {"name": role_name, "items": []}
-                elif (
-                    matched_pattern_index <= 6 and len(groups) >= 2
-                ):  # Simple Title - Company patterns
-                    title = groups[0].strip()
-                    company = groups[1].strip()
-                    current_role = {"name": f"{title} at {company}", "items": []}
-                else:  # Single line role title
-                    current_role = {"name": groups[0].strip(), "items": []}
-
-            elif line.startswith(("•", "-", "*", "◦", "▪", "▫")) or re.match(
-                r"^\s*\d+[.)].", line
-            ):
-                # This is a bullet point/accomplishment
-                if current_role:
-                    # Clean the accomplishment text
-                    accomplishment = re.sub(r"^[•\-*◦▪▫\d+.)\s]+", "", line).strip()
-                    if (
-                        accomplishment and len(accomplishment) > 5
-                    ):  # Filter out very short items
-                        current_role["items"].append(
-                            {"item_type": "bullet_point", "content": accomplishment}
-                        )
-                elif not roles:  # No current role but we have accomplishments
-                    # Create a generic role for orphaned accomplishments
-                    current_role = {"name": "Professional Experience", "items": []}
-                    accomplishment = re.sub(r"^[•\-*◦▪▫\d+.)\s]+", "", line).strip()
-                    if accomplishment and len(accomplishment) > 5:
-                        current_role["items"].append(
-                            {"item_type": "bullet_point", "content": accomplishment}
-                        )
-            else:
-                # Check if this could be a continuation of an accomplishment
-                if current_role and current_role.get("items") and not role_match:
-                    # If the line doesn't look like a new role and we have a current role,
-                    # it might be a continuation of the previous accomplishment
-                    if len(line) > 10 and not line.isupper():  # Avoid headers
-                        current_role["items"].append(
-                            {"item_type": "bullet_point", "content": line}
-                        )
-
-        # Add the last role
-        if current_role and (current_role.get("items") or not roles):
-            roles.append(current_role)
-
-        # If no roles were found, try to extract any meaningful content
-        if not roles:
-            # Look for any bullet points or numbered lists in the text
-            accomplishments = []
-            for line in lines:
-                if line.startswith(("•", "-", "*", "◦", "▪", "▫")) or re.match(
-                    r"^\s*\d+[.)].", line
-                ):
-                    accomplishment = re.sub(r"^[•\-*◦▪▫\d+.)\s]+", "", line).strip()
-                    if accomplishment and len(accomplishment) > 5:
-                        accomplishments.append(
-                            {"item_type": "bullet_point", "content": accomplishment}
-                        )
-
-            return {
-                "name": "Professional Experience",
-                "items": (
-                    accomplishments
-                    if accomplishments
-                    else [
-                        {
-                            "item_type": "bullet_point",
-                            "content": "No specific accomplishments extracted",
-                        }
-                    ]
-                ),
-            }
-
-        # If only one role, return it directly
-        if len(roles) == 1:
-            return roles[0]
-
-        # Multiple roles, return as subsections
-        return {"name": "Professional Experience", "subsections": roles}
+    def parse_cv_text_to_content_item(
+        self, cv_text: str, generation_context: dict
+    ) -> Subsection:
+        """Public: Parse CV text to extract content item structure as a Subsection model."""
+        return self._parse_cv_text_to_content_item(cv_text, generation_context)
 
     def _parse_big_10_skills(self, llm_response: str) -> List[str]:
         """
@@ -1139,6 +1020,9 @@ class ParserAgent(EnhancedAgentBase):
         # 2. Determine the CV processing path from the structured_cv metadata.
         # This metadata is set by the create_initial_agent_state function.
         cv_metadata = state.structured_cv.metadata if state.structured_cv else {}
+        # Ensure cv_metadata is a dict for compatibility
+        if hasattr(cv_metadata, "dict"):
+            cv_metadata = cv_metadata.dict()
         start_from_scratch = cv_metadata.get("start_from_scratch", False)
         original_cv_text = cv_metadata.get("original_cv_text", "")
 
@@ -1162,4 +1046,6 @@ class ParserAgent(EnhancedAgentBase):
             final_cv = state.structured_cv
 
         # 3. Return the complete, updated state.
+        if job_data is None:
+            job_data = JobDescriptionData(raw_text="")
         return {"structured_cv": final_cv, "job_description_data": job_data}

@@ -9,30 +9,28 @@ from .parser_agent import ParserAgent
 from ..services.llm_service import get_llm_service, LLMResponse
 from ..models.data_models import (
     ContentType,
-    ProcessingStatus,
     JobDescriptionData,
     StructuredCV,
     Section,
     Subsection,
     Item,
-    ExperienceEntry,
-    CVData,
     ItemStatus,
-    ItemType,
 )
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
-from ..core.state_manager import ContentData, AgentIO
+from ..core.state_manager import AgentIO
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
 from ..models.validation_schemas import validate_agent_input
 from ..utils.exceptions import (
     ValidationError,
-    LLMResponseParsingError,
 )
-from ..utils.agent_error_handling import (
-    AgentErrorHandler,
-    with_node_error_handling
+from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
+from ..models.enhanced_content_writer_models import (
+    ContentWriterJobData,
+    ContentWriterContentItem,
+    ContentWriterGenerationContext,
+    ContentWriterResult,
 )
 
 logger = get_structured_logger("enhanced_content_writer")
@@ -69,11 +67,11 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
 
         # Initialize settings for prompt loading
         self.settings = get_config()
-        
+
         # Initialize parser agent for parsing methods
         self.parser_agent = ParserAgent(
             name="ContentWriterParser",
-            description="Parser agent for content writer parsing methods"
+            description="Parser agent for content writer parsing methods",
         )
 
         # Content generation templates - load from external files
@@ -95,57 +93,69 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         )
 
     async def run_async(
-        self, input_data: Any, context: AgentExecutionContext
+        self, input_data: dict, context: AgentExecutionContext
     ) -> AgentResult:
         """Simplified content generation focused on single-item processing.
-        
+
         This method now exclusively processes one item at a time as specified by current_item_id.
         The complex validation and batch processing logic has been removed for Task 3.3.
-        
+
         Args:
             input_data: Expected to contain structured_cv, job_description_data, and current_item_id
             context: Agent execution context
-            
+
         Returns:
             AgentResult with updated structured_cv or error information
         """
         try:
-            # Simple input validation - expect dictionary with required fields
-            if not isinstance(input_data, dict):
-                return self._create_error_result(
-                    {}, context, ValueError("Input must be a dictionary"), "validation"
-                )
-            
+            # Validate input_data using Pydantic model
+            job_data = ContentWriterJobData(
+                **input_data.get("job_description_data", {})
+            )
+
             # Extract required fields
             structured_cv_data = input_data.get("structured_cv")
-            job_data = input_data.get("job_description_data", {})
             current_item_id = input_data.get("current_item_id")
             research_findings = input_data.get("research_findings")
-            
+
             # Validate required fields
             if not structured_cv_data:
                 return self._create_error_result(
-                    input_data, context, ValueError("structured_cv is required"), "validation"
+                    input_data,
+                    context,
+                    ValueError("structured_cv is required"),
+                    "validation",
                 )
-                
+
             if not current_item_id:
                 return self._create_error_result(
-                    input_data, context, ValueError("current_item_id is required"), "validation"
+                    input_data,
+                    context,
+                    ValueError("current_item_id is required"),
+                    "validation",
                 )
-            
-            # Process the single item
+
+            # At this point, structured_cv_data must be a valid StructuredCV dict or model
+            # No parsing of raw CV text is performed here. If the data is not structured, this is a contract error.
+            # The parser agent is responsible for all parsing and structuring of raw CV text.
+
             result = await self._process_single_item(
-                structured_cv_data, job_data, current_item_id, research_findings
+                structured_cv_data, job_data.dict(), current_item_id, research_findings
             )
-            
-            return result
-            
+
+            # When returning result:
+            result = ContentWriterResult(
+                structured_cv=structured_cv_data, error_messages=[]
+            )
+            return AgentResult(
+                success=True,
+                output_data=result.dict(),
+                confidence_score=1.0,
+                metadata={"agent_type": "enhanced_content_writer"},
+            )
+
         except Exception as e:
-            # Use standardized error handling
-            fallback_data = AgentErrorHandler.create_fallback_data("content_writer")
-            return AgentErrorHandler.handle_general_error(
-                e, "content_writer", fallback_data, "run_async"
-            )
+            return self._create_error_result(input_data, context, e, "run_async")
 
     async def _generate_content_with_llm(
         self,
@@ -184,7 +194,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
                 json_content = await self._generate_and_parse_json(
                     prompt=prompt,
                     session_id=getattr(context, "session_id", None),
-                    trace_id=getattr(context, "trace_id", None)
+                    trace_id=getattr(context, "trace_id", None),
                 )
 
                 # Parse and validate with Pydantic model
@@ -326,12 +336,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             # Fallback to an empty dictionary to prevent AttributeError and allow graceful degradation
             job_data = {}
 
-        # Handle case where content_item might be a string (from data adapter)
-        if isinstance(content_item, str):
-            # Parse the CV text to extract experience information
-            content_item = self._parse_cv_text_to_content_item(
-                content_item, generation_context
-            )
+        # No parsing of content_item here. It must be structured already.
 
         # Extract target skills from job data
         target_skills = job_data.get("skills", [])
@@ -352,164 +357,49 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
     def _format_role_info(
         self, content_item: Dict[str, Any], generation_context: Dict[str, Any]
     ) -> str:
-        """Format role information for the resume template."""
+        """Format role information for the resume template. Assumes content_item is structured."""
 
-        # Handle case where content_item itself is a string (CV text)
-        if isinstance(content_item, str):
-            logger.info(
-                "Received CV text as content_item, parsing to structured format"
-            )
-            parsed_content = self._parse_cv_text_to_content_item(
-                content_item, generation_context
-            )
-            if isinstance(parsed_content, dict):
-                return self._format_role_info(parsed_content, generation_context)
-            else:
-                # Fallback if parsing fails
-                logger.warning("Failed to parse CV text, using fallback structure")
-                content_item = {"name": "Professional Experience", "items": []}
-
-        # Ensure content_item is a dictionary
+        # No parsing of raw CV text here. Only formatting of structured data.
         if not isinstance(content_item, dict):
             logger.error(
                 f"Expected dict for content_item, got {type(content_item)}: {content_item}"
             )
             content_item = {"name": "Unknown Role", "items": []}
 
-        # Handle workflow adapter data structure with 'data' wrapper
-        if "data" in content_item and "roles" in content_item["data"]:
-            roles = content_item["data"]["roles"]
+        # Extract role information
+        role_name = content_item.get("name", "Unknown Role")
+        company_name = content_item.get("company", "Unknown Company")
 
-            # Validate roles is a list
-            if not isinstance(roles, list):
-                logger.error(f"Expected list for roles, got {type(roles)}: {roles}")
-                roles = []
+        # Extract accomplishments from items
+        accomplishments = []
+        if "items" in content_item:
+            for item in content_item["items"]:
+                if isinstance(item, dict) and item.get("item_type") == "bullet_point":
+                    accomplishments.append(item.get("content", ""))
 
-            # Check if roles is empty
-            if not roles:
-                logger.warning("Empty roles list, creating fallback structure")
-                fallback_role = {"name": "Professional Experience", "items": []}
-                return self._format_single_role(fallback_role, generation_context)
+        # Format the role info block
+        role_info = f"""<role_info_start>
+<info>
+Role: {role_name}
+Organization: {company_name}
+Description: {role_name} position with focus on data analysis and technical implementation
+</info>
+<accomplishments>
+"""
 
-            # Check if roles is a list of strings (CV text) that needs parsing
-            if roles and isinstance(roles[0], str):
-                # Parse the CV text to extract structured role information
-                cv_text = roles[0]  # Take the first (and likely only) CV text
-                parsed_content = self._parse_cv_text_to_content_item(
-                    cv_text, generation_context
-                )
-                return self._format_role_info(parsed_content, generation_context)
+        for accomplishment in accomplishments:
+            role_info += f"- {accomplishment}\n"
 
-            # Handle structured role data
-            formatted_roles = []
-            for i, role in enumerate(roles):
-                try:
-                    # Check if role is a dictionary (structured data) or string (CV text)
-                    if isinstance(role, dict):
-                        role_block = self._format_workflow_role(
-                            role, generation_context
-                        )
-                        formatted_roles.append(role_block)
-                    elif isinstance(role, str):
-                        # This is CV text that needs parsing
-                        parsed_content = self._parse_cv_text_to_content_item(
-                            role, generation_context
-                        )
-                        # Ensure parsed_content is valid before formatting
-                        if isinstance(parsed_content, dict):
-                            role_block = self._format_single_role(
-                                parsed_content, generation_context
-                            )
-                            formatted_roles.append(role_block)
-                        else:
-                            logger.warning(
-                                f"Failed to parse CV text to structured content: {role[:100]}..."
-                            )
-                            # Create a fallback role block
-                            fallback_role = {
-                                "name": "Professional Experience",
-                                "items": [],
-                            }
-                            role_block = self._format_single_role(
-                                fallback_role, generation_context
-                            )
-                            formatted_roles.append(role_block)
-                    else:
-                        logger.warning(
-                            f"Unexpected role type at index {i}: {type(role)}, content: {role}"
-                        )
-                        # Create a fallback role block for unexpected types
-                        fallback_role = {"name": f"Role {i+1}", "items": []}
-                        role_block = self._format_single_role(
-                            fallback_role, generation_context
-                        )
-                        formatted_roles.append(role_block)
-                except Exception as e:
-                    logger.error(f"Error processing role at index {i}: {e}")
-                    # Create a fallback role block for errors
-                    fallback_role = {"name": f"Role {i+1}", "items": []}
-                    role_block = self._format_single_role(
-                        fallback_role, generation_context
-                    )
-                    formatted_roles.append(role_block)
+        role_info += "</accomplishments>\n</role_info_end>"
 
-            # Ensure we have at least one role
-            if not formatted_roles:
-                logger.warning(
-                    "No roles were successfully formatted, creating fallback"
-                )
-                fallback_role = {"name": "Professional Experience", "items": []}
-                role_block = self._format_single_role(fallback_role, generation_context)
-                formatted_roles.append(role_block)
-
-            return "\n\n".join(formatted_roles)
-
-        # Handle both section-level and subsection-level content (legacy format)
-        elif "subsections" in content_item and content_item["subsections"]:
-            # This is a section with subsections (multiple roles)
-            formatted_roles = []
-            for i, subsection in enumerate(content_item["subsections"]):
-                try:
-                    role_block = self._format_single_role(
-                        subsection, generation_context
-                    )
-                    formatted_roles.append(role_block)
-                except Exception as e:
-                    logger.error(f"Error processing subsection at index {i}: {e}")
-                    # Create a fallback role block
-                    fallback_role = {"name": f"Role {i+1}", "items": []}
-                    role_block = self._format_single_role(
-                        fallback_role, generation_context
-                    )
-                    formatted_roles.append(role_block)
-
-            # Ensure we have at least one role
-            if not formatted_roles:
-                logger.warning(
-                    "No subsections were successfully formatted, creating fallback"
-                )
-                fallback_role = {"name": "Professional Experience", "items": []}
-                role_block = self._format_single_role(fallback_role, generation_context)
-                formatted_roles.append(role_block)
-
-            return "\n\n".join(formatted_roles)
-        else:
-            # This is a single role (legacy format)
-            return self._format_single_role(content_item, generation_context)
+        return role_info
 
     def _format_single_role(
         self, role_data: Dict[str, Any], generation_context: Dict[str, Any]
     ) -> str:
-        """Format a single role for the resume template."""
+        """Format a single role for the resume template. Assumes role_data is structured."""
 
-        # Handle case where role_data might be a string (CV text)
-        if isinstance(role_data, str):
-            # Parse the CV text to get structured data
-            role_data = self._parse_cv_text_to_content_item(
-                role_data, generation_context
-            )
-
-        # Ensure role_data is a dictionary
+        # No parsing of raw CV text here. Only formatting of structured data.
         if not isinstance(role_data, dict):
             logger.error(
                 f"Expected dict for role_data, got {type(role_data)}: {role_data}"
@@ -518,9 +408,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
 
         # Extract role information
         role_name = role_data.get("name", "Unknown Role")
-
-        # Extract company from original CV text if available
-        company_name = self._extract_company_from_cv(role_name, generation_context)
+        company_name = role_data.get("company", "Unknown Company")
 
         # Extract accomplishments from items
         accomplishments = []
@@ -545,60 +433,6 @@ Description: {role_name} position with focus on data analysis and technical impl
         role_info += "</accomplishments>\n</role_info_end>"
 
         return role_info
-
-    def _format_workflow_role(
-        self, role_data: Dict[str, Any], generation_context: Dict[str, Any]
-    ) -> str:
-        """Format a single role from workflow adapter data structure."""
-
-        # Ensure role_data is a dictionary
-        if not isinstance(role_data, dict):
-            logger.error(
-                f"Expected dict for role_data, got {type(role_data)}: {role_data}"
-            )
-            role_data = {
-                "title": "Unknown Role",
-                "company": "Unknown Company",
-                "description": "",
-                "skills": [],
-            }
-
-        # Extract role information from workflow format
-        role_title = role_data.get("title", "Unknown Role")
-        company_name = role_data.get("company", "Unknown Company")
-        description = role_data.get("description", "")
-        skills = role_data.get("skills", [])
-
-        # Create accomplishments from description and skills
-        accomplishments = []
-        if description:
-            accomplishments.append(description)
-
-        # Add skills as accomplishments if available
-        if skills:
-            skills_text = f"Key skills: {', '.join(skills)}"
-            accomplishments.append(skills_text)
-
-        # Format the role info block
-        role_info = f"""<role_info_start>
-<info>
-Role: {role_title}
-Organization: {company_name}
-Description: {description[:200] if description else f'{role_title} position with focus on technical implementation'}
-</info>
-<accomplishments>
-"""
-
-        for accomplishment in accomplishments:
-            role_info += f"- {accomplishment}\n"
-
-        role_info += "</accomplishments>\n</role_info_end>"
-
-        return role_info
-
-
-
-
 
     async def _post_process_content(
         self,
@@ -926,8 +760,6 @@ Description: {description[:200] if description else f'{role_title} position with
             content = content[:297] + "..."
         return content
 
-
-
     def _format_role_generation_output(self, validated_data) -> str:
         """Format the validated role generation data into the expected content format."""
         from ..models.validation_schemas import LLMRoleGenerationOutput
@@ -1003,7 +835,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         logger.info(
             "Input validation passed for EnhancedContentWriterAgent",
         )
-        
+
         logger.info(
             f"EnhancedContentWriterAgent processing item: {state.current_item_id}"
         )
@@ -1042,8 +874,6 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         error_list = state.error_messages or []
         error_list.append(f"ContentWriter Error: {result.error_message}")
         return {"error_messages": error_list}
-
-
 
     async def generate_big_10_skills(
         self, job_description: str, my_talents: str = ""
@@ -1102,8 +932,6 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 "success": False,
                 "error": str(e),
             }
-
-
 
     def _format_big_10_skills_display(self, skills: List[str]) -> str:
         """
@@ -1237,7 +1065,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                     logger.warning(
                         f"LLM generation failed for item {item_id}, using fallback: {response.error_message}"
                     )
-                    fallback_content = self._generate_fallback_content(
+                    fallback_content = self._generate_item_fallback_content(
                         target_item, target_section, target_subsection, job_description
                     )
 
@@ -1267,7 +1095,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             except Exception as llm_error:
                 # Handle any LLM service exceptions
                 logger.error(f"LLM service exception for item {item_id}: {llm_error}")
-                fallback_content = self._generate_fallback_content(
+                fallback_content = self._generate_item_fallback_content(
                     target_item, target_section, target_subsection, job_description
                 )
 
@@ -1364,8 +1192,6 @@ Generate enhanced content that aligns with the job requirements and demonstrates
 
         return prompt
 
-
-
     def _create_error_result(
         self,
         input_data: Dict[str, Any],
@@ -1402,20 +1228,11 @@ Generate enhanced content that aligns with the job requirements and demonstrates
 
     def _generate_item_fallback_content(
         self,
-        target_item: "Item",
-        target_section: "Section",
-        target_subsection: "Subsection",
-        job_description: Optional["JobDescriptionData"],
+        *args,
+        **kwargs,
     ) -> str:
         """
         Generate fallback content when LLM fails for specific items.
-
-        Args:
-            target_item: The item to generate fallback content for
-            target_section: The section containing the item
-            target_subsection: The subsection containing the item
-            job_description: Job description data for context
-
         Returns:
             Fallback content string with user-friendly message
         """

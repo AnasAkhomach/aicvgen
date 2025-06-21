@@ -2,32 +2,33 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{{ cv.metadata.get('name', 'CV') }}</title>
-    <!-- We will inject CSS directly with WeasyPrint, so no link needed here -->
+    <title>{{ cv.metadata.name or 'CV' }}</title>
+    <!-- CSS is injected by WeasyPrint -->
 </head>
 <body>
     <header>
-        <h1>{{ cv.metadata.get('name', 'Your Name') }}</h1>
+        <h1>{{ cv.metadata.name or 'Your Name' | e }}</h1>
         <p class="contact-info">
-            {% if cv.metadata.get('email') %}{{ cv.metadata.get('email') }}{% endif %}
-            {% if cv.metadata.get('phone') %} | {{ cv.metadata.get('phone') }}{% endif %}
-            {% if cv.metadata.get('linkedin') %} | <a href="{{ cv.metadata.get('linkedin') }}">LinkedIn</a>{% endif %}
+            {# Defensive: Only show if present, escape all #}
+            {% if cv.metadata.email %}{{ cv.metadata.email | e }}{% endif %}
+            {% if cv.metadata.phone %} | {{ cv.metadata.phone | e }}{% endif %}
+            {% if cv.metadata.linkedin %} | <a href="{{ cv.metadata.linkedin | e }}">LinkedIn</a>{% endif %}
         </p>
     </header>
 
     {% for section in cv.sections %}
     <section class="cv-section">
-        <h2>{{ section.name }}</h2>
+        <h2>{{ section.name | e }}</h2>
         <hr>
         {% if section.items %}
             {% if section.name == 'Key Qualifications' %}
                 <p class="skills">
-                    {% for item in section.items %}{{ item.content }}{% if not loop.last %} | {% endif %}{% endfor %}
+                    {% for item in section.items %}{{ item.content | e }}{% if not loop.last %} | {% endif %}{% endfor %}
                 </p>
             {% else %}
                 <ul>
                 {% for item in section.items %}
-                    <li>{{ item.content }}</li>
+                    <li>{{ item.content | e }}</li>
                 {% endfor %}
                 </ul>
             {% endif %}
@@ -35,14 +36,15 @@
         {% if section.subsections %}
             {% for sub in section.subsections %}
             <div class="subsection">
-                <h3>{{ sub.name }}</h3>
+                <h3>{{ sub.name | e }}</h3>
                 <p class="metadata">
-                    {% if sub.metadata.get('company') %}{{ sub.metadata.get('company') }}{% endif %}
-                    {% if sub.metadata.get('duration') %} | {{ sub.metadata.get('duration') }}{% endif %}
+                    {# Defensive: Only show if present, escape all #}
+                    {% if sub.metadata and sub.metadata.company %}{{ sub.metadata.company | e }}{% endif %}
+                    {% if sub.metadata and sub.metadata.duration %} | {{ sub.metadata.duration | e }}{% endif %}
                 </p>
                 <ul>
                 {% for item in sub.items %}
-                    <li>{{ item.content }}</li>
+                    <li>{{ item.content | e }}</li>
                 {% endfor %}
                 </ul>
             </div>

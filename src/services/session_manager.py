@@ -24,6 +24,7 @@ from ..models.data_models import (
     ProcessingStatus,
     ContentType,
 )
+from ..models.vector_store_and_session_models import SessionInfoModel
 
 
 class SessionStatus(Enum):
@@ -520,32 +521,13 @@ class SessionManager:
 
         return sessions[:limit]
 
-    def get_session_summary(self) -> Dict[str, Any]:
-        """Get summary of all sessions."""
-        with self._lock:
-            active_count = len(self.active_sessions)
-
-            # Count by status
-            status_counts = {}
-            for session_info in self.active_sessions.values():
-                status = session_info.status.value
-                status_counts[status] = status_counts.get(status, 0) + 1
-
-            # Calculate total processing metrics
-            total_processing_time = sum(
-                s.processing_time for s in self.active_sessions.values()
-            )
-            total_llm_calls = sum(s.llm_calls for s in self.active_sessions.values())
-            total_tokens = sum(s.tokens_used for s in self.active_sessions.values())
-
-            return {
-                "active_sessions": active_count,
-                "status_counts": status_counts,
-                "total_processing_time": total_processing_time,
-                "total_llm_calls": total_llm_calls,
-                "total_tokens_used": total_tokens,
-                "storage_path": str(self.storage_path),
-            }
+    def get_session_summary(self) -> dict:
+        """Get a summary of all active sessions."""
+        summary = [
+            SessionInfoModel(**session.to_dict())
+            for session in self.active_sessions.values()
+        ]
+        return {"sessions": [s.dict() for s in summary]}
 
     @contextmanager
     def session_context(self, session_id: str):

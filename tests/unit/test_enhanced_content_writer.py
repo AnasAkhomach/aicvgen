@@ -15,9 +15,17 @@ from uuid import UUID
 
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.agent_base import AgentExecutionContext, AgentResult
-from src.models.data_models import StructuredCV, Section, Subsection, Item, ItemStatus, ContentType, JobDescriptionData
+from src.models.data_models import (
+    StructuredCV,
+    Section,
+    Subsection,
+    Item,
+    ItemStatus,
+    ContentType,
+    JobDescriptionData,
+    LLMResponse,
+)
 from src.orchestration.state import AgentState
-from src.services.llm_service import LLMResponse
 
 
 class TestEnhancedContentWriterAgent:
@@ -54,6 +62,7 @@ class TestEnhancedContentWriterAgent:
     def sample_structured_cv(self):
         """Create a sample structured CV for testing."""
         from uuid import UUID
+
         cv = StructuredCV()
         cv.sections = [
             Section(
@@ -64,12 +73,16 @@ class TestEnhancedContentWriterAgent:
                         name="Software Engineer @ TechCorp",
                         items=[
                             Item(
-                                id=UUID("00000000-0000-0000-0000-000000000001"),  # exp_1 equivalent
+                                id=UUID(
+                                    "00000000-0000-0000-0000-000000000001"
+                                ),  # exp_1 equivalent
                                 content="Software Engineer at TechCorp",
                                 status=ItemStatus.INITIAL,
                             ),
                             Item(
-                                id=UUID("00000000-0000-0000-0000-000000000002"),  # exp_2 equivalent
+                                id=UUID(
+                                    "00000000-0000-0000-0000-000000000002"
+                                ),  # exp_2 equivalent
                                 content="Developed web applications",
                                 status=ItemStatus.INITIAL,
                             ),
@@ -82,7 +95,9 @@ class TestEnhancedContentWriterAgent:
                 content_type="SKILLS",
                 items=[
                     Item(
-                        id=UUID("00000000-0000-0000-0000-000000000003"),  # skill_1 equivalent
+                        id=UUID(
+                            "00000000-0000-0000-0000-000000000003"
+                        ),  # skill_1 equivalent
                         content="Python programming",
                         status=ItemStatus.INITIAL,
                     )
@@ -180,7 +195,7 @@ class TestEnhancedContentWriterAgent:
         """Test successful run_async execution."""
         # Set up the execution context with current_item_id
         execution_context.item_id = "00000000-0000-0000-0000-000000000001"
-        
+
         # Create input data matching the current implementation
         input_data = {
             "structured_cv": sample_structured_cv,
@@ -193,7 +208,7 @@ class TestEnhancedContentWriterAgent:
         mock_response = LLMResponse(
             success=True,
             content="Enhanced: Software Engineer at TechCorp with 5+ years experience",
-            metadata={}
+            metadata={},
         )
         content_writer_agent.llm_service.generate_content.return_value = mock_response
 
@@ -210,9 +225,14 @@ class TestEnhancedContentWriterAgent:
         """Test run_async with missing structured CV."""
         execution_context.item_id = "00000000-0000-0000-0000-000000000001"
         input_data = {
-            "job_description_data": JobDescriptionData(raw_text="Engineer position. Test description.", title="Engineer", company="TestCorp", description="Test"),
+            "job_description_data": JobDescriptionData(
+                raw_text="Engineer position. Test description.",
+                title="Engineer",
+                company="TestCorp",
+                description="Test",
+            ),
             "research_findings": {},
-            "current_item_id": "00000000-0000-0000-0000-000000000001"
+            "current_item_id": "00000000-0000-0000-0000-000000000001",
         }
 
         result = await content_writer_agent.run_async(input_data, execution_context)
@@ -227,8 +247,13 @@ class TestEnhancedContentWriterAgent:
         """Test run_async with missing current_item_id."""
         input_data = {
             "structured_cv": sample_structured_cv,
-            "job_description_data": JobDescriptionData(raw_text="Engineer position. Test description.", title="Engineer", company="TestCorp", description="Test"),
-            "research_findings": {}
+            "job_description_data": JobDescriptionData(
+                raw_text="Engineer position. Test description.",
+                title="Engineer",
+                company="TestCorp",
+                description="Test",
+            ),
+            "research_findings": {},
         }
 
         result = await content_writer_agent.run_async(input_data, execution_context)
@@ -243,7 +268,7 @@ class TestEnhancedContentWriterAgent:
         mock_response = LLMResponse(
             success=True,
             content="Enhanced: Software Engineer at TechCorp with 5+ years experience",
-            metadata={}
+            metadata={},
         )
         content_writer_agent.llm_service.generate_content.return_value = mock_response
 
@@ -259,6 +284,7 @@ class TestEnhancedContentWriterAgent:
     ):
         """Test run_as_node with missing current_item_id."""
         from src.models.data_models import JobDescriptionData
+
         state = AgentState(
             job_description="Test job",
             job_description_data=JobDescriptionData.model_validate(sample_job_data),
@@ -272,7 +298,9 @@ class TestEnhancedContentWriterAgent:
         assert isinstance(result_dict, dict)
         assert "error_messages" in result_dict
         assert len(result_dict["error_messages"]) >= 1
-        assert any("current_item_id" in error for error in result_dict["error_messages"])
+        assert any(
+            "current_item_id" in error for error in result_dict["error_messages"]
+        )
 
     @pytest.mark.asyncio
     async def test_run_as_node_processing_error(
@@ -280,7 +308,9 @@ class TestEnhancedContentWriterAgent:
     ):
         """Test run_as_node with processing error."""
         # Mock the LLM service to raise an exception
-        content_writer_agent.llm_service.generate_content.side_effect = Exception("LLM service failed")
+        content_writer_agent.llm_service.generate_content.side_effect = Exception(
+            "LLM service failed"
+        )
 
         result_dict = await content_writer_agent.run_as_node(sample_agent_state)
 
@@ -295,33 +325,36 @@ class TestEnhancedContentWriterAgent:
         """Test successful single item processing."""
         item_id = "00000000-0000-0000-0000-000000000001"  # Use UUID format
         job_data = {
-            "title": "Software Engineer", 
+            "title": "Software Engineer",
             "description": "Test job",
             "raw_text": "Software Engineer position at TechCorp. Test job description.",
-            "company": "TechCorp"
+            "company": "TechCorp",
         }
 
         # Mock the LLM service response
         mock_response = LLMResponse(
             success=True,
             content="Enhanced: Software Engineer at TechCorp with 5+ years experience",
-            metadata={}
+            metadata={},
         )
         content_writer_agent.llm_service.generate_content.return_value = mock_response
 
         result = await content_writer_agent._process_single_item(
-            sample_structured_cv.model_dump(), job_data, item_id, sample_research_findings
+            sample_structured_cv.model_dump(),
+            job_data,
+            item_id,
+            sample_research_findings,
         )
 
         assert isinstance(result, AgentResult)
         assert result.success is True
         assert "structured_cv" in result.output_data
-        
+
         # Verify the item was updated
         updated_cv_data = result.output_data["structured_cv"]
         updated_cv = StructuredCV.model_validate(updated_cv_data)
         processed_item, _, _ = updated_cv.find_item_by_id(item_id)
-        
+
         assert processed_item is not None
         assert processed_item.status == ItemStatus.GENERATED
         assert "Enhanced:" in processed_item.content
@@ -338,7 +371,10 @@ class TestEnhancedContentWriterAgent:
         item_id = "nonexistent-item-id"
 
         result = await content_writer_agent._process_single_item(
-            sample_structured_cv.model_dump(), sample_job_data, item_id, sample_research_findings
+            sample_structured_cv.model_dump(),
+            sample_job_data,
+            item_id,
+            sample_research_findings,
         )
 
         assert isinstance(result, AgentResult)
@@ -351,14 +387,14 @@ class TestEnhancedContentWriterAgent:
         """Test building prompt for experience content."""
         content_item = {
             "content_type": "EXPERIENCE",
-            "content": "Software Engineer at TechCorp"
+            "content": "Software Engineer at TechCorp",
         }
         generation_context = {"cv_data": sample_structured_cv}
-        
+
         prompt = content_writer_agent._build_prompt(
             sample_job_data, content_item, generation_context, ContentType.EXPERIENCE
         )
-        
+
         assert isinstance(prompt, str)
         assert len(prompt) > 0
 
@@ -374,7 +410,7 @@ class TestEnhancedContentWriterAgent:
         mock_response = LLMResponse(
             success=True,
             content="1. Python\n2. Django\n3. AWS\n4. Docker\n5. Kubernetes\n6. PostgreSQL\n7. Redis\n8. Git\n9. Linux\n10. Agile",
-            metadata={}
+            metadata={},
         )
         content_writer_agent.llm_service.generate_content.return_value = mock_response
 
@@ -388,7 +424,9 @@ class TestEnhancedContentWriterAgent:
         assert isinstance(result["skills"], list)
         assert len(result["skills"]) == 10
         # Check that we got some skills
-        assert all(isinstance(skill, str) and len(skill) > 0 for skill in result["skills"])
+        assert all(
+            isinstance(skill, str) and len(skill) > 0 for skill in result["skills"]
+        )
         content_writer_agent.llm_service.generate_content.assert_called_once()
 
     @pytest.mark.asyncio
@@ -400,7 +438,9 @@ class TestEnhancedContentWriterAgent:
     ):
         """Test Big 10 skills generation with LLM error."""
         # Mock LLM to raise an exception
-        content_writer_agent.llm_service.generate_content.side_effect = Exception("LLM service error")
+        content_writer_agent.llm_service.generate_content.side_effect = Exception(
+            "LLM service error"
+        )
 
         # Create job description from available data
         job_description = f"{sample_job_data['title']} at {sample_job_data['company']}"
@@ -428,22 +468,24 @@ class TestEnhancedContentWriterAgent:
         self, content_writer_agent, sample_structured_cv, sample_job_data
     ):
         """Test building experience prompt."""
-        template = "Experience template: {{Target Skills}} {{batched_structured_output}}"
+        template = (
+            "Experience template: {{Target Skills}} {{batched_structured_output}}"
+        )
         content_item = {
             "content_type": "EXPERIENCE",
             "content": "Software Engineer at TechCorp",
             "role_info": {
                 "company": "TechCorp",
                 "position": "Software Engineer",
-                "duration": "2020-2023"
-            }
+                "duration": "2020-2023",
+            },
         }
         generation_context = {"cv_data": sample_structured_cv}
-        
+
         prompt = content_writer_agent._build_experience_prompt(
             template, sample_job_data, content_item, generation_context
         )
-        
+
         assert isinstance(prompt, str)
         assert len(prompt) > 0
 
@@ -453,13 +495,15 @@ class TestEnhancedContentWriterAgent:
     ):
         """Test that run_as_node logs execution details."""
         # Mock the LLM service to return success
-        with patch.object(content_writer_agent.llm_service, "generate_content") as mock_llm:
+        with patch.object(
+            content_writer_agent.llm_service, "generate_content"
+        ) as mock_llm:
             mock_llm.return_value = LLMResponse(
                 success=True,
                 content="Enhanced content for the item",
-                metadata={"model": "test-model"}
+                metadata={"model": "test-model"},
             )
-            
+
             with caplog.at_level(logging.INFO):
                 result = await content_writer_agent.run_as_node(sample_agent_state)
 
@@ -467,3 +511,22 @@ class TestEnhancedContentWriterAgent:
         assert any("processing item" in record.message for record in caplog.records)
         assert isinstance(result, dict)
         assert "structured_cv" in result
+
+    def test_enhanced_content_writer_rejects_unstructured_data(
+        self, content_writer_agent, execution_context
+    ):
+        """Test that EnhancedContentWriterAgent rejects unstructured (raw text) CV data."""
+        input_data = {
+            "structured_cv": "This is a raw CV text, not a structured object.",
+            "job_description_data": {},
+            "current_item_id": "00000000-0000-0000-0000-000000000001",
+        }
+        result = asyncio.run(
+            content_writer_agent.run_async(input_data, execution_context)
+        )
+        assert isinstance(result, AgentResult)
+        assert result.success is False
+        assert (
+            "structured_cv" in result.error_message
+            or "contract" in result.error_message.lower()
+        )

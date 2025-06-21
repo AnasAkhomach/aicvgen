@@ -21,8 +21,6 @@ from src.orchestration.cv_workflow_graph import (
 from src.orchestration.state import AgentState
 from src.models.data_models import (
     StructuredCV,
-    CVSection,
-    CVItem,
     JobDescriptionData,
     Section,
     Item,
@@ -72,30 +70,28 @@ class TestAgentWorkflowIntegration:
                 "linkedin": "https://linkedin.com/in/johndoe",
             },
             sections=[
-                CVSection(
+                Section(
                     name="Key Qualifications",
                     items=[
-                        CVItem(content="Python Programming"),
-                        CVItem(content="Machine Learning"),
-                        CVItem(content="Data Analysis"),
+                        Item(content="Python Programming"),
+                        Item(content="Machine Learning"),
+                        Item(content="Data Analysis"),
                     ],
                 ),
-                CVSection(
+                Section(
                     name="Professional Experience",
                     items=[
-                        CVItem(content="Software Engineer at TechCorp (2020-2023)"),
-                        CVItem(
-                            content="Developed ML models for recommendation systems"
-                        ),
-                        CVItem(
+                        Item(content="Software Engineer at TechCorp (2020-2023)"),
+                        Item(content="Developed ML models for recommendation systems"),
+                        Item(
                             content="Implemented data pipelines processing 1M+ records"
                         ),
                     ],
                 ),
-                CVSection(
+                Section(
                     name="Education",
                     items=[
-                        CVItem(content="BS Computer Science, University of Technology")
+                        Item(content="BS Computer Science, University of Technology")
                     ],
                 ),
             ],

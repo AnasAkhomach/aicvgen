@@ -33,9 +33,16 @@ import json
 import os
 import asyncio
 from datetime import datetime
-from ..models.research_models import ResearchFindings, ResearchStatus, CompanyInsight, IndustryInsight, RoleInsight
+from ..models.research_models import (
+    ResearchFindings,
+    ResearchStatus,
+    CompanyInsight,
+    IndustryInsight,
+    RoleInsight,
+)
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
+from ..models.research_agent_models import ResearchAgentNodeResult
 
 # Set up structured logging
 logger = get_structured_logger(__name__)
@@ -121,18 +128,18 @@ class ResearchAgent(EnhancedAgentBase):
                 input_data = {}
 
             # Create proper StructuredCV and JobDescriptionData objects
-            structured_cv = input_data.get("structured_cv")
+            structured_cv = input_data.input.get("structured_cv")
             if isinstance(structured_cv, dict):
                 structured_cv = StructuredCV(**structured_cv)
             elif not structured_cv:
                 structured_cv = StructuredCV()
 
-            job_desc_data = input_data.get("job_description_data")
+            job_desc_data = input_data.input.get("job_description_data")
             if isinstance(job_desc_data, dict):
                 job_desc_data = JobDescriptionData(**job_desc_data)
             elif not job_desc_data:
                 job_desc_data = JobDescriptionData(
-                    raw_text=input_data.get("job_description", "")
+                    raw_text=input_data.input.get("job_description", "")
                 )
 
             # Perform the actual research work
@@ -197,40 +204,57 @@ class ResearchAgent(EnhancedAgentBase):
                 job_analysis.get("key_skills", [])
             )
 
+            # Defensive: ensure company_name, industry_name, and key_values are correct types
+            company_name = company_info.get("company_name") or ""
+            industry_name = str(company_info.get("industry") or "")
+            key_values = company_info.get("values") or []
+
             # Compile research findings
             research_findings = ResearchFindings(
                 status=ResearchStatus.SUCCESS,
                 key_terms=job_analysis.get("key_skills", []),
                 skill_gaps=[],
                 enhancement_suggestions=[],
-                company_insights=CompanyInsight(
-                    company_name=company_info.get("company_name", ""),
-                    industry=company_info.get("industry"),
-                    size=None,
-                    culture=company_info.get("values"),
-                    recent_news=[],
-                    key_values=company_info.get("values", []),
-                    confidence_score=0.8
-                ) if company_info else None,
-                industry_insights=IndustryInsight(
-                    industry_name=company_info.get("industry", "") if company_info else "",
-                    trends=industry_insights.get("trends", []),
-                    key_skills=industry_insights.get("technologies", []),
-                    growth_areas=industry_insights.get("growth_areas", []),
-                    challenges=[],
-                    confidence_score=0.7
-                ) if industry_insights else None,
-                role_insights=RoleInsight(
-                    role_title="",
-                    required_skills=job_analysis.get("key_skills", []),
-                    preferred_qualifications=[],
-                    responsibilities=job_analysis.get("responsibilities", []),
-                    career_progression=[],
-                    salary_range=None,
-                    confidence_score=0.8
-                ) if job_analysis else None,
+                company_insights=(
+                    CompanyInsight(
+                        company_name=company_name,
+                        industry=industry_name,
+                        size=None,
+                        culture=company_info.get("values"),
+                        recent_news=[],
+                        key_values=key_values,
+                        confidence_score=0.8,
+                    )
+                    if company_info
+                    else None
+                ),
+                industry_insights=(
+                    IndustryInsight(
+                        industry_name=industry_name,
+                        trends=industry_insights.get("trends", []),
+                        key_skills=industry_insights.get("technologies", []),
+                        growth_areas=industry_insights.get("growth_areas", []),
+                        challenges=[],
+                        confidence_score=0.7,
+                    )
+                    if industry_insights
+                    else None
+                ),
+                role_insights=(
+                    RoleInsight(
+                        role_title="",
+                        required_skills=job_analysis.get("key_skills", []),
+                        preferred_qualifications=[],
+                        responsibilities=job_analysis.get("responsibilities", []),
+                        career_progression=[],
+                        salary_range=None,
+                        confidence_score=0.8,
+                    )
+                    if job_analysis
+                    else None
+                ),
                 confidence_score=0.8,
-                processing_time_seconds=0.0
+                processing_time_seconds=0.0,
             )
 
             # Store for later retrieval
@@ -579,33 +603,36 @@ class ResearchAgent(EnhancedAgentBase):
             ],
         }
 
-    @with_node_error_handling
-    async def run_as_node(self, state: AgentState) -> AgentState:
+    @with_node_error_handling("research")
+    async def run_as_node(self, state: AgentState) -> ResearchAgentNodeResult:
         """Run the agent as a LangGraph node."""
         logger.info("Research Agent: Starting node execution")
-        
+
         # Create input for the agent
         agent_input = AgentIO(
+            description="Research agent input",
             structured_cv=state.structured_cv,
-            job_description=state.job_description,
-            metadata={"agent_name": self.name}
+            job_description=state.job_description_data,
+            metadata={"agent_name": self.name},
         )
-        
+
         # Run the agent
-        result = await self.run_async(agent_input)
-        
+        result = await self.run_async(agent_input, state)
+
+        # AgentResult uses output_data, not data
         if result.success:
-            # Update state with research findings
-            if result.data and "research_findings" in result.data:
-                state.research_findings = result.data["research_findings"]
+            if result.output_data and "research_findings" in result.output_data:
+                research_findings = result.output_data["research_findings"]
+                # Defensive: if research_findings is a dict, convert to Pydantic model
+                if isinstance(research_findings, dict):
+                    research_findings = ResearchFindings.from_dict(research_findings)
                 logger.info("Research Agent: Successfully completed research")
+                return ResearchAgentNodeResult(research_findings=research_findings)
             else:
                 error_msg = "Research Agent: No research findings in result"
                 logger.error(error_msg)
-                state.error_messages.append(error_msg)
+                return ResearchAgentNodeResult(error_messages=[error_msg])
         else:
             error_msg = f"Research Agent failed: {result.error_message}"
             logger.error(error_msg)
-            state.error_messages.append(error_msg)
-            
-        return state
+            return ResearchAgentNodeResult(error_messages=[error_msg])

@@ -1,0 +1,14 @@
+debug_big10_skills.py
+debug_unhashable_error.py
+test_executor_debug.py
+test_detailed_debug.py
+test_fixes.py
+test_detailed_trace.py
+test_full_workflow_debug.py
+test_llm_debug.py
+test_llm_service_call.py
+test_minimal_llm.py
+test_trace_await_error.py
+test_context_manager_issue.py
+test_await_issue.py
+test_api_call_debug.py

@@ -4,17 +4,15 @@ import datetime
 import json
 import os
 import time
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from .agent_base import EnhancedAgentBase, AgentResult
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..models.data_models import AgentIO, AgentDecisionLog
+from ..models.cv_analyzer_models import BasicCVInfo, CVAnalyzerNodeResult
 from ..models.validation_schemas import validate_agent_input
-from ..utils.agent_error_handling import (
-    AgentErrorHandler,
-    with_node_error_handling
-)
+from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
 from ..services.llm_service import get_llm_service
 
 if TYPE_CHECKING:
@@ -52,7 +50,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         # Initialize settings for prompt loading
         self.settings = get_config()
 
-    def extract_basic_info(self, cv_text: str) -> Dict[str, Any]:
+    def extract_basic_info(self, cv_text: str) -> "BasicCVInfo":
         """
         Extract basic information from CV text without using LLM for a fallback.
 
@@ -60,7 +58,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             cv_text: Raw CV text
 
         Returns:
-            Dictionary with basic extracted information
+            BasicCVInfo: Pydantic model with basic extracted information
         """
         lines = cv_text.split("\n")
         result = {
@@ -114,7 +112,8 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         if not result["summary"] and lines:
             result["summary"] = f"CV for {lines[0].strip()}"
 
-        return result
+        # Instead of returning dict, return BasicCVInfo model
+        return BasicCVInfo(**result)
 
     async def analyze_cv(self, input_data, context=None):
         """Process and analyze the user CV data.
@@ -198,8 +197,8 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             start_time = time.time()
             extracted_data = await self._generate_and_parse_json(
                 prompt=prompt,
-                session_id=getattr(context, 'session_id', 'default'),
-                trace_id=getattr(context, 'trace_id', 'default')
+                session_id=getattr(context, "session_id", "default"),
+                trace_id=getattr(context, "trace_id", "default"),
             )
             elapsed_time = time.time() - start_time
 
@@ -247,7 +246,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             # Validate input data using Pydantic schemas
             validation_result = AgentErrorHandler.handle_validation_error(
                 lambda: validate_agent_input("cv_analyzer", input_data),
-                "CVAnalyzerAgent"
+                "CVAnalyzerAgent",
             )
             if not validation_result.success:
                 return AgentResult(
@@ -257,9 +256,10 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                     error_message=validation_result.error_message,
                     metadata={"agent_type": "cv_analyzer", "validation_error": True},
                 )
-            
+
             # Convert validated Pydantic model back to dict for processing
-            input_data = validation_result.result.model_dump()
+            # validation_result is likely the validated data itself, not an AgentResult
+            input_data = validation_result  # Already validated input
             decision_log = AgentDecisionLog(
                 timestamp=datetime.datetime.now().isoformat(),
                 agent_name=self.name,
@@ -297,53 +297,50 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             )
 
         except Exception as e:
+            # TODO: Narrow exception type in future refactor
             error_result = AgentErrorHandler.handle_general_error(
                 e, "CVAnalyzerAgent", context="run_async"
             )
-            return AgentResult(
-                success=False,
-                output_data={},
-                confidence_score=0.0,
-                error_message=error_result.error_message,
-                metadata={"agent_type": "cv_analyzer"},
-            )
+            return error_result
 
     @with_node_error_handling
-    async def run_as_node(self, state) -> Dict[str, Any]:
+    async def run_as_node(self, state) -> "CVAnalyzerNodeResult":
         """
         Executes the CV analyzer agent as a node within the LangGraph.
-        
+
         Args:
             state: The current state of the LangGraph workflow.
-            
+
         Returns:
-            Dict[str, Any]: Updated state with CV analysis results.
+            CVAnalyzerNodeResult: Updated state with CV analysis results.
         """
-        from ..core.state_manager import AgentExecutionContext
-        
+        from ..agents.agent_base import AgentExecutionContext
+
         # Create execution context from state
         context = AgentExecutionContext(
-            session_id=getattr(state, 'session_id', 'default'),
-            item_id=getattr(state, 'current_item_id', None),
-            trace_id=getattr(state, 'trace_id', 'default'),
-            content_type=getattr(state, 'content_type', None),
-            retry_count=getattr(state, 'retry_count', 0)
+            session_id=getattr(state, "session_id", "default"),
+            item_id=getattr(state, "current_item_id", None),
+            content_type=getattr(state, "content_type", None),
+            retry_count=getattr(state, "retry_count", 0),
+            metadata=getattr(state, "metadata", {}),
+            input_data=getattr(state, "input_data", {}),
+            processing_options=getattr(state, "processing_options", {}),
         )
-        
+
         # Extract input data from state
         input_data = {
-            "user_cv": getattr(state, 'user_cv', {}),
-            "job_description": getattr(state, 'job_description', ""),
-            "template_cv_path": getattr(state, 'template_cv_path', "")
+            "user_cv": getattr(state, "user_cv", {}),
+            "job_description": getattr(state, "job_description", ""),
+            "template_cv_path": getattr(state, "template_cv_path", ""),
         }
-        
+
         # Execute the agent
         result = await self.run_async(input_data, context)
-        
-        # Return updated state slice
-        return {
-            "cv_analysis_results": result.output_data,
-            "cv_analyzer_success": result.success,
-            "cv_analyzer_confidence": result.confidence_score,
-            "cv_analyzer_error": result.error_message
-        }
+
+        # Return updated state slice as a Pydantic model
+        return CVAnalyzerNodeResult(
+            cv_analysis_results=result.output_data,
+            cv_analyzer_success=result.success,
+            cv_analyzer_confidence=result.confidence_score,
+            cv_analyzer_error=result.error_message,
+        )

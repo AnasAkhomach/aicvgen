@@ -489,7 +489,7 @@ class StateManager:
                                 if item.id == item_id:
                                     # Update item fields
                                     if "title" in item_data:
-                                        item.title = item_data["title"]
+                                        item.name = item_data["title"]
                                     if "content" in item_data:
                                         item.content = item_data["content"]
                                     if "status" in item_data:

@@ -4,19 +4,17 @@ This agent implements the "Generate -> Clean" pattern described in Task 3.2 & 3.
 It takes raw LLM output and processes it into structured, clean content.
 """
 
-from typing import Dict, List, Any
+from typing import List, Any
 import re
 import json
 from datetime import datetime
 
 from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..services.llm_service import get_llm_service
-from ..utils.agent_error_handling import (
-    AgentErrorHandler,
-    with_node_error_handling
-)
+from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
 from ..models.data_models import AgentIO, ContentType
 from ..orchestration.state import AgentState
+from ..models.cleaning_agent_models import CleaningAgentNodeResult
 
 
 class CleaningAgent(EnhancedAgentBase):
@@ -153,7 +151,7 @@ class CleaningAgent(EnhancedAgentBase):
                     # Log the JSON parsing failure and continue with regex fallback
                     self.logger.warning(
                         "JSON parsing failed for skills extraction, using regex fallback",
-                        session_id=getattr(context, 'session_id', None)
+                        session_id=getattr(context, "session_id", None),
                     )
 
             # Extract skills using regex patterns
@@ -292,7 +290,7 @@ class CleaningAgent(EnhancedAgentBase):
         return min(1.0, score)
 
     @with_node_error_handling("CleaningAgent", "run_as_node")
-    async def run_as_node(self, state: AgentState) -> Dict[str, Any]:
+    async def run_as_node(self, state: AgentState) -> CleaningAgentNodeResult:
         """Execute cleaning agent as a LangGraph node."""
         from ..models.data_models import ProcessingStatus
 
@@ -324,17 +322,17 @@ class CleaningAgent(EnhancedAgentBase):
             context,
         )
 
-        # Return state updates
-        return {
-            "cleaned_data": (
+        # Return state updates as a Pydantic model
+        return CleaningAgentNodeResult(
+            cleaned_data=(
                 result.output_data.get("cleaned_data", {}) if result.success else {}
             ),
-            "processing_status": (
+            processing_status=(
                 ProcessingStatus.COMPLETED
                 if result.success
                 else ProcessingStatus.FAILED
             ),
-        }
+        )
 
 
 def get_cleaning_agent() -> CleaningAgent:
