@@ -21,6 +21,7 @@ from src.core.application_startup import (
     validate_application,
 )
 from src.utils.exceptions import ServiceInitializationError
+from src.services.llm_service import EnhancedLLMService
 
 
 class TestApplicationStartup:
@@ -112,23 +113,23 @@ class TestApplicationStartup:
         # Should be called for each directory
         assert mock_makedirs.call_count == 5
 
-    @patch("src.core.application_startup.get_llm_service")
-    def test_initialize_llm_service_success(self, mock_get_llm_service):
+    @patch("src.core.application_startup.EnhancedLLMService")
+    def test_initialize_llm_service_success(self, mock_llm_service):
         """Test successful LLM service initialization."""
         mock_service = MagicMock()
-        mock_get_llm_service.return_value = mock_service
+        mock_llm_service.return_value = mock_service
 
         self.startup._initialize_llm_service("test_api_key")
 
         assert "llm_service" in self.startup.services
         assert self.startup.services["llm_service"].initialized is True
         assert self.startup.services["llm_service"].error is None
-        mock_get_llm_service.assert_called_once_with(user_api_key="test_api_key")
+        mock_llm_service.assert_called_once_with(user_api_key="test_api_key")
 
-    @patch("src.core.application_startup.get_llm_service")
-    def test_initialize_llm_service_failure(self, mock_get_llm):
+    @patch("src.core.application_startup.EnhancedLLMService")
+    def test_initialize_llm_service_failure(self, mock_llm_service):
         """Test LLM service initialization failure."""
-        mock_get_llm.side_effect = Exception("LLM service failed")
+        mock_llm_service.side_effect = Exception("LLM service failed")
 
         with pytest.raises(ServiceInitializationError) as exc_info:
             self.startup._initialize_llm_service("test_api_key")

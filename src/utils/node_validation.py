@@ -24,10 +24,25 @@ def validate_node_output(node_func):
     Returns:
         The wrapped function with output validation
     """
+
     @wraps(node_func)
-    async def wrapper(state: AgentState) -> Dict[str, Any]:
+    async def wrapper(state: AgentState) -> Any:
         # Execute the original node function
-        output_dict = await node_func(state)
+        output = await node_func(state)
+
+        # Accept both AgentState and dict outputs
+        is_agent_state = isinstance(output, AgentState)
+        if is_agent_state:
+            output_dict = output.model_dump()
+        elif isinstance(output, dict):
+            output_dict = output
+        else:
+            logger.critical(
+                f"Node '{node_func.__name__}' returned unsupported type: {type(output)}."
+            )
+            raise TypeError(
+                f"Node '{node_func.__name__}' must return AgentState or dict, got {type(output)}"
+            )
 
         # Get valid AgentState field names
         valid_keys: Set[str] = set(AgentState.model_fields.keys())
@@ -52,7 +67,11 @@ def validate_node_output(node_func):
             f"Node '{node_func.__name__}' output validation passed. Returned keys: {list(returned_keys)}"
         )
 
-        return output_dict
+        # Return the same type as the original output
+        if is_agent_state:
+            return AgentState(**output_dict)
+        else:
+            return output_dict
 
     return wrapper
 
@@ -67,7 +86,9 @@ def get_valid_agent_state_fields() -> Set[str]:
     return set(AgentState.model_fields.keys())
 
 
-def validate_output_dict(output_dict: Dict[str, Any], context: str = "unknown") -> Dict[str, Any]:
+def validate_output_dict(
+    output_dict: Dict[str, Any], context: str = "unknown"
+) -> Dict[str, Any]:
     """
     Standalone function to validate an output dictionary against AgentState fields.
 

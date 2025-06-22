@@ -21,8 +21,7 @@ from unittest.mock import Mock, AsyncMock, MagicMock, patch
 from typing import Any, Dict
 
 from src.agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from src.core.state_manager import AgentIO
-from src.models.data_models import LLMResponse
+from src.models.data_models import LLMResponse, AgentIO
 from src.agents.parser_agent import ParserAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
@@ -155,20 +154,21 @@ class TestCentralizedJsonParsing:
             )
 
     @pytest.mark.asyncio
-    @patch("src.agents.parser_agent.get_llm_service")
     async def test_parser_agent_uses_centralized_method(
-        self, mock_get_llm, mock_llm_service, agent_state
+        self, mock_llm_service, agent_state
     ):
         """Test that ParserAgent uses the centralized JSON parsing method."""
-        mock_get_llm.return_value = mock_llm_service
+        # Create parser agent with DI
+        agent = ParserAgent(
+            name="test_parser",
+            description="Test parser agent",
+            llm_service=mock_llm_service,
+        )
 
         # Setup mock response
         mock_response = MagicMock()
         mock_response.content = '{"skills": ["Python"], "experience_level": "Senior"}'
         mock_llm_service.generate_content.return_value = mock_response
-
-        # Create parser agent
-        agent = ParserAgent(name="test_parser", description="Test parser agent")
 
         # Mock the centralized method to verify it's called
         with patch.object(
@@ -190,15 +190,16 @@ class TestCentralizedJsonParsing:
             assert "trace_id" in call_args.kwargs or len(call_args.args) > 2
 
     @pytest.mark.asyncio
-    @patch("src.agents.research_agent.get_llm_service")
     async def test_research_agent_uses_centralized_method(
-        self, mock_get_llm, mock_llm_service, agent_state
+        self, mock_llm_service, agent_state
     ):
         """Test that ResearchAgent uses the centralized JSON parsing method."""
-        mock_get_llm.return_value = mock_llm_service
-
-        # Create research agent
-        agent = ResearchAgent(name="test_research", description="Test research agent")
+        # Create research agent with DI
+        agent = ResearchAgent(
+            name="test_research",
+            description="Test research agent",
+            llm_service=mock_llm_service,
+        )
 
         # Mock the centralized method to verify it's called
         with patch.object(
@@ -242,7 +243,7 @@ class TestCentralizedJsonParsing:
 
     def test_cleaning_agent_fallback_logic(self):
         """Test that CleaningAgent maintains its regex fallback logic."""
-        agent = CleaningAgent()
+        agent = CleaningAgent(llm_service=Mock())
 
         # Test that the agent still has the _extract_json_from_response method
         # for backward compatibility

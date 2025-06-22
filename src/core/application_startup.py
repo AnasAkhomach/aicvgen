@@ -17,7 +17,7 @@ import streamlit as st
 
 from ..config.logging_config import setup_logging, get_logger
 from ..config.environment import load_config
-from ..services.llm_service import get_llm_service
+from ..services.llm_service import EnhancedLLMService
 from ..services.vector_store_service import get_vector_store_service
 from ..services.session_manager import get_session_manager
 from ..utils.exceptions import ConfigurationError, ServiceInitializationError
@@ -28,6 +28,7 @@ logger = get_logger(__name__)
 @dataclass
 class ServiceStatus:
     """Status of a service during initialization."""
+
     name: str
     initialized: bool
     initialization_time: float
@@ -38,6 +39,7 @@ class ServiceStatus:
 @dataclass
 class StartupResult:
     """Result of application startup process."""
+
     success: bool
     total_time: float
     services: Dict[str, ServiceStatus]
@@ -55,60 +57,60 @@ class ApplicationStartup:
 
     def initialize_application(self, user_api_key: str = "") -> StartupResult:
         """Initialize the application with proper startup sequence.
-        
+
         Args:
             user_api_key: User-provided API key for LLM service
-            
+
         Returns:
             StartupResult: Result of the startup process
         """
         start_time = time.time()
         errors = []
-        
+
         logger.info("Starting application initialization")
-        
+
         try:
             # Phase 1: Core Infrastructure
             self._initialize_logging()
             self._initialize_environment()
             self._ensure_directories()
-            
+
             # Phase 2: External Services
             self._initialize_llm_service(user_api_key)
             self._initialize_vector_store()
-            
+
             # Phase 3: Application Services
             self._initialize_session_manager()
-            
+
             # Phase 4: Streamlit Configuration
             self._configure_streamlit()
-            
+
             self.is_initialized = True
             total_time = time.time() - start_time
             self.startup_time = total_time
-            
+
             logger.info(f"Application initialization completed in {total_time:.2f}s")
-            
+
             return StartupResult(
                 success=True,
                 total_time=total_time,
                 services=self.services.copy(),
                 errors=errors,
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
-            
+
         except Exception as e:
             total_time = time.time() - start_time
             error_msg = f"Application initialization failed: {str(e)}"
             errors.append(error_msg)
             logger.error(error_msg, exc_info=True)
-            
+
             return StartupResult(
                 success=False,
                 total_time=total_time,
                 services=self.services.copy(),
                 errors=errors,
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
 
     def _initialize_logging(self):
@@ -119,7 +121,7 @@ class ApplicationStartup:
             self.services["logging"] = ServiceStatus(
                 name="logging",
                 initialized=True,
-                initialization_time=time.time() - start_time
+                initialization_time=time.time() - start_time,
             )
             logger.info("Logging system initialized")
         except Exception as e:
@@ -127,7 +129,7 @@ class ApplicationStartup:
                 name="logging",
                 initialized=False,
                 initialization_time=time.time() - start_time,
-                error=str(e)
+                error=str(e),
             )
             raise ServiceInitializationError(f"Failed to initialize logging: {e}")
 
@@ -139,7 +141,7 @@ class ApplicationStartup:
             self.services["environment"] = ServiceStatus(
                 name="environment",
                 initialized=True,
-                initialization_time=time.time() - start_time
+                initialization_time=time.time() - start_time,
             )
             logger.info("Environment configuration loaded")
         except Exception as e:
@@ -147,7 +149,7 @@ class ApplicationStartup:
                 name="environment",
                 initialized=False,
                 initialization_time=time.time() - start_time,
-                error=str(e)
+                error=str(e),
             )
             raise ConfigurationError(f"Failed to load environment configuration: {e}")
 
@@ -160,16 +162,16 @@ class ApplicationStartup:
                 "data/output",
                 "data/cache",
                 "logs",
-                "data/vector_db"
+                "data/vector_db",
             ]
-            
+
             for directory in directories:
                 os.makedirs(directory, exist_ok=True)
-                
+
             self.services["directories"] = ServiceStatus(
                 name="directories",
                 initialized=True,
-                initialization_time=time.time() - start_time
+                initialization_time=time.time() - start_time,
             )
             logger.info("Required directories ensured")
         except Exception as e:
@@ -177,20 +179,27 @@ class ApplicationStartup:
                 name="directories",
                 initialized=False,
                 initialization_time=time.time() - start_time,
-                error=str(e)
+                error=str(e),
             )
             raise ServiceInitializationError(f"Failed to create directories: {e}")
 
     def _initialize_llm_service(self, user_api_key: str):
         """Initialize LLM service with fail-fast pattern."""
+        from src.config.settings import get_config
+        from src.services.rate_limiter import get_rate_limiter
+
         start_time = time.time()
         try:
-            llm_service = get_llm_service(user_api_key=user_api_key)
+            settings = get_config()
+            rate_limiter = get_rate_limiter()
+            llm_service = EnhancedLLMService(
+                settings=settings, rate_limiter=rate_limiter, user_api_key=user_api_key
+            )
             self.services["llm_service"] = ServiceStatus(
                 name="llm_service",
                 initialized=True,
                 initialization_time=time.time() - start_time,
-                dependencies=["environment"]
+                dependencies=["environment"],
             )
             logger.info("LLM service initialized")
         except Exception as e:
@@ -199,7 +208,6 @@ class ApplicationStartup:
                 initialized=False,
                 initialization_time=time.time() - start_time,
                 error=str(e),
-                dependencies=["environment"]
             )
             raise ServiceInitializationError(f"Failed to initialize LLM service: {e}")
 
@@ -212,7 +220,7 @@ class ApplicationStartup:
                 name="vector_store",
                 initialized=True,
                 initialization_time=time.time() - start_time,
-                dependencies=["directories"]
+                dependencies=["directories"],
             )
             logger.info("Vector store service initialized")
         except Exception as e:
@@ -221,7 +229,7 @@ class ApplicationStartup:
                 initialized=False,
                 initialization_time=time.time() - start_time,
                 error=str(e),
-                dependencies=["directories"]
+                dependencies=["directories"],
             )
             raise ServiceInitializationError(f"Failed to initialize vector store: {e}")
 
@@ -234,7 +242,7 @@ class ApplicationStartup:
                 name="session_manager",
                 initialized=True,
                 initialization_time=time.time() - start_time,
-                dependencies=["directories"]
+                dependencies=["directories"],
             )
             logger.info("Session manager initialized")
         except Exception as e:
@@ -243,7 +251,7 @@ class ApplicationStartup:
                 initialized=False,
                 initialization_time=time.time() - start_time,
                 error=str(e),
-                dependencies=["directories"]
+                dependencies=["directories"],
             )
             # Session manager is not critical, log warning but continue
             logger.warning(f"Session manager initialization failed: {e}")
@@ -253,12 +261,13 @@ class ApplicationStartup:
         start_time = time.time()
         try:
             from ..utils.streamlit_utils import configure_page
+
             configure_page()
-                
+
             self.services["streamlit"] = ServiceStatus(
                 name="streamlit",
                 initialized=True,
-                initialization_time=time.time() - start_time
+                initialization_time=time.time() - start_time,
             )
             logger.info("Streamlit configuration applied")
         except Exception as e:
@@ -266,7 +275,7 @@ class ApplicationStartup:
                 name="streamlit",
                 initialized=False,
                 initialization_time=time.time() - start_time,
-                error=str(e)
+                error=str(e),
             )
             # Streamlit config failure is not critical
             logger.warning(f"Streamlit configuration failed: {e}")
@@ -276,34 +285,43 @@ class ApplicationStartup:
         return {
             "initialized": self.is_initialized,
             "startup_time": self.startup_time,
-            "services": {name: {
-                "initialized": status.initialized,
-                "initialization_time": status.initialization_time,
-                "error": status.error,
-                "dependencies": status.dependencies or []
-            } for name, status in self.services.items()},
+            "services": {
+                name: {
+                    "initialized": status.initialized,
+                    "initialization_time": status.initialization_time,
+                    "error": status.error,
+                    "dependencies": status.dependencies or [],
+                }
+                for name, status in self.services.items()
+            },
             "total_services": len(self.services),
-            "successful_services": sum(1 for s in self.services.values() if s.initialized),
-            "failed_services": sum(1 for s in self.services.values() if not s.initialized)
+            "successful_services": sum(
+                1 for s in self.services.values() if s.initialized
+            ),
+            "failed_services": sum(
+                1 for s in self.services.values() if not s.initialized
+            ),
         }
 
     def validate_services(self) -> List[str]:
         """Validate that all critical services are properly initialized.
-        
+
         Returns:
             List of validation errors
         """
         errors = []
-        
+
         critical_services = ["logging", "environment", "llm_service", "vector_store"]
-        
+
         for service_name in critical_services:
             if service_name not in self.services:
                 errors.append(f"Critical service '{service_name}' not found")
             elif not self.services[service_name].initialized:
                 error_msg = self.services[service_name].error or "Unknown error"
-                errors.append(f"Critical service '{service_name}' failed to initialize: {error_msg}")
-        
+                errors.append(
+                    f"Critical service '{service_name}' failed to initialize: {error_msg}"
+                )
+
         return errors
 
 
@@ -321,10 +339,10 @@ def get_startup_manager() -> ApplicationStartup:
 
 def initialize_application(user_api_key: str = "") -> StartupResult:
     """Initialize the application using the startup manager.
-    
+
     Args:
         user_api_key: User-provided API key for LLM service
-        
+
     Returns:
         StartupResult: Result of the startup process
     """
@@ -340,7 +358,7 @@ def get_application_status() -> Dict[str, Any]:
 
 def validate_application() -> List[str]:
     """Validate that the application is properly initialized.
-    
+
     Returns:
         List of validation errors
     """

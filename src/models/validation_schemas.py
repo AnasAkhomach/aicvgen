@@ -6,6 +6,9 @@ This module provides validation functions and error handling for agent inputs an
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field, ValidationError
 import logging
+from ..orchestration.state import AgentState
+from ..models.data_models import StructuredCV, JobDescriptionData
+from ..models.research_models import ResearchFindings
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +16,7 @@ logger = logging.getLogger(__name__)
 # LLM Output Validation Schemas for JSON-based parsing
 class LLMJobDescriptionOutput(BaseModel):
     """Schema for validating the JSON output from the job description parsing LLM call."""
+
     skills: List[str] = Field(
         ..., description="List of key skills and technologies mentioned."
     )
@@ -32,6 +36,7 @@ class LLMJobDescriptionOutput(BaseModel):
 
 class LLMRoleGenerationOutput(BaseModel):
     """Schema for validating the JSON output for generating a single resume role."""
+
     organization_description: Optional[str] = Field(
         description="A brief description of the company."
     )
@@ -39,12 +44,14 @@ class LLMRoleGenerationOutput(BaseModel):
         description="A brief description of the role's main purpose."
     )
     bullet_points: List[str] = Field(
-        ..., description="A list of 3-5 generated resume bullet points tailored to the job description."
+        ...,
+        description="A list of 3-5 generated resume bullet points tailored to the job description.",
     )
 
 
 class LLMProjectGenerationOutput(BaseModel):
     """Schema for validating the JSON output for generating project content."""
+
     project_description: Optional[str] = Field(
         description="A brief description of the project."
     )
@@ -61,34 +68,77 @@ class LLMProjectGenerationOutput(BaseModel):
 
 class LLMSummaryOutput(BaseModel):
     """Schema for validating the JSON output for generating executive summary."""
+
     summary_text: str = Field(..., description="The generated executive summary text.")
-    key_strengths: List[str] = Field(..., description="List of key professional strengths highlighted.")
+    key_strengths: List[str] = Field(
+        ..., description="List of key professional strengths highlighted."
+    )
     career_focus: str = Field(..., description="Primary career focus or objective.")
 
 
 class LLMQualificationsOutput(BaseModel):
     """Schema for validating the JSON output for generating key qualifications."""
-    qualifications: List[str] = Field(..., description="List of key qualifications and competencies.")
-    technical_skills: List[str] = Field(..., description="List of technical skills to highlight.")
-    soft_skills: List[str] = Field(..., description="List of soft skills and interpersonal abilities.")
+
+    qualifications: List[str] = Field(
+        ..., description="List of key qualifications and competencies."
+    )
+    technical_skills: List[str] = Field(
+        ..., description="List of technical skills to highlight."
+    )
+    soft_skills: List[str] = Field(
+        ..., description="List of soft skills and interpersonal abilities."
+    )
 
 
-def validate_agent_input(agent_type: str, input_data: Any) -> Any:
-    """Validate agent input data and return validated model.
+# Input schemas for agent validation
+class ParserAgentInput(BaseModel):
+    cv_text: str
+    job_description_data: JobDescriptionData
 
-    Args:
-        agent_type: The type of agent (e.g., 'research', 'qa')
-        input_data: The input data to validate
 
-    Returns:
-        Any: Validated input data (returns original data if no specific validation)
-    """
+class ContentWriterAgentInput(BaseModel):
+    structured_cv: StructuredCV
+    research_findings: Optional[ResearchFindings] = None
+    current_item_id: str
+
+
+class ResearchAgentInput(BaseModel):
+    job_description_data: JobDescriptionData
+    structured_cv: StructuredCV
+
+
+class QualityAssuranceAgentInput(BaseModel):
+    structured_cv: StructuredCV
+    current_item_id: str
+
+
+def validate_agent_input(agent_type: str, state: AgentState) -> Any:
+    """Validate agent input data against a specific Pydantic model."""
     try:
-        # For now, return the input data as-is since we don't have specific
-        # validation schemas for each agent type
-        # NOTE: Specific validation schemas can be implemented per agent type as needed
-        return input_data
-    except ValueError as e:
+        if agent_type == "parser":
+            return ParserAgentInput(
+                cv_text=state.cv_text,
+                job_description_data=state.job_description_data,
+            )
+        elif agent_type == "content_writer":
+            return ContentWriterAgentInput(
+                structured_cv=state.structured_cv,
+                research_findings=getattr(state, "research_findings", None),
+                current_item_id=state.current_item_id,
+            )
+        elif agent_type == "research":
+            return ResearchAgentInput(
+                job_description_data=state.job_description_data,
+                structured_cv=state.structured_cv,
+            )
+        elif agent_type == "qa":
+            return QualityAssuranceAgentInput(
+                structured_cv=state.structured_cv,
+                current_item_id=state.current_item_id,
+            )
+        else:
+            return state
+    except ValidationError as e:
         logger.error("Validation error for %s: %s", agent_type, e)
         raise ValueError(f"Input validation failed for {agent_type}: {e}") from e
 

@@ -10,8 +10,8 @@ logger = logging.getLogger("vector_store_service")
 
 
 class VectorStoreService:
-    def __init__(self, settings=None):
-        self.settings = settings or get_config()
+    def __init__(self, settings):
+        self.settings = settings
         self.client = self._connect()
         self.collection = self._get_or_create_collection()
 
@@ -142,5 +142,5 @@ _vector_store_instance = None
 def get_vector_store_service():
     global _vector_store_instance
     if _vector_store_instance is None:
-        _vector_store_instance = VectorStoreService()
+        _vector_store_instance = VectorStoreService(get_config())
     return _vector_store_instance

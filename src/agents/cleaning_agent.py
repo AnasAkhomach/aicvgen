@@ -10,11 +10,11 @@ import json
 from datetime import datetime
 
 from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..services.llm_service import get_llm_service
 from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
 from ..models.data_models import AgentIO, ContentType
 from ..orchestration.state import AgentState
 from ..models.cleaning_agent_models import CleaningAgentNodeResult
+from ..services.llm_service import EnhancedLLMService
 
 
 class CleaningAgent(EnhancedAgentBase):
@@ -24,7 +24,7 @@ class CleaningAgent(EnhancedAgentBase):
     particularly for the "Big 10" skills generation feature.
     """
 
-    def __init__(self):
+    def __init__(self, llm_service):
         input_schema = AgentIO(
             description="Raw LLM output and processing instructions",
             required_fields=["raw_output", "output_type"],
@@ -45,7 +45,7 @@ class CleaningAgent(EnhancedAgentBase):
             content_type=ContentType.SKILLS,
         )
 
-        self.llm_service = get_llm_service()
+        self.llm_service = llm_service
 
     async def run_async(
         self, input_data: Any, context: AgentExecutionContext

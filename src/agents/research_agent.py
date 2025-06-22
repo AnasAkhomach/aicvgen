@@ -1,18 +1,16 @@
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..services.llm_service import get_llm_service
-from ..core.state_manager import (
-    JobDescriptionData,
+from ..models.data_models import (
     AgentIO,
+    JobDescriptionData,
     StructuredCV,
     Section,
     Subsection,
     Item,
 )
-from ..services.vector_store_service import get_vector_store_service
 from ..config.logging_config import get_structured_logger
 from ..models.data_models import AgentDecisionLog, AgentExecutionLog
 from ..config.settings import get_config
-from ..services.llm_service import LLMResponse
+from ..services.llm_service import EnhancedLLMService
 from ..utils.exceptions import (
     ValidationError,
     LLMResponseParsingError,
@@ -57,38 +55,29 @@ class ResearchAgent(EnhancedAgentBase):
     and REQ-FUNC-RESEARCH-4 from the SRS.
     """
 
-    def __init__(
-        self,
-        name: str,
-        description: str,
-        llm_service=None,
-    ):
-        self._latest_research_results = {}  # Initialize research results storage
-        """
-        Initializes the ResearchAgent.
-
-        Args:
-            name: The name of the agent.
-            description: A description of the agent.
-            llm_service: Optional LLM service instance for analysis.
-        """
+    def __init__(self, name: str, description: str, llm_service=None, vector_db=None):
+        input_schema = AgentIO(
+            description="Job description and CV for research",
+            required_fields=["job_description", "structured_cv"],
+        )
+        output_schema = AgentIO(
+            description="Research findings and insights",
+            required_fields=["research_findings"],
+        )
         super().__init__(
             name=name,
             description=description,
-            input_schema=AgentIO(
-                description="Reads structured CV and job description data from AgentState for research analysis.",
-                required_fields=["structured_cv", "job_description_data"],
-                optional_fields=[],
-            ),
-            output_schema=AgentIO(
-                description="Populates the 'research_findings' field in AgentState with analysis results.",
-                required_fields=["research_findings"],
-                optional_fields=["error_messages"],
-            ),
+            input_schema=input_schema,
+            output_schema=output_schema,
         )
-        self.llm = llm_service or get_llm_service()
-        self.vector_db = get_vector_store_service()
-
+        self.llm = llm_service
+        self.vector_db = vector_db
+        if self.llm is None:
+            self._dependency_error = (
+                "ResearchAgent requires a valid llm_service instance."
+            )
+        else:
+            self._dependency_error = None
         # Initialize settings for prompt loading
         self.settings = get_config()
 
@@ -125,22 +114,22 @@ class ResearchAgent(EnhancedAgentBase):
 
             # Handle None input_data
             if input_data is None:
-                input_data = {}
+                raise ValueError("input_data cannot be None for research agent")
 
-            # Create proper StructuredCV and JobDescriptionData objects
-            structured_cv = input_data.input.get("structured_cv")
-            if isinstance(structured_cv, dict):
-                structured_cv = StructuredCV(**structured_cv)
-            elif not structured_cv:
-                structured_cv = StructuredCV()
+            # Use direct attribute access for validated Pydantic model
+            structured_cv = input_data.structured_cv
+            job_desc_data = input_data.job_description_data
 
-            job_desc_data = input_data.input.get("job_description_data")
-            if isinstance(job_desc_data, dict):
-                job_desc_data = JobDescriptionData(**job_desc_data)
-            elif not job_desc_data:
-                job_desc_data = JobDescriptionData(
-                    raw_text=input_data.input.get("job_description", "")
+            # Defensive: Ensure job_description_data has all required fields
+            if (
+                hasattr(job_desc_data, "company_name")
+                and not job_desc_data.company_name
+            ):
+                job_desc_data = job_desc_data.copy(
+                    update={"company_name": "Unknown Company"}
                 )
+            if hasattr(job_desc_data, "title") and not job_desc_data.title:
+                job_desc_data = job_desc_data.copy(update={"title": "Unknown Title"})
 
             # Perform the actual research work
             research_findings = await self._perform_research_analysis(
@@ -205,9 +194,15 @@ class ResearchAgent(EnhancedAgentBase):
             )
 
             # Defensive: ensure company_name, industry_name, and key_values are correct types
-            company_name = company_info.get("company_name") or ""
+            company_name = company_info.get("company_name") or "Unknown Company"
             industry_name = str(company_info.get("industry") or "")
             key_values = company_info.get("values") or []
+            # Ensure culture is a string (comma-separated if list)
+            raw_culture = company_info.get("values")
+            if isinstance(raw_culture, list):
+                culture = ", ".join(str(v) for v in raw_culture)
+            else:
+                culture = str(raw_culture) if raw_culture is not None else None
 
             # Compile research findings
             research_findings = ResearchFindings(
@@ -220,7 +215,7 @@ class ResearchAgent(EnhancedAgentBase):
                         company_name=company_name,
                         industry=industry_name,
                         size=None,
-                        culture=company_info.get("values"),
+                        culture=culture,
                         recent_news=[],
                         key_values=key_values,
                         confidence_score=0.8,
@@ -604,17 +599,25 @@ class ResearchAgent(EnhancedAgentBase):
         }
 
     @with_node_error_handling("research")
-    async def run_as_node(self, state: AgentState) -> ResearchAgentNodeResult:
-        """Run the agent as a LangGraph node."""
+    async def run_as_node(self, state: AgentState):
+        if getattr(self, "_dependency_error", None):
+            return state.model_copy(
+                update={
+                    "error_messages": state.error_messages
+                    + [f"ResearchAgent dependency error: {self._dependency_error}"]
+                }
+            )
+
         logger.info("Research Agent: Starting node execution")
 
+        # Validate input using proper validation function
+        from ..models.validation_schemas import validate_agent_input
+
+        # Validate input data using Pydantic schemas
+        validated_input = validate_agent_input("research", state)
+
         # Create input for the agent
-        agent_input = AgentIO(
-            description="Research agent input",
-            structured_cv=state.structured_cv,
-            job_description=state.job_description_data,
-            metadata={"agent_name": self.name},
-        )
+        agent_input = state  # Pass the full AgentState, not AgentIO, to run_async
 
         # Run the agent
         result = await self.run_async(agent_input, state)
@@ -627,12 +630,16 @@ class ResearchAgent(EnhancedAgentBase):
                 if isinstance(research_findings, dict):
                     research_findings = ResearchFindings.from_dict(research_findings)
                 logger.info("Research Agent: Successfully completed research")
-                return ResearchAgentNodeResult(research_findings=research_findings)
+                return state.model_copy(update={"research_findings": research_findings})
             else:
                 error_msg = "Research Agent: No research findings in result"
                 logger.error(error_msg)
-                return ResearchAgentNodeResult(error_messages=[error_msg])
+                return state.model_copy(
+                    update={"error_messages": state.error_messages + [error_msg]}
+                )
         else:
             error_msg = f"Research Agent failed: {result.error_message}"
             logger.error(error_msg)
-            return ResearchAgentNodeResult(error_messages=[error_msg])
+            return state.model_copy(
+                update={"error_messages": state.error_messages + [error_msg]}
+            )

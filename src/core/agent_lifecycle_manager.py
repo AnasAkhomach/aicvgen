@@ -199,11 +199,47 @@ class AgentLifecycleManager:
     def register_agent_type(
         self,
         agent_type: str,
-        factory: Callable[[], EnhancedAgentBase],
+        factory: Callable[[], EnhancedAgentBase] = None,
         config: Optional[AgentPoolConfig] = None,
     ):
         """Register an agent type with the lifecycle manager."""
         with self._lock:
+            # Use DI container to resolve dependencies for each agent type
+            if agent_type == "cv_analyzer":
+
+                def factory():
+                    llm_service = self.container.get(
+                        type(self.container.get("llm_service")), "llm_service"
+                    )
+                    settings = self.container.get(
+                        type(self.container.get("settings")), "settings"
+                    )
+                    logger = self.container.get(
+                        type(self.container.get("logger")), "logger"
+                    )
+                    error_recovery = self.container.get(
+                        type(self.container.get("error_recovery")), "error_recovery"
+                    )
+                    progress_tracker = self.container.get(
+                        type(self.container.get("progress_tracker")), "progress_tracker"
+                    )
+                    session_manager = self.container.get(
+                        type(self.container.get("session_manager")), "session_manager"
+                    )
+                    from ..agents.cv_analyzer_agent import CVAnalyzerAgent
+
+                    return CVAnalyzerAgent(
+                        name="CVAnalyzerAgent",
+                        description="Analyzes CV content and job requirements to provide optimization recommendations",
+                        llm_service=llm_service,
+                        settings=settings,
+                        logger=logger,
+                        error_recovery=error_recovery,
+                        progress_tracker=progress_tracker,
+                        session_manager=session_manager,
+                    )
+
+            # ...repeat for other agent types, using the correct constructor signature and dependencies...
             self._agent_registry[agent_type] = factory
 
             if config is None:

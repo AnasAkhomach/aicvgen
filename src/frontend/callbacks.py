@@ -3,8 +3,8 @@ import streamlit as st
 import asyncio
 from typing import Optional
 from ..orchestration.state import AgentState, UserFeedback
-from ..services.llm_service import get_llm_service
 from ..utils.exceptions import ConfigurationError
+from src.services.llm_service import ConfigurationError
 
 
 def handle_user_action(action: str, item_id: str):
@@ -16,7 +16,7 @@ def handle_user_action(action: str, item_id: str):
     if action == "validate_api_key":
         handle_api_key_validation()
         return
-        
+
     # Get current state
     agent_state: Optional[AgentState] = st.session_state.get("agent_state")
 
@@ -55,27 +55,39 @@ def handle_user_action(action: str, item_id: str):
     st.rerun()
 
 
-def handle_api_key_validation():
+def handle_api_key_validation(llm_service=None):
     """
     Handle API key validation by calling the LLM service validate_api_key method.
     Updates session state with validation results.
+    Accepts an optional llm_service for DI/testing.
     """
+    import logging
+    from ..config.settings import get_config
+
     user_api_key = st.session_state.get("user_gemini_api_key", "")
-    
+
     if not user_api_key:
         st.error("Please enter an API key first")
         return
-    
+
     # Reset validation states
     st.session_state.api_key_validated = False
     st.session_state.api_key_validation_failed = False
-    
+
     try:
         # Show validation in progress
         with st.spinner("Validating API key..."):
-            # Get LLM service instance
-            llm_service = get_llm_service(user_api_key=user_api_key)
-            
+            # Use injected llm_service if provided, else create one
+            if llm_service is None:
+                from ..services.llm_service import EnhancedLLMService
+                from ..services.rate_limiter import get_rate_limiter
+
+                llm_service = EnhancedLLMService(
+                    settings=get_config(),
+                    rate_limiter=get_rate_limiter(),
+                    user_api_key=user_api_key,
+                )
+
             # Run validation asynchronously
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -83,21 +95,26 @@ def handle_api_key_validation():
                 is_valid = loop.run_until_complete(llm_service.validate_api_key())
             finally:
                 loop.close()
-            
+
             if is_valid:
                 st.session_state.api_key_validated = True
                 st.success("✅ API key is valid and ready to use!")
             else:
                 st.session_state.api_key_validation_failed = True
                 st.error("❌ API key validation failed. Please check your key.")
-                
+                logging.error(
+                    "Gemini API key validation failed: No exception, returned False."
+                )
+
     except ConfigurationError as e:
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Configuration error: {e}")
+        logging.error(f"Gemini API key configuration error: {e}")
     except Exception as e:
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Validation failed: {e}")
-    
+        logging.error(f"Gemini API key validation exception: {e}", exc_info=True)
+
     # Trigger rerun to update UI
     st.rerun()
 

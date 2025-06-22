@@ -130,8 +130,8 @@ class CircuitBreakerState:
 class ErrorRecoveryService:
     """Service for handling errors and implementing recovery strategies."""
 
-    def __init__(self):
-        self.logger = get_structured_logger("error_recovery")
+    def __init__(self, logger=None):
+        self.logger = logger
 
         # Error tracking
         self.error_history: Dict[str, List[ErrorContext]] = {}

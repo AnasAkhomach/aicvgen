@@ -129,13 +129,24 @@ class WorkflowType(Enum):
 
 class MetadataModel(BaseModel):
     # Extend this model as needed for common metadata fields
+    item_id: Optional[str] = None  # Added item_id for test and runtime compatibility
     company: Optional[str] = None
     position: Optional[str] = None
     location: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    status: Optional[ProcessingStatus] = None  # Added status field for item processing
+    processing_time_seconds: Optional[float] = None  # For timing info
+    tokens_used: Optional[int] = None  # For LLM usage info
     # Add more fields as required by the application
     extra: Optional[dict] = Field(default_factory=dict)
+
+    def update_status(
+        self, status: ProcessingStatus, error_message: Optional[str] = None
+    ):
+        self.status = status
+        if error_message is not None:
+            self.extra["error_message"] = error_message
 
 
 class Item(BaseModel):
@@ -250,19 +261,39 @@ class StructuredCV(BaseModel):
     ) -> tuple[Optional[Item], Optional[Section], Optional[Subsection]]:
         """Find an item by its ID and return the item along with its parent section and subsection.
 
+        Searches by both the actual item.id and the metadata.item_id as fallback.
+
         Returns:
             tuple: (item, section, subsection) where subsection is None if the item is directly in a section
         """
         for section in self.sections:
             # Check items directly in the section
             for item in section.items:
+                # Primary search: by actual item.id
                 if str(item.id) == item_id:
+                    return item, section, None
+                # Fallback search: by metadata.item_id
+                if (
+                    hasattr(item, "metadata")
+                    and item.metadata
+                    and hasattr(item.metadata, "item_id")
+                    and str(item.metadata.item_id) == item_id
+                ):
                     return item, section, None
 
             # Check items in subsections
             for subsection in section.subsections:
                 for item in subsection.items:
+                    # Primary search: by actual item.id
                     if str(item.id) == item_id:
+                        return item, section, subsection
+                    # Fallback search: by metadata.item_id
+                    if (
+                        hasattr(item, "metadata")
+                        and item.metadata
+                        and hasattr(item.metadata, "item_id")
+                        and str(item.metadata.item_id) == item_id
+                    ):
                         return item, section, subsection
 
         return None, None, None
@@ -312,8 +343,9 @@ class StructuredCV(BaseModel):
 
     def to_content_data(self) -> Dict[str, Any]:
         """Convert StructuredCV to ContentData format for backward compatibility."""
+        # Use self.metadata.extra.get instead of self.metadata.get
         content_data = {
-            "personal_info": self.metadata.get("personal_info", {}),
+            "personal_info": self.metadata.extra.get("personal_info", {}),
             "executive_summary": [],
             "professional_experience": [],
             "key_qualifications": [],
@@ -350,9 +382,9 @@ class StructuredCV(BaseModel):
             if not isinstance(content_data, dict):
                 return False
 
-            # Update personal info in metadata
+            # Update personal info in metadata.extra
             if "personal_info" in content_data:
-                self.metadata["personal_info"] = content_data["personal_info"]
+                self.metadata.extra["personal_info"] = content_data["personal_info"]
 
             # Clear existing sections
             self.sections.clear()  # pylint: disable=no-member
@@ -380,7 +412,8 @@ class StructuredCV(BaseModel):
                         self.sections.append(section)  # pylint: disable=no-member
 
             return True
-        except Exception:
+        except Exception as e:
+            # Optionally log e
             return False
 
 

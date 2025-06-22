@@ -22,10 +22,12 @@ from dataclasses import dataclass, asdict
 from pythonjsonlogger import jsonlogger
 from pythonjsonlogger.jsonlogger import JsonFormatter
 
+
 # Simple fallback redaction functions to avoid circular imports
 def redact_sensitive_data(data):
     """Simple fallback redaction function."""
     return data
+
 
 def redact_log_message(message):
     """Simple fallback redaction function."""
@@ -50,7 +52,7 @@ class SensitiveDataFilter(logging.Filter):
             True to allow the record to be logged
         """
         # Redact sensitive data in record.args if present
-        if hasattr(record, 'args') and record.args:
+        if hasattr(record, "args") and record.args:
             if isinstance(record.args, (tuple, list)):
                 record.args = tuple(redact_sensitive_data(arg) for arg in record.args)
             elif isinstance(record.args, dict):
@@ -63,28 +65,47 @@ class SensitiveDataFilter(logging.Filter):
             safe_attrs = {}
             for key, value in record.__dict__.items():
                 # Skip Python logging internal attributes that should not be modified
-                if key in ('name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 
-                          'filename', 'module', 'lineno', 'funcName', 'created', 'msecs',
-                          'relativeCreated', 'thread', 'threadName', 'processName', 
-                          'process', 'getMessage', 'exc_info', 'exc_text', 'stack_info'):
+                if key in (
+                    "name",
+                    "msg",
+                    "args",
+                    "levelname",
+                    "levelno",
+                    "pathname",
+                    "filename",
+                    "module",
+                    "lineno",
+                    "funcName",
+                    "created",
+                    "msecs",
+                    "relativeCreated",
+                    "thread",
+                    "threadName",
+                    "processName",
+                    "process",
+                    "getMessage",
+                    "exc_info",
+                    "exc_text",
+                    "stack_info",
+                ):
                     continue
-                    
+
                 # Only redact custom attributes that might contain sensitive data
                 if isinstance(value, (str, dict, list, tuple)):
                     safe_attrs[key] = redact_sensitive_data(value)
                 else:
                     safe_attrs[key] = value
-            
+
             # Update the record with redacted custom attributes
             for key, value in safe_attrs.items():
                 setattr(record, key, value)
-                
+
         except (TypeError, AttributeError, KeyError):
             # If we can't safely process attributes, leave them as is
             pass
 
         # Redact the message itself if it contains sensitive patterns
-        if hasattr(record, 'msg') and isinstance(record.msg, str):
+        if hasattr(record, "msg") and isinstance(record.msg, str):
             record.msg = redact_log_message(record.msg)
 
         return True
@@ -110,7 +131,7 @@ def setup_observability_logging():
 
         # Create JSON formatter with trace_id support
         formatter = jsonlogger.JsonFormatter(
-            '%(asctime)s %(name)s %(levelname)s %(message)s %(trace_id)s %(module)s %(funcName)s %(lineno)d'
+            "%(asctime)s %(name)s %(levelname)s %(message)s %(trace_id)s %(module)s %(funcName)s %(lineno)d"
         )
 
         log_handler.setFormatter(formatter)
@@ -131,6 +152,7 @@ def setup_observability_logging():
 @dataclass
 class LLMCallLog:
     """Structured log entry for LLM API calls."""
+
     timestamp: str
     model: str
     prompt_type: str
@@ -149,6 +171,7 @@ class LLMCallLog:
 @dataclass
 class RateLimitLog:
     """Structured log entry for rate limit tracking."""
+
     timestamp: str
     model: str
     requests_in_window: int
@@ -163,7 +186,7 @@ class RateLimitLog:
 from ..models.data_models import (
     AgentExecutionLog,
     AgentDecisionLog,
-    AgentPerformanceLog
+    AgentPerformanceLog,
 )
 
 
@@ -176,7 +199,14 @@ class StructuredLogger:
     """Logger with structured logging capabilities for LLM operations and agent tracking."""
 
     def __init__(self, name: str):
+        import logging
+
         self.logger = logging.getLogger(name)
+        if self.logger is None:
+            from .logging_config import setup_logging
+
+            setup_logging()
+            self.logger = logging.getLogger(name)
         self.llm_logger = logging.getLogger(f"{name}.llm")
         self.rate_limit_logger = logging.getLogger(f"{name}.rate_limit")
         self.agent_logger = logging.getLogger(f"{name}.agent")
@@ -184,10 +214,7 @@ class StructuredLogger:
 
     def log_llm_call(self, call_data: LLMCallLog):
         """Log an LLM API call with structured data."""
-        log_entry = {
-            "type": "llm_call",
-            "data": asdict(call_data)
-        }
+        log_entry = {"type": "llm_call", "data": asdict(call_data)}
 
         # Redact sensitive data before logging
         safe_log_entry = redact_sensitive_data(log_entry)
@@ -199,10 +226,7 @@ class StructuredLogger:
 
     def log_rate_limit(self, rate_data: RateLimitLog):
         """Log rate limit tracking information."""
-        log_entry = {
-            "type": "rate_limit",
-            "data": asdict(rate_data)
-        }
+        log_entry = {"type": "rate_limit", "data": asdict(rate_data)}
 
         if rate_data.limit_exceeded:
             self.rate_limit_logger.warning(json.dumps(log_entry))
@@ -211,10 +235,7 @@ class StructuredLogger:
 
     def log_agent_execution(self, execution_data: AgentExecutionLog):
         """Log agent execution with structured data."""
-        log_entry = {
-            "type": "agent_execution",
-            "data": asdict(execution_data)
-        }
+        log_entry = {"type": "agent_execution", "data": asdict(execution_data)}
 
         # Redact sensitive data before logging
         safe_log_entry = redact_sensitive_data(log_entry)
@@ -228,10 +249,7 @@ class StructuredLogger:
 
     def log_agent_decision(self, decision_data: AgentDecisionLog):
         """Log agent decision with structured data."""
-        log_entry = {
-            "type": "agent_decision",
-            "data": asdict(decision_data)
-        }
+        log_entry = {"type": "agent_decision", "data": asdict(decision_data)}
 
         # Redact sensitive data before logging
         safe_log_entry = redact_sensitive_data(log_entry)
@@ -239,10 +257,7 @@ class StructuredLogger:
 
     def log_agent_performance(self, performance_data: AgentPerformanceLog):
         """Log agent performance metrics with structured data."""
-        log_entry = {
-            "type": "agent_performance",
-            "data": asdict(performance_data)
-        }
+        log_entry = {"type": "agent_performance", "data": asdict(performance_data)}
 
         self.performance_logger.info(json.dumps(log_entry))
 
@@ -251,18 +266,20 @@ class StructuredLogger:
         # Handle both extra parameter and kwargs
         log_data = {}
         if extra:
-            log_data.update(extra)
+            # If extra is a dict, update log_data; otherwise, ignore non-dict extra
+            if isinstance(extra, dict):
+                log_data.update(extra)
         if kwargs:
             log_data.update(kwargs)
 
         # Prepare logging arguments
         log_kwargs = {}
         if exc_info is not None:
-            log_kwargs['exc_info'] = exc_info
+            log_kwargs["exc_info"] = exc_info
 
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            log_kwargs['extra'] = safe_log_data
+            log_kwargs["extra"] = safe_log_data
             self.logger.info(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
@@ -280,11 +297,11 @@ class StructuredLogger:
         # Prepare logging arguments
         log_kwargs = {}
         if exc_info is not None:
-            log_kwargs['exc_info'] = exc_info
+            log_kwargs["exc_info"] = exc_info
 
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            log_kwargs['extra'] = safe_log_data
+            log_kwargs["extra"] = safe_log_data
             self.logger.error(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
@@ -302,11 +319,11 @@ class StructuredLogger:
         # Prepare logging arguments
         log_kwargs = {}
         if exc_info is not None:
-            log_kwargs['exc_info'] = exc_info
+            log_kwargs["exc_info"] = exc_info
 
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            log_kwargs['extra'] = safe_log_data
+            log_kwargs["extra"] = safe_log_data
             self.logger.warning(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
@@ -324,18 +341,20 @@ class StructuredLogger:
         # Prepare logging arguments
         log_kwargs = {}
         if exc_info is not None:
-            log_kwargs['exc_info'] = exc_info
+            log_kwargs["exc_info"] = exc_info
 
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
-            log_kwargs['extra'] = safe_log_data
+            log_kwargs["extra"] = safe_log_data
             self.logger.debug(message, **log_kwargs)
         else:
             safe_message = redact_log_message(message)
             self.logger.debug(safe_message, **log_kwargs)
 
 
-def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True, config=None):
+def setup_logging(
+    log_level=logging.INFO, log_to_file=True, log_to_console=True, config=None
+):
     """
     Set up comprehensive logging configuration for the application.
 
@@ -348,13 +367,14 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
     # Import here to avoid circular imports
     try:
         from ..config.environment import config as app_config
+
         if config is None:
             config = app_config
     except ImportError:
         config = None
 
     # Use config values if available
-    if config and hasattr(config, 'logging'):
+    if config and hasattr(config, "logging"):
         log_level = config.logging.get_log_level()
         log_to_file = config.logging.log_to_file
         log_to_console = config.logging.log_to_console
@@ -371,11 +391,9 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
 
     # Create formatters
     detailed_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
+        "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
     )
-    simple_formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s'
-    )
+    simple_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     json_formatter = JsonFormatter()
 
     # Create sensitive data filter
@@ -399,20 +417,20 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
     if log_to_file:
         # Main application log (rotating) - Use JSON formatting for structured logs
         app_handler = logging.handlers.RotatingFileHandler(
-            logs_dir / "app.log",
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
+            logs_dir / "app.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
         )
         app_handler.setLevel(log_level)
-        app_handler.setFormatter(json_formatter)  # Use JSON formatter for structured logging
+        app_handler.setFormatter(
+            json_formatter
+        )  # Use JSON formatter for structured logging
         app_handler.addFilter(sensitive_filter)  # Add sensitive data filter
         root_logger.addHandler(app_handler)
 
         # Error log (for ERROR and CRITICAL only)
         error_handler = logging.handlers.RotatingFileHandler(
             logs_dir / "error" / "error.log",
-            maxBytes=5*1024*1024,  # 5MB
-            backupCount=3
+            maxBytes=5 * 1024 * 1024,  # 5MB
+            backupCount=3,
         )
         error_handler.setLevel(logging.ERROR)
         error_handler.setFormatter(detailed_formatter)
@@ -422,8 +440,8 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         # Debug log (for DEBUG level, separate file)
         debug_handler = logging.handlers.RotatingFileHandler(
             logs_dir / "debug" / "debug.log",
-            maxBytes=20*1024*1024,  # 20MB
-            backupCount=2
+            maxBytes=20 * 1024 * 1024,  # 20MB
+            backupCount=2,
         )
         debug_handler.setLevel(logging.DEBUG)
         debug_handler.setFormatter(detailed_formatter)
@@ -434,14 +452,16 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
             root_logger.addHandler(debug_handler)
 
         # Performance log (if enabled in config)
-        if config and hasattr(config, 'logging') and config.logging.performance_logging:
+        if config and hasattr(config, "logging") and config.logging.performance_logging:
             perf_handler = logging.handlers.RotatingFileHandler(
                 logs_dir / "performance.log",
-                maxBytes=10*1024*1024,  # 10MB
-                backupCount=3
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=3,
             )
             perf_handler.setLevel(logging.INFO)
-            perf_handler.setFormatter(json_formatter)  # Use JSON formatter for structured performance logs
+            perf_handler.setFormatter(
+                json_formatter
+            )  # Use JSON formatter for structured performance logs
             perf_handler.addFilter(sensitive_filter)  # Add sensitive data filter
 
             # Create performance logger
@@ -451,12 +471,12 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
 
         # Security log for authentication and authorization events - Use JSON formatting
         security_handler = logging.handlers.RotatingFileHandler(
-            logs_dir / "security.log",
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
+            logs_dir / "security.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
         )
         security_handler.setLevel(logging.INFO)
-        security_handler.setFormatter(json_formatter)  # Use JSON formatter for structured security logs
+        security_handler.setFormatter(
+            json_formatter
+        )  # Use JSON formatter for structured security logs
         security_handler.addFilter(sensitive_filter)  # Add sensitive data filter
 
         # Create security logger
@@ -468,16 +488,18 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         # LLM API calls log (structured JSON) - CRITICAL: Must filter sensitive data
         llm_handler = logging.handlers.RotatingFileHandler(
             logs_dir / "llm" / "llm_calls.log",
-            maxBytes=50*1024*1024,  # 50MB
-            backupCount=10
+            maxBytes=50 * 1024 * 1024,  # 50MB
+            backupCount=10,
         )
         llm_handler.setLevel(logging.INFO)
-        llm_formatter = logging.Formatter('%(asctime)s - %(message)s')
+        llm_formatter = logging.Formatter("%(asctime)s - %(message)s")
         llm_handler.setFormatter(llm_formatter)
-        llm_handler.addFilter(sensitive_filter)  # CRITICAL: Filter API keys and sensitive data
+        llm_handler.addFilter(
+            sensitive_filter
+        )  # CRITICAL: Filter API keys and sensitive data
 
         # Add LLM handler to all LLM loggers
-        llm_logger = logging.getLogger('llm')
+        llm_logger = logging.getLogger("llm")
         llm_logger.addHandler(llm_handler)
         llm_logger.setLevel(logging.INFO)
         llm_logger.propagate = False  # Don't propagate to root logger
@@ -485,15 +507,15 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
         # Rate limit tracking log
         rate_limit_handler = logging.handlers.RotatingFileHandler(
             logs_dir / "rate_limit" / "rate_limits.log",
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5,
         )
         rate_limit_handler.setLevel(logging.INFO)
         rate_limit_handler.setFormatter(llm_formatter)
         rate_limit_handler.addFilter(sensitive_filter)  # Add sensitive data filter
 
         # Add rate limit handler
-        rate_limit_logger = logging.getLogger('rate_limit')
+        rate_limit_logger = logging.getLogger("rate_limit")
         rate_limit_logger.addHandler(rate_limit_handler)
         rate_limit_logger.setLevel(logging.INFO)
         rate_limit_logger.propagate = False  # Don't propagate to root logger
@@ -515,9 +537,26 @@ def setup_logging(log_level=logging.INFO, log_to_file=True, log_to_console=True,
 # ============================================================================
 
 
-def get_structured_logger(name: str) -> StructuredLogger:
-    """Get a structured logger instance for LLM operations."""
-    return StructuredLogger(name)
+def get_structured_logger(name: str):
+    """Get a structured logger instance for LLM operations. Always ensure logging is initialized."""
+    import logging
+
+    try:
+        logger = logging.getLogger(name)
+        # If no handlers, initialize logging (safe for repeated calls)
+        if not logger.hasHandlers():
+            from .logging_config import setup_logging
+
+            setup_logging()
+        return StructuredLogger(name)
+    except Exception:
+        # Fallback to stdlib logger
+        logger = logging.getLogger(name)
+        if not logger.hasHandlers():
+            from .logging_config import setup_logging
+
+            setup_logging()
+        return logger
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -550,12 +589,14 @@ def log_function_performance(func_name: str, duration: float, **kwargs):
         "function": func_name,
         "duration_seconds": duration,
         "timestamp": datetime.now().isoformat(),
-        **kwargs
+        **kwargs,
     }
     perf_logger.info("PERFORMANCE: %s", json.dumps(metrics))
 
 
-def log_security_event(event_type: str, details: Dict[str, Any] = None, severity: str = "info"):
+def log_security_event(
+    event_type: str, details: Dict[str, Any] = None, severity: str = "info"
+):
     """
     Log a security-related event.
 
@@ -570,7 +611,7 @@ def log_security_event(event_type: str, details: Dict[str, Any] = None, severity
         "event_type": event_type,
         "severity": severity,
         "timestamp": datetime.now().isoformat(),
-        "details": details or {}
+        "details": details or {},
     }
 
     message = f"Security Event: {event_type} | {json.dumps(event_info)}"
@@ -583,7 +624,12 @@ def log_security_event(event_type: str, details: Dict[str, Any] = None, severity
         security_logger.info(message)
 
 
-def log_error_with_context(logger_name: str, error: Exception, context: Dict[str, Any] = None, error_type: str = "application"):
+def log_error_with_context(
+    logger_name: str,
+    error: Exception,
+    context: Dict[str, Any] = None,
+    error_type: str = "application",
+):
     """
     Log an error with additional context information.
 
@@ -600,11 +646,12 @@ def log_error_with_context(logger_name: str, error: Exception, context: Dict[str
         "error_class": error.__class__.__name__,
         "error_message": str(error),
         "timestamp": datetime.now().isoformat(),
-        "context": context or {}
+        "context": context or {},
     }
 
-    if hasattr(error, '__traceback__') and error.__traceback__:
+    if hasattr(error, "__traceback__") and error.__traceback__:
         import traceback
+
         error_info["traceback"] = traceback.format_exception(
             type(error), error, error.__traceback__
         )
@@ -619,11 +666,11 @@ def log_request(request_info: dict):
     access_logger = logging.getLogger("access")
     access_logger.info(
         "%s %s - Status: %s - Duration: %.3fs - IP: %s",
-        request_info.get('method', 'UNKNOWN'),
-        request_info.get('path', '/'),
-        request_info.get('status', 'UNKNOWN'),
-        request_info.get('duration', 0),
-        request_info.get('ip', 'UNKNOWN')
+        request_info.get("method", "UNKNOWN"),
+        request_info.get("path", "/"),
+        request_info.get("status", "UNKNOWN"),
+        request_info.get("duration", 0),
+        request_info.get("ip", "UNKNOWN"),
     )
 
 

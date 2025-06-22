@@ -45,21 +45,21 @@ def mock_api_key():
 @pytest.fixture
 def mock_llm_client(mock_api_key):
     """Create a mock LLM client for testing."""
-    with patch('src.services.llm_service.genai') as mock_genai:
+    with patch("src.services.llm_service.genai") as mock_genai:
         # Mock the genai module
         mock_model = Mock()
         mock_genai.GenerativeModel.return_value = mock_model
         mock_genai.configure = Mock()
-        
+
         # Create real service instance with mocked API
-        service = EnhancedLLMService(api_key=mock_api_key)
+        service = EnhancedLLMService(user_api_key=mock_api_key)
         service.llm = mock_model
-        
+
         # Default successful response
         mock_response = Mock()
         mock_response.text = "Generated content from LLM"
         service.llm.generate_content_async = AsyncMock(return_value=mock_response)
-        
+
         yield service
 
 
@@ -71,7 +71,9 @@ def mock_progress_tracker():
     tracker.update_progress = AsyncMock()
     tracker.complete_job = AsyncMock()
     tracker.fail_job = AsyncMock()
-    tracker.get_progress = Mock(return_value={"completed": 0, "total": 0, "percentage": 0})
+    tracker.get_progress = Mock(
+        return_value={"completed": 0, "total": 0, "percentage": 0}
+    )
     return tracker
 
 
@@ -121,15 +123,15 @@ def sample_job_description(job_role):
                 "Proficiency in Python, Java, or C++",
                 "Experience with web frameworks (Django, Flask, Spring)",
                 "Knowledge of databases (SQL, NoSQL)",
-                "Familiarity with cloud platforms (AWS, GCP, Azure)"
+                "Familiarity with cloud platforms (AWS, GCP, Azure)",
             ],
             "preferred_skills": [
                 "Microservices architecture",
                 "CI/CD pipelines",
                 "Docker and Kubernetes",
-                "Agile development methodologies"
+                "Agile development methodologies",
             ],
-            "description": "We are looking for a senior software engineer to join our growing team..."
+            "description": "We are looking for a senior software engineer to join our growing team...",
         },
         "ai_engineer": {
             "title": "AI/ML Engineer",
@@ -139,15 +141,15 @@ def sample_job_description(job_role):
                 "Proficiency in Python and ML libraries (TensorFlow, PyTorch, scikit-learn)",
                 "Experience with data preprocessing and feature engineering",
                 "Knowledge of deep learning architectures",
-                "Familiarity with MLOps practices"
+                "Familiarity with MLOps practices",
             ],
             "preferred_skills": [
                 "Natural Language Processing",
                 "Computer Vision",
                 "Model deployment and monitoring",
-                "Big data technologies (Spark, Hadoop)"
+                "Big data technologies (Spark, Hadoop)",
             ],
-            "description": "Join our AI team to develop cutting-edge machine learning solutions..."
+            "description": "Join our AI team to develop cutting-edge machine learning solutions...",
         },
         "data_scientist": {
             "title": "Senior Data Scientist",
@@ -157,16 +159,16 @@ def sample_job_description(job_role):
                 "Strong statistical analysis skills",
                 "Proficiency in Python/R and SQL",
                 "Experience with data visualization tools",
-                "Knowledge of A/B testing and experimental design"
+                "Knowledge of A/B testing and experimental design",
             ],
             "preferred_skills": [
                 "Business intelligence tools",
                 "Advanced analytics and modeling",
                 "Communication and presentation skills",
-                "Domain expertise in relevant industry"
+                "Domain expertise in relevant industry",
             ],
-            "description": "We're seeking a senior data scientist to drive data-driven insights..."
-        }
+            "description": "We're seeking a senior data scientist to drive data-driven insights...",
+        },
     }
     return job_descriptions[job_role]
 
@@ -181,7 +183,7 @@ def sample_cv_data():
             "phone": "+1-555-0123",
             "location": "San Francisco, CA",
             "linkedin": "linkedin.com/in/johndoe",
-            "github": "github.com/johndoe"
+            "github": "github.com/johndoe",
         },
         "summary": "Experienced software engineer with 8+ years of full-stack development experience...",
         "qualifications": [
@@ -189,20 +191,20 @@ def sample_cv_data():
                 "skill": "Python",
                 "level": "Expert",
                 "years_experience": 6,
-                "description": "Extensive experience in Python development including web frameworks, data analysis, and automation"
+                "description": "Extensive experience in Python development including web frameworks, data analysis, and automation",
             },
             {
                 "skill": "JavaScript",
                 "level": "Advanced",
                 "years_experience": 5,
-                "description": "Proficient in modern JavaScript, React, Node.js, and TypeScript"
+                "description": "Proficient in modern JavaScript, React, Node.js, and TypeScript",
             },
             {
                 "skill": "Cloud Platforms",
                 "level": "Intermediate",
                 "years_experience": 3,
-                "description": "Experience with AWS services, Docker, and Kubernetes"
-            }
+                "description": "Experience with AWS services, Docker, and Kubernetes",
+            },
         ],
         "experience": [
             {
@@ -212,8 +214,8 @@ def sample_cv_data():
                 "achievements": [
                     "Led development of microservices architecture serving 1M+ users",
                     "Improved system performance by 40% through optimization",
-                    "Mentored 3 junior developers"
-                ]
+                    "Mentored 3 junior developers",
+                ],
             },
             {
                 "company": "WebDev Corp",
@@ -222,9 +224,9 @@ def sample_cv_data():
                 "achievements": [
                     "Developed RESTful APIs using Django and PostgreSQL",
                     "Implemented CI/CD pipelines reducing deployment time by 60%",
-                    "Collaborated with cross-functional teams on product features"
-                ]
-            }
+                    "Collaborated with cross-functional teams on product features",
+                ],
+            },
         ],
         "projects": [
             {
@@ -234,8 +236,8 @@ def sample_cv_data():
                 "achievements": [
                     "Implemented real-time inventory management",
                     "Integrated multiple payment gateways",
-                    "Achieved 99.9% uptime"
-                ]
+                    "Achieved 99.9% uptime",
+                ],
             },
             {
                 "name": "Data Analytics Dashboard",
@@ -244,18 +246,18 @@ def sample_cv_data():
                 "achievements": [
                     "Processed and visualized 1TB+ of data",
                     "Reduced report generation time by 80%",
-                    "Enabled real-time decision making"
-                ]
-            }
+                    "Enabled real-time decision making",
+                ],
+            },
         ],
         "education": [
             {
                 "degree": "Bachelor of Science in Computer Science",
                 "institution": "University of Technology",
                 "year": "2018",
-                "gpa": "3.8/4.0"
+                "gpa": "3.8/4.0",
             }
-        ]
+        ],
     }
 
 
@@ -263,43 +265,41 @@ def sample_cv_data():
 def sample_items(sample_cv_data):
     """Create sample items for processing."""
     items = []
-    
+
     # Create qualification items
     for i, qual in enumerate(sample_cv_data["qualifications"]):
-        items.append(Item(
-            content=qual["description"],
-            status=ItemStatus.INITIAL,
-            metadata={
-                "item_id": f"qual-{i+1}",
-                "item_type": "qualification",
-                **qual
-            }
-        ))
-    
+        items.append(
+            Item(
+                content=qual["description"],
+                status=ItemStatus.INITIAL,
+                metadata={
+                    "item_id": f"qual-{i+1}",
+                    "item_type": "qualification",
+                    **qual,
+                },
+            )
+        )
+
     # Create experience items
     for i, exp in enumerate(sample_cv_data["experience"]):
-        items.append(Item(
-            content=f"{exp['position']} at {exp['company']}",
-            status=ItemStatus.INITIAL,
-            metadata={
-                "item_id": f"exp-{i+1}",
-                "item_type": "experience",
-                **exp
-            }
-        ))
-    
+        items.append(
+            Item(
+                content=f"{exp['position']} at {exp['company']}",
+                status=ItemStatus.INITIAL,
+                metadata={"item_id": f"exp-{i+1}", "item_type": "experience", **exp},
+            )
+        )
+
     # Create project items
     for i, proj in enumerate(sample_cv_data["projects"]):
-        items.append(Item(
-            content=proj["description"],
-            status=ItemStatus.INITIAL,
-            metadata={
-                "item_id": f"proj-{i+1}",
-                "item_type": "project",
-                **proj
-            }
-        ))
-    
+        items.append(
+            Item(
+                content=proj["description"],
+                status=ItemStatus.INITIAL,
+                metadata={"item_id": f"proj-{i+1}", "item_type": "project", **proj},
+            )
+        )
+
     return items
 
 
@@ -309,11 +309,7 @@ def mock_successful_llm_response():
     return LLMResponse(
         success=True,
         content="Enhanced and tailored content generated by LLM",
-        metadata={
-            "model": "gemini-pro",
-            "processing_time": 1.5,
-            "tokens_used": 150
-        }
+        metadata={"model": "gemini-pro", "processing_time": 1.5, "tokens_used": 150},
     )
 
 
@@ -324,10 +320,7 @@ def mock_failed_llm_response():
         success=False,
         content=None,
         error_message="LLM service failed after retries",
-        metadata={
-            "retry_count": 3,
-            "last_error": "Rate limit exceeded"
-        }
+        metadata={"retry_count": 3, "last_error": "Rate limit exceeded"},
     )
 
 
@@ -338,12 +331,12 @@ def environment_setup(monkeypatch, mock_api_key, temp_dir):
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("CACHE_DIR", str(temp_dir / "cache"))
     monkeypatch.setenv("OUTPUT_DIR", str(temp_dir / "output"))
-    
+
     # Create necessary directories
     (temp_dir / "cache").mkdir(exist_ok=True)
     (temp_dir / "output").mkdir(exist_ok=True)
     (temp_dir / "logs").mkdir(exist_ok=True)
-    
+
     yield
 
 
@@ -359,6 +352,7 @@ def qa_callback():
 
 # Utility fixtures for common test scenarios
 
+
 @pytest.fixture
 def processing_context(sample_job_description, environment_setup):
     """Create a complete processing context for E2E tests."""
@@ -369,8 +363,8 @@ def processing_context(sample_job_description, environment_setup):
         "user_preferences": {
             "style": "professional",
             "length": "detailed",
-            "focus_areas": ["technical_skills", "leadership"]
-        }
+            "focus_areas": ["technical_skills", "leadership"],
+        },
     }
 
 
@@ -381,21 +375,21 @@ def error_scenarios():
         "rate_limit": {
             "exception": "google.api_core.exceptions.ResourceExhausted",
             "message": "Rate limit exceeded",
-            "should_retry": True
+            "should_retry": True,
         },
         "network_timeout": {
             "exception": "TimeoutError",
             "message": "Request timeout",
-            "should_retry": True
+            "should_retry": True,
         },
         "invalid_api_key": {
             "exception": "ConfigurationError",
             "message": "Invalid API key",
-            "should_retry": False
+            "should_retry": False,
         },
         "service_unavailable": {
             "exception": "google.api_core.exceptions.ServiceUnavailable",
             "message": "Service temporarily unavailable",
-            "should_retry": True
-        }
+            "should_retry": True,
+        },
     }

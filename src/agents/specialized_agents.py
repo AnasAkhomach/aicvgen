@@ -14,7 +14,7 @@ from ..models.data_models import StructuredCV, JobDescriptionData
 from ..models.cv_analysis_result import CVAnalysisResult
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
-from ..services.llm_service import get_llm_service
+from ..services.llm_service import EnhancedLLMService
 from ..utils.agent_error_handling import AgentErrorHandler
 
 logger = get_structured_logger("specialized_agents")
@@ -23,7 +23,7 @@ logger = get_structured_logger("specialized_agents")
 class CVAnalysisAgent(EnhancedAgentBase):
     """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
 
-    def __init__(self):
+    def __init__(self, llm_service, settings):
         super().__init__(
             name="CVAnalysisAgent",
             description="Analyzes CV content and job requirements to provide optimization recommendations",
@@ -35,8 +35,8 @@ class CVAnalysisAgent(EnhancedAgentBase):
                 "analysis_results": CVAnalysisResult,
             },
         )
-        self.llm_service = get_llm_service()
-        self.settings = get_config()
+        self.llm_service = llm_service
+        self.settings = settings
 
     async def run_async(
         self, input_data: dict, context: AgentExecutionContext
@@ -239,7 +239,7 @@ class EnhancedParserAgent(EnhancedAgentBase):
         self.parser_agent = ParserAgent(
             name="ParserAgent",
             description="Parses CV and JD.",
-            llm_service=get_llm_service(),
+            # llm_service must be injected by the factory or DI container
         )
 
     async def run_async(

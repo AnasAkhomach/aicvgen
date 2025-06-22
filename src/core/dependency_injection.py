@@ -8,6 +8,7 @@ from enum import Enum
 import weakref
 import time
 from datetime import datetime, timedelta
+import google.generativeai as genai
 
 from ..config.logging_config import get_structured_logger
 from ..utils.error_handling import (
@@ -16,6 +17,9 @@ from ..utils.error_handling import (
     ErrorSeverity,
     ErrorContext,
 )
+from src.services.llm_client import LLMClient
+from src.services.llm_retry_handler import LLMRetryHandler
+from src.services.llm_service import EnhancedLLMService
 
 logger = get_structured_logger(__name__)
 T = TypeVar("T")
@@ -498,3 +502,60 @@ def reset_container() -> None:
         if _global_container:
             _global_container.shutdown()
         _global_container = None
+
+
+def build_llm_service(
+    settings,
+    rate_limiter,
+    error_recovery,
+    performance_optimizer,
+    async_optimizer,
+    cache,
+    user_api_key=None,
+):
+    llm_client = LLMClient(genai.GenerativeModel(settings.llm_settings.default_model))
+    llm_retry_handler = LLMRetryHandler(
+        llm_client, EnhancedLLMService._is_retryable_error
+    )
+    return EnhancedLLMService(
+        settings=settings,
+        rate_limiter=rate_limiter,
+        error_recovery=error_recovery,
+        performance_optimizer=performance_optimizer,
+        async_optimizer=async_optimizer,
+        cache=cache,
+        user_api_key=user_api_key,
+    )
+
+
+# Example registration in DI container (to be called during app startup)
+def register_services(container):
+    container.register_singleton(
+        name="EnhancedLLMService",
+        dependency_type=EnhancedLLMService,
+        factory=lambda: build_llm_service(
+            settings=container.get(
+                type(container._registrations["settings"].dependency_type), "settings"
+            ),
+            rate_limiter=container.get(
+                type(container._registrations["EnhancedRateLimiter"].dependency_type),
+                "EnhancedRateLimiter",
+            ),
+            error_recovery=container.get(
+                type(container._registrations["ErrorRecoveryService"].dependency_type),
+                "ErrorRecoveryService",
+            ),
+            performance_optimizer=container.get(
+                type(container._registrations["PerformanceOptimizer"].dependency_type),
+                "PerformanceOptimizer",
+            ),
+            async_optimizer=container.get(
+                type(container._registrations["AsyncOptimizer"].dependency_type),
+                "AsyncOptimizer",
+            ),
+            cache=container.get(
+                type(container._registrations["AdvancedCache"].dependency_type),
+                "AdvancedCache",
+            ),
+        ),
+    )

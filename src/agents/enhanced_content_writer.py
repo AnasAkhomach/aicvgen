@@ -6,7 +6,7 @@ import json
 
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from .parser_agent import ParserAgent
-from ..services.llm_service import get_llm_service, LLMResponse
+from ..services.llm_service import LLMResponse
 from ..models.data_models import (
     ContentType,
     JobDescriptionData,
@@ -15,10 +15,10 @@ from ..models.data_models import (
     Subsection,
     Item,
     ItemStatus,
+    AgentIO,
 )
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
-from ..core.state_manager import AgentIO
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
 from ..models.validation_schemas import validate_agent_input
@@ -44,6 +44,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         name: str = "EnhancedContentWriter",
         description: str = "Enhanced agent for generating tailored CV content with advanced error handling and progress tracking",
         content_type: ContentType = ContentType.QUALIFICATION,
+        llm_service=None,
     ):
         """Initialize the enhanced content writer agent."""
         super().__init__(
@@ -61,9 +62,13 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
             ),
             content_type=content_type,
         )
-
-        # Enhanced services
-        self.llm_service = get_llm_service()
+        self.llm_service = llm_service
+        if self.llm_service is None:
+            self._dependency_error = (
+                "EnhancedContentWriterAgent requires a valid llm_service instance."
+            )
+        else:
+            self._dependency_error = None
 
         # Initialize settings for prompt loading
         self.settings = get_config()
@@ -817,9 +822,8 @@ Additional Context:
 Generate enhanced content that aligns with the job requirements and demonstrates value to the employer.
 """
 
-    @with_node_error_handling
     @optimize_async("agent_execution", "enhanced_content_writer")
-    async def run_as_node(self, state: AgentState) -> dict:
+    async def run_as_node(self, state):
         """
         Executes the content generation logic as a LangGraph node.
         Processes a single item specified by `current_item_id` in the state.
@@ -830,8 +834,18 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         Returns:
             A dictionary containing the updated 'structured_cv'.
         """
-        # Validate input using proper validation function
-        validated_input = validate_agent_input("enhanced_content_writer", state)
+        if getattr(self, "_dependency_error", None):
+            return state.model_copy(
+                update={
+                    "error_messages": state.error_messages
+                    + [
+                        f"EnhancedContentWriterAgent dependency error: {self._dependency_error}"
+                    ]
+                }
+            )  # Validate input using proper validation function
+        from ..models.validation_schemas import validate_agent_input
+
+        validated_input = validate_agent_input("content_writer", state)
         logger.info(
             "Input validation passed for EnhancedContentWriterAgent",
         )
@@ -844,7 +858,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             logger.error("Content writer called without current_item_id")
             error_list = state.error_messages or []
             error_list.append("ContentWriter failed: No current_item_id provided.")
-            return {"error_messages": error_list}
+            return state.model_copy(update={"error_messages": error_list})
 
         # Process the single item using the async method with research findings
         result = await self._process_single_item(
@@ -859,21 +873,21 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         )
 
         if result.success:
-            # Extract the updated CV from the result
-            updated_cv_data = result.output_data.get("structured_cv")
-            if updated_cv_data:
-                # Convert back to StructuredCV model
-                updated_cv = StructuredCV.model_validate(updated_cv_data)
-                logger.info(f"Successfully processed item {state.current_item_id}")
-                return {"structured_cv": updated_cv}
+            # Convert result.output_data back to StructuredCV if it's a dict
+            from ..models.data_models import StructuredCV
 
-        # If not successful, add error to state
-        logger.error(
-            f"Failed to process item {state.current_item_id}: {result.error_message}"
-        )
-        error_list = state.error_messages or []
-        error_list.append(f"ContentWriter Error: {result.error_message}")
-        return {"error_messages": error_list}
+            if isinstance(result.output_data, dict):
+                # Extract the structured_cv data from the nested dict
+                cv_data = result.output_data.get("structured_cv", result.output_data)
+                updated_cv = StructuredCV(**cv_data)
+            else:
+                updated_cv = result.output_data
+
+            return state.model_copy(update={"structured_cv": updated_cv})
+        else:
+            error_list = state.error_messages or []
+            error_list.append(result.error_message or "ContentWriter failed.")
+            return state.model_copy(update={"error_messages": error_list})
 
     async def generate_big_10_skills(
         self, job_description: str, my_talents: str = ""
@@ -909,7 +923,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                     "error": "Empty response from LLM",
                 }
 
-            # Parse the response into individual skills
+                # Parse the response into individual skills
             skills_list = self.parser_agent._parse_big_10_skills(response.content)
 
             logger.info(f"Successfully generated {len(skills_list)} skills")
@@ -1067,16 +1081,17 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                     )
                     fallback_content = self._generate_item_fallback_content(
                         target_item, target_section, target_subsection, job_description
-                    )
-
-                    # Update the target item with fallback content
+                    )  # Update the target item with fallback content
                     target_item.content = fallback_content
                     target_item.status = ItemStatus.GENERATED_FALLBACK
                     target_item.raw_llm_output = f"LLM_FAILED: {response.error_message}"
                     if not target_item.metadata:
-                        target_item.metadata = {}
-                    target_item.metadata.update(
-                        {"fallback_used": True, "error": response.error_message}
+                        from ..models.data_models import MetadataModel
+
+                        target_item.metadata = MetadataModel()
+                    # Use model_copy for Pydantic models instead of .update()
+                    target_item.metadata = target_item.metadata.model_copy(
+                        update={"fallback_used": True, "error": response.error_message}
                     )
 
                     logger.info(f"Applied fallback content for item: {item_id}")
@@ -1097,16 +1112,17 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 logger.error(f"LLM service exception for item {item_id}: {llm_error}")
                 fallback_content = self._generate_item_fallback_content(
                     target_item, target_section, target_subsection, job_description
-                )
-
-                # Update the target item with fallback content
+                )  # Update the target item with fallback content
                 target_item.content = fallback_content
                 target_item.status = ItemStatus.GENERATED_FALLBACK
                 target_item.raw_llm_output = f"LLM_EXCEPTION: {str(llm_error)}"
                 if not target_item.metadata:
-                    target_item.metadata = {}
-                target_item.metadata.update(
-                    {"fallback_used": True, "error": str(llm_error)}
+                    from ..models.data_models import MetadataModel
+
+                    target_item.metadata = MetadataModel()
+                # Use model_copy for Pydantic models instead of .update()
+                target_item.metadata = target_item.metadata.model_copy(
+                    update={"fallback_used": True, "error": str(llm_error)}
                 )
 
                 logger.info(

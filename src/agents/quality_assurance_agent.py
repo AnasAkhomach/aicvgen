@@ -1,6 +1,6 @@
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..services.llm_service import get_llm_service
-from ..core.state_manager import (
+from ..services.llm_service import EnhancedLLMService
+from ..models.data_models import (
     ContentData,
     AgentIO,
     StructuredCV,
@@ -71,7 +71,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 optional_fields=["structured_cv", "error_messages"],
             ),
         )
-        self.llm = llm_service or get_llm_service()
+        self.llm = llm_service
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
@@ -262,12 +262,12 @@ class QualityAssuranceAgent(EnhancedAgentBase):
 
     @with_node_error_handling("quality_assurance")
     @optimize_async("agent_execution", "quality_assurance")
-    async def run_as_node(self, agent_state: "AgentState") -> dict:
+    async def run_as_node(self, state):
         """
         Run the agent as a LangGraph node.
 
         Args:
-            state: The current state of the workflow.
+            agent_state: The current state of the workflow.
 
         Returns:
             Updated AgentState with quality check results.
@@ -275,8 +275,12 @@ class QualityAssuranceAgent(EnhancedAgentBase):
         logger.info("Quality Assurance Agent: Starting node execution")
 
         try:
-            structured_cv = agent_state.structured_cv
-            job_desc_data = agent_state.job_description_data
+            from ..models.validation_schemas import validate_agent_input
+
+            validated_input = validate_agent_input("qa", state)
+
+            structured_cv = state.structured_cv
+            job_desc_data = state.job_description_data
             key_terms = self._extract_key_terms(job_desc_data)
 
             # Perform quality checks
@@ -285,21 +289,19 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 for section in structured_cv.sections
             ]
             overall_checks = self._check_overall_cv(structured_cv, key_terms)
-            result = QualityAssuranceResult(
+            qa_results = QualityAssuranceResult(
                 section_results=section_results,
                 overall_checks=overall_checks,
             )
 
-            # Update state
-            agent_state.quality_check_results = result.dict()
-
-            logger.info(
-                f"Quality Assurance Agent: Completed with status {result.overall_status}"
-            )
+            # After processing, build and return a new AgentState
+            return state.model_copy(update={"quality_check_results": qa_results})
 
         except Exception as e:
-            error_msg = f"Quality Assurance Agent failed: {str(e)}"
-            logger.error(error_msg)
-            agent_state.error_messages.append(error_msg)
-
-        return {"output_data": result.dict()}
+            return state.model_copy(
+                update={
+                    "error_messages": state.error_messages
+                    + [f"Quality Assurance Agent failed: {str(e)}"],
+                    "quality_check_results": None,
+                }
+            )

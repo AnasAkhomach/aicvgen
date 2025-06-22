@@ -8,12 +8,11 @@ from typing import Any, TYPE_CHECKING
 
 from .agent_base import EnhancedAgentBase, AgentResult
 from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
 from ..models.data_models import AgentIO, AgentDecisionLog
 from ..models.cv_analyzer_models import BasicCVInfo, CVAnalyzerNodeResult
+from ..models.cv_analysis_result import CVAnalysisResult
 from ..models.validation_schemas import validate_agent_input
 from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
-from ..services.llm_service import get_llm_service
 
 if TYPE_CHECKING:
     from .agent_base import AgentExecutionContext
@@ -24,13 +23,15 @@ class CVAnalyzerAgent(EnhancedAgentBase):
     Agent responsible for analyzing the user's CV and extracting relevant information.
     """
 
-    def __init__(self, name: str, description: str):
+    def __init__(self, name: str, description: str, llm_service, settings):
         """
         Initializes the CVAnalyzerAgent.
 
         Args:
             name: The name of the agent.
             description: A description of the agent.
+            llm_service: Injected LLM service dependency.
+            settings: Injected settings/config dependency.
         """
         super().__init__(
             name=name,
@@ -44,11 +45,9 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 required_fields=["analysis_results", "extracted_data"],
             ),
         )
-        self.llm_service = get_llm_service()  # Use enhanced LLM service
+        self.llm_service = llm_service  # Injected enhanced LLM service
         self.timeout = 30  # Maximum wait time in seconds
-
-        # Initialize settings for prompt loading
-        self.settings = get_config()
+        self.settings = settings  # Injected settings for prompt loading
 
     def extract_basic_info(self, cv_text: str) -> "BasicCVInfo":
         """
@@ -147,13 +146,10 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
         if not raw_cv_text:
             print("Warning: Empty CV text provided to CVAnalyzerAgent.")
-            return {
-                "summary": "",
-                "experiences": [],
-                "skills": [],
-                "education": [],
-                "projects": [],
-            }
+            # Return a BasicCVInfo instance for empty input
+            from ..models.cv_analyzer_models import BasicCVInfo
+
+            return BasicCVInfo(summary="")
 
         print(f"Analyzing CV...\n Raw Text (first 200 chars): {raw_cv_text[:200]}...")
 
@@ -223,15 +219,16 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON from LLM response during CV analysis: {e}")
             print("Using fallback extraction instead.")
-            fallback_extraction["summary"] = (
-                f"Error parsing CV: {fallback_extraction.get('summary', '')}"
+            # fallback_extraction is a BasicCVInfo, update summary
+            fallback_extraction.summary = (
+                f"Error parsing CV: {getattr(fallback_extraction, 'summary', '')}"
             )
             return fallback_extraction
         except Exception as e:
             print(f"An unexpected error occurred during CV analysis: {e}")
             print("Using fallback extraction instead.")
-            fallback_extraction["summary"] = (
-                f"Error analyzing CV: {fallback_extraction.get('summary', '')}"
+            fallback_extraction.summary = (
+                f"Error analyzing CV: {getattr(fallback_extraction, 'summary', '')}"
             )
             return fallback_extraction
 
@@ -337,9 +334,16 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         # Execute the agent
         result = await self.run_async(input_data, context)
 
-        # Return updated state slice as a Pydantic model
+        # Ensure output is a CVAnalysisResult instance
+        if isinstance(result.output_data, dict):
+            cv_analysis = CVAnalysisResult(**result.output_data)
+        elif isinstance(result.output_data, CVAnalysisResult):
+            cv_analysis = result.output_data
+        else:
+            cv_analysis = None
+
         return CVAnalyzerNodeResult(
-            cv_analysis_results=result.output_data,
+            cv_analysis_results=cv_analysis,
             cv_analyzer_success=result.success,
             cv_analyzer_confidence=result.confidence_score,
             cv_analyzer_error=result.error_message,

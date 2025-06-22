@@ -106,9 +106,9 @@ class SessionInfo:
 class SessionManager:
     """Manager for user sessions and state persistence."""
 
-    def __init__(self, storage_path: Optional[Path] = None):
-        self.logger = get_structured_logger("session_manager")
-        self.settings = get_config()
+    def __init__(self, logger=None, settings=None, storage_path: Optional[Path] = None):
+        self.logger = logger
+        self.settings = settings
 
         # Storage configuration
         self.storage_path = storage_path or self.settings.sessions_directory

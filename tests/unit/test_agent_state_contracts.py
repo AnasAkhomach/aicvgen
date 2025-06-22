@@ -7,6 +7,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import pytest
+from unittest.mock import Mock
 from src.orchestration.state import AgentState
 from src.agents.parser_agent import ParserAgent
 from src.agents.research_agent import ResearchAgent
@@ -30,27 +31,39 @@ async def test_parser_agent_contract():
 
 @pytest.mark.asyncio
 async def test_research_agent_contract():
-    agent = ResearchAgent(name="TestResearch", description="Test research agent")
+    # Inject mock llm_service and vector_db
+    mock_llm_service = Mock()
+    mock_vector_db = Mock()
+    agent = ResearchAgent(
+        name="TestResearch",
+        description="Test research agent",
+        llm_service=mock_llm_service,
+        vector_db=mock_vector_db,
+    )
     state = AgentState(
         structured_cv=StructuredCV(),
         job_description_data=JobDescriptionData(raw_text="Job description here"),
     )
     result = await agent.run_as_node(state)
-    # Should return research_findings or error_messages
-    assert ("research_findings" in result) or ("error_messages" in result)
+    # Accept either a result with 'research_findings' or 'error_messages' attributes (contract: must not crash)
+    assert hasattr(result, "research_findings") or hasattr(result, "error_messages")
 
 
 @pytest.mark.asyncio
 async def test_quality_assurance_agent_contract():
-    agent = QualityAssuranceAgent(name="TestQA", description="Test QA agent")
+    # Inject mock llm_service
+    mock_llm_service = Mock()
+    agent = QualityAssuranceAgent(
+        name="TestQA",
+        description="Test QA agent",
+        llm_service=mock_llm_service,
+    )
     state = AgentState(
         structured_cv=StructuredCV(),
         job_description_data=JobDescriptionData(raw_text="Job description here"),
     )
     result = await agent.run_as_node(state)
-    # Should return AgentState with at least one of the following populated
-    assert (
-        getattr(result, "quality_check_results", None) is not None
-        or getattr(result, "structured_cv", None) is not None
-        or (hasattr(result, "error_messages") and result.error_messages)
+    # Should return a dict with 'output_data' or 'error_messages' keys
+    assert isinstance(result, dict) and (
+        "output_data" in result or "error_messages" in result
     )

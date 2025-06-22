@@ -1,1202 +1,1080 @@
-# TASK_BLUEPRINT.md: anasakhomach-aicvgen Stabilization
+# TASK_BLUEPRINT.md
 
-## 1. Overview
+## Overview
 
-This document outlines the prioritized tasks for remediating technical debt and stabilizing the `anasakhomach-aicvgen` system. The plan is divided into three phases:
+This document outlines the stabilization and technical debt remediation plan for the `anasakhomach-aicvgen` project. The primary goal is to address critical architectural drift, contract breaches, and code smells identified in the technical audit. The successful completion of these tasks will result in a more robust, maintainable, and scalable codebase, paving the way for future feature development.
 
-*   **P1 (Stabilization):** Fix all critical runtime errors and contract breaches causing immediate failures.
-*   **P2 (Consolidation & Refactoring):** Address architectural drift and code duplication to improve maintainability and reduce fragility.
-*   **P3 (Structural Improvement):** Implement deeper changes to enforce best practices and prevent future technical debt.
+This plan prioritizes fixes as follows:
+-   **P1 (Critical):** Issues causing runtime failures, data loss, or significant architectural decay.
+-   **P2 (High):** Issues that increase complexity, hinder testability, and violate core design principles.
+-   **P3 (Medium):** Issues related to code duplication, inconsistencies, and deprecated logic that affect maintainability.
 
-Each task includes a root cause analysis, impacted components, and a detailed implementation plan with testing requirements.
+## 1. Core Architecture: Dependency Injection Enforcement (AD-01)
 
----
+-   **Priority:** P1 (Critical)
+-   **Root Cause:** The `AgentLifecycleManager` is the intended central factory for agents, but its use is inconsistent. Many agents bypass it by fetching their own dependencies (e.g., `LLMService`) using global `get_...()` service locators. This practice undermines the DI pattern, creating tight coupling and making testing difficult.
+-   **Impacted Modules:**
+    -   `src/core/dependency_injection.py`
+    -   `src/core/agent_lifecycle_manager.py`
+    -   All agent implementations (e.g., `enhanced_content_writer.py`, `parser_agent.py`)
+    -   All service implementations (e.g., `llm_service.py`)
 
-## 2. Per-Component Remediation Plan
+### Logic Change: Enforce Constructor Injection via Factories
 
-### 2.1. Services (`src/services/llm_service.py`)
+All agents and services must declare their dependencies in their constructors. The `AgentLifecycleManager` will be the single point of agent creation, and its registered factories will use the `DependencyContainer` to resolve and inject dependencies during instantiation.
 
-#### Task 2.1.1: Consolidate Caching & Retry Logic (DP-01)
+#### Before (`src/agents/agent_base.py`):
 
-*   **Priority:** `P2`
-*   **Root Cause:** Two independent caching systems (`AdvancedCache` class and `_response_cache` dict) and two retry-condition functions (`is_transient_error` and `_should_retry_exception`) exist, creating redundancy, complexity, and risk of inconsistent behavior.
-*   **Impacted Modules:** `src/services/llm_service.py`
-*   **Team Consensus:** The team agrees to consolidate on `AdvancedCache` due to its superior features (Persistence, TTL, LRU Eviction, Statistics).
+```python
+# src/agents/agent_base.py
+from ..services.error_recovery import get_error_recovery_service
 
-*   **Required Changes:**
-    1.  Remove the legacy `_response_cache` dictionary and its helper functions (`get_cached_response`, `set_cached_response`).
-    2.  Refactor `generate_content` to use only the `self.cache` (`AdvancedCache` instance).
-    3.  Consolidate `is_transient_error` and `_should_retry_exception` into a single, robust method within the `EnhancedLLMService` class.
-
-*   **Code Snippets (Before/After):**
-
-    *   **Before (Duplicated Caching):**
-        ```python
-        # src/services/llm_service.py
-
+class EnhancedAgentBase(ABC):
+    def __init__(self, name: str, ...):
+        # Dependencies are fetched globally, hiding them.
+        self.error_recovery = get_error_recovery_service()
         # ...
-        _response_cache = {} # Legacy cache
+```
 
-        class EnhancedLLMService:
-            def __init__(self):
-                self.cache = AdvancedCache() # Modern cache
+#### After (`src/agents/agent_base.py`):
 
-            async def generate_content(self, prompt: str, ...):
-                # Checks legacy cache
-                cached = get_cached_response(...)
-                if cached:
-                    return cached
+```python
+# src/agents/agent_base.py
+from ..services.error_recovery import ErrorRecoveryService
 
-                # Checks modern cache
-                cached = self.cache.get(...)
-                if cached:
-                    return cached
+class EnhancedAgentBase(ABC):
+    def __init__(
+        self,
+        name: str,
+        # ... other params
+        error_recovery_service: ErrorRecoveryService,
+        # ... other dependencies
+    ):
+        # Dependencies are explicitly injected.
+        self.name = name
+        self.error_recovery = error_recovery_service
+        # ...
+```
 
-                # ... generation logic ...
-        ```
+#### After (`src/core/agent_lifecycle_manager.py` - Example Factory Registration):
 
-    *   **After (Consolidated Caching):**
-        ```python
-        # src/services/llm_service.py
+```python
+# src/core/agent_lifecycle_manager.py
+from ..core.dependency_injection import get_container
+from ..agents.parser_agent import ParserAgent
+from ..services.llm_service import EnhancedLLMService
 
-        class EnhancedLLMService:
-            def __init__(self):
-                self.cache = AdvancedCache()
+def register_agents(lifecycle_manager):
+    container = get_container()
 
-            async def generate_content(self, prompt: str, ...):
-                # Only checks the single, modern cache instance
-                cache_key = self.cache._generate_cache_key(prompt, self.model_name)
-                cached = self.cache.get(cache_key)
-                if cached:
-                    # ... return cached response
+    def parser_agent_factory() -> ParserAgent:
+        # Resolve dependencies from the container
+        llm_service = container.get(EnhancedLLMService)
+        # Inject dependencies into the constructor
+        return ParserAgent(
+            name="ParserAgent",
+            description="Parses CV and JD.",
+            llm_service=llm_service
+        )
 
-                # ... generation logic ...
-        ```
+    # Register the factory with the lifecycle manager
+    lifecycle_manager.register_agent_type(
+        agent_type="parser",
+        factory=parser_agent_factory,
+        # ... other pool config
+    )
+```
 
-*   **Implementation Checklist:**
-    1.  [ ] Delete the global `_response_cache` dictionary from `llm_service.py`.
-    2.  [ ] Delete the `get_cached_response` and `set_cached_response` helper functions.
-    3.  [ ] Refactor the `generate_content` method to remove calls to the old cache functions.
-    4.  [ ] Consolidate `is_transient_error` and `_should_retry_exception` into a private method `_is_retryable_error`.
-    5.  [ ] Update the `@retry` decorator to use the new `_is_retryable_error` method.
-    6.  [ ] Run all related unit tests to ensure no regressions.
+### Implementation Checklist
 
-*   **Tests to Add:**
-    *   Unit test in `tests/unit/test_llm_service.py` to verify that a cached response is returned correctly from `AdvancedCache`.
-    *   Unit test to confirm that `_response_cache` no longer exists and calls to it raise an error.
-    *   Unit test for `_is_retryable_error` with various exception types.
+1.  **Modify Constructors:** Update the `__init__` method of all agents and services to accept their dependencies as arguments.
+2.  **Update Factories:** Refactor the agent creation factories used by `AgentLifecycleManager`. Inside each factory, use `container.get(DependencyType)` to resolve dependencies and pass them into the agent's constructor.
+3.  **Remove Global Getters:** Perform a codebase-wide removal of all `get_...()` service locator calls from within the business logic of components. Replace them with `self.dependency_name`.
+4.  **Update `DependencyContainer`:** Ensure all services (like `EnhancedLLMService`, `ErrorRecoveryService`, etc.) are registered as singletons in the `DependencyContainer` so they can be resolved by the factories.
+
+## 2. Models & State Contracts
+
+### 2.1. Fix `AgentState` Contract Breach (CB-01)
+
+-   **Priority:** P1 (Critical)
+-   **Root Cause:** The `AgentState` model lacks a field to store the `CVAnalysisResult` object produced by `CVAnalysisAgent`, causing the analysis output to be lost during the workflow.
+-   **Impacted Modules:** `src/orchestration/state.py`, `src/agents/cv_analyzer_agent.py`, `src/orchestration/cv_workflow_graph.py`
+
+#### Logic Change: Extend `AgentState`
+
+Add a new optional field to `AgentState` to hold the analysis results.
+
+#### Before (`src/orchestration/state.py`):
+
+```python
+# src/orchestration/state.py
+class AgentState(BaseModel):
+    # ... existing fields
+    structured_cv: StructuredCV
+    # No field for CV analysis results
+```
+
+#### After (`src/orchestration/state.py`):
+
+```python
+# src/orchestration/state.py
+from typing import Optional
+from pydantic import BaseModel
+from ..models.data_models import StructuredCV
+from ..models.cv_analysis_result import CVAnalysisResult
+
+class AgentState(BaseModel):
+    # ... existing fields
+    structured_cv: StructuredCV
+    cv_analysis_results: Optional[CVAnalysisResult] = None # New field
+```
+
+### Implementation Checklist
+
+1.  **Update `AgentState`:** Add `cv_analysis_results: Optional[CVAnalysisResult] = None` to the `AgentState` model in `src/orchestration/state.py`.
+2.  **Update `CVAnalysisAgent`:** Ensure the `run_as_node` method of `CVAnalysisAgent` returns a dictionary with the key `cv_analysis_results` holding the `CVAnalysisResult` object.
+3.  **Update Workflow Graph:** Add a node for `cv_analyzer_agent` to `cv_workflow_graph.py` and ensure it's correctly wired in the workflow sequence.
+
+### 2.2. Implement Agent Input Validation (CS-03)
+
+-   **Priority:** P2 (High)
+-   **Root Cause:** The `validate_agent_input` function is a stub and does not perform any validation, exposing agents to potentially malformed data.
+-   **Impacted Modules:** `src/models/validation_schemas.py`, all agent `run_as_node` methods.
+
+#### Logic Change: Define Per-Agent Input Schemas
+
+Create specific Pydantic models for the inputs required by each agent's `run_as_node` method.
+
+#### Before (`src/models/validation_schemas.py`):
+
+```python
+# src/models/validation_schemas.py
+def validate_agent_input(agent_type: str, input_data: Any) -> Any:
+    # Placeholder: No actual validation is performed.
+    return input_data
+```
+
+#### After (`src/models/validation_schemas.py`):
+
+```python
+# src/models/validation_schemas.py
+from pydantic import BaseModel, Field, ValidationError
+from typing import Any, Dict, Optional
+from ..orchestration.state import AgentState
+from ..models.data_models import StructuredCV
+
+# Example for ContentWriterAgent
+class ContentWriterInput(BaseModel):
+    structured_cv: StructuredCV
+    current_item_id: str = Field(..., min_length=1)
+    research_findings: Optional[Dict[str, Any]] = None
+
+def validate_agent_input(agent_type: str, state: AgentState) -> Any:
+    """Validate agent input data against a specific Pydantic model."""
+    try:
+        if agent_type == "enhanced_content_writer":
+            input_data_dict = {
+                "structured_cv": state.structured_cv,
+                "current_item_id": state.current_item_id,
+                "research_findings": state.research_findings
+            }
+            return ContentWriterInput.model_validate(input_data_dict)
+        # ... add validation for other agents
+        return state # Return full state if no specific validation
+    except ValidationError as e:
+        # Re-raise as a custom exception if needed, or handle here
+        raise ValueError(f"Input validation failed for {agent_type}: {e}") from e
+```
+
+### Implementation Checklist
+
+1.  **Define Input Models:** In `src/models/validation_schemas.py`, create Pydantic models for the inputs of `ParserAgent`, `EnhancedContentWriterAgent`, `ResearchAgent`, and `QualityAssuranceAgent`.
+2.  **Update `validate_agent_input`:** Implement the logic in `validate_agent_input` to select the correct model based on `agent_type` and validate the relevant slice of the `AgentState`.
+3.  **Integrate Validation:** Call `validate_agent_input` at the beginning of each agent's `run_as_node` method.
+
+## 3. Service Refactoring
+
+### 3.1. Decompose `EnhancedLLMService` (CS-01)
+
+-   **Priority:** P2 (High)
+-   **Root Cause:** `EnhancedLLMService` is a "God object" managing API calls, retries, caching, rate limiting, and API key switching, violating the Single Responsibility Principle.
+-   **Impacted Modules:** `src/services/llm_service.py`
+
+#### Logic Change: Composition over Monolith
+
+Decompose the service into smaller, focused components. The main service will orchestrate these components.
+
+#### Before (`src/services/llm_service.py`):
+
+```python
+# A single large class handles everything
+class EnhancedLLMService:
+    @retry(...)
+    async def generate_content(...):
+        # ... checks cache
+        # ... waits for rate limit
+        # ... makes API call
+        # ... handles fallback keys
+```
+
+#### After (New Proposed Structure):
+
+```python
+# src/services/llm_client.py
+class LLMClient:
+    """Handles the direct API call to the LLM provider."""
+    async def generate(self, prompt: str, model_name: str) -> Any:
+        # ... logic to call genai.GenerativeModel(...).generate_content
+        pass
+
+# src/services/llm_retry_handler.py
+from tenacity import retry
+class LLMRetryHandler:
+    """Wraps an LLM client with retry logic."""
+    def __init__(self, client: LLMClient):
+        self.client = client
+
+    @retry(...)
+    async def generate_with_retries(self, prompt: str, model_name: str) -> Any:
+        return await self.client.generate(prompt, model_name)
+
+# src/services/llm_service.py (Refactored)
+class EnhancedLLMService:
+    """Orchestrates LLM-related operations."""
+    def __init__(self, retry_handler: LLMRetryHandler, cache: AdvancedCache, ...):
+        self.retry_handler = retry_handler
+        self.cache = cache
+
+    async def generate_content(self, prompt: str, ...) -> LLMResponse:
+        cached = self.cache.get(...)
+        if cached:
+            return cached
+        response = await self.retry_handler.generate_with_retries(...)
+        self.cache.set(...)
+        return response
+```
+
+### Implementation Checklist
+
+1.  **Create `LLMClient`:** Create a new class responsible only for making the API call to Gemini.
+2.  **Create `LLMRetryHandler`:** Create a class that wraps an `LLMClient` and uses `tenacity` for retries.
+3.  **Refactor `EnhancedLLMService`:** Modify the main service to accept the new components via its constructor (DI). Its `generate_content` method will now orchestrate calls to the cache and the retry handler.
+4.  **Update `DependencyContainer`:** Adjust the DI container to correctly build and inject this new chain of services.
+
+### 3.2. Make `StateManager` I/O Async (PB-01)
+
+-   **Priority:** P2 (High)
+-   **Root Cause:** `StateManager.save_state` uses synchronous file I/O, which blocks the `asyncio` event loop. The primary caller (`SessionManager._periodic_cleanup`) is already `async`.
+-   **Impacted Modules:** `src/core/state_manager.py`, `src/services/session_manager.py`
+
+#### Logic Change: Use `asyncio.to_thread`
+
+Convert the `save_state` method to `async` and wrap the blocking I/O call.
+
+#### Before (`src/core/state_manager.py`):
+
+```python
+# src/core/state_manager.py
+import json
+class StateManager:
+    def save_state(self):
+        # ...
+        with open(state_file, "w") as f:
+            json.dump(...) # This is a blocking call
+```
+
+#### After (`src/core/state_manager.py`):
+
+```python
+# src/core/state_manager.py
+import json
+import asyncio
+from .state_manager import EnumEncoder # Assuming EnumEncoder is in the same module
+
+class StateManager:
+    async def save_state(self):
+        structured_cv = self.get_structured_cv()
+        if not structured_cv:
+            return None
+        # ... logic to create state_file path ...
+        state_file = f"data/sessions/{structured_cv.id}/state.json"
+
+        def blocking_io():
+            os.makedirs(os.path.dirname(state_file), exist_ok=True)
+            with open(state_file, "w") as f:
+                json.dump(structured_cv.to_dict(), f, indent=2, cls=EnumEncoder)
+
+        await asyncio.to_thread(blocking_io)
+        return state_file
+```
+
+### Implementation Checklist
+
+1.  **Modify `save_state`:** Change its signature to `async def save_state(self):`. Wrap the `with open(...)` block in a local function and execute it with `await asyncio.to_thread(...)`.
+2.  **Modify `load_state`:** Apply the same `async def` and `asyncio.to_thread` pattern for `json.load()`.
+3.  **Update `SessionManager`:** Find the call to `save_state` within `SessionManager` (likely in a cleanup task) and add the `await` keyword.
+
+### 3.3. Centralize Duplicated Logic (D-01, D-03)
+
+-   **Priority:** P3 (Medium)
+-   **Root Cause:** Logic for rate-limit error detection and fallback content generation is duplicated.
+-   **Impacted Modules:** `src/agents/enhanced_content_writer.py`, `src/services/error_recovery.py`, `src/services/rate_limiter.py`, `src/services/llm_service.py`
+
+### Implementation Checklist
+
+1.  **Create `src/utils/error_classification.py`:**
+    -   Add a function `is_rate_limit_error(exception: Exception) -> bool`.
+    -   Move the string-matching logic into this function.
+    -   Refactor `RateLimiter`, `EnhancedLLMService`, and `ErrorRecoveryService` to call this utility.
+2.  **Refactor `EnhancedContentWriterAgent`:**
+    -   Remove the `_generate_item_fallback_content` method.
+    -   In the error handling block of `_process_single_item`, call `self.error_recovery.handle_error(...)`.
+    -   Use the `fallback_content` from the returned `RecoveryAction` object.
+
+## 4. Agent Refactoring
+
+### 4.1. Refactor `FormatterAgent` with Jinja2 (CS-02)
+
+-   **Priority:** P2 (High)
+-   **Root Cause:** The `FormatterAgent` uses hardcoded f-strings to generate HTML, making the CV layout difficult to maintain.
+-   **Impacted Modules:** `src/agents/formatter_agent.py`, `src/templates/`
+
+#### Logic Change: Use Jinja2 Templating Engine
+
+Replace the Python-based HTML generation with a call to render a Jinja2 template.
+
+#### Before (`src/agents/formatter_agent.py`):
+
+```python
+# src/agents/formatter_agent.py
+class FormatterAgent(EnhancedAgentBase):
+    def _format_with_template(self, content_data: ContentData, ...) -> str:
+        formatted_text = f"## {content_data.name}\n\n"
+        # ... many more lines of f-string concatenation ...
+        return formatted_text
+```
+
+#### After (`src/agents/formatter_agent.py` and new template file):
+
+**`src/agents/formatter_agent.py`:**
+
+```python
+# src/agents/formatter_agent.py
+from jinja2 import Environment, FileSystemLoader
+from ..models.data_models import StructuredCV
+
+class FormatterAgent(EnhancedAgentBase):
+    def __init__(self, ...):
+        # ...
+        self.jinja_env = Environment(
+            loader=FileSystemLoader('src/templates/'),
+            autoescape=True
+        )
+
+    def _generate_html(self, structured_cv: StructuredCV) -> str:
+        template = self.jinja_env.get_template('cv_template.html') # Corrected template name
+        css = self._get_template_css('professional') # Get CSS content
+        return template.render(cv=structured_cv, styles=css)
+```
+
+**`src/templates/cv_template.html` (formerly `pdf_template.html`):**
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ cv.metadata.get('name', 'CV') }}</title>
+    <style>
+        {{ styles | safe }}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>{{ cv.metadata.get('name', 'Your Name') | e }}</h1>
+        <p class="contact-info">
+            {{ cv.metadata.get('email', '') | e }}
+            {% if cv.metadata.get('phone') %} | {{ cv.metadata.get('phone') | e }}{% endif %}
+            {% if cv.metadata.get('linkedin') %} | <a href="{{ cv.metadata.get('linkedin') | e }}">LinkedIn</a>{% endif %}
+        </p>
+    </header>
+
+    {% for section in cv.sections %}
+    <section class="cv-section">
+        <h2>{{ section.name | e }}</h2>
+        <hr>
+        {# ... rest of the template ... #}
+    </section>
+    {% endfor %}
+</body>
+</html>
+```
+
+### Implementation Checklist
+
+1.  **Add Dependency:** Add `Jinja2` to `requirements.txt`.
+2.  **Rename and Update Template:** Rename `pdf_template.html` to `cv_template.html` and update it to accept a `styles` variable for CSS injection.
+3.  **Refactor `FormatterAgent`:**
+    -   Update the agent to initialize the Jinja2 environment.
+    -   Modify the HTML generation logic to call `template.render()`, passing both the `cv` object and the CSS string from `_get_template_css`.
+    -   The `_format_with_template` method should be removed or refactored into the new `_generate_html` logic.
+
+### 4.2. Remove Deprecated `_extract_json_from_response` (DL-01)
+
+-   **Priority:** P3 (Medium)
+-   **Root Cause:** The `_extract_json_from_response` method in `EnhancedAgentBase` is deprecated but still exists.
+-   **Impacted Modules:** `src/agents/agent_base.py`
+
+### Implementation Checklist
+
+1.  **Code Search:** Perform a global search for `_extract_json_from_response`.
+2.  **Refactor Callers:** If any callers are found, refactor them to use `_generate_and_parse_json`.
+3.  **Delete Method:** Delete the `_extract_json_from_response` method from `src/agents/agent_base.py`.
+4.  **Run Tests:** Execute the test suite to ensure no regressions were introduced.
+
+## Testing Strategy
+
+-   **Dependency Injection (AD-01):**
+    -   **Unit:** For each agent/service, write a test that instantiates it with mock dependencies. Verify the dependencies are correctly assigned.
+    -   **Integration:** Test that an agent retrieved from `AgentLifecycleManager` has its dependencies correctly resolved and injected by the container.
+-   **Service Refactoring (CS-01, PB-01):**
+    -   **Unit:** Write separate unit tests for `LLMClient` and `LLMRetryHandler`. Test the `async` `StateManager` methods using `pytest-asyncio`, mocking `asyncio.to_thread`.
+    -   **Integration:** Test the `SessionManager` to ensure it correctly `await`s the new `async` `StateManager.save_state` method.
+-   **Contract Enforcement (CB-01, CS-03):**
+    -   **Unit:** Write `pytest` cases for `validate_agent_input` with both valid and invalid data to ensure `ValueError` is raised correctly.
+    -   **Integration:** Create a test that runs a mini-workflow including the `CVAnalysisAgent` and asserts that `state.cv_analysis_results` is correctly populated.
+-   **Agent Refactoring (CS-02, DL-01):**
+    -   **Unit:** Test the refactored `FormatterAgent` by passing a mock `StructuredCV` and asserting that the rendered HTML output is correct.
+    -   **Regression:** The existing test suite should fail if any code still calls the deleted `_extract_json_from_response` method, confirming its successful removal.
 
 ---
 
-#### Task 2.1.2: Fix Incorrect Executor Usage (AD-02)
+## 5. Architectural Refinements
 
-*   **Priority:** `P1`
-*   **Root Cause:** The `_generate_with_timeout` method calls `loop.run_in_executor(None, ...)` instead of `loop.run_in_executor(self.executor, ...)`, bypassing the configured thread pool and its settings (e.g., `max_workers`). This leads to unpredictable concurrency.
-*   **Impacted Modules:** `src/services/llm_service.py`
+### 5.1. Refactor `StateManager` for Single Responsibility (AD-02)
 
-*   **Required Changes:** Ensure the managed `self.executor` is used for all background blocking calls.
+-   **Priority:** P2 (High)
+-   **Root Cause:** The `StateManager` class violates the Single Responsibility Principle by mixing persistence logic (saving/loading state) with business logic (modifying the state of the `StructuredCV` object). This creates ambiguity about where state modifications should occur.
+-   **Impacted Modules:** `src/core/state_manager.py`, any agents or services that call modification methods on `StateManager`.
 
-*   **Code Snippets (Before/After):**
+#### Logic Change: Isolate Persistence Logic
 
-    *   **Before:**
-        ```python
-        # src/services/llm_service.py in _generate_with_timeout
+The `StateManager` must be refactored to be a pure persistence layer. Its sole responsibility is to save and load the `StructuredCV` object. All methods that modify the `StructuredCV` object must be removed. State modifications should only be performed by agents within the workflow.
 
-        loop = asyncio.get_event_loop()
-        executor_task = loop.run_in_executor(None, self._make_llm_api_call, prompt)
-        ```
+#### Before (`src/core/state_manager.py`):
 
-    *   **After:**
-        ```python
-        # src/services/llm_service.py in _generate_with_timeout
+```python
+# src/core/state_manager.py
 
-        loop = asyncio.get_event_loop()
-        # Correctly use the instance's configured executor
-        executor_task = loop.run_in_executor(self.executor, self._make_llm_api_call, prompt)
-        ```
+class StateManager:
+    # ... (save_state, load_state)
 
-*   **Implementation Checklist:**
-    1.  [ ] Locate the `loop.run_in_executor(None, ...)` call in `llm_service.py`.
-    2.  [ ] Change `None` to `self.executor`.
-    3.  [ ] Verify that `self.executor` is correctly initialized in the `__init__` method.
+    def update_item_content(self, item_id, new_content):
+        """Modifies the state of the CV object directly."""
+        structured_cv = self.get_structured_cv()
+        if not structured_cv:
+            # ... error handling
+            return False
+        # This is business logic that belongs in an agent.
+        return structured_cv.update_item_content(item_id, new_content)
 
-*   **Tests to Add:**
-    *   In `tests/unit/test_llm_service.py`, patch `loop.run_in_executor` and assert it's called with `self.executor` as the first argument.
+    def update_section(self, section_data: Dict[str, Any]) -> bool:
+        """Another example of business logic in the persistence layer."""
+        # ... logic to find and update a section ...
+        pass
+```
+
+#### After (`src/core/state_manager.py`):
+
+```python
+# src/core/state_manager.py
+import asyncio
+import json
+import os
+from typing import Optional
+
+from ..models.data_models import StructuredCV
+from .state_manager import EnumEncoder # Assuming EnumEncoder is in the same module
+
+class StateManager:
+    """Manages the persistence of the StructuredCV state."""
+
+    def __init__(self, session_id: Optional[str] = None):
+        self.session_id = session_id or str(uuid.uuid4())
+        self.__structured_cv: Optional[StructuredCV] = None
+
+    async def save_state(self, cv_to_save: StructuredCV):
+        """Asynchronously saves the provided StructuredCV object to a file."""
+        if not cv_to_save:
+            return None
+
+        state_file = f"data/sessions/{cv_to_save.id}/state.json"
+
+        def blocking_io():
+            os.makedirs(os.path.dirname(state_file), exist_ok=True)
+            with open(state_file, "w") as f:
+                json.dump(cv_to_save.model_dump(), f, indent=2, cls=EnumEncoder)
+
+        await asyncio.to_thread(blocking_io)
+        return state_file
+
+    async def load_state(self, session_id: str) -> Optional[StructuredCV]:
+        """Asynchronously loads a StructuredCV object from a file."""
+        state_file = f"data/sessions/{session_id}/state.json"
+
+        def blocking_io():
+            if not os.path.exists(state_file):
+                return None
+            with open(state_file, "r") as f:
+                data = json.load(f)
+            return StructuredCV.model_validate(data)
+
+        return await asyncio.to_thread(blocking_io)
+
+    # All modification methods like update_item_content, update_section, etc., are removed.
+```
+
+### Implementation Checklist
+
+1.  **Identify Modification Methods:** List all methods in `StateManager` other than `save_state`, `load_state`, `get_structured_cv`, and `set_structured_cv`. These are candidates for removal.
+2.  **Refactor Callers:** For each identified method (e.g., `update_item_content`), find all callers in the codebase.
+3.  **Move Logic to Agents:** Move the state modification logic into the appropriate agent(s) that should be responsible for that change. For example, content updates should happen within the `ContentWriterAgent` or in response to user feedback processing.
+4.  **Delete Methods:** Once all callers have been refactored, delete the modification methods from `StateManager`.
+5.  **Update `save_state` Signature:** Modify `save_state` to accept the `StructuredCV` object to be saved (e.g., `async def save_state(self, cv_to_save: StructuredCV)`), making it a pure function that doesn't rely on `self.__structured_cv`.
+
+## 6. Code Cleanup and Deprecation
+
+### 6.1. Deprecate and Remove `ItemProcessor` (D-04)
+
+-   **Priority:** P3 (Medium)
+-   **Root Cause:** The `ItemProcessor` service duplicates prompt-building logic that is now handled more robustly by the `EnhancedContentWriterAgent` and `ContentTemplateManager`. It appears to be a legacy component.
+-   **Impacted Modules:** `src/services/item_processor.py`, any modules that import and use it.
+
+### Implementation Checklist
+
+1.  **Identify Callers:** Perform a global search for `ItemProcessor` to find where it is instantiated and used.
+2.  **Refactor Callers:** Modify the calling code to use the `EnhancedContentWriterAgent` or `ContentTemplateManager` directly for prompt construction and content generation.
+3.  **Delete Files:** Delete the `src/services/item_processor.py` file and its corresponding unit test `tests/unit/test_item_processor_simplified.py`.
+4.  **Run Tests:** Execute the full test suite to ensure that the removal did not cause regressions.
+
+### 6.2. Consolidate Session State Initialization (D-02)
+
+-   **Priority:** P3 (Medium)
+-   **Root Cause:** Two functions named `initialize_session_state` exist in `src/core/state_helpers.py` and `src/frontend/state_helpers.py`, creating redundancy and potential for inconsistency. The function in `src/core` appears to be dead code.
+-   **Impacted Modules:** `src/core/state_helpers.py`, `src/frontend/state_helpers.py`, `src/core/main.py`.
+
+### Implementation Checklist
+
+1.  **Confirm Canonical Version:** Verify that `src/core/main.py` calls the function from `src/frontend/state_helpers.py`, making it the canonical version.
+2.  **Delete Redundant File:** Delete the `src/core/state_helpers.py` file.
+3.  **Update Imports:** Search the codebase for any imports from `src.core.state_helpers` and update them to point to `src.frontend.state_helpers`.
+4.  **Run Application:** Run the Streamlit application to ensure session state initialization still works correctly.
+
+### 6.3. Remove Legacy Code from `ParserAgent` (DL-02)
+
+-   **Priority:** P3 (Medium)
+-   **Root Cause:** `src/agents/parser_agent.py` contains large, commented-out blocks of legacy code (e.g., regex-based parsers), which reduce readability and create confusion.
+-   **Impacted Modules:** `src/agents/parser_agent.py`.
+
+### Implementation Checklist
+
+1.  **Review Commented Code:** Carefully review the commented-out code blocks in `parser_agent.py`.
+2.  **Delete Obsolete Code:** If the code is truly obsolete and has been replaced by the LLM-first parsing approach, delete it permanently from the source file.
+3.  **Archive Reference Code (Optional):** If a commented block contains logic that might be useful for a future fallback mechanism, move it to a separate file in a `docs/archive` directory. It should not remain in the active source code.
+
+## 7. Model and State Contract Refinements
+
+### 7.1. Capture Node-Specific Metadata in `AgentState` (CB-02)
+
+-   **Priority:** P2 (High)
+-   **Root Cause:** Important metadata from agent node executions, such as the `success` and `confidence` from `CVAnalyzerNodeResult`, is lost because `AgentState` lacks a generic mechanism to store it.
+-   **Impacted Modules:** `src/orchestration/state.py`, `src/agents/cv_analyzer_agent.py`.
+
+#### Logic Change: Add a Generic Metadata Store to `AgentState`
+
+Implement the audit's recommendation to add a flexible dictionary to `AgentState` for storing per-node execution metadata. This avoids cluttering the main state schema with node-specific fields.
+
+#### Before (`src/orchestration/state.py`):
+
+```python
+# src/orchestration/state.py
+class AgentState(BaseModel):
+    # ... existing fields
+    # No generic place to store node-specific metadata
+```
+
+#### After (`src/orchestration/state.py`):
+
+```python
+# src/orchestration/state.py
+from typing import Dict, Any
+from pydantic import Field
+
+class AgentState(BaseModel):
+    # ... existing fields
+    node_execution_metadata: Dict[str, Any] = Field(default_factory=dict)
+```
+
+#### After (`src/agents/cv_analyzer_agent.py`):
+
+```python
+# src/agents/cv_analyzer_agent.py
+from ..models.cv_analyzer_models import CVAnalyzerNodeResult
+
+class CVAnalyzerAgent(EnhancedAgentBase):
+    async def run_as_node(self, state: "AgentState") -> Dict[str, Any]:
+        # ... agent logic to produce result: CVAnalyzerNodeResult ...
+        result = CVAnalyzerNodeResult(...)
+
+        # Populate the new metadata field in the returned dictionary
+        return {
+            "cv_analysis_results": result.cv_analysis_results,
+            "node_execution_metadata": {
+                **state.get("node_execution_metadata", {}), # Preserve existing metadata
+                "cv_analyzer": {
+                    "success": result.cv_analyzer_success,
+                    "confidence": result.cv_analyzer_confidence,
+                    "error": result.cv_analyzer_error,
+                }
+            }
+        }
+```
+
+### Implementation Checklist
+
+1.  **Update `AgentState`:** Add `node_execution_metadata: Dict[str, Any] = Field(default_factory=dict)` to the `AgentState` model.
+2.  **Refactor `CVAnalyzerAgent`:** Modify its `run_as_node` method to return the `node_execution_metadata` dictionary populated with its execution status.
+3.  **Review Other Agents:** Identify other agents that produce valuable metadata and refactor them to use this new pattern.
+
+## 8. Naming and Conventions
+
+### 8.1. Standardize Prometheus Metric Naming (NC-01)
+
+-   **Priority:** P3 (Low)
+-   **Root Cause:** Prometheus metric variables are named in `UPPER_CASE`, which conflicts with the project's `snake_case` pylint configuration, generating unnecessary linter noise.
+-   **Impacted Modules:** `src/services/metrics_exporter.py`, `config/.pylintrc`.
+
+#### Logic Change: Suppress Linter Warning and Document Convention
+
+The most pragmatic solution is to acknowledge that `prometheus-client`'s convention uses `UPPER_CASE` for metric objects. We will keep the `UPPER_CASE` names for clarity and suppress the `pylint` warning for this specific case.
+
+#### Before (`src/services/metrics_exporter.py`):
+
+```python
+# src/services/metrics_exporter.py
+# This code generates an 'invalid-name' warning from pylint.
+WORKFLOW_DURATION_SECONDS = Histogram(...)
+LLM_TOKEN_USAGE_TOTAL = Counter(...)
+```
+
+#### After (`src/services/metrics_exporter.py`):
+
+```python
+# src/services/metrics_exporter.py
+
+# pylint: disable=invalid-name
+# The UPPER_CASE naming convention is used here to align with the
+# standard practice for prometheus-client metric objects.
+
+WORKFLOW_DURATION_SECONDS = Histogram(...)
+LLM_TOKEN_USAGE_TOTAL = Counter(...)
+```
+
+### Implementation Checklist
+
+1.  **Add Pylint Disable Comment:** Add `# pylint: disable=invalid-name` at the top of the `src/services/metrics_exporter.py` file or just before the metric definitions.
+2.  **Add Explanatory Comment:** Add a comment explaining why the linter warning is being disabled, as shown in the "After" block.
+3.  **Verify Linter:** Run `pylint` on the file to confirm that the `invalid-name` warnings for these variables are gone.
 
 ---
 
-### 2.2. Agents
+## Implementation Checklist (Consolidated)
 
-#### Task 2.2.1: Fix `await` Misuse in `CVAnalyzerAgent` (CS-01)
+1.  **[DI]** Modify all agent/service constructors to accept dependencies.
+2.  **[DI]** Update the `AgentLifecycleManager` factories to use the `DependencyContainer` for injection.
+3.  **[DI]** Remove all `get_...()` service locator calls from component logic.
+4.  **[Models]** Add `cv_analysis_results: Optional[CVAnalysisResult]` to `AgentState`.
+5.  **[Models]** Add `node_execution_metadata: Dict[str, Any]` to `AgentState`.
+6.  **[Models]** Define Pydantic input models for each agent in `validation_schemas.py` and implement `validate_agent_input`.
+7.  **[Services]** Decompose `EnhancedLLMService` into `LLMClient`, `LLMRetryHandler`, etc.
+8.  **[Services]** Refactor `StateManager.save_state` and `load_state` to be `async` using `asyncio.to_thread`.
+9.  **[Services]** Create `src/utils/error_classification.py` and centralize rate-limit error detection.
+10. **[Services]** Remove state-modifying methods from `StateManager` (`update_item_content`, etc.).
+11. **[Agents]** Refactor `EnhancedContentWriterAgent` to use the centralized `ErrorRecoveryService` for fallbacks.
+12. **[Agents]** Add `Jinja2` dependency and refactor `FormatterAgent` to use an HTML template file.
+13. **[Agents]** Refactor `CVAnalyzerAgent` to populate the new `node_execution_metadata` field.
+14. **[Cleanup]** Delete the deprecated `_extract_json_from_response` method from `EnhancedAgentBase`.
+15. **[Cleanup]** Delete the legacy `ItemProcessor` service and refactor its callers.
+16. **[Cleanup]** Delete the redundant `src/core/state_helpers.py` file.
+17. **[Cleanup]** Delete commented-out legacy code from `src/agents/parser_agent.py`.
+18. **[Conventions]** Add a `pylint: disable=invalid-name` comment to `src/services/metrics_exporter.py`.
 
-*   **Priority:** `P1`
-*   **Root Cause:** The `analyze_cv` method in `cv_analyzer_agent.py` uses the `await` keyword but is defined as a synchronous function (`def` instead of `async def`), which will cause a `SyntaxError` or `RuntimeError`.
-*   **Impacted Modules:** `src/agents/cv_analyzer_agent.py`
+## Testing Strategy (Updated)
 
-*   **Required Changes:** Convert `analyze_cv` to an `async` function and ensure its callers `await` it.
-
-*   **Code Snippets (Before/After):**
-
-    *   **Before:**
-        ```python
-        # src/agents/cv_analyzer_agent.py
-
-        def analyze_cv(self, input_data, context=None):
-            # ...
-            extracted_data = await self._generate_and_parse_json(prompt=prompt) # This will fail
-            # ...
-        ```
-
-    *   **After:**
-        ```python
-        # src/agents/cv_analyzer_agent.py
-
-        async def analyze_cv(self, input_data, context=None):
-            # ...
-            extracted_data = await self._generate_and_parse_json(prompt=prompt) # This is now valid
-            # ...
-
-        async def run_async(self, input_data: Any, context: "AgentExecutionContext") -> "AgentResult":
-            # ...
-            # Ensure the call to analyze_cv is awaited
-            result = await self.analyze_cv(input_data, context)
-            # ...
-        ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Change the signature of `analyze_cv` to `async def analyze_cv(...)`.
-    2.  [ ] Review all call sites of `analyze_cv` (e.g., within `run_async`) and ensure they use `await`.
-    3.  [ ] Add a regression test based on `test_await_issue.py` to the formal test suite.
-
-*   **Tests to Add:**
-    *   Unit test in `tests/unit/test_cv_analyzer_agent.py` that calls `run_async` and verifies it executes without a `SyntaxError` or `RuntimeError`.
+-   **Dependency Injection (AD-01):**
+    -   **Unit:** For each agent/service, write a test that instantiates it with mock dependencies.
+    -   **Integration:** Test the `AgentLifecycleManager`'s ability to create an agent with all dependencies correctly injected.
+-   **Service Refactoring (CS-01, PB-01, AD-02):**
+    -   **Unit:** Write separate unit tests for `LLMClient`, `LLMRetryHandler`. Test the `async` `StateManager` methods using `pytest-asyncio`. Test that the refactored `StateManager` no longer contains modification methods.
+    -   **Integration:** Test the refactored `EnhancedLLMService` orchestration. Test `SessionManager`'s `await` on `StateManager.save_state`.
+-   **Contract Enforcement (CB-01, CB-02, CS-03):**
+    -   **Unit:** Write `pytest` cases for `validate_agent_input` with both valid and invalid data.
+    -   **Integration:** Create a test that runs a mini-workflow including the `CVAnalysisAgent`, asserting that both `state.cv_analysis_results` and `state.node_execution_metadata['cv_analyzer']` are correctly populated.
+-   **Agent & Cleanup Refactoring (CS-02, D-04, DL-01, DL-02):**
+    -   **Unit:** Test the refactored `FormatterAgent` by passing a mock `StructuredCV` and asserting the rendered HTML is correct.
+    -   **Regression:** The test suite should fail if any code still calls deleted methods or imports deleted modules (`ItemProcessor`, old `state_helpers`). This confirms successful removal.
+-   **Conventions (NC-01):**
+    -   **Static Analysis:** Run `pylint src/services/metrics_exporter.py` and confirm no `invalid-name` errors are reported for the metric objects.
 
 ---
 
-#### Task 2.2.2: Fix Non-Existent Error Handler Call in `CleaningAgent` (CS-02)
+## 9. Prompt Management Standardization
 
-*   **Priority:** `P1`
-*   **Root Cause:** `cleaning_agent.py` calls `AgentErrorHandler.handle_agent_error`, a method which does not exist. This breaks the `try...except` block, masking the original error.
-*   **Impacted Modules:** `src/agents/cleaning_agent.py`, `src/utils/agent_error_handling.py`
+-   **Priority:** P2 (High)
+-   **Root Cause:** The deprecation of `ItemProcessor` (D-04) removes one source of duplicated prompt logic, but the remaining logic within agents like `EnhancedContentWriterAgent` is not standardized. This leads to prompts being constructed with f-strings directly in the agent code, making them hard to manage, version, and A/B test.
+-   **Impacted Modules:** `src/agents/enhanced_content_writer.py`, `src/agents/parser_agent.py`, `src/templates/content_templates.py`
 
-*   **Required Changes:** Identify the correct error handling method in `AgentErrorHandler` (likely `handle_general_error`) and update the call site in `CleaningAgent`.
+### Logic Change: Centralize Prompt Access via a Manager
 
-*   **Code Snippets (Before/After):**
+All agents requiring LLM prompts must use the `ContentTemplateManager`. This manager will be responsible for loading, caching, and formatting prompts from external files. Agents will request a prompt by a key (e.g., `"resume_role_writer"`), not by a file path. This centralizes prompt engineering and separates it from agent logic.
 
-    *   **Before:**
-        ```python
-        # src/agents/cleaning_agent.py
+#### Before (`src/agents/enhanced_content_writer.py`):
 
-        except Exception as e:
+```python
+# src/agents/enhanced_content_writer.py
+class EnhancedContentWriterAgent(EnhancedAgentBase):
+    def __init__(self, ...):
+        # ...
+        # Prompts are loaded directly or constructed inside the agent
+        self.content_templates = {
+            ContentType.EXPERIENCE: self._load_prompt_template("resume_role_writer"),
             # ...
-            error_result = AgentErrorHandler.handle_agent_error(e, "CleaningAgent", context)
-        ```
+        }
 
-    *   **After (assuming correct method is `handle_general_error`):**
-        ```python
-        # src/agents/cleaning_agent.py
+    def _build_prompt(self, ...):
+        # ... complex logic to format the prompt string ...
+        return prompt
+```
 
-        except Exception as e:
-            # ...
-            fallback_data = AgentErrorHandler.create_fallback_data("cleaning")
-            error_result = AgentErrorHandler.handle_general_error(
-                e, "CleaningAgent", fallback_data, context
+#### After (Agent using the manager):
+
+```python
+# src/agents/enhanced_content_writer.py
+from ..templates.content_templates import ContentTemplateManager
+
+class EnhancedContentWriterAgent(EnhancedAgentBase):
+    def __init__(self, template_manager: ContentTemplateManager, ...):
+        # ...
+        # The manager is injected as a dependency
+        self.template_manager = template_manager
+
+    def _build_prompt(self, template_key: str, context_vars: dict) -> str:
+        # Agent logic is simplified to getting and formatting a template
+        template = self.template_manager.get_template(template_key)
+        if not template:
+            # ... handle error ...
+            return ""
+        return self.template_manager.format_template(template, context_vars)
+```
+
+### Implementation Checklist
+
+1.  **Refactor `ContentTemplateManager`:** Ensure `get_template_manager` returns a singleton instance that loads all templates from the `data/prompts` directory at startup.
+2.  **Enforce DI for Manager:** Inject `ContentTemplateManager` into the constructors of all agents that build prompts.
+3.  **Refactor Agents:** Modify `EnhancedContentWriterAgent`, `ParserAgent`, and any other relevant agents to use `self.template_manager.get_template()` and `self.template_manager.format_template()` instead of their internal prompt-building logic.
+4.  **Externalize Prompts:** Ensure all prompts are defined in external `.md` or `.txt` files within the `data/prompts` directory, organized by function (e.g., `parsing/`, `generation/`).
+
+## 10. Standardized Agent Error Handling Pattern
+
+-   **Priority:** P2 (High)
+-   **Root Cause:** While an `ErrorRecoveryService` exists, there is no enforced pattern for how agents should use it. This can lead to inconsistent error handling, where some agents might crash while others silently fail.
+-   **Impacted Modules:** All agent implementations.
+
+### Logic Change: Standardize `try...except` block in Agents
+
+All primary agent logic within methods like `run_async` or `_process_single_item` must be wrapped in a standardized `try...except` block. Any exception caught should be delegated to the `ErrorRecoveryService` to determine the appropriate `RecoveryAction`.
+
+#### Before (Inconsistent Error Handling):
+
+```python
+# Example of inconsistent error handling in an agent
+async def some_agent_method(self, ...):
+    try:
+        # ... logic that might fail ...
+        result = await self.llm_service.generate_content(...)
+    except Exception as e:
+        # Agent decides how to handle the error locally
+        logger.error(f"Agent failed: {e}")
+        return "Fallback content" # Inconsistent fallback
+```
+
+#### After (Standardized Error Handling Pattern):
+
+```python
+# Standardized pattern for all agents
+async def some_agent_method(self, context: AgentExecutionContext, ...) -> AgentResult:
+    try:
+        # ... main agent logic ...
+        llm_response = await self.llm_service.generate_content(...)
+        if not llm_response.success:
+            raise AgentExecutionError(f"LLM call failed: {llm_response.error_message}")
+
+        return AgentResult(success=True, output_data=llm_response.content)
+
+    except Exception as e:
+        # Delegate error handling to the centralized service
+        recovery_action = await self.error_recovery.handle_error(
+            exception=e,
+            item_id=context.item_id,
+            item_type=context.content_type,
+            session_id=context.session_id,
+            retry_count=context.retry_count,
+        )
+
+        # Act on the recommended recovery strategy
+        if recovery_action.strategy == RecoveryStrategy.FALLBACK_CONTENT:
+            return AgentResult(
+                success=True, # The operation succeeded from the workflow's perspective
+                output_data=recovery_action.fallback_content,
+                metadata={"fallback_used": True}
             )
-        ```
+        else:
+            # Re-raise or return an error result to be handled by the orchestrator
+            return AgentResult(success=False, error_message=str(e))
+```
 
-*   **Implementation Checklist:**
-    1.  [ ] Inspect `src/utils/agent_error_handling.py` to confirm the correct public method for handling general agent errors.
-    2.  [ ] Replace the incorrect call in `src/agents/cleaning_agent.py`.
-    3.  [ ] Ensure the new method call provides all required arguments (e.g., `fallback_data`).
+### Implementation Checklist
 
-*   **Tests to Add:**
-    *   Unit test in `tests/unit/test_agent_error_handling.py` for `CleaningAgent` that mocks an exception within `run_async` and asserts that the correct `AgentErrorHandler` method is called.
+1.  **Review `ErrorRecoveryService`:** Ensure the `handle_error` method and `RecoveryAction` model are robust and cover all necessary recovery strategies (retry, fallback, skip).
+2.  **Refactor All Agents:** Go through each agent (`ParserAgent`, `EnhancedContentWriterAgent`, etc.) and refactor their primary execution logic to implement the standardized `try...except` pattern shown above.
+3.  **Inject `ErrorRecoveryService`:** Ensure `ErrorRecoveryService` is injected into every agent via its constructor as part of the DI enforcement task (AD-01).
 
----
+## 11. Configuration Management
 
-#### Task 2.2.3: Fix Incorrect Error Handling in `FormatterAgent` (CB-01)
+-   **Priority:** P2 (High)
+-   **Root Cause:** Without a strict policy, refactoring can introduce hardcoded values (e.g., model names, timeouts, feature flags), increasing maintenance overhead and making the system brittle.
+-   **Impacted Modules:** All modules.
 
-*   **Priority:** `P1`
-*   **Root Cause:** The `except` block in `FormatterAgent`'s `run_as_node` method incorrectly handles the dictionary returned by `AgentErrorHandler.handle_node_error`. It attempts to access a `.error_message` attribute on a `dict`, causing an `AttributeError`.
-*   **Impacted Modules:** `src/agents/formatter_agent.py`
+### Logic Change: Enforce Centralized Pydantic-based Configuration
 
-*   **Required Changes:** Modify the `except` block in `FormatterAgent` to correctly access the `error_messages` list from the dictionary returned by the error handler.
+All configurable parameters must be defined in Pydantic models within `src/config/settings.py` and loaded from environment variables (`.env` file). Access to configuration must only occur through the `get_config()` utility. Hardcoded configuration values within agent or service logic are strictly forbidden.
 
-*   **Code Snippets (Before/After):**
+#### Before (Potential hardcoded value):
 
-    *   **Before (Conceptual):**
-        ```python
-        # src/agents/formatter_agent.py
+```python
+# some_service.py
+class SomeService:
+    def __init__(self):
+        self.timeout = 30 # Hardcoded value
+        self.model = "gemini-1.5-flash" # Hardcoded value
+```
 
-        async def run_as_node(self, state: AgentState, ...):
-            try:
-                # ... main logic ...
-            except Exception as e:
-                error_result = AgentErrorHandler.handle_node_error(e, "FormatterAgent", state)
-                # This is the bug: error_result is a dict like {'error_messages': [...]}, not an object.
-                error_list = state.error_messages or []
-                error_list.append(f"Formatter error: {error_result.error_message}") # This will fail
-                return {"error_messages": error_list}
-        ```
+#### After (Using centralized config):
 
-    *   **After:**
-        ```python
-        # src/agents/formatter_agent.py
+```python
+# src/config/settings.py
+class LLMSettings(BaseModel):
+    default_model: str = "gemini-1.5-flash"
+    request_timeout: int = 30
 
-        async def run_as_node(self, state: AgentState, ...):
-            try:
-                # ... main logic ...
-            except Exception as e:
-                # AgentErrorHandler returns a dictionary to update the state.
-                error_update_dict = AgentErrorHandler.handle_node_error(e, "FormatterAgent", state)
-                return error_update_dict # Simply return the dictionary
-        ```
+class AppConfig(BaseModel):
+    llm: LLMSettings = Field(default_factory=LLMSettings)
 
-*   **Implementation Checklist:**
-    1.  [ ] Locate the `try...except` block in the `run_as_node` method of `formatter_agent.py`.
-    2.  [ ] Modify the `except` block to correctly handle the dictionary returned by `handle_node_error`.
-    3.  [ ] The simplest fix is to directly `return` the dictionary from the error handler, as it's already in the correct format for updating the LangGraph state.
+# some_service.py
+from ..config.settings import get_config
 
-*   **Tests to Add:**
-    *   Add a unit test for `FormatterAgent` that mocks an exception during its execution and verifies that the returned dictionary contains the correct `error_messages` key and that no `AttributeError` is raised.
+class SomeService:
+    def __init__(self):
+        config = get_config()
+        self.timeout = config.llm.request_timeout # Value from config
+        self.model = config.llm.default_model # Value from config
+```
 
----
+### Implementation Checklist
 
-#### Task 2.2.4: Refactor `EnhancedContentWriterAgent` Parsing Logic (AD-01, CS-03)
+1.  **Audit for Hardcoded Values:** During the refactoring process, actively search for and replace any hardcoded configuration values (e.g., model names, timeouts, file paths, API endpoints).
+2.  **Extend `settings.py`:** Add any newly identified configurable parameters to the appropriate Pydantic model in `src/config/settings.py`.
+3.  **Update `.env.example`:** For every new configuration variable added, add a corresponding entry to the `.env.example` file with a default value and a comment explaining its purpose.
+4.  **Code Review Enforcement:** Make adherence to this configuration pattern a mandatory checklist item for all code reviews during the stabilization phase.
 
-*   **Priority:** `P2`
-*   **Root Cause:** `EnhancedContentWriterAgent` is responsible for parsing raw CV text, which violates the Single Responsibility Principle. This logic belongs in the `ParserAgent`.
-*   **Impacted Modules:** `src/agents/enhanced_content_writer.py`, `src/agents/parser_agent.py`, `src/orchestration/cv_workflow_graph.py`
-*   **Data Contract:** `ParserAgent` must populate the `subsections` list of the "Professional Experience" `Section` in `StructuredCV`. Each `Subsection` should have its `.name` as "Title at Company (Date Range)" and its `.items` list populated with `Item` objects of type `BULLET_POINT`. No Pydantic model changes are needed.
+## 12. Golden Path Integration Test
 
-*   **Implementation Checklist:**
-    1.  [ ] **Analyze:** Identify the parsing logic in `EnhancedContentWriterAgent._parse_cv_text_to_content_item` and its helpers.
-    2.  [ ] **Move Logic:** Copy these parsing methods into `src/agents/parser_agent.py`.
-    3.  [ ] **Refactor `ParserAgent`:** In `ParserAgent.run_as_node`, after the initial CV parsing, call the new methods to populate the `StructuredCV.sections` list with the correct `Subsection` and `Item` objects for professional experience.
-    4.  [ ] **Refactor `EnhancedContentWriterAgent`:** Remove the parsing methods (`_parse_cv_text_to_content_item`, `_extract_company_from_cv`). Update its logic to directly consume the `StructuredCV` object from the state, assuming the experience is already fully structured.
-    5.  [ ] **Delete:** Remove the now-redundant parsing methods from `EnhancedContentWriterAgent`.
+-   **Priority:** P1 (Critical)
+-   **Root Cause:** The extensive refactoring of core components (DI, services, agents) creates a high risk of breaking the end-to-end data flow of the main CV generation workflow. A dedicated integration test is needed to verify the integrity of the refactored system.
+-   **Impacted Modules:** `tests/integration/`
 
-*   **Tests to Add:**
-    *   Add unit tests to `tests/unit/test_parser_agent_refactored.py` to verify the new parsing capabilities. The tests should assert that the `StructuredCV` object produced by the parser contains correctly structured `Subsection` and `Item` objects.
-    *   Add unit tests to `tests/unit/test_enhanced_content_writer.py` to verify it correctly consumes the structured data from a mock `AgentState`.
-    *   Update integration tests in `tests/integration/test_agent_workflow_integration.py` to reflect the new data flow.
+### Logic Change: Create an End-to-End Workflow Test
 
----
+A new integration test file, `test_golden_path_workflow.py`, will be created. This test will invoke the entire `cv_workflow_graph` from the `parser` node to the `formatter` node, mocking only the external LLM calls to ensure the internal data flow and state transitions are correct.
 
+### Test Implementation Details
 
-### 2.3. Data Models & Contracts
+-   **Test File:** `tests/integration/test_golden_path_workflow.py`
+-   **Input:** A fixed, sample `AgentState` object containing a job description and CV text.
+-   **Mocks:**
+    -   The `EnhancedLLMService.generate_content` method will be mocked using `pytest-mock`'s `mocker`.
+    -   The mock will be configured with `side_effect` to return different, predictable, structured responses based on the prompt's content (e.g., if the prompt is for parsing, return parsed JSON; if for content writing, return enhanced text).
+-   **Execution:** The test will call `cv_graph_app.ainvoke(initial_state)`.
+-   **Assertions:**
+    1.  The final state returned by the workflow should not contain any `error_messages`.
+    2.  The `structured_cv` in the final state should contain content that reflects the mocked LLM responses.
+    3.  The `research_findings` and `quality_check_results` fields should be populated.
+    4.  The `final_output_path` field should contain a non-empty string, indicating the formatter ran successfully.
 
-#### Task 2.3.1: Fix `section.name` vs. `section.title` Inconsistency (NI-01)
+### Implementation Checklist
 
-*   **Priority:** `P1`
-*   **Root Cause:** A component is attempting to access `section.title` on a `Section` object, but the Pydantic model in `data_models.py` defines the attribute as `name`. This causes a runtime `AttributeError`.
-*   **Impacted Modules:** Multiple agent files, `src/models/data_models.py`, `src/templates/pdf_template.html`.
-
-*   **Required Changes:** Perform a global search and replace to standardize on `section.name`.
-
-*   **Implementation Checklist:**
-    1.  [ ] Use an IDE or command-line tool to find all occurrences of `.title` on objects that are likely `Section` instances.
-    2.  [ ] Replace all incorrect `.title` access with `.name`.
-    3.  [ ] **Crucially, inspect `src/templates/pdf_template.html`** and any other Jinja2 templates for `{{ section.title }}` and change it to `{{ section.name }}`.
-
-*   **Tests to Add:**
-    *   In `tests/unit/test_agent_state_contracts.py`, add a test that creates a `Section` object and asserts `hasattr(section, 'name')` is true and `hasattr(section, 'title')` is false. This will prevent regressions.
+1.  **Create Test File:** Create `tests/integration/test_golden_path_workflow.py`.
+2.  **Define Mock Responses:** Create realistic mock JSON and text responses for each agent's LLM call (parser, research, content writer, QA).
+3.  **Implement Test Case:** Write the `test_full_workflow_success` test case.
+    -   Set up the `mocker` to patch `EnhancedLLMService`.
+    -   Define the `side_effect` function for the mock.
+    -   Define the initial `AgentState`.
+    -   Invoke the graph: `final_state = await cv_graph_app.ainvoke(...)`.
+    -   Write assertions to validate the final state.
+4.  **Add to CI/CD:** Ensure this new test is included in the continuous integration pipeline to catch regressions.
 
 ---
 
-#### Task 2.3.2: Enforce Pydantic Models over `Dict[str, Any]` (CB-02)
+## 13. Production Readiness
 
-*   **Priority:** `P3`
-*   **Root Cause:** Widespread use of generic dictionaries instead of strongly-typed Pydantic models for data exchange between agents. This undermines type safety and leads to contract breaches and runtime errors.
-*   **Impacted Modules:** All agent and service files.
+### 13.1. Implement Resilient Health Check
 
-*   **Required Changes:** Systematically refactor function signatures and return types to use specific Pydantic models (e.g., `JobDescriptionData`, `StructuredCV`) instead of `Dict[str, Any]`.
+-   **Priority:** P2 (High)
+-   **Root Cause:** The current Docker health check (`curl ... /_stcore/health`) relies on an internal, undocumented Streamlit API. This is fragile and could break with future Streamlit updates. Furthermore, it only confirms the web server is running, not that the application's critical dependencies (LLM, vector store) are functional.
+-   **Impacted Modules:** `app.py` (or `src/core/main.py`), `Dockerfile`, `docker-compose.yml`
 
-*   **Implementation Checklist:**
-    1.  [ ] **Prioritize:** Start with the most critical data structures passed between agents in the `cv_workflow_graph`.
-    2.  [ ] **Refactor:** For each targeted data structure, update the function signatures in the agent that consumes it.
-    3.  [ ] **Update Logic:** Change dictionary key lookups (`.get("key")`) to Pydantic attribute access (`.key`).
-    4.  [ ] **Use `.model_dump()`:** Only use `.model_dump()` at the boundaries where serialization is explicitly required (e.g., saving to a file, returning from a graph node if necessary).
+#### Logic Change: Create a Custom, Dependency-Aware Health Check Endpoint
 
-*   **Tests to Add:**
-    *   Add unit tests that pass Pydantic models to the refactored methods and assert correct behavior.
-    *   Add tests using `pytest.raises(ValidationError)` to ensure that invalid data structures are rejected by the refactored methods.
+We will implement a custom `/healthz` endpoint within the Streamlit application. This endpoint will perform a "deep" health check, verifying not only that the application is running but also that it can connect to its critical downstream services.
 
----
+#### Implementation in `src/core/main.py` (or equivalent entry point):
 
-### 2.4. Root Directory Cleanup
+```python
+# src/core/main.py
+import streamlit as st
+import json
+from src.services.llm_service import get_llm_service
+from src.services.vector_store_service import get_vector_store_service
+from src.utils.exceptions import ConfigurationError
 
-#### Task 2.4.1: Migrate Orphaned Debugging Scripts (DL-01)
+async def handle_health_check():
+    """Handles the /healthz endpoint request."""
+    health_status = {"status": "healthy", "services": {}}
+    status_code = 200
 
-*   **Priority:** `P3`
-*   **Root Cause:** The root directory is cluttered with numerous `test_*.py` scripts created for ad-hoc debugging. These scripts contain valuable test cases but are not part of the formal test suite, making them hard to maintain and run.
-*   **Impacted Modules:** Root directory, `tests/` directory.
+    # 1. Check LLM Service
+    try:
+        llm_service = get_llm_service()
+        # Perform a lightweight, non-blocking validation
+        if not await llm_service.validate_api_key():
+             raise ConfigurationError("LLM API key is invalid.")
+        health_status["services"]["llm_service"] = "ok"
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["services"]["llm_service"] = f"failed: {str(e)}"
+        status_code = 503
 
-*   **Implementation Checklist:**
-    1.  [ ] **Review:** Go through each `test_*.py` script in the root directory.
-    2.  [ ] **Extract:** Identify the core test case or scenario each script was designed to solve (e.g., `test_await_issue.py` was for `CS-01`).
-    3.  [ ] **Migrate:** Rewrite the test case using `pytest` conventions and place it in the appropriate file under `tests/unit/` or `tests/integration/`.
-    4.  [ ] **Delete:** Once the test case is successfully migrated and passing in the formal suite, delete the original script from the root directory.
-    5.  [ ] **Update Runner:** Ensure `run_tests.py` or the CI script is configured to run the new tests.
+    # 2. Check Vector Store
+    try:
+        vector_store = get_vector_store_service()
+        # The client.heartbeat() method checks the connection.
+        vector_store.client.heartbeat()
+        health_status["services"]["vector_store"] = "ok"
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["services"]["vector_store"] = f"failed: {str(e)}"
+        status_code = 503
 
-*   **Tests to Add:**
-    *   The primary goal is to migrate existing, informal tests into the formal `pytest` suite, thereby increasing overall test coverage and creating regression tests for the P1/P2 fixes.
+    # Set response headers and body
+    st.status(code=status_code)
+    st.json(health_status)
 
----
+def main():
+    # ... existing main logic ...
+    # Add routing for the health check
+    if st.query_params.get("page") == "healthz":
+        asyncio.run(handle_health_check())
+        return # Stop further execution for the health check page
 
-## 3. Implementation Checklist
+    # ... rest of the main function ...
+```
 
-| Priority | Task ID | Description                                     | Status      |
-| :------- | :------ | :---------------------------------------------- | :---------- |
-| **P1**   | CS-01   | Fix `await` misuse in `CVAnalyzerAgent`         | `[ ] To Do` |
-| **P1**   | CS-02   | Fix non-existent error handler call in `CleaningAgent` | `[ ] To Do` |
-| **P1**   | CB-01   | Fix incorrect error handling in `FormatterAgent`| `[ ] To Do` |
-| **P1**   | NI-01   | Fix `section.name` vs. `section.title`          | `[ ] To Do` |
-| **P1**   | AD-02   | Fix incorrect `run_in_executor` usage         | `[ ] To Do` |
-| **P2**   | DP-01   | Consolidate Caching in `EnhancedLLMService`     | `[ ] To Do` |
-| **P2**   | AD-01   | Refactor parsing logic out of `ContentWriter`   | `[ ] To Do` |
-| **P3**   | CB-02   | Enforce Pydantic Models over `Dict[str, Any]` | `[ ] To Do` |
-| **P3**   | DL-01   | Migrate and delete orphaned debug scripts       | `[ ] To Do` |
+#### Updated `Dockerfile` and `docker-compose.yml`:
 
----
+```yaml
+# In Dockerfile or docker-compose.yml
+# Change the healthcheck command:
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8501/?page=healthz || exit 1
+```
 
-## 4. Testing Strategy
+### Implementation Checklist
 
-1.  **Unit Testing:** Each fix must be accompanied by new or updated unit tests that specifically target the bug or refactoring. For example, the `await` fix (`CS-01`) must have a test that proves the async call chain works.
-2.  **Integration Testing:** After P1 fixes are complete, run the full `test_agent_workflow_integration.py` to ensure the agents still work together correctly. This test must be updated to reflect the new data contracts from the refactoring tasks.
-3.  **Regression Testing:** The test cases from the orphaned debug scripts (e.g., `test_await_issue.py`) must be converted into permanent regression tests in the `pytest` suite. This ensures that the critical bugs they were designed to catch do not reappear.
-4.  **Static Analysis:** After applying fixes, run `pylint` using the provided `.pylintrc` configuration. The goal is to have zero new `E` (Error) or `W` (Warning) messages related to the changed code.
+1.  **Create Health Check Handler:** Implement the `handle_health_check` async function as shown above in the application's main entry point.
+2.  **Add Routing Logic:** Add the routing logic to `main()` to detect and serve the `/healthz` endpoint.
+3.  **Update `Dockerfile`:** Modify the `HEALTHCHECK` command in the `Dockerfile` to point to the new endpoint (`http://localhost:8501/?page=healthz`).
+4.  **Update `docker-compose.yml`:** Update the `healthcheck` command in `docker-compose.yml` to match the `Dockerfile`'s new command.
 
----
+## 14. Instrumentation and Monitoring
 
-## 5. Critical Gaps & Questions
+-   **Priority:** P2 (High)
+-   **Root Cause:** While Prometheus metrics exist, they are not consistently applied across all components. As the system is refactored, it's crucial to add instrumentation to monitor the performance and reliability of the new, smaller components.
+-   **Impacted Modules:** All refactored services and agents.
 
-*   No critical gaps or questions remain at this time. The provided clarifications have been integrated into the plan.
+### Logic Change: Instrument All Key Operations
 
----
+All refactored services and key agent operations should be instrumented with the existing Prometheus metrics defined in `src/services/metrics_exporter.py`.
 
-### 2.5. LLM Service (`src/services/llm_service.py`) - Continued
+### Implementation Checklist
 
-#### Task 2.5.1: Clarify API Key Management Strategy (NI-02)
+1.  **`EnhancedLLMService`:**
+    -   Inside the refactored `EnhancedLLMService`, use the `LLM_REQUEST_DURATION_SECONDS` histogram to record the duration of each call to the retry handler.
+    -   Use the `LLM_REQUESTS_TOTAL` counter to track successes and failures.
+    -   Use `LLM_TOKEN_USAGE_TOTAL` to record token counts from successful responses.
+2.  **`StateManager`:**
+    -   Create a new histogram metric: `STATE_MANAGER_IO_SECONDS = Histogram('aicvgen_state_manager_io_seconds', 'Duration of StateManager I/O operations', ['operation'])`.
+    -   In `save_state`, record the duration with `STATE_MANAGER_IO_SECONDS.labels(operation='save').observe(duration)`.
+    -   In `load_state`, record the duration with `STATE_MANAGER_IO_SECONDS.labels(operation='load').observe(duration)`.
+3.  **Agents:**
+    -   In the standardized error handling wrapper (`with_node_error_handling` or similar), wrap the agent's logic with the `AGENT_EXECUTION_DURATION_SECONDS` histogram.
+    -   In the `except` block of the wrapper, increment the `AGENT_ERRORS_TOTAL` counter.
+4.  **`DependencyContainer`:**
+    -   Create a new gauge: `ACTIVE_DEPENDENCIES_GAUGE = Gauge('aicvgen_active_dependencies', 'Number of active dependency instances in the container')`.
+    -   Update the gauge whenever an instance is created or disposed.
 
-*   **Priority:** `P2`
-*   **Root Cause:** The `EnhancedLLMService` class uses multiple, similarly named attributes for API keys (`user_api_key`, `primary_api_key`, `fallback_api_key`, `current_api_key`), creating ambiguity about which key is active and making the logic for key selection and fallback complex and error-prone.
-*   **Impacted Modules:** `src/services/llm_service.py`
+## 15. Strategic Roadmap (Summary)
 
-*   **Required Changes:**
-    1.  Introduce a dedicated dataclass or Pydantic model (`APIKeyManager`) to encapsulate all keys and the selection logic.
-    2.  Refactor `EnhancedLLMService` to use this manager, simplifying its state.
-    3.  The service should have a single, clear property like `active_key` that is managed by the new component.
+This roadmap outlines the phased implementation of the tasks in this blueprint, prioritizing system stability and correctness before comprehensive refactoring and cleanup.
 
-*   **Code Snippets (Before/After):**
+### Phase 1: Foundation & Contracts (P1 Fixes)
 
-    *   **Before (Ambiguous Attributes):**
-        ```python
-        # src/services/llm_service.py
-        class EnhancedLLMService:
-            def __init__(self, user_api_key: Optional[str] = None):
-                self.settings = get_config()
-                self.user_api_key = user_api_key
-                self.primary_api_key = self.settings.llm.gemini_api_key_primary
-                self.fallback_api_key = self.settings.llm.gemini_api_key_fallback
-                self.current_api_key = self._select_active_key() # Complex logic here
-                # ...
-        ```
+-   **Objective:** Stop architectural decay, ensure data integrity, and establish a safety net for further changes.
+-   **Key Tasks:**
+    -   **Implement DI (AD-01):** Focus on the most critical agents and services first. Establish the factory pattern in `AgentLifecycleManager`.
+    -   **Fix State Contracts (CB-01, CB-02):** Update `AgentState` to prevent data loss. This is critical for workflow correctness.
+    -   **Implement Golden Path Test (Section 12):** Create the end-to-end integration test *before* major refactoring to serve as a regression safety net.
+-   **Goal:** A system that runs without critical data loss and has a reliable test harness.
 
-    *   **After (Centralized Key Management):**
-        ```python
-        # src/services/llm_service.py
-        from pydantic import BaseModel, Field
+### Phase 2: Core Refactoring (P2 Fixes)
 
-        class APIKeyManager(BaseModel):
-            user: Optional[str] = None
-            primary: Optional[str] = Field(default_factory=lambda: get_config().llm.gemini_api_key_primary)
-            fallback: Optional[str] = Field(default_factory=lambda: get_config().llm.gemini_api_key_fallback)
+-   **Objective:** Reduce complexity, improve maintainability, and align the codebase with its intended design principles.
+-   **Key Tasks:**
+    -   **Decompose `EnhancedLLMService` (CS-01):** Break down the God object into smaller, testable components.
+    -   **Refactor `StateManager` (AD-02, PB-01):** Isolate persistence logic and make I/O operations non-blocking.
+    -   **Implement Jinja2 Templates (CS-02):** Decouple presentation from logic in the `FormatterAgent`.
+    -   **Implement Input Validation (CS-03):** Harden agent contracts by implementing the `validate_agent_input` function.
+    -   **Implement Health Check (Section 13.1):** Improve production readiness.
+-   **Goal:** A more modular, testable, and performant system architecture.
 
-            @property
-            def active_key(self) -> str:
-                if self.user:
-                    return self.user
-                if self.primary:
-                    return self.primary
-                if self.fallback:
-                    return self.fallback
-                raise ConfigurationError("No API key available.")
+### Phase 3: Cleanup & Polish (P3 Fixes)
 
-            def switch_to_fallback(self) -> bool:
-                if self.fallback and self.active_key != self.fallback:
-                    self.user = None # Invalidate user/primary keys
-                    self.primary = None
-                    return True
-                return False
-
-        class EnhancedLLMService:
-            def __init__(self, user_api_key: Optional[str] = None):
-                self.key_manager = APIKeyManager(user=user_api_key)
-                self.llm = self._configure_model()
-
-            def _configure_model(self):
-                genai.configure(api_key=self.key_manager.active_key)
-                return genai.GenerativeModel(self.settings.llm_settings.default_model)
-        ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Define the `APIKeyManager` Pydantic model inside `llm_service.py`.
-    2.  [ ] Refactor `EnhancedLLMService.__init__` to use `APIKeyManager`.
-    3.  [ ] Replace all direct references to `self.user_api_key`, `self.primary_api_key`, etc., with `self.key_manager.active_key`.
-    4.  [ ] Update the fallback logic (`_switch_to_fallback_key`) to use `self.key_manager.switch_to_fallback()`.
-
-*   **Tests to Add:**
-    *   Unit tests for `APIKeyManager` to verify `active_key` property logic with different key combinations.
-    *   Unit test for `EnhancedLLMService` to confirm it correctly uses the key from `APIKeyManager`.
+-   **Objective:** Improve the developer experience and long-term code health by eliminating redundancy and inconsistencies.
+-   **Key Tasks:**
+    -   **Centralize Duplicated Logic (D-01, D-03):** Consolidate error classification and fallback logic.
+    -   **Remove Deprecated Code (DL-01, D-04, DL-02):** Delete `_extract_json_from_response`, `ItemProcessor`, and commented-out code.
+    -   **Consolidate Session State Init (D-02):** Remove the redundant `initialize_session_state` function.
+    -   **Standardize Naming (NC-01):** Address the Prometheus metric naming convention.
+    -   **Add Monitoring (Section 14):** Instrument all newly refactored components.
+-   **Goal:** A clean, consistent, and observable codebase that is easy for developers to navigate and extend.
 
 ---
-
-#### Task 2.5.2: Fix Asynchronous Contract of `generate_content` (CB-03)
-
-*   **Priority:** `P1`
-*   **Root Cause:** The `_generate_with_timeout` method is synchronous but is called from the `async` `generate_content` method in a way that suggests it's a coroutine. The use of `loop.run_in_executor` returns a `Future`, which is not directly awaitable in the same way as a native coroutine. This leads to `TypeError: object NoneType can't be awaited` when errors occur inside the executor thread.
-*   **Impacted Modules:** `src/services/llm_service.py`
-
-*   **Required Changes:** Refactor `_generate_with_timeout` to be a proper `async` method. The blocking I/O call (`_make_llm_api_call`) should be the only part delegated to `run_in_executor`.
-
-*   **Code Snippets (Before/After):**
-
-    *   **Before:**
-        ```python
-        # src/services/llm_service.py
-
-        # This is a synchronous function
-        def _generate_with_timeout(self, prompt: str, ...):
-            # ... logic ...
-            response = self._make_llm_api_call(prompt)
-            # ...
-            return response
-
-        async def generate_content(self, prompt: str, ...):
-            # ...
-            # Incorrectly awaiting a function that is not a coroutine
-            response = await self._generate_with_timeout(prompt, ...)
-            # ...
-        ```
-
-    *   **After:**
-        ```python
-        # src/services/llm_service.py
-
-        # This is now a proper async function
-        async def _generate_with_timeout(self, prompt: str, ...) -> Any:
-            loop = asyncio.get_event_loop()
-            try:
-                # The blocking call is correctly run in an executor and awaited
-                response = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        self.executor, self._make_llm_api_call, prompt
-                    ),
-                    timeout=self.timeout
-                )
-                return response
-            except asyncio.TimeoutError:
-                logger.error("LLM request timed out after %s seconds", self.timeout)
-                raise TimeoutError(f"LLM request timed out after {self.timeout} seconds")
-
-        async def generate_content(self, prompt: str, ...):
-            # ...
-            # The call is now correct because _generate_with_timeout is a coroutine
-            response = await self._generate_with_timeout(prompt, ...)
-            # ...
-        ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Change the signature of `_generate_with_timeout` to `async def`.
-    2.  [ ] Move the `loop.run_in_executor` call inside `_generate_with_timeout`.
-    3.  [ ] Wrap the executor call with `asyncio.wait_for` to handle timeouts correctly.
-    4.  [ ] Ensure that `generate_content` continues to `await _generate_with_timeout`.
-    5.  [ ] Consolidate the retry logic (`@retry`) onto the `generate_content` method, as it is the public entry point.
-
-*   **Tests to Add:**
-    *   Re-purpose the logic from `test_await_issue.py` and other debug scripts into a formal unit test in `tests/unit/test_llm_service_comprehensive.py`.
-    *   The test should mock `_make_llm_api_call` to simulate success, failure, and timeout scenarios, asserting that `generate_content` returns a valid `LLMResponse` or raises the correct exception.
-
----
-
-### 2.6. UI & Application Entry Point
-
-#### Task 2.6.1: Implement Fail-Fast Gemini API Key Validation (CF-01)
-
-*   **Priority:** `P1`
-*   **Root Cause:** The application only discovers an invalid API key deep within the workflow execution, leading to a poor user experience and wasted processing. Configuration errors should be detected at the earliest possible moment.
-*   **Impacted Modules:** `src/frontend/ui_components.py`, `src/services/llm_service.py`
-
-*   **Required Changes:**
-    1.  Add a lightweight validation method to `EnhancedLLMService`, like `validate_api_key()`, which performs a simple, low-cost API call (e.g., listing models).
-    2.  In the Streamlit UI (`ui_components.py`), after a user enters an API key, immediately call this validation method.
-    3.  Provide immediate feedback to the user (`st.success` or `st.error`) and prevent the "Generate" button from being enabled if the key is invalid.
-
-*   **Implementation Checklist:**
-    1.  [ ] **Service Method:** Add `async def validate_api_key(self)` to `EnhancedLLMService`. Inside, make a simple call like `genai.list_models()`. Wrap it in a `try...except` block to catch authentication errors. Return `True` on success, `False` on failure.
-    2.  [ ] **UI Logic:** In `src/frontend/ui_components.py`, within `display_sidebar`, when a new `user_api_key` is entered, trigger a callback.
-    3.  [ ] **Callback:** This callback will instantiate the `EnhancedLLMService` with the new key and call `validate_api_key()`.
-    4.  [ ] **State Update:** Store the validation result (e.g., `st.session_state.api_key_validated = True/False`).
-    5.  [ ] **UI Feedback:** Use the session state flag to show an appropriate `st.success` or `st.error` message in the sidebar.
-    6.  [ ] **Disable Button:** The "Generate Tailored CV" button's `disabled` property should check `st.session_state.api_key_validated`.
-
-*   **Tests to Add:**
-    *   Unit test for `EnhancedLLMService.validate_api_key` that mocks `genai.list_models` to return success and to raise an exception.
-    *   Integration test for the Streamlit UI that simulates entering a valid and invalid key and asserts that the correct UI feedback is shown and the button state is updated.
-
----
-
-### 2.7. Orchestration & State Contracts
-
-#### Task 2.7.1: Enforce State Validation at Node Boundaries (CB-04)
-
-*   **Priority:** `P3`
-*   **Root Cause:** Agents in the `cv_workflow_graph` implicitly trust the state they receive. If a preceding agent fails to populate a required field, a downstream agent will fail with a confusing `AttributeError` or `KeyError`.
-*   **Impacted Modules:** `src/orchestration/cv_workflow_graph.py`, `src/models/validation_schemas.py`
-
-*   **Required Changes:** Introduce validation at the entry point of each LangGraph node. A decorator is a clean way to implement this. This ensures each node fails fast if its required inputs are not present in the `AgentState`.
-
-*   **Code Snippets (Proposed Decorator):**
-    ```python
-    # src/models/validation_schemas.py (or a new validation utility file)
-    from functools import wraps
-    from pydantic import ValidationError
-
-    def validate_node_input(required_fields: list[str]):
-        def decorator(node_func):
-            @wraps(node_func)
-            async def wrapper(state: AgentState):
-                missing_fields = []
-                for field_path in required_fields:
-                    # Simple check for top-level fields
-                    if '.' not in field_path:
-                        if not getattr(state, field_path, None):
-                            missing_fields.append(field_path)
-                    # Add logic for nested fields if needed
-
-                if missing_fields:
-                    error_msg = f"Node '{node_func.__name__}' failed precondition: Missing required state fields: {missing_fields}"
-                    logger.error(error_msg)
-                    return {"error_messages": state.error_messages + [error_msg]}
-
-                return await node_func(state)
-            return wrapper
-        return decorator
-
-    # src/orchestration/cv_workflow_graph.py
-    @validate_node_input(required_fields=["structured_cv", "job_description_data", "research_findings"])
-    async def content_writer_node(state: AgentState) -> Dict[str, Any]:
-        # ... node logic ...
-    ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Create the `validate_node_input` decorator.
-    2.  [ ] For each node in `cv_workflow_graph.py`, identify its essential input fields from the `AgentState`.
-    3.  [ ] Apply the decorator to each node function with its list of required fields.
-    4.  [ ] Ensure the graph's error handling correctly routes to an end state when the decorator returns an error message.
-
-*   **Tests to Add:**
-    *   Unit test for the `validate_node_input` decorator itself.
-    *   For each node (e.g., `test_content_writer_node`), add a test case where the input `AgentState` is missing a required field and assert that the node returns an `error_messages` dictionary without executing its main logic.
-
----
-
-## 3. Implementation Checklist (Updated)
-
-| Priority | Task ID | Description                                     | Status      |
-| :------- | :------ | :---------------------------------------------- | :---------- |
-| **P1**   | CS-01   | Fix `await` misuse in `CVAnalyzerAgent`         | `[ ] To Do` |
-| **P1**   | CS-02   | Fix non-existent error handler call in `CleaningAgent` | `[ ] To Do` |
-| **P1**   | CB-01   | Fix incorrect error handling in `FormatterAgent`| `[ ] To Do` |
-| **P1**   | CB-03   | Fix Asynchronous Contract of `generate_content` | `[ ] To Do` |
-| **P1**   | CF-01   | Implement Fail-Fast Gemini API Key Validation   | `[ ] To Do` |
-| **P1**   | NI-01   | Fix `section.name` vs. `section.title`          | `[ ] To Do` |
-| **P1**   | AD-02   | Fix incorrect `run_in_executor` usage         | `[ ] To Do` |
-| **P2**   | DP-01   | Consolidate Caching in `EnhancedLLMService`     | `[ ] To Do` |
-| **P2**   | NI-02   | Clarify API Key Management Strategy in `llm_service` | `[ ] To Do` |
-| **P2**   | AD-01   | Refactor parsing logic out of `ContentWriter`   | `[ ] To Do` |
-| **P3**   | CB-02   | Enforce Pydantic Models over `Dict[str, Any]` | `[ ] To Do` |
-| **P3**   | CB-04   | Enforce State Validation at Node Boundaries     | `[ ] To Do` |
-| **P3**   | DL-01   | Migrate and delete orphaned debug scripts       | `[ ] To Do` |
-
----
-
-## 4. Testing Strategy (Updated)
-
-1.  **Unit Testing:** Each fix must be accompanied by new or updated unit tests that specifically target the bug or refactoring. For example, the `await` fix (`CS-01`) must have a test that proves the async call chain works.
-2.  **Integration Testing:** After P1 fixes are complete, run the full `test_agent_workflow_integration.py` to ensure the agents still work together correctly. This test must be updated to reflect the new data contracts from the refactoring tasks.
-3.  **Regression Testing:** The test cases from the orphaned debug scripts (e.g., `test_await_issue.py`) must be converted into permanent regression tests in the `pytest` suite. This ensures that the critical bugs they were designed to catch do not reappear.
-4.  **Static Analysis:** After applying fixes, run `pylint` using the provided `.pylintrc` configuration. The goal is to have zero new `E` (Error) or `W` (Warning) messages related to the changed code.
-
----
-
-## 5. Critical Gaps & Questions
-
-*   No critical gaps or questions remain at this time. The provided clarifications have been integrated into the plan.
-
----
-### 2.8. Vector Store Services
-
-#### Task 2.8.1: Consolidate Vector Store Implementations (DP-02)
-
-*   **Priority:** `P2`
-*   **Root Cause:** The codebase contains two separate vector store service implementations: `src/services/vector_db.py` (appears to be FAISS-based) and `src/services/vector_store_service.py` (ChromaDB-based). This creates architectural ambiguity, code duplication, and potential data fragmentation. The official stack specifies `ChromaDB`.
-*   **Impacted Modules:** `src/services/vector_db.py`, `src/services/vector_store_service.py`, `src/agents/research_agent.py`, any other component using vector search.
-
-*   **Required Changes:**
-    1.  Designate `vector_store_service.py` (ChromaDB) as the single source of truth for vector operations.
-    2.  Migrate any unique, valuable functionality from the legacy `vector_db.py` into the consolidated service.
-    3.  Refactor all components, particularly `ResearchAgent`, to exclusively use the `get_vector_store_service()`.
-    4.  Deprecate and delete `src/services/vector_db.py`.
-
-*   **Implementation Checklist:**
-    1.  [ ] Audit `ResearchAgent` and other potential consumers to identify all calls to the legacy `vector_db.py`.
-    2.  [ ] Ensure the public API of `VectorStoreService` (ChromaDB) supports all required operations (e.g., `add_item`, `search`).
-    3.  [ ] Refactor all call sites to use `VectorStoreService`.
-    4.  [ ] Delete the legacy `src/services/vector_db.py` file.
-    5.  [ ] Update `tests/unit/test_vector_store_service.py` to cover all required functionality and remove any tests related to the old service.
-
-*   **Tests to Add:**
-    *   Integration test for `ResearchAgent` confirming it interacts correctly with the `VectorStoreService`.
-    *   Unit tests for `VectorStoreService` to ensure its public methods behave as expected.
-
----
-
-### 2.9. Utilities & Core Logic
-
-#### Task 2.9.1: Standardize Error Handling Strategy (AD-03)
-
-*   **Priority:** `P2`
-*   **Root Cause:** The existence of multiple error handling modules (`error_handling.py`, `agent_error_handling.py`, `error_boundaries.py`) and inconsistent application (evidenced by `CS-02` and `CB-01`) creates a fragile and hard-to-debug system.
-*   **Impacted Modules:** All agent files, `src/utils/*`.
-
-*   **Required Changes:**
-    1.  Consolidate all agent-specific error handling logic into `src/utils/agent_error_handling.py`.
-    2.  Mandate the use of the `@with_node_error_handling` decorator or the `AgentErrorHandler.handle_node_error` static method for all `run_as_node` methods in agents.
-    3.  Deprecate general-purpose handlers in `error_handling.py` if they are superseded by the more specific agent handlers.
-
-*   **Implementation Checklist:**
-    1.  [ ] Review the contents of `error_handling.py`, `agent_error_handling.py`, and `error_boundaries.py`.
-    2.  [ ] Define a clear hierarchy: `agent_error_handling.py` for agent-level errors, `error_boundaries.py` for UI errors, and `exceptions.py` for custom exception types.
-    3.  [ ] Audit every agent's `run_as_node` method. Remove custom `try...except` blocks and replace them with the `@with_node_error_handling` decorator or a direct call to `AgentErrorHandler.handle_node_error`.
-    4.  [ ] Ensure all error handlers correctly populate the `error_messages` field in the `AgentState` without throwing secondary exceptions.
-
-*   **Tests to Add:**
-    *   Add unit tests for the `@with_node_error_handling` decorator to `tests/unit/test_agent_error_handling.py`.
-    *   For each agent, add a test case that mocks a failure and asserts that the `error_messages` field in the state is populated correctly.
-
----
-
-### 2.10. Data Models (`src/models/`)
-
-#### Task 2.10.1: Consolidate Data Model Definitions (DP-03)
-
-*   **Priority:** `P3`
-*   **Root Cause:** Core data contracts are split between `data_models.py` and `validation_schemas.py`, increasing cognitive load and the risk of definitions drifting apart.
-*   **Impacted Modules:** `src/models/data_models.py`, `src/models/validation_schemas.py`, and all files that import from them.
-
-*   **Required Changes:**
-    1.  `data_models.py` should be the single source of truth for all Pydantic models that define the application's core state (e.g., `StructuredCV`, `JobDescriptionData`, `Section`, `Item`, `AgentState`).
-    2.  `validation_schemas.py` should be reserved for schemas that validate external data or raw, transient structures (e.g., raw LLM JSON output before it's mapped to a core model).
-    3.  Move any core models from `validation_schemas.py` to `data_models.py` and update all imports.
-
-*   **Implementation Checklist:**
-    1.  [ ] Analyze both model files to identify which Pydantic models represent core, persistent application state.
-    2.  [ ] Move the identified core models to `data_models.py`.
-    3.  [ ] Perform a global search and replace to update all import statements across the codebase to point to the new location of the moved models.
-    4.  [ ] Verify that `validation_schemas.py` now only contains schemas for validation purposes.
-
-*   **Tests to Add:**
-    *   No new tests are strictly required, but running the existing test suite is critical to catch any broken imports or contract changes resulting from the file consolidation.
-
----
-
-## 3. Implementation Checklist (Updated)
-
-| Priority | Task ID | Description                                     | Status      |
-| :------- | :------ | :---------------------------------------------- | :---------- |
-| **P1**   | CS-01   | Fix `await` misuse in `CVAnalyzerAgent`         | `[ ] To Do` |
-| **P1**   | CS-02   | Fix non-existent error handler call in `CleaningAgent` | `[ ] To Do` |
-| **P1**   | CB-01   | Fix incorrect error handling in `FormatterAgent`| `[ ] To Do` |
-| **P1**   | CB-03   | Fix Asynchronous Contract of `generate_content` | `[ ] To Do` |
-| **P1**   | CF-01   | Implement Fail-Fast Gemini API Key Validation   | `[ ] To Do` |
-| **P1**   | NI-01   | Fix `section.name` vs. `section.title`          | `[ ] To Do` |
-| **P1**   | AD-02   | Fix incorrect `run_in_executor` usage         | `[ ] To Do` |
-| **P2**   | DP-01   | Consolidate Caching in `EnhancedLLMService`     | `[ ] To Do` |
-| **P2**   | DP-02   | Consolidate Vector Store Services             | `[ ] To Do` |
-| **P2**   | NI-02   | Clarify API Key Management Strategy in `llm_service` | `[ ] To Do` |
-| **P2**   | AD-01   | Refactor parsing logic out of `ContentWriter`   | `[ ] To Do` |
-| **P2**   | AD-03   | Standardize Error Handling Strategy             | `[ ] To Do` |
-| **P3**   | CB-02   | Enforce Pydantic Models over `Dict[str, Any]` | `[ ] To Do` |
-| **P3**   | CB-04   | Enforce State Validation at Node Boundaries     | `[ ] To Do` |
-| **P3**   | DP-03   | Consolidate Data Model Definitions            | `[ ] To Do` |
-| **P3**   | DL-01   | Migrate and delete orphaned debug scripts       | `[ ] To Do` |
-
----
-
-## 4. Testing Strategy (Updated)
-
-1.  **Unit Testing:** Each fix must be accompanied by new or updated unit tests that specifically target the bug or refactoring. For example, the `await` fix (`CS-01`) must have a test that proves the async call chain works.
-2.  **Integration Testing:** After P1 fixes are complete, run the full `test_agent_workflow_integration.py` to ensure the agents still work together correctly. This test must be updated to reflect the new data contracts from the refactoring tasks.
-3.  **Regression Testing:** The test cases from the orphaned debug scripts (e.g., `test_await_issue.py`) must be converted into permanent regression tests in the `pytest` suite. This ensures that the critical bugs they were designed to catch do not reappear.
-4.  **Static Analysis:** After applying fixes, run `pylint` using the provided `.pylintrc` configuration. The goal is to have zero new `E` (Error) or `W` (Warning) messages related to the changed code.
-
----
-
-## 5. Critical Gaps & Questions
-
-*   No critical gaps or questions remain at this time. The provided clarifications have been integrated into the plan.
-
----
-
-### 2.11. Core Logic & Application Lifecycle
-
-#### Task 2.11.1: Formalize Application Startup and Service Initialization (AD-04)
-
-*   **Priority:** `P3`
-*   **Root Cause:** The application's startup sequence is implicit, with service initialization (e.g., `get_llm_service`, `get_vector_store_service`) occurring on-demand when first called. This can lead to unpredictable initialization order and makes it difficult to manage the lifecycle of services, especially within Streamlit's execution model.
-*   **Impacted Modules:** `app.py`, `src/core/main.py`, `src/services/*`
-
-*   **Required Changes:**
-    1.  Create a dedicated, idempotent `initialize_app()` function within `src/core/main.py`.
-    2.  This function will be responsible for loading configuration, setting up logging, and pre-initializing all critical singleton services.
-    3.  Use `st.session_state` to ensure this initialization runs only once per user session.
-    4.  Refactor `main()` to call `initialize_app()` at the very beginning.
-
-*   **Code Snippets (Proposed Structure):**
-    ```python
-    # src/core/main.py
-    import streamlit as st
-    from ..config.settings import get_config
-    from ..config.logging_config import setup_logging
-    from ..services.llm_service import get_llm_service
-    from ..services.vector_store_service import get_vector_store_service
-    # ... other imports
-
-    def initialize_app():
-        """Initializes all critical application components. Idempotent."""
-        if "app_initialized" in st.session_state:
-            return
-
-        # 1. Load configuration
-        get_config()
-
-        # 2. Setup logging
-        setup_logging()
-
-        # 3. Initialize services (fail-fast)
-        get_vector_store_service()
-        get_llm_service() # Initial call without user key
-
-        # 4. Initialize session state for UI
-        initialize_session_state() # From frontend.state_helpers
-
-        st.session_state.app_initialized = True
-        logger.info("Application initialized successfully for session: %s", st.session_state.session_id)
-
-    def main():
-        """Main Streamlit application controller."""
-        try:
-            # Run initialization at the start of every script run.
-            # The logic inside ensures it only executes once.
-            initialize_app()
-
-            # ... rest of the main application logic ...
-
-        except Exception as e:
-            # ... error handling ...
-    ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Create the `initialize_app()` function in `src/core/main.py`.
-    2.  [ ] Move initialization calls for config, logging, and services into this function.
-    3.  [ ] Add the `if "app_initialized" in st.session_state: return` guard.
-    4.  [ ] Call `initialize_app()` as the first line in the `main()` function.
-    5.  [ ] Remove redundant initialization calls from other parts of the code if they are now handled by `initialize_app`.
-
-*   **Tests to Add:**
-    *   An integration test that runs the `main` function and asserts that `st.session_state.app_initialized` is set to `True`.
-    *   Patch the service getters (e.g., `get_llm_service`) and assert they are called exactly once during the initialization phase of a session.
-
----
-
-#### Task 2.11.2: Stabilize `EnhancedLLMService` Singleton Lifecycle (AD-03)
-
-*   **Priority:** `P3`
-*   **Root Cause:** The `get_llm_service()` function re-initializes the `EnhancedLLMService` instance whenever a new `user_api_key` is provided. In a complex application, different components could hold references to different instances (one with the old key, one with the new), leading to inconsistent behavior, especially with caching and rate limiting.
-*   **Impacted Modules:** `src/services/llm_service.py`, `src/frontend/ui_components.py`, all consumers of the LLM service.
-
-*   **Required Changes:** Tie the lifecycle of the `EnhancedLLMService` instance to Streamlit's session state. This ensures there is only one active instance per session, and it is correctly replaced when the user provides a new API key.
-
-*   **Code Snippets (Before/After):**
-
-    *   **Before (Global Singleton):**
-        ```python
-        # src/services/llm_service.py
-        _llm_service_instance = None
-
-        def get_llm_service(user_api_key: Optional[str] = None) -> EnhancedLLMService:
-            global _llm_service_instance
-            if _llm_service_instance is None or (user_api_key and _llm_service_instance.user_api_key != user_api_key):
-                _llm_service_instance = EnhancedLLMService(user_api_key=user_api_key)
-            return _llm_service_instance
-        ```
-
-    *   **After (Session-Scoped Singleton):**
-        ```python
-        # src/services/llm_service.py
-        import streamlit as st
-
-        def get_llm_service(user_api_key: Optional[str] = None) -> EnhancedLLMService:
-            """Gets the LLM service instance for the current Streamlit session."""
-            # Use a consistent key for session state
-            _service_key = "llm_service_instance"
-
-            # Get current instance or its key from session state
-            current_instance = st.session_state.get(_service_key)
-            current_key = getattr(current_instance, 'user_api_key', None) if current_instance else None
-
-            # Re-initialize if the instance doesn't exist or the key has changed
-            if current_instance is None or (user_api_key and user_api_key != current_key):
-                instance = EnhancedLLMService(user_api_key=user_api_key)
-                st.session_state[_service_key] = instance
-                logger.info("LLM service (re)initialized in session state.")
-                return instance
-
-            return current_instance
-        ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Refactor the `get_llm_service` function as shown above to use `st.session_state`.
-    2.  [ ] Ensure all calls to `get_llm_service` throughout the application do not store the returned instance long-term; they should always call the getter to ensure they have the current, valid instance for the session.
-    3.  [ ] Verify the UI callback for setting the API key correctly calls `get_llm_service(new_key)` to trigger the re-initialization.
-
-*   **Tests to Add:**
-    *   Unit test for `get_llm_service` that mocks `st.session_state` and verifies that a new instance is created only when the API key changes or when no instance exists.
-
----
-
-### 2.12. Code Quality
-
-#### Task 2.12.1: Remediate High-Priority Pylint Violations (CQ-01)
-
-*   **Priority:** `P2`
-*   **Root Cause:** The codebase has accumulated various static analysis violations that, while not all being runtime errors, increase technical debt, reduce readability, and can hide subtle bugs.
-*   **Impacted Modules:** Entire `src/` directory.
-
-*   **Required Changes:** Perform a focused pass to fix all high-priority `pylint` errors and warnings (`E` and `W` codes).
-
-*   **Implementation Checklist:**
-    1.  [ ] **Run Analysis:** Execute `pylint src/` from the project root to generate a fresh report.
-    2.  [ ] **Fix Errors (`E` codes):** Prioritize and fix all reported errors. These often point to genuine bugs (e.g., `no-member`, `not-callable`).
-    3.  [ ] **Fix Warnings (`W` codes):** Address key warnings like `unused-variable`, `redefined-builtin`, and `unreachable-code`.
-    4.  [ ] **Review Conventions (`C` codes):** Address convention violations like `invalid-name` and `missing-docstring` for all new and modified code. A full pass on existing code is lower priority but recommended.
-    5.  [ ] **CI Integration:** Configure the CI/CD pipeline to run `pylint` on every commit or pull request and fail the build if the score drops below a defined threshold or new high-priority errors are introduced.
-
-*   **Tests to Add:**
-    *   This task is about code quality, not new functionality. The "test" is a clean `pylint` report. The existing unit and integration test suite will serve as a regression safety net to ensure that fixes do not break existing functionality.
-
----
-
-## 3. Implementation Checklist (Final)
-
-| Priority | Task ID | Description                                     | Status      |
-| :------- | :------ | :---------------------------------------------- | :---------- |
-| **P1**   | CS-01   | Fix `await` misuse in `CVAnalyzerAgent`         | `[ ] To Do` |
-| **P1**   | CS-02   | Fix non-existent error handler call in `CleaningAgent` | `[ ] To Do` |
-| **P1**   | CB-01   | Fix incorrect error handling in `FormatterAgent`| `[ ] To Do` |
-| **P1**   | CB-03   | Fix Asynchronous Contract of `generate_content` | `[ ] To Do` |
-| **P1**   | CF-01   | Implement Fail-Fast Gemini API Key Validation   | `[ ] To Do` |
-| **P1**   | NI-01   | Fix `section.name` vs. `section.title`          | `[ ] To Do` |
-| **P1**   | AD-02   | Fix incorrect `run_in_executor` usage         | `[ ] To Do` |
-| **P2**   | DP-01   | Consolidate Caching in `EnhancedLLMService`     | `[ ] To Do` |
-| **P2**   | DP-02   | Consolidate Vector Store Services             | `[ ] To Do` |
-| **P2**   | NI-02   | Clarify API Key Management Strategy in `llm_service` | `[ ] To Do` |
-| **P2**   | AD-01   | Refactor parsing logic out of `ContentWriter`   | `[ ] To Do` |
-| **P2**   | AD-03   | Standardize Error Handling Strategy             | `[ ] To Do` |
-| **P2**   | CQ-01   | Remediate High-Priority Pylint Violations       | `[ ] To Do` |
-| **P3**   | AD-04   | Formalize Application Startup and Service Init  | `[ ] To Do` |
-| **P3**   | AD-03   | Stabilize `EnhancedLLMService` Singleton Lifecycle | `[ ] To Do` |
-| **P3**   | CB-02   | Enforce Pydantic Models over `Dict[str, Any]` | `[ ] To Do` |
-| **P3**   | CB-04   | Enforce State Validation at Node Boundaries     | `[ ] To Do` |
-| **P3**   | DP-03   | Consolidate Data Model Definitions            | `[ ] To Do` |
-| **P3**   | DL-01   | Migrate and delete orphaned debug scripts       | `[ ] To Do` |
-
----
-
-## 4. Testing Strategy (Final)
-
-1.  **Unit Testing:** Each fix must be accompanied by new or updated unit tests that specifically target the bug or refactoring. For example, the `await` fix (`CS-01`) must have a test that proves the async call chain works.
-2.  **Integration Testing:** After P1 fixes are complete, run the full `test_agent_workflow_integration.py` to ensure the agents still work together correctly. This test must be updated to reflect the new data contracts from the refactoring tasks.
-3.  **Regression Testing:** The test cases from the orphaned debug scripts (e.g., `test_await_issue.py`) must be converted into permanent regression tests in the `pytest` suite. This ensures that the critical bugs they were designed to catch do not reappear.
-4.  **Static Analysis:** After applying fixes, run `pylint` using the provided `.pylintrc` configuration. The goal is to have zero new `E` (Error) or `W` (Warning) messages related to the changed code.
-
----
-
-## 5. Critical Gaps & Questions
-
-*   No critical gaps or questions remain at this time. The provided clarifications have been integrated into the plan.
-
----
-
-
-### 2.2. Agents (Continued)
-
-#### Task 2.2.4: Refactor `EnhancedContentWriterAgent` Parsing Logic (AD-01, CS-03) - *Updated*
-
-*   **Priority:** `P2`
-*   **Root Cause:** `EnhancedContentWriterAgent` is responsible for parsing raw CV text, which violates the Single Responsibility Principle. This logic belongs in the `ParserAgent`. The primary parsing method, `_parse_cv_text_to_content_item`, is also over 100 lines long (a "Long Method" code smell), making it difficult to test and maintain.
-*   **Impacted Modules:** `src/agents/enhanced_content_writer.py`, `src/agents/parser_agent.py`, `src/orchestration/cv_workflow_graph.py`
-*   **Data Contract:** `ParserAgent` must populate the `subsections` list of the "Professional Experience" `Section` in `StructuredCV`. Each `Subsection` should have its `.name` as "Title at Company (Date Range)" and its `.items` list populated with `Item` objects of type `BULLET_POINT`. No Pydantic model changes are needed.
-
-*   **Implementation Checklist:**
-    1.  [ ] **Refactor First (CS-03):** Before moving, refactor the `_parse_cv_text_to_content_item` method within `EnhancedContentWriterAgent` into smaller, single-purpose, and more testable helper functions (e.g., `_extract_roles_from_lines`, `_extract_accomplishments_for_role`). This isolates the logic and makes the next steps easier.
-    2.  [ ] **Analyze:** Identify the full set of parsing methods and the exact data structures they produce.
-    3.  [ ] **Move Logic:** Copy the newly refactored helper methods from `EnhancedContentWriterAgent` to `src/agents/parser_agent.py`.
-    4.  [ ] **Refactor `ParserAgent`:** In `ParserAgent.run_as_node`, after the initial CV parsing, call the new methods to populate the `StructuredCV.sections` list with the correct `Subsection` and `Item` objects for professional experience.
-    5.  [ ] **Refactor `EnhancedContentWriterAgent`:** Remove the parsing methods. Update its logic to directly consume the `StructuredCV` object from the state, assuming the experience is already fully structured.
-    6.  [ ] **Delete:** Remove the now-redundant parsing methods from `EnhancedContentWriterAgent`.
-
-*   **Tests to Add:**
-    *   Add unit tests to `tests/unit/test_parser_agent_refactored.py` to verify the new parsing capabilities. The tests should assert that the `StructuredCV` object produced by the parser contains correctly structured `Subsection` and `Item` objects.
-    *   Add unit tests to `tests/unit/test_enhanced_content_writer.py` to verify it correctly consumes the structured data from a mock `AgentState`.
-    *   Update integration tests in `tests/integration/test_agent_workflow_integration.py` to reflect the new data flow.
-
----
-
-### 2.13. Templates & Output Generation
-
-#### Task 2.13.1: Harden PDF Generation Template (CB-05)
-
-*   **Priority:** `P3`
-*   **Root Cause:** The Jinja2 template (`pdf_template.html`) directly accesses nested data (e.g., `{{ cv.metadata.get('name') }}`) without robust fallbacks. If a piece of data is missing from the `StructuredCV` object, the PDF generation could fail or render incorrectly.
-*   **Impacted Modules:** `src/templates/pdf_template.html`
-
-*   **Required Changes:** Update the Jinja2 template to use filters like `default` to provide fallback values for optional data, preventing rendering errors.
-
-*   **Code Snippets (Before/After):**
-
-    *   **Before (Brittle Access):**
-        ```html
-        <!-- src/templates/pdf_template.html -->
-        <h1>{{ cv.metadata.get('name') }}</h1>
-        <p class="contact-info">
-            {{ cv.metadata.get('email') }} | {{ cv.metadata.get('phone') }}
-        </p>
-        ```
-
-    *   **After (Robust Access):**
-        ```html
-        <!-- src/templates/pdf_template.html -->
-        <h1>{{ cv.metadata.get('name', 'Your Name') }}</h1>
-        <p class="contact-info">
-            {% if cv.metadata.get('email') %}{{ cv.metadata.get('email') }}{% endif %}
-            {% if cv.metadata.get('phone') %} | {{ cv.metadata.get('phone') }}{% endif %}
-        </p>
-        ```
-        *Note: Using `if` checks is often safer than `| default('')` for layout purposes.*
-
-*   **Implementation Checklist:**
-    1.  [ ] Audit `pdf_template.html` for all data access points (e.g., `{{ variable.access }}`).
-    2.  [ ] For each optional field, add a Jinja2 `if` condition or a `| default('...')` filter.
-    3.  [ ] Prioritize fields that are most likely to be missing, such as optional contact info or metadata.
-    4.  [ ] Ensure loops (`{% for ... %}`) are robust and don't fail on empty lists.
-
-*   **Tests to Add:**
-    *   In `tests/unit/test_pdf_generation.py`, add test cases that pass a `StructuredCV` object with missing optional data (e.g., no phone number, no GitHub link) to the `FormatterAgent` and assert that PDF generation still completes successfully without errors.
-
----
-
-### 2.14. Orchestration & State Contracts (Continued)
-
-#### Task 2.14.1: Audit and Enforce Agent Output Contracts (CB-06)
-
-*   **Priority:** `P2`
-*   **Root Cause:** While nodes receive the full `AgentState`, they are expected to return only a dictionary containing the fields they have modified. There is no enforcement of this contract, creating a risk that an agent could accidentally return a key that is not a valid `AgentState` field, which LangGraph would silently ignore, leading to data loss.
-*   **Impacted Modules:** All agent `run_as_node` methods.
-
-*   **Required Changes:**
-    1.  Create a lightweight decorator or utility function that validates the keys of the dictionary returned by each `run_as_node` method.
-    2.  The validator should check that every key in the returned dictionary is a valid field name in the `AgentState` Pydantic model.
-    3.  If an invalid key is found, it should log a `CRITICAL` error, as this indicates a developer error and a contract breach.
-
-*   **Code Snippets (Proposed Decorator):**
-    ```python
-    # src/models/validation_schemas.py (or a new validation utility file)
-    from functools import wraps
-
-    def validate_node_output(node_func):
-        @wraps(node_func)
-        async def wrapper(state: AgentState):
-            output_dict = await node_func(state)
-
-            # Validate the output dictionary
-            valid_keys = set(AgentState.model_fields.keys())
-            returned_keys = set(output_dict.keys())
-
-            invalid_keys = returned_keys - valid_keys
-            if invalid_keys:
-                logger.critical(
-                    "Node '%s' returned invalid keys not in AgentState: %s",
-                    node_func.__name__, invalid_keys
-                )
-                # Optionally, filter out invalid keys to prevent data loss
-                # output_dict = {k: v for k, v in output_dict.items() if k in valid_keys}
-
-            return output_dict
-        return wrapper
-
-    # src/orchestration/cv_workflow_graph.py
-    @validate_node_output
-    async def parser_node(state: AgentState) -> Dict[str, Any]:
-        # ... node logic ...
-    ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Implement the `validate_node_output` decorator.
-    2.  [ ] Apply this decorator to every agent node function defined in `cv_workflow_graph.py`.
-    3.  [ ] Run the full integration test suite to ensure no valid data is being accidentally flagged.
-
-*   **Tests to Add:**
-    *   Unit test for the `validate_node_output` decorator. One test should pass a valid dictionary, and another should pass a dictionary with an invalid key and assert that a critical error is logged.
-
----
-
-## 3. Implementation Checklist (Final)
-
-| Priority | Task ID | Description                                     | Status      |
-| :------- | :------ | :---------------------------------------------- | :---------- |
-| **P1**   | CS-01   | Fix `await` misuse in `CVAnalyzerAgent`         | `[ ] To Do` |
-| **P1**   | CS-02   | Fix non-existent error handler call in `CleaningAgent` | `[ ] To Do` |
-| **P1**   | CB-01   | Fix incorrect error handling in `FormatterAgent`| `[ ] To Do` |
-| **P1**   | CB-03   | Fix Asynchronous Contract of `generate_content` | `[ ] To Do` |
-| **P1**   | CF-01   | Implement Fail-Fast Gemini API Key Validation   | `[ ] To Do` |
-| **P1**   | NI-01   | Fix `section.name` vs. `section.title`          | `[ ] To Do` |
-| **P1**   | AD-02   | Fix incorrect `run_in_executor` usage         | `[ ] To Do` |
-| **P2**   | DP-01   | Consolidate Caching in `EnhancedLLMService`     | `[ ] To Do` |
-| **P2**   | DP-02   | Consolidate Vector Store Services             | `[ ] To Do` |
-| **P2**   | NI-02   | Clarify API Key Management Strategy in `llm_service` | `[ ] To Do` |
-| **P2**   | AD-01   | Refactor parsing logic out of `ContentWriter`   | `[ ] To Do` |
-| **P2**   | AD-03   | Standardize Error Handling Strategy             | `[ ] To Do` |
-| **P2**   | CB-06   | Audit and Enforce Agent Output Contracts      | `[ ] To Do` |
-| **P2**   | CQ-01   | Remediate High-Priority Pylint Violations       | `[ ] To Do` |
-| **P3**   | AD-04   | Formalize Application Startup and Service Init  | `[ ] To Do` |
-| **P3**   | AD-03   | Stabilize `EnhancedLLMService` Singleton Lifecycle | `[ ] To Do` |
-| **P3**   | CB-02   | Enforce Pydantic Models over `Dict[str, Any]` | `[ ] To Do` |
-| **P3**   | CB-04   | Enforce State Validation at Node Boundaries     | `[ ] To Do` |
-| **P3**   | CB-05   | Harden PDF Generation Template                  | `[ ] To Do` |
-| **P3**   | DP-03   | Consolidate Data Model Definitions            | `[ ] To Do` |
-| **P3**   | DL-01   | Migrate and delete orphaned debug scripts       | `[ ] To Do` |
-
----
-
-## 4. Testing Strategy (Final)
-
-1.  **Unit Testing:** Each fix must be accompanied by new or updated unit tests that specifically target the bug or refactoring. For example, the `await` fix (`CS-01`) must have a test that proves the async call chain works.
-2.  **Integration Testing:** After P1 fixes are complete, run the full `test_agent_workflow_integration.py` to ensure the agents still work together correctly. This test must be updated to reflect the new data contracts from the refactoring tasks.
-3.  **Regression Testing:** The test cases from the orphaned debug scripts (e.g., `test_await_issue.py`) must be converted into permanent regression tests in the `pytest` suite. This ensures that the critical bugs they were designed to catch do not reappear.
-4.  **Static Analysis:** After applying fixes, run `pylint` using the provided `.pylintrc` configuration. The goal is to have zero new `E` (Error) or `W` (Warning) messages related to the changed code.
-
----
-
-## 5. Critical Gaps & Questions
-
-*   No critical gaps or questions remain at this time. The provided clarifications have been integrated into the plan.
-
----
-
-### 2.15. Observability & Monitoring
-
-#### Task 2.15.1: Standardize Workflow Tracing (OB-01)
-
-*   **Priority:** `P3`
-*   **Root Cause:** While the `AgentState` contains a `trace_id`, its propagation and use in logging are not consistently enforced. This makes it difficult to trace a single user request through the entire workflow, a weakness highlighted by the proliferation of ad-hoc debugging scripts (`DL-01`).
-*   **Impacted Modules:** All agent `run_as_node` methods, `src/services/llm_service.py`, `src/config/logging_config.py`.
-
-*   **Required Changes:**
-    1.  **Propagate `trace_id`:** Ensure the `trace_id` from `AgentState` is passed to all key service calls, especially `llm_service.generate_content`.
-    2.  **Structured Logging:** Enhance the logging configuration to automatically include the `trace_id` in log records when it's available. This can be done via a `logging.Filter` or by passing it in the `extra` dictionary.
-    3.  **Node Entry/Exit Logging:** All `run_as_node` methods should begin with a log message indicating entry and end with a message indicating exit, both including the `trace_id`.
-
-*   **Code Snippets (Proposed Logging Pattern):**
-    ```python
-    # src/orchestration/cv_workflow_graph.py
-
-    async def parser_node(state: AgentState) -> Dict[str, Any]:
-        logger.info(
-            "Entering parser_node",
-            extra={"trace_id": state.trace_id}
-        )
-        # ... logic ...
-        result = await parser_agent.run_as_node(state)
-        logger.info(
-            "Exiting parser_node",
-            extra={"trace_id": state.trace_id, "output_keys": list(result.keys())}
-        )
-        return result
-
-    # src/services/llm_service.py
-    async def generate_content(self, prompt: str, ..., trace_id: Optional[str] = None):
-        # ...
-        logger.info(
-            "Generating LLM content",
-            extra={"trace_id": trace_id, "prompt_length": len(prompt)}
-        )
-        # ...
-    ```
-
-*   **Implementation Checklist:**
-    1.  [ ] Modify the `generate_content` signature in `EnhancedLLMService` to accept an optional `trace_id`.
-    2.  [ ] Update all calls to `generate_content` within agents to pass `state.trace_id`.
-    3.  [ ] Add entry and exit log statements with the `trace_id` to every node function in `cv_workflow_graph.py`.
-    4.  [ ] Review `logging_config.py` to ensure the `JsonFormatter` is configured to correctly handle and display fields passed in the `extra` dictionary.
-
-*   **Tests to Add:**
-    *   Update integration tests to pass a mock `AgentState` with a known `trace_id`.
-    *   Capture log output during the test run (e.g., using `caplog` fixture in `pytest`) and assert that the `trace_id` is present in logs from different agents and services involved in the workflow.
-
----
-
-## 3. Implementation Checklist (Final)
-
-| Priority | Task ID | Description                                     | Status      |
-| :------- | :------ | :---------------------------------------------- | :---------- |
-| **P1**   | CS-01   | Fix `await` misuse in `CVAnalyzerAgent`         | `[ ] To Do` |
-| **P1**   | CS-02   | Fix non-existent error handler call in `CleaningAgent` | `[ ] To Do` |
-| **P1**   | CB-01   | Fix incorrect error handling in `FormatterAgent`| `[ ] To Do` |
-| **P1**   | CB-03   | Fix Asynchronous Contract of `generate_content` | `[ ] To Do` |
-| **P1**   | CF-01   | Implement Fail-Fast Gemini API Key Validation   | `[ ] To Do` |
-| **P1**   | NI-01   | Fix `section.name` vs. `section.title`          | `[ ] To Do` |
-| **P1**   | AD-02   | Fix incorrect `run_in_executor` usage         | `[ ] To Do` |
-| **P2**   | DP-01   | Consolidate Caching in `EnhancedLLMService`     | `[ ] To Do` |
-| **P2**   | DP-02   | Consolidate Vector Store Services             | `[ ] To Do` |
-| **P2**   | NI-02   | Clarify API Key Management Strategy in `llm_service` | `[ ] To Do` |
-| **P2**   | AD-01   | Refactor parsing logic out of `ContentWriter`   | `[ ] To Do` |
-| **P2**   | AD-03   | Standardize Error Handling Strategy             | `[ ] To Do` |
-| **P2**   | CB-06   | Audit and Enforce Agent Output Contracts      | `[ ] To Do` |
-| **P2**   | CQ-01   | Remediate High-Priority Pylint Violations       | `[ ] To Do` |
-| **P3**   | AD-04   | Formalize Application Startup and Service Init  | `[ ] To Do` |
-| **P3**   | AD-03   | Stabilize `EnhancedLLMService` Singleton Lifecycle | `[ ] To Do` |
-| **P3**   | CB-02   | Enforce Pydantic Models over `Dict[str, Any]` | `[ ] To Do` |
-| **P3**   | CB-04   | Enforce State Validation at Node Boundaries     | `[ ] To Do` |
-| **P3**   | CB-05   | Harden PDF Generation Template                  | `[ ] To Do` |
-| **P3**   | DP-03   | Consolidate Data Model Definitions            | `[ ] To Do` |
-| **P3**   | OB-01   | Standardize Workflow Tracing                  | `[ ] To Do` |
-| **P3**   | DL-01   | Migrate and delete orphaned debug scripts       | `[ ] To Do` |
-
----
-
-## 4. Testing Strategy (Final)
-
-1.  **Unit Testing:** Each fix must be accompanied by new or updated unit tests that specifically target the bug or refactoring. For example, the `await` fix (`CS-01`) must have a test that proves the async call chain works.
-2.  **Integration Testing:** After P1 fixes are complete, run the full `test_agent_workflow_integration.py` to ensure the agents still work together correctly. This test must be updated to reflect the new data contracts from the refactoring tasks.
-3.  **Regression Testing:** The test cases from the orphaned debug scripts (e.g., `test_await_issue.py`) must be converted into permanent regression tests in the `pytest` suite. This ensures that the critical bugs they were designed to catch do not reappear.
-4.  **Static Analysis:** After applying fixes, run `pylint` using the provided `.pylintrc` configuration. The goal is to have zero new `E` (Error) or `W` (Warning) messages related to the changed code.
-
----
-
-## 5. Critical Gaps & Questions
-
-*   No critical gaps or questions remain at this time. The provided clarifications have been integrated into the plan.
-

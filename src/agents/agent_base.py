@@ -10,17 +10,17 @@ from typing import Any, Dict, Optional, TYPE_CHECKING, Union, List
 
 from ..config.logging_config import get_structured_logger
 from ..core.async_optimizer import optimize_async
-from ..core.state_manager import AgentIO
 from ..models.data_models import (
     AgentExecutionLog,
     AgentDecisionLog,
     JobDescriptionData,
     StructuredCV,
+    AgentIO,
 )
 from ..models.data_models import ContentType
 from ..models.validation_schemas import validate_agent_input, ValidationError
 from ..services.error_recovery import get_error_recovery_service
-from ..services.llm_service import get_llm_service
+from ..services.llm_service import EnhancedLLMService
 from ..services.progress_tracker import get_progress_tracker
 from ..services.session_manager import get_session_manager
 from ..utils.agent_error_handling import (
@@ -91,6 +91,10 @@ class EnhancedAgentBase(ABC):
         input_schema: AgentIO,
         output_schema: AgentIO,
         content_type: Optional[ContentType] = None,
+        logger=None,
+        error_recovery=None,
+        progress_tracker=None,
+        session_manager=None,
     ):
         """Initializes the EnhancedAgentBase with the given attributes.
 
@@ -100,6 +104,10 @@ class EnhancedAgentBase(ABC):
             input_schema: The input schema of the agent.
             output_schema: The output schema of the agent.
             content_type: The type of content this agent processes.
+            logger: Injected logger dependency.
+            error_recovery: Injected error recovery service.
+            progress_tracker: Injected progress tracker service.
+            session_manager: Injected session manager service.
         """
         self.name = name
         self.description = description
@@ -107,17 +115,23 @@ class EnhancedAgentBase(ABC):
         self.output_schema = output_schema
         self.content_type = content_type
 
-        # Enhanced services
-        self.logger = get_structured_logger(f"agent_{name.lower()}")
-        self.error_recovery = get_error_recovery_service()
-        self.progress_tracker = get_progress_tracker()
-        self.session_manager = get_session_manager()
+        # Enhanced services (injected)
+        self.logger = logger
+        self.error_recovery = error_recovery
+        self.progress_tracker = progress_tracker
+        self.session_manager = session_manager
 
         # Performance tracking
         self.execution_count = 0
         self.total_processing_time = 0.0
         self.success_count = 0
         self.error_count = 0
+
+        self.logger = get_structured_logger(__name__)
+        if not self.logger or getattr(self.logger, "info", None) is None:
+            import logging
+
+            self.logger = logging.getLogger(self.__class__.__name__)
 
         self.logger.info(
             "Agent initialized",
@@ -458,19 +472,11 @@ class EnhancedAgentBase(ABC):
             AgentError: If LLM call fails or JSON parsing fails after retries
         """
         # Use the agent's LLM service if available, otherwise get default
-        try:
-            llm_service = getattr(self, "llm", None) or get_llm_service()
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get LLM service for agent {self.name}",
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            raise ValueError(f"LLM service unavailable: {str(e)}") from e
-
+        llm_service = getattr(self, "llm", None)
         if llm_service is None:
-            self.logger.error(f"LLM service is None for agent {self.name}")
-            raise ValueError("LLM service is None - initialization may have failed")
+            raise ValueError(
+                f"LLM service unavailable: No llm_service provided to agent {self.name}"
+            )
 
         try:
             # Generate response from LLM

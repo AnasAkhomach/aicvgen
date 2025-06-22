@@ -6,7 +6,7 @@ from ..models.data_models import AgentIO, ContentData
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
 from ..config.logging_config import get_structured_logger
-from ..services.llm_service import get_llm_service
+from ..services.llm_service import EnhancedLLMService
 from ..utils.agent_error_handling import (
     AgentErrorHandler,
     with_node_error_handling,
@@ -33,13 +33,14 @@ class FormatterAgent(EnhancedAgentBase):
     Agent responsible for formatting the tailored CV content.
     """
 
-    def __init__(self, name: str, description: str):
+    def __init__(self, name: str, description: str, llm_service=None):
         """
         Initializes the FormatterAgent.
 
         Args:
             name: The name of the agent.
             description: A description of the agent.
+            llm_service: Injected LLM service dependency.
         """
         super().__init__(
             name=name,
@@ -55,7 +56,7 @@ class FormatterAgent(EnhancedAgentBase):
                 optional_fields=["error_messages"],
             ),
         )
-        self.llm_service = get_llm_service()
+        self.llm_service = llm_service
 
     @optimize_async("agent_execution", "formatter")
     @with_node_error_handling

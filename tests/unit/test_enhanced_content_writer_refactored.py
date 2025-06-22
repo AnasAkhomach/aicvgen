@@ -1,10 +1,10 @@
-"""Unit tests for EnhancedContentWriterAgent after parsing refactor."""
+"""Unit tests for EnhancedContentWriterAgent after parsing refactor (DI enforced)."""
 
 import sys
 import os
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
 from src.agents.parser_agent import ParserAgent
 from src.models.data_models import ContentType, LLMResponse
@@ -16,13 +16,12 @@ if PROJECT_ROOT not in sys.path:
 
 
 class TestEnhancedContentWriterRefactored:
-    """Test cases for EnhancedContentWriterAgent after parsing refactor."""
+    """Test cases for EnhancedContentWriterAgent after parsing refactor (DI only)."""
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch("src.agents.enhanced_content_writer.get_llm_service"):
-            with patch("src.agents.enhanced_content_writer.get_config"):
-                self.agent = EnhancedContentWriterAgent()
+        self.mock_llm_service = Mock()
+        self.agent = EnhancedContentWriterAgent(llm_service=self.mock_llm_service)
 
     def test_initialization_with_parser_agent(self):
         """Test that EnhancedContentWriterAgent initializes with ParserAgent."""

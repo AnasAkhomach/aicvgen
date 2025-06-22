@@ -144,6 +144,7 @@ def create_initial_agent_state() -> AgentState:
     initial_state = AgentState(
         structured_cv=structured_cv,
         job_description_data=job_description_data,
+        cv_text=cv_text,  # <-- Ensure cv_text is set for parser validation
         # Initialize other fields with sensible defaults
         user_feedback=None,
         error_messages=[],

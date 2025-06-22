@@ -10,6 +10,7 @@ import uuid
 from ..models.data_models import JobDescriptionData, StructuredCV, UserFeedback
 from ..models.research_models import ResearchFindings
 from ..models.quality_models import QualityCheckResults
+from ..models.cv_analysis_result import CVAnalysisResult
 
 
 class AgentState(BaseModel):
@@ -54,6 +55,8 @@ class AgentState(BaseModel):
     research_findings: Optional[ResearchFindings] = None
     # Quality check results from the QualityAssuranceAgent
     quality_check_results: Optional[QualityCheckResults] = None
+    # CV analysis results from the CVAnalysisAgent
+    cv_analysis_results: Optional[CVAnalysisResult] = None
     # Path to the final generated PDF file.
     final_output_path: Optional[str] = None
     # Accumulated error messages from the workflow.

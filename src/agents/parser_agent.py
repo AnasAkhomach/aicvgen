@@ -1,5 +1,5 @@
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..services.llm_service import get_llm_service
+from ..services.llm_service import EnhancedLLMService
 from ..services.vector_store_service import get_vector_store_service
 from ..models.data_models import (
     JobDescriptionData,
@@ -56,6 +56,8 @@ class ParserAgent(EnhancedAgentBase):
 
     def __init__(self, name: str, description: str, llm_service=None, llm=None):
         self._job_data = {}  # Initialize job data storage
+        self.current_session_id = None
+        self.current_trace_id = None
         """
         Initialize the ParserAgent.
 
@@ -67,29 +69,31 @@ class ParserAgent(EnhancedAgentBase):
         """
         # Define input and output schemas
         input_schema = AgentIO(
-            description="Reads raw text for job description and CV from the AgentState.",
-            required_fields=[
-                "job_description_data.raw_text",
-                "structured_cv.metadata.original_cv_text",
-            ],
-            optional_fields=["start_from_scratch"],
+            description="Job description or CV text to parse",
+            required_fields=["raw_text"],
         )
         output_schema = AgentIO(
-            description="Populates the 'structured_cv' and 'job_description_data' fields in AgentState.",
-            required_fields=["structured_cv", "job_description_data"],
-            optional_fields=["error_messages"],
+            description="Parsed job or CV data",
+            required_fields=["parsed_data"],
         )
 
         # Call parent constructor
-        super().__init__(name, description, input_schema, output_schema)
-
-        # Accept either llm_service or llm parameter
-        self.llm = llm_service or llm or get_llm_service()
-
-        # Initialize settings for prompt loading
-        self.settings = get_config()
-
-    # Removed _load_prompt method - now using centralized settings-based prompt loading
+        super().__init__(
+            name=name,
+            description=description,
+            input_schema=input_schema,
+            output_schema=output_schema,
+        )
+        self.llm = llm_service or llm
+        if self.llm is None:
+            self._dependency_error = (
+                "ParserAgent requires a valid llm_service instance."
+            )
+        else:
+            self._dependency_error = None
+        self.settings = (
+            get_config()
+        )  # Removed _load_prompt method - now using centralized settings-based prompt loading
 
     async def parse_job_description(
         self, raw_text: str, trace_id: Optional[str] = None
@@ -121,7 +125,36 @@ class ParserAgent(EnhancedAgentBase):
                 experience_level="N/A",
             )
 
-        return await self._parse_job_description_with_llm(raw_text, trace_id=trace_id)
+        # Check for LLM dependency before attempting to use it
+        if self.llm is None:
+            logger.error("LLM service is None, cannot parse job description")
+            return JobDescriptionData(
+                raw_text=raw_text,
+                skills=[],
+                responsibilities=[],
+                company_values=[],
+                industry_terms=[],
+                experience_level="N/A",
+                error="LLM service not available",
+                status=ItemStatus.GENERATION_FAILED,
+            )
+
+        try:
+            return await self._parse_job_description_with_llm(
+                raw_text, trace_id=trace_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to parse job description: {str(e)}")
+            return JobDescriptionData(
+                raw_text=raw_text,
+                skills=[],
+                responsibilities=[],
+                company_values=[],
+                industry_terms=[],
+                experience_level="N/A",
+                error=str(e),
+                status=ItemStatus.GENERATION_FAILED,
+            )
 
     async def _parse_job_description_with_llm(
         self, raw_text: str, trace_id: Optional[str] = None
@@ -200,9 +233,9 @@ class ParserAgent(EnhancedAgentBase):
             A StructuredCV object representing the parsed CV.
         """
         # Create a new StructuredCV with initial metadata
-        structured_cv = self._initialize_structured_cv(cv_text, job_data)
-
-        # If no CV text, return empty structure
+        structured_cv = self._initialize_structured_cv(
+            cv_text, job_data
+        )  # If no CV text, return empty structure
         if not cv_text:
             logger.warning("Empty CV text provided to ParserAgent.")
             return structured_cv
@@ -271,12 +304,15 @@ class ParserAgent(EnhancedAgentBase):
 
         Raises:
             Exception: If LLM parsing fails or validation errors occur.
-        """
-        # Load the CV parsing prompt using settings
+        """  # Load the CV parsing prompt using settings
         prompt_path = self.settings.get_prompt_path_by_key("cv_parser")
         with open(prompt_path, "r", encoding="utf-8") as f:
             prompt_template = f.read()
         prompt = prompt_template.replace("{{raw_cv_text}}", cv_text)
+
+        # Check for LLM dependency before attempting to use it
+        if self.llm is None:
+            raise ValueError("LLM service is None, cannot parse CV content")
 
         # Use centralized LLM generation and JSON parsing
         parsing_data = await self._generate_and_parse_json(
@@ -555,7 +591,7 @@ class ParserAgent(EnhancedAgentBase):
     ) -> str:
         """Extract company name from original CV text based on role name."""
 
-        # Get original CV text from generation context
+        # Get original CV from generation context
         original_cv = generation_context.get("original_cv_text", "")
 
         # Define company mappings based on the CV content
@@ -596,7 +632,7 @@ class ParserAgent(EnhancedAgentBase):
         import re
 
         if not cv_text or not isinstance(cv_text, str):
-            logger.warning(f"Invalid CV text input: {type(cv_text)}")
+            logger.warning("Invalid CV text input: %s", type(cv_text))
             return Subsection(name="Professional Experience", items=[])
 
         # Split text into lines and clean them
@@ -725,7 +761,7 @@ class ParserAgent(EnhancedAgentBase):
             return skills[:10]  # Ensure exactly 10 skills
 
         except Exception as e:
-            logger.error(f"Error parsing skills from LLM response: {e}")
+            logger.error("Error parsing skills from LLM response: %s", e)
             # Return default skills
             return [
                 "Problem Solving",
@@ -979,73 +1015,155 @@ class ParserAgent(EnhancedAgentBase):
 
     @optimize_async("agent_execution", "parser")
     @with_node_error_handling("parser", "run_as_node")
-    async def run_as_node(self, state: AgentState) -> dict:
-        """
-        Executes the complete parsing logic as a LangGraph node.
-
-        This method now correctly handles parsing the job description,
-        parsing an existing CV text from metadata, or creating an empty CV
-        structure based on the initial state, ensuring the agent's full
-        capability is exposed to the workflow.
-        """
-        logger.info(
-            "ParserAgent node running with consolidated logic.",
-            extra={"trace_id": state.trace_id},
-        )
-
-        # Set current session and trace IDs for centralized JSON parsing
-        self.current_session_id = getattr(state, "session_id", None)
-        self.current_trace_id = state.trace_id
-
-        # Initialize job_data to None
-        job_data = None
-
-        # 1. Always parse the job description first, if it exists.
-        if state.job_description_data and state.job_description_data.raw_text:
+    async def run_as_node(self, state):
+        try:
+            if getattr(self, "_dependency_error", None):
+                return state.model_copy(
+                    update={
+                        "error_messages": state.error_messages
+                        + [f"ParserAgent dependency error: {self._dependency_error}"]
+                    }
+                )
             logger.info(
-                "Starting job description parsing.",
+                "ParserAgent node running with consolidated logic.",
                 extra={"trace_id": state.trace_id},
             )
-            job_data = await self.parse_job_description(
-                state.job_description_data.raw_text, trace_id=state.trace_id
-            )
-        else:
-            logger.warning(
-                "No job description text found in the state.",
-                extra={"trace_id": state.trace_id},
-            )
-            # Create empty JobDescriptionData if none exists
-            job_data = JobDescriptionData(raw_text="")
 
-        # 2. Determine the CV processing path from the structured_cv metadata.
-        # This metadata is set by the create_initial_agent_state function.
-        cv_metadata = state.structured_cv.metadata if state.structured_cv else {}
-        # Ensure cv_metadata is a dict for compatibility
-        if hasattr(cv_metadata, "dict"):
-            cv_metadata = cv_metadata.dict()
-        start_from_scratch = cv_metadata.get("start_from_scratch", False)
-        original_cv_text = cv_metadata.get("original_cv_text", "")
+            # Set current session and trace IDs for centralized JSON parsing
+            self.current_session_id = getattr(state, "session_id", None)
+            self.current_trace_id = state.trace_id
 
-        final_cv = None
-        if start_from_scratch:
-            logger.info(
-                "Creating empty CV structure for 'Start from Scratch' option.",
-                extra={"trace_id": state.trace_id},
-            )
-            final_cv = self.create_empty_cv_structure(job_data)
-        elif original_cv_text:
-            logger.info(
-                "Parsing provided CV text with LLM-first approach.",
-                extra={"trace_id": state.trace_id},
-            )
-            final_cv = await self.parse_cv_with_llm(original_cv_text, job_data)
-        else:
-            logger.warning(
-                "No CV text provided and not starting from scratch. Passing CV state through."
-            )
-            final_cv = state.structured_cv
+            # Validate input using proper validation function
+            from ..models.validation_schemas import validate_agent_input
 
-        # 3. Return the complete, updated state.
-        if job_data is None:
-            job_data = JobDescriptionData(raw_text="")
-        return {"structured_cv": final_cv, "job_description_data": job_data}
+            validated_input = validate_agent_input("parser", state)
+
+            # Initialize job_data to None
+            job_data = None
+
+            # 1. Always parse the job description first, if it exists.
+            if state.job_description_data and state.job_description_data.raw_text:
+                logger.info(
+                    "Starting job description parsing.",
+                    extra={"trace_id": state.trace_id},
+                )
+                job_data = await self.parse_job_description(
+                    state.job_description_data.raw_text, trace_id=state.trace_id
+                )
+            else:
+                logger.warning(
+                    "No job description text found in the state.",
+                    extra={"trace_id": state.trace_id},
+                )
+                # Create empty JobDescriptionData if none exists
+                job_data = JobDescriptionData(raw_text="")
+
+            # Defensive: Ensure job_data has all required fields (Pydantic contract enforced)
+            if job_data is not None:
+                update_fields = {}
+                if not getattr(job_data, "company_name", None):
+                    update_fields["company_name"] = "Unknown Company"
+                if not getattr(job_data, "title", None):
+                    update_fields["title"] = "Unknown Title"
+                if update_fields:
+                    job_data = job_data.model_copy(update=update_fields)
+
+            # 2. Determine the CV processing path from the structured_cv metadata.
+            # This metadata is set by the create_initial_agent_state function.
+            cv_metadata = state.structured_cv.metadata if state.structured_cv else {}
+            # Ensure cv_metadata is a dict for compatibility
+            if hasattr(cv_metadata, "dict"):
+                cv_metadata = cv_metadata.dict()
+            start_from_scratch = cv_metadata.get("start_from_scratch", False)
+            original_cv_text = cv_metadata.get("original_cv_text", "")
+
+            final_cv = None
+            if start_from_scratch:
+                logger.info(
+                    "Creating empty CV structure for 'Start from Scratch' option.",
+                    extra={"trace_id": state.trace_id},
+                )
+                final_cv = self.create_empty_cv_structure(job_data)
+            elif original_cv_text:
+                logger.info(
+                    "Parsing provided CV text with LLM-first approach.",
+                    extra={"trace_id": state.trace_id},
+                )
+                final_cv = await self.parse_cv_with_llm(original_cv_text, job_data)
+            else:
+                logger.warning(
+                    "No CV text provided and not starting from scratch. Passing CV state through."
+                )
+                final_cv = (
+                    state.structured_cv
+                )  # --- PATCH: Ensure current_item_id exists in StructuredCV for downstream agents ---
+            from uuid import UUID
+
+            current_item_id = getattr(state, "current_item_id", None)
+            if current_item_id:
+                found = False
+                for section in final_cv.sections:
+                    for item in section.items:
+                        if str(item.id) == str(current_item_id):
+                            found = True
+                            break
+                    if found:
+                        break
+                    for subsection in section.subsections:
+                        for item in subsection.items:
+                            if str(item.id) == str(current_item_id):
+                                found = True
+                                break
+                        if found:
+                            break
+                    if found:
+                        break
+
+                if not found:
+                    # Add a default item with the required ID to the first section's items
+                    from ..models.data_models import (
+                        Item,
+                        ItemType,
+                        ItemStatus,
+                        MetadataModel,
+                    )
+                    import uuid
+
+                    if not final_cv.sections:
+                        from ..models.data_models import Section
+
+                        final_cv.sections.append(Section(name="Auto-Generated Section"))
+
+                    # Convert string current_item_id to UUID if possible, otherwise generate new UUID
+                    try:
+                        # Try to parse as UUID first
+                        uuid_id = uuid.UUID(current_item_id)
+                    except (ValueError, TypeError):
+                        # If not a valid UUID, generate a new one but store original in metadata
+                        uuid_id = uuid.uuid4()
+
+                    new_item = Item(
+                        id=uuid_id,
+                        content="Auto-generated item for workflow alignment.",
+                        status=ItemStatus.INITIAL,
+                        item_type=ItemType.BULLET_POINT,
+                        metadata=MetadataModel(item_id=str(current_item_id)),
+                    )
+                    final_cv.sections[0].items.append(new_item)
+
+            # 3. Return the complete, updated state.
+            if job_data is None:
+                job_data = JobDescriptionData(raw_text="")
+            # After processing, build and return a new AgentState using model_copy
+            updated_state = state.model_copy(
+                update={"structured_cv": final_cv, "job_description_data": job_data}
+            )
+            return updated_state
+        except Exception as e:
+            # Always return AgentState with error message, never a dict
+            return state.model_copy(
+                update={
+                    "error_messages": state.error_messages
+                    + [f"ParserAgent failed: {str(e)}"]
+                }
+            )

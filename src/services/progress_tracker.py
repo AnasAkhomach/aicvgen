@@ -219,8 +219,8 @@ class ProgressMetrics:
 class ProgressTracker:  # pylint: disable=too-many-instance-attributes
     """Progress tracker for CV generation workflow."""
 
-    def __init__(self):
-        self.logger = get_structured_logger("progress_tracker")
+    def __init__(self, logger=None):
+        self.logger = logger
 
         # Event storage
         self.events: Dict[str, List[ProgressEvent]] = defaultdict(list)

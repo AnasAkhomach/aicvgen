@@ -13,12 +13,17 @@ from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
 from ..agents.quality_assurance_agent import QualityAssuranceAgent
 from ..agents.research_agent import ResearchAgent
 from ..agents.formatter_agent import FormatterAgent
-from ..services.llm_service import get_llm_service
+from ..agents.cv_analyzer_agent import CVAnalyzerAgent
+from ..config.settings import get_config
+from ..services.llm_service import EnhancedLLMService
 from ..models.data_models import UserAction
 from ..config.logging_config import get_structured_logger
 from ..utils.node_validation import validate_node_output
 from ..models.research_models import ResearchFindings
 from ..models.quality_models import QualityCheckResults
+from ..services.vector_store_service import VectorStoreService
+from ..core.performance_optimizer import get_performance_optimizer
+from ..services.rate_limiter import get_rate_limiter
 
 logger = get_structured_logger(__name__)
 
@@ -31,53 +36,61 @@ WORKFLOW_SEQUENCE = [
 ]
 
 # Initialize services and agents
-llm_service = get_llm_service()
+settings = get_config()
+
+performance_optimizer = get_performance_optimizer()
+rate_limiter = get_rate_limiter()
+llm_service = EnhancedLLMService(
+    settings=settings,
+    performance_optimizer=performance_optimizer,
+    rate_limiter=rate_limiter,
+)
 parser_agent = ParserAgent(
     name="ParserAgent", description="Parses CV and JD.", llm_service=llm_service
 )
-content_writer_agent = EnhancedContentWriterAgent()
+content_writer_agent = EnhancedContentWriterAgent(llm_service=llm_service)
 qa_agent = QualityAssuranceAgent(
     name="QAAgent", description="Performs quality checks.", llm_service=llm_service
 )
-from ..services.vector_store_service import get_vector_store_service
-
+vector_store_service = VectorStoreService(settings=settings)
 research_agent = ResearchAgent(
     name="ResearchAgent",
     description="Conducts research and finds relevant CV content.",
     llm_service=llm_service,
+    vector_db=vector_store_service,
 )
 formatter_agent = FormatterAgent(
-    name="FormatterAgent", description="Generates PDF output from structured CV data."
+    name="FormatterAgent",
+    description="Generates PDF output from structured CV data.",
+    llm_service=llm_service,
+)
+cv_analyzer_agent = CVAnalyzerAgent(
+    name="CVAnalyzerAgent",
+    description="Analyzes CV and extracts relevant information.",
+    llm_service=llm_service,
+    settings=settings,
 )
 
 
 # Node wrapper functions for granular workflow
 @validate_node_output
-async def parser_node(state: AgentState) -> Dict[str, Any]:
-    """Parse job description and CV. Queue setup is now handled by generate_skills_node."""
+async def parser_node(state: AgentState) -> AgentState:
     logger.info("Executing parser_node")
     logger.info(f"Parser input state - trace_id: {state.trace_id}")
-
-    # State is already an AgentState object, no need to validate
     logger.info(
         f"AgentState validation successful. Has structured_cv: {state.structured_cv is not None}"
     )
     logger.info(
         f"AgentState validation successful. Has job_description_data: {state.job_description_data is not None}"
     )
-
-    # Parse inputs using the parser agent
     result = await parser_agent.run_as_node(state)
-    logger.info(
-        f"Parser result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}"
-    )
-
+    if isinstance(result, dict):
+        return state.model_copy(update=result)
     return result
 
 
 @validate_node_output
-async def content_writer_node(state: AgentState) -> Dict[str, Any]:
-    """Generate content for the current item specified in state.current_item_id."""
+async def content_writer_node(state: AgentState) -> AgentState:
     logger.info(f"Executing content_writer_node for item: {state.current_item_id}")
 
     if not state.current_item_id:
@@ -87,90 +100,77 @@ async def content_writer_node(state: AgentState) -> Dict[str, Any]:
             next_item_id = queue_copy.pop(0)
             logger.info(f"Auto-setting current_item_id to: {next_item_id}")
             # Update state and continue
-            state.current_item_id = next_item_id
-            state.items_to_process_queue = queue_copy
+            state = state.model_copy(
+                update={
+                    "current_item_id": next_item_id,
+                    "items_to_process_queue": queue_copy,
+                }
+            )
         else:
             logger.error(
                 "ContentWriter called without current_item_id and no items in queue"
             )
-            return {
-                "error_messages": state.error_messages
-                + ["ContentWriter failed: No item ID."]
-            }
+            return state.model_copy(
+                update={
+                    "error_messages": state.error_messages
+                    + ["ContentWriter failed: No item ID."]
+                }
+            )
 
     result = await content_writer_agent.run_as_node(state)
+    if isinstance(result, dict):
+        return state.model_copy(update=result)
     return result
 
 
 @validate_node_output
-async def qa_node(state: AgentState) -> Dict[str, Any]:
-    """Perform quality assurance on the generated content."""
+async def qa_node(state: AgentState) -> AgentState:
     logger.info(f"Executing qa_node for item: {state.current_item_id}")
     result = await qa_agent.run_as_node(state)
-
-    # Convert Dict result to QualityCheckResults if needed
-    if isinstance(result.get("quality_check_results"), dict):
-        try:
-            result["quality_check_results"] = QualityCheckResults.from_dict(
-                result["quality_check_results"]
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to convert quality check results to Pydantic model: {e}"
-            )
-            result["quality_check_results"] = QualityCheckResults.create_failed(str(e))
-
+    if isinstance(result, dict):
+        return state.model_copy(update=result)
     return result
 
 
 @validate_node_output
-async def research_node(state: AgentState) -> Dict[str, Any]:
-    """Conduct research on job description and find relevant CV content."""
+async def research_node(state: AgentState) -> AgentState:
     logger.info("Executing research_node")
     result = await research_agent.run_as_node(state)
-
-    # Convert Dict result to ResearchFindings if needed
-    if isinstance(result.get("research_findings"), dict):
-        try:
-            result["research_findings"] = ResearchFindings.from_dict(
-                result["research_findings"]
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to convert research findings to Pydantic model: {e}"
-            )
-            result["research_findings"] = ResearchFindings.create_failed(str(e))
-
+    if isinstance(result, dict):
+        return state.model_copy(update=result)
     return result
 
 
 @validate_node_output
-async def process_next_item_node(state: AgentState) -> Dict[str, Any]:
-    """Pop the next item from the queue and set it as current."""
+async def process_next_item_node(state: AgentState) -> AgentState:
     logger.info("Executing process_next_item_node")
 
     if not state.items_to_process_queue:
         logger.warning("No items in queue to process")
-        return {}
+        return state
 
     # Pop the next item from the queue
     queue_copy = state.items_to_process_queue.copy()
     next_item_id = queue_copy.pop(0)
 
     logger.info(f"Processing next item: {next_item_id}")
-    return {"current_item_id": next_item_id, "items_to_process_queue": queue_copy}
+    return state.model_copy(
+        update={
+            "current_item_id": next_item_id,
+            "items_to_process_queue": queue_copy,
+        }
+    )
 
 
 @validate_node_output
-async def prepare_next_section_node(state: AgentState) -> Dict[str, Any]:
-    """Move to the next section in the workflow sequence."""
+async def prepare_next_section_node(state: AgentState) -> AgentState:
     logger.info("Executing prepare_next_section_node")
 
     try:
         current_index = WORKFLOW_SEQUENCE.index(state.current_section_key)
         if current_index + 1 >= len(WORKFLOW_SEQUENCE):
             logger.info("All sections completed")
-            return {}
+            return state
 
         next_section_key = WORKFLOW_SEQUENCE[current_index + 1]
         logger.info(f"Moving to next section: {next_section_key}")
@@ -188,22 +188,23 @@ async def prepare_next_section_node(state: AgentState) -> Dict[str, Any]:
                 for subsection in next_section.subsections:
                     item_queue.extend([str(item.id) for item in subsection.items])
 
-            return {
-                "current_section_key": next_section_key,
-                "items_to_process_queue": item_queue,
-                "current_item_id": None,  # Reset current item
-            }
+            return state.model_copy(
+                update={
+                    "current_section_key": next_section_key,
+                    "items_to_process_queue": item_queue,
+                    "current_item_id": None,  # Reset current item
+                }
+            )
 
     except (ValueError, IndexError) as e:
         logger.error(f"Error preparing next section: {e}")
-        return {}
+        return state
 
-    return {}
+    return state
 
 
 @validate_node_output
-async def formatter_node(state: AgentState) -> Dict[str, Any]:
-    """Generate the final PDF output using FormatterAgent."""
+async def formatter_node(state: AgentState) -> AgentState:
     logger.info("Executing formatter_node")
 
     # Use FormatterAgent to generate PDF (now async)
@@ -211,19 +212,18 @@ async def formatter_node(state: AgentState) -> Dict[str, Any]:
 
     # Update state with the result
     updated_state = state.model_copy()
-    if "final_output_path" in result:
-        updated_state.final_output_path = result["final_output_path"]
-    if "error_messages" in result:
-        updated_state.error_messages.extend(result["error_messages"])
+    if isinstance(result, dict):
+        if "final_output_path" in result:
+            updated_state.final_output_path = result["final_output_path"]
+        if "error_messages" in result:
+            updated_state.error_messages.extend(result["error_messages"])
 
-    return updated_state.model_dump()
+    return updated_state
 
 
 @validate_node_output
-async def setup_generation_queue_node(state: AgentState) -> Dict[str, Any]:
-    """Setup content generation queue with all items that need processing."""
+async def setup_generation_queue_node(state: AgentState) -> AgentState:
     logger.info("--- Executing Node: setup_generation_queue_node ---")
-
     content_queue = []
 
     # Collect all items from all sections that need content generation
@@ -240,17 +240,16 @@ async def setup_generation_queue_node(state: AgentState) -> Dict[str, Any]:
         f"Setup content generation queue with {len(content_queue)} items: {content_queue}"
     )
 
-    return {"content_generation_queue": content_queue}
+    return state.model_copy(update={"content_generation_queue": content_queue})
 
 
 @validate_node_output
-async def pop_next_item_node(state: AgentState) -> Dict[str, Any]:
-    """Pop the next item from content generation queue and set as current."""
+async def pop_next_item_node(state: AgentState) -> AgentState:
     logger.info("--- Executing Node: pop_next_item_node ---")
 
     if not state.content_generation_queue:
         logger.warning("Content generation queue is empty")
-        return {}
+        return state
 
     # Pop the next item from the queue
     queue_copy = state.content_generation_queue.copy()
@@ -260,34 +259,41 @@ async def pop_next_item_node(state: AgentState) -> Dict[str, Any]:
         f"Popped item {next_item_id} from content generation queue. Remaining: {len(queue_copy)}"
     )
 
-    return {"current_item_id": next_item_id, "content_generation_queue": queue_copy}
+    return state.model_copy(
+        update={
+            "current_item_id": next_item_id,
+            "content_generation_queue": queue_copy,
+        }
+    )
 
 
 @validate_node_output
-async def prepare_regeneration_node(state: AgentState) -> Dict[str, Any]:
-    """Prepare single-item regeneration based on user feedback."""
+async def prepare_regeneration_node(state: AgentState) -> AgentState:
     logger.info("--- Executing Node: prepare_regeneration_node ---")
 
     if not state.user_feedback or not state.user_feedback.item_id:
         logger.error("No user feedback or item_id for regeneration")
-        return {
-            "error_messages": state.error_messages
-            + ["No item specified for regeneration"]
-        }
+        return state.model_copy(
+            update={
+                "error_messages": state.error_messages
+                + ["No item specified for regeneration"]
+            }
+        )
 
     item_id = str(state.user_feedback.item_id)
     logger.info(f"Preparing regeneration for item: {item_id}")
 
-    return {
-        "content_generation_queue": [item_id],
-        "current_item_id": None,  # Will be set by pop_next_item_node
-        "is_initial_generation": False,
-    }
+    return state.model_copy(
+        update={
+            "content_generation_queue": [item_id],
+            "current_item_id": None,  # Will be set by pop_next_item_node
+            "is_initial_generation": False,
+        }
+    )
 
 
 @validate_node_output
-async def generate_skills_node(state: AgentState) -> Dict[str, Any]:
-    """Generates the 'Big 10' skills and updates the CV state."""
+async def generate_skills_node(state: AgentState) -> AgentState:
     logger.info("--- Executing Node: generate_skills_node ---")
 
     my_talents = ""  # Placeholder for now, could be extracted from original CV
@@ -315,7 +321,9 @@ async def generate_skills_node(state: AgentState) -> Dict[str, Any]:
                 "Could not find 'Key Qualifications' section to populate skills."
             )
             logger.error(error_msg)
-            return {"error_messages": state.error_messages + [error_msg]}
+            return state.model_copy(
+                update={"error_messages": state.error_messages + [error_msg]}
+            )
 
         # Overwrite items with new skills and set up the processing queue for this section
         from ..models.data_models import Item, ItemStatus, ItemType
@@ -334,21 +342,25 @@ async def generate_skills_node(state: AgentState) -> Dict[str, Any]:
             f"Populated 'Key Qualifications' with {len(item_queue)} skills and set up queue."
         )
 
-        return {
-            "structured_cv": updated_cv,
-            "items_to_process_queue": item_queue,
-            "current_section_key": "key_qualifications",
-            "is_initial_generation": True,
-        }
+        return state.model_copy(
+            update={
+                "structured_cv": updated_cv,
+                "items_to_process_queue": item_queue,
+                "current_section_key": "key_qualifications",
+                "is_initial_generation": True,
+            }
+        )
     else:
-        return {
-            "error_messages": state.error_messages
-            + [f"Skills generation failed: {result['error']}"]
-        }
+        return state.model_copy(
+            update={
+                "error_messages": state.error_messages
+                + [f"Skills generation failed: {result['error']}"]
+            }
+        )
 
 
 @validate_node_output
-async def error_handler_node(state: AgentState) -> Dict[str, Any]:
+async def error_handler_node(state: AgentState) -> AgentState:
     """
     Handle workflow errors by logging them and preparing for termination.
 
@@ -360,7 +372,16 @@ async def error_handler_node(state: AgentState) -> Dict[str, Any]:
     logger.error(f"Workflow terminated due to errors: {error_list}")
 
     # Return empty dict as we're terminating the workflow
-    return {}
+    return state
+
+
+@validate_node_output
+async def cv_analyzer_node(state: AgentState) -> AgentState:
+    """Analyze the user's CV and store results in state.cv_analysis_results."""
+    logger.info("Executing cv_analyzer_node")
+    result = await cv_analyzer_agent.run_as_node(state)
+    # result is a CVAnalyzerNodeResult with cv_analysis_results as CVAnalysisResult
+    return state.model_copy(update={"cv_analysis_results": result.cv_analysis_results})
 
 
 def should_continue_generation(state: Dict[str, Any]) -> str:
@@ -422,6 +443,7 @@ def build_cv_workflow_graph() -> StateGraph:
     workflow.add_node("prepare_regeneration", prepare_regeneration_node)
     workflow.add_node("formatter", formatter_node)
     workflow.add_node("error_handler", error_handler_node)
+    workflow.add_node("cv_analyzer", cv_analyzer_node)
 
     # Set entry point
     workflow.set_entry_point("parser")

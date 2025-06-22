@@ -24,7 +24,19 @@ class TestConsolidatedCaching:
     def llm_service(self):
         """Create an EnhancedLLMService instance for testing."""
         with patch("src.services.llm_service.genai.configure"):
-            service = EnhancedLLMService(user_api_key="test_key", timeout=30)
+            from src.config.settings import AppConfig
+            from src.core.performance_optimizer import get_performance_optimizer
+
+            mock_settings = AppConfig()
+            # Provide a valid cache and performance optimizer
+            perf_optimizer = get_performance_optimizer()
+            service = EnhancedLLMService(
+                settings=mock_settings,
+                user_api_key="test_key",
+                timeout=30,
+                cache=perf_optimizer.cache,
+                performance_optimizer=perf_optimizer,
+            )
             return service
 
     def test_legacy_cache_functions_removed(self, llm_service):
@@ -72,8 +84,11 @@ class TestConsolidatedCaching:
             with patch(
                 "asyncio.wait_for", side_effect=asyncio.TimeoutError()
             ) as mock_wait_for:
+                from src.utils.exceptions import OperationTimeoutError
 
-                with pytest.raises(TimeoutError, match="LLM request timed out"):
+                with pytest.raises(
+                    OperationTimeoutError, match="LLM request timed out"
+                ):
                     await llm_service._generate_with_timeout(
                         "test prompt", session_id="test_session"
                     )
@@ -82,35 +97,36 @@ class TestConsolidatedCaching:
         """Test the consolidated retry exception logic."""
         # Test retryable exceptions
         retryable_error = ConnectionError("Network error")
-        assert llm_service._should_retry_exception(retryable_error) == True
+        should_retry, _ = llm_service._is_retryable_error(retryable_error)
+        assert should_retry is True
 
         # Test non-retryable exceptions
         non_retryable_error = ValueError("Invalid API key")
-        assert llm_service._should_retry_exception(non_retryable_error) == False
+        should_retry, _ = llm_service._is_retryable_error(non_retryable_error)
+        assert should_retry is False
 
         # Test rate limit patterns
         rate_limit_error = Exception("Rate limit exceeded")
-        assert llm_service._should_retry_exception(rate_limit_error) == True
+        should_retry, _ = llm_service._is_retryable_error(rate_limit_error)
+        assert should_retry is True
 
     def test_should_retry_with_delay_logic(self, llm_service):
         """Test the consolidated retry with delay logic."""
-        # Test normal retryable error
+        # Use the actual retry logic method (_is_retryable_error)
         error = ConnectionError("Network error")
-        should_retry, delay = llm_service._should_retry_with_delay(error, 1, 3)
-        assert should_retry == True
+        should_retry, delay = llm_service._is_retryable_error(error, 1, 3)
+        assert should_retry is True
         assert delay > 0
 
         # Test max retries exceeded
-        should_retry, delay = llm_service._should_retry_with_delay(error, 3, 3)
-        assert should_retry == False
+        should_retry, delay = llm_service._is_retryable_error(error, 3, 3)
+        assert should_retry is False
         assert delay == 0.0
 
         # Test non-retryable error
         non_retryable_error = ValueError("Invalid API key")
-        should_retry, delay = llm_service._should_retry_with_delay(
-            non_retryable_error, 1, 3
-        )
-        assert should_retry == False
+        should_retry, delay = llm_service._is_retryable_error(non_retryable_error, 1, 3)
+        assert should_retry is False
         assert delay == 0.0
 
     def test_advanced_cache_integration(self, llm_service):

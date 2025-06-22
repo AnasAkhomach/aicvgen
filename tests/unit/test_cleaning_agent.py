@@ -24,7 +24,7 @@ class TestCleaningAgentErrorHandling:
     @pytest.fixture
     def cleaning_agent(self):
         """Create a CleaningAgent instance for testing."""
-        return CleaningAgent()
+        return CleaningAgent(llm_service=Mock())
 
     @pytest.fixture
     def mock_context(self):
@@ -41,6 +41,8 @@ class TestCleaningAgentErrorHandling:
     async def test_error_handler_call_fix(self, cleaning_agent, mock_context):
         """Test that the correct error handler method is called."""
         # Mock the error handler to verify the correct method is called
+        from unittest.mock import ANY
+
         with patch.object(AgentErrorHandler, "handle_general_error") as mock_handler:
             mock_handler.return_value = AgentResult(
                 success=False,
@@ -55,11 +57,14 @@ class TestCleaningAgentErrorHandling:
                 "_clean_big_10_skills",
                 side_effect=Exception("Test error"),
             ):
-                result = await cleaning_agent.run_async(mock_context)
+                # Pass both input_data and context as required by run_async signature
+                result = await cleaning_agent.run_async(
+                    mock_context.input_data, mock_context
+                )
 
                 # Verify the correct error handler method was called
                 mock_handler.assert_called_once_with(
-                    Exception("Test error"), "CleaningAgent", context="run_async"
+                    ANY, "CleaningAgent", context="run_async"
                 )
 
                 # Verify the result is properly formatted
@@ -80,7 +85,9 @@ class TestCleaningAgentErrorHandling:
             cleaning_agent, "_clean_big_10_skills", side_effect=Exception("Test error")
         ):
             # This should not raise AttributeError anymore
-            result = await cleaning_agent.run_async(mock_context)
+            result = await cleaning_agent.run_async(
+                mock_context.input_data, mock_context
+            )
             assert isinstance(result, AgentResult)
             assert not result.success
 
@@ -95,7 +102,9 @@ class TestCleaningAgentErrorHandling:
                 "_clean_big_10_skills",
                 return_value=["Python", "JavaScript"],
             ):
-                result = await cleaning_agent.run_async(mock_context)
+                result = await cleaning_agent.run_async(
+                    mock_context.input_data, mock_context
+                )
 
                 # Verify error handler was not called
                 mock_handler.assert_not_called()
