@@ -150,6 +150,31 @@ class SessionManager:
             except Exception as e:
                 self.logger.error(f"Error in periodic cleanup: {e}")
 
+    def _initialize_session_state(
+        self,
+        session_id: str,
+        user_id: Optional[str],
+        now: datetime,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """Centralized initialization for session info and workflow state."""
+        session_info = SessionInfo(
+            session_id=session_id,
+            user_id=user_id,
+            status=SessionStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+            expires_at=now + self.session_timeout,
+            current_stage=WorkflowStage.INITIALIZATION,
+            metadata=metadata or {},
+        )
+        initial_state = WorkflowState(
+            session_id=session_id,
+            current_stage=WorkflowStage.INITIALIZATION,
+            created_at=now,
+        )
+        return session_info, initial_state
+
     def create_session(
         self, user_id: Optional[str] = None, metadata: Dict[str, Any] = None
     ) -> str:
@@ -164,25 +189,11 @@ class SessionManager:
 
             # Generate session ID
             session_id = str(uuid.uuid4())
-
-            # Create session info
             now = datetime.now()
-            session_info = SessionInfo(
-                session_id=session_id,
-                user_id=user_id,
-                status=SessionStatus.ACTIVE,
-                created_at=now,
-                updated_at=now,
-                expires_at=now + self.session_timeout,
-                current_stage=WorkflowStage.INITIALIZATION,
-                metadata=metadata or {},
-            )
 
-            # Create initial state
-            initial_state = WorkflowState(
-                session_id=session_id,
-                current_stage=WorkflowStage.INITIALIZATION,
-                created_at=now,
+            # Centralized initialization
+            session_info, initial_state = self._initialize_session_state(
+                session_id, user_id, now, metadata
             )
 
             # Store in memory

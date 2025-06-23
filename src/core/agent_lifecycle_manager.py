@@ -20,8 +20,8 @@ from ..config.logging_config import get_structured_logger
 from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
 from ..models.data_models import ContentType
 from ..services.session_manager import get_session_manager
-from ..services.error_recovery import get_error_recovery_service
-from ..services.progress_tracker import get_progress_tracker
+from ..services.error_recovery import ErrorRecoveryService
+from ..services.progress_tracker import ProgressTracker
 
 logger = get_structured_logger(__name__)
 
@@ -168,10 +168,7 @@ class AgentLifecycleManager:
 
     def _register_core_dependencies(self):
         """Register core dependencies with the DI container."""
-        # Register common services as singletons
         from ..config.logging_config import get_structured_logger
-        from ..services.error_recovery import get_error_recovery_service
-        from ..services.progress_tracker import get_progress_tracker
         from ..services.session_manager import get_session_manager
 
         self.container.register_singleton(
@@ -182,14 +179,14 @@ class AgentLifecycleManager:
 
         self.container.register_singleton(
             "error_recovery",
-            type(get_error_recovery_service()),
-            factory=get_error_recovery_service,
+            ErrorRecoveryService,
+            factory=lambda: ErrorRecoveryService(),
         )
 
         self.container.register_singleton(
             "progress_tracker",
-            type(get_progress_tracker()),
-            factory=get_progress_tracker,
+            ProgressTracker,
+            factory=lambda: ProgressTracker(),
         )
 
         self.container.register_singleton(
@@ -226,18 +223,11 @@ class AgentLifecycleManager:
                     session_manager = self.container.get(
                         type(self.container.get("session_manager")), "session_manager"
                     )
+
+                    # Use dependency container for consistent agent creation
                     from ..agents.cv_analyzer_agent import CVAnalyzerAgent
 
-                    return CVAnalyzerAgent(
-                        name="CVAnalyzerAgent",
-                        description="Analyzes CV content and job requirements to provide optimization recommendations",
-                        llm_service=llm_service,
-                        settings=settings,
-                        logger=logger,
-                        error_recovery=error_recovery,
-                        progress_tracker=progress_tracker,
-                        session_manager=session_manager,
-                    )
+                    return self.container.get(CVAnalyzerAgent, "CVAnalyzerAgent")
 
             # ...repeat for other agent types, using the correct constructor signature and dependencies...
             self._agent_registry[agent_type] = factory
@@ -352,9 +342,15 @@ class AgentLifecycleManager:
             if hasattr(agent_instance, "inject_dependencies"):
                 dependencies = {
                     "logger": logger,
-                    "error_recovery": get_error_recovery_service(),
-                    "progress_tracker": get_progress_tracker(),
-                    "session_manager": get_session_manager(),
+                    "error_recovery": self.container.get(
+                        ErrorRecoveryService, "error_recovery"
+                    ),
+                    "progress_tracker": self.container.get(
+                        ProgressTracker, "progress_tracker"
+                    ),
+                    "session_manager": self.container.get(
+                        type(get_session_manager()), "session_manager"
+                    ),
                 }
                 agent_instance.inject_dependencies(dependencies)
 

@@ -13,18 +13,31 @@ from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext, AgentR
 from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
 from ..models.data_models import AgentIO, ContentType
 from ..orchestration.state import AgentState
-from ..models.cleaning_agent_models import CleaningAgentNodeResult
+from ..models.cleaning_agent_models import CleaningAgentNodeResult, CleanedDataModel
 from ..services.llm_service import EnhancedLLMService
+from ..services.error_recovery import ErrorRecoveryService
+from ..services.progress_tracker import ProgressTracker
+from src.utils.json_utils import extract_json_from_response
 
 
 class CleaningAgent(EnhancedAgentBase):
-    """Agent responsible for cleaning and structuring raw LLM outputs.
-
-    This agent processes raw LLM responses to extract structured data,
+    """Agent responsible for cleaning and structuring raw LLM outputs.    This agent processes raw LLM responses to extract structured data,
     particularly for the "Big 10" skills generation feature.
     """
 
-    def __init__(self, llm_service):
+    def __init__(
+        self,
+        llm_service: EnhancedLLMService,
+        error_recovery_service: ErrorRecoveryService,
+        progress_tracker: ProgressTracker,
+    ):
+        """Initialize the CleaningAgent with required dependencies.
+
+        Args:
+            llm_service: LLM service instance for content processing.
+            error_recovery_service: Error recovery service dependency.
+            progress_tracker: Progress tracker service dependency.
+        """
         input_schema = AgentIO(
             description="Raw LLM output and processing instructions",
             required_fields=["raw_output", "output_type"],
@@ -42,9 +55,12 @@ class CleaningAgent(EnhancedAgentBase):
             description="Processes and cleans raw LLM outputs into structured data",
             input_schema=input_schema,
             output_schema=output_schema,
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
             content_type=ContentType.SKILLS,
         )
 
+        # Required service dependencies (constructor injection)
         self.llm_service = llm_service
 
     async def run_async(
@@ -100,12 +116,12 @@ class CleaningAgent(EnhancedAgentBase):
 
             return AgentResult(
                 success=True,
-                output_data={
-                    "cleaned_data": cleaned_data,
-                    "confidence_score": confidence_score,
-                    "raw_output": raw_output,
-                    "output_type": output_type,
-                },
+                output_data=CleanedDataModel(
+                    cleaned_data=cleaned_data,
+                    confidence_score=confidence_score,
+                    raw_output=raw_output,
+                    output_type=output_type,
+                ),
                 confidence_score=confidence_score,
                 processing_time=processing_time,
             )
@@ -115,14 +131,7 @@ class CleaningAgent(EnhancedAgentBase):
             error_result = AgentErrorHandler.handle_general_error(
                 e, "CleaningAgent", context="run_async"
             )
-
-            return AgentResult(
-                success=False,
-                output_data=None,
-                confidence_score=0.0,
-                processing_time=processing_time,
-                error_message=error_result.error_message,
-            )
+            return error_result
 
     async def _clean_big_10_skills(
         self, raw_output: str, context: AgentExecutionContext
@@ -131,17 +140,15 @@ class CleaningAgent(EnhancedAgentBase):
 
         Args:
             raw_output: Raw LLM response containing skills
-            context: Execution context
-
-        Returns:
+            context: Execution context        Returns:
             List of cleaned skill strings
         """
         try:
-            # Try to parse as JSON first using centralized method
+            # Try to parse as JSON first using utility function
             if raw_output.strip().startswith("{") or raw_output.strip().startswith("["):
                 try:
-                    # Use centralized JSON extraction from parent class
-                    json_str = super()._extract_json_from_response(raw_output)
+                    # Use new JSON extraction utility function
+                    json_str = extract_json_from_response(raw_output)
                     parsed = json.loads(json_str)
                     if isinstance(parsed, list):
                         return [str(skill).strip() for skill in parsed[:10]]
@@ -287,12 +294,24 @@ class CleaningAgent(EnhancedAgentBase):
             if reasonable_skills >= len(cleaned_data) * 0.8:
                 score += 0.2
 
-        return min(1.0, score)
+        return min(1.0, score) @ with_node_error_handling(
+            "CleaningAgent", "run_as_node"
+        )
 
-    @with_node_error_handling("CleaningAgent", "run_as_node")
     async def run_as_node(self, state: AgentState) -> CleaningAgentNodeResult:
         """Execute cleaning agent as a LangGraph node."""
         from ..models.data_models import ProcessingStatus
+        from ..models.validation_schemas import validate_agent_input
+
+        # Validate input
+        try:
+            validated_input = validate_agent_input("cleaning", state)
+            self.logger.info("Input validation passed for CleaningAgent")
+        except ValueError as e:
+            self.logger.error(f"Input validation failed for CleaningAgent: {e}")
+            return CleaningAgentNodeResult(
+                error_messages=[f"Input validation failed: {str(e)}"]
+            )
 
         # Extract raw output from state - could be from various sources
         raw_output = ""
@@ -337,4 +356,9 @@ class CleaningAgent(EnhancedAgentBase):
 
 def get_cleaning_agent() -> CleaningAgent:
     """Factory function to get a CleaningAgent instance."""
-    return CleaningAgent()
+    from ..core.dependency_injection import get_container
+
+    container = get_container()
+    container.register_agents()
+
+    return container.get(CleaningAgent, "CleaningAgent")

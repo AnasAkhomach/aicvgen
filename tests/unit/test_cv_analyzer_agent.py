@@ -21,15 +21,22 @@ class TestCVAnalyzerAgent:
     @pytest.fixture
     def agent(self):
         """Create a CVAnalyzerAgent instance for testing."""
-        mock_llm_service = Mock()
         from src.config.settings import AppConfig
+        from src.services.error_recovery import ErrorRecoveryService
+        from src.services.progress_tracker import ProgressTracker
+        from src.services.llm_service import EnhancedLLMService
 
+        mock_llm_service = Mock(spec=EnhancedLLMService)
         mock_settings = AppConfig()
+        mock_error_recovery = Mock(spec=ErrorRecoveryService)
+        mock_progress_tracker = Mock(spec=ProgressTracker)
         return CVAnalyzerAgent(
-            name="test_cv_analyzer",
-            description="Test CV analyzer agent",
             llm_service=mock_llm_service,
             settings=mock_settings,
+            error_recovery_service=mock_error_recovery,
+            progress_tracker=mock_progress_tracker,
+            name="test_cv_analyzer",
+            description="Test CV analyzer agent",
         )
 
     @pytest.fixture
@@ -93,7 +100,9 @@ class TestCVAnalyzerAgent:
     async def test_run_async_calls_analyze_cv_properly(
         self, agent, mock_context, sample_input_data
     ):
-        """Test that run_async properly awaits analyze_cv method."""
+        from src.agents.agent_base import AgentResult
+        from src.models.cv_analyzer_models import BasicCVInfo
+
         # Mock validation and other dependencies
         with patch(
             "src.agents.cv_analyzer_agent.validate_agent_input"
@@ -118,7 +127,6 @@ class TestCVAnalyzerAgent:
             mock_error_handler.handle_validation_error.return_value = (
                 mock_validation_result
             )
-
             mock_analyze.return_value = {
                 "summary": "Test summary",
                 "experiences": [],
@@ -126,6 +134,19 @@ class TestCVAnalyzerAgent:
                 "education": [],
                 "projects": [],
             }
+            # Patch handle_general_error to return a real AgentResult with a Pydantic model
+            mock_output_model = BasicCVInfo(
+                summary="Test summary",
+                experiences=[],
+                skills=[],
+                education=[],
+                projects=[],
+            )
+            mock_error_handler.handle_general_error.return_value = AgentResult(
+                success=True,
+                output_data={"summary": mock_output_model},
+                error=None,
+            )
 
             # Execute run_async
             result = await agent.run_async(sample_input_data, mock_context)

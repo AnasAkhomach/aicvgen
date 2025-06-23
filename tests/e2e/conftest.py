@@ -12,7 +12,6 @@ import tempfile
 import os
 
 from src.services.llm_service import EnhancedLLMService
-from src.services.item_processor import ItemProcessor
 from src.services.session_manager import SessionManager
 from src.services.progress_tracker import ProgressTracker
 from src.services.error_recovery import ErrorRecoveryService
@@ -97,12 +96,6 @@ def session_manager(temp_dir):
 def state_manager(temp_dir):
     """Create a state manager for testing."""
     return StateManager(storage_path=temp_dir / "state")
-
-
-@pytest.fixture
-def item_processor(mock_llm_client):
-    """Create an item processor for testing."""
-    return ItemProcessor(llm_client=mock_llm_client)
 
 
 @pytest.fixture(params=["software_engineer", "ai_engineer", "data_scientist"])

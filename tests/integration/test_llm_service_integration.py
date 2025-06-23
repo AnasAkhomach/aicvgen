@@ -110,7 +110,17 @@ class TestLLMServiceIntegration:
         }
 
         # Create parser agent with mock LLM
-        parser = ParserAgent(llm_service=mock_llm_service)
+        vector_store_service = Mock()
+        error_recovery_service = Mock()
+        progress_tracker = Mock()
+        settings = Mock()
+        parser = ParserAgent(
+            llm_service=mock_llm_service,
+            vector_store_service=vector_store_service,
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
+            settings=settings,
+        )
 
         # Test job description parsing
         result = await parser.parse_job_description(sample_job_description)
@@ -151,18 +161,23 @@ class TestLLMServiceIntegration:
         mock_llm_service.generate_content_async.side_effect = mock_llm_response
 
         # Create research agent with mock LLM
-        research_agent = ResearchAgent(llm_service=mock_llm_service)
+        error_recovery_service = Mock()
+        progress_tracker = Mock()
+        vector_db = Mock()
+        settings = Mock()
+        research_agent = ResearchAgent(
+            llm_service=mock_llm_service,
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
+            vector_db=vector_db,
+            settings=settings,
+        )
 
         # Create agent state
         state = AgentState(
             job_description_data=JobDescriptionData(raw_text=sample_job_description),
             structured_cv=sample_cv_data,
             error_messages=[],
-            processing_queue=[],
-            research_data={},
-            content_data={},
-            quality_scores={},
-            output_data={},
         )
 
         # Test research execution

@@ -28,14 +28,21 @@ class TestConsolidatedCaching:
             from src.core.performance_optimizer import get_performance_optimizer
 
             mock_settings = AppConfig()
-            # Provide a valid cache and performance optimizer
             perf_optimizer = get_performance_optimizer()
+            # Mock required dependencies
+            mock_llm_client = Mock()
+            mock_llm_retry_handler = Mock()
             service = EnhancedLLMService(
                 settings=mock_settings,
-                user_api_key="test_key",
-                timeout=30,
+                llm_client=mock_llm_client,
+                llm_retry_handler=mock_llm_retry_handler,
                 cache=perf_optimizer.cache,
+                timeout=30,
+                rate_limiter=None,
+                error_recovery=None,
                 performance_optimizer=perf_optimizer,
+                async_optimizer=None,
+                user_api_key="test_key",
             )
             return service
 

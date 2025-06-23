@@ -15,7 +15,7 @@ from enum import Enum
 from ..models.data_models import ContentType, ProcessingStatus
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
-from ..services.error_recovery import get_error_recovery_service, RecoveryStrategy
+from ..services.error_recovery import ErrorRecoveryService, RecoveryStrategy
 from ..utils.security_utils import redact_sensitive_data
 from ..core.performance_optimizer import PerformanceOptimizer
 from ..core.async_optimizer import AsyncOptimizer
@@ -98,7 +98,7 @@ class EnhancedCVIntegration:
         self.config = config or EnhancedCVConfig(mode=IntegrationMode.PRODUCTION)
         self.logger = get_structured_logger(__name__)
         self.settings = get_config()
-        self.error_recovery = get_error_recovery_service()
+        self.error_recovery = ErrorRecoveryService()
 
         # Component instances
         self._template_manager: Optional[ContentTemplateManager] = None
@@ -183,13 +183,22 @@ class EnhancedCVIntegration:
     def _initialize_agents(self):
         """Initialize all specialized agents."""
         try:
-            # Enhanced content writer
-            self._agents["enhanced_content_writer"] = EnhancedContentWriterAgent()
+            # Initialize dependency container and get agents
+            from ..core.dependency_injection import get_container
+
+            container = get_container()
+            container.register_agents()
+
+            # Get agents from dependency container
+            self._agents["enhanced_content_writer"] = container.get(
+                EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+            )
+            self._agents["quality_assurance"] = container.get(
+                QualityAssuranceAgent, "QualityAssuranceAgent"
+            )
 
             # Specialized agents
             self._agents["cv_analysis"] = create_cv_analysis_agent()
-            # content_optimization agent removed - was never implemented
-            self._agents["quality_assurance"] = QualityAssuranceAgent()
 
             self.logger.info(
                 "Agents initialized",

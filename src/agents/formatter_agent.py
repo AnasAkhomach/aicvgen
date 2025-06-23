@@ -1,31 +1,40 @@
 from typing import Any, Optional, Dict
 from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+from pydantic import BaseModel, Field
+
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..models.data_models import AgentIO, ContentData
 from ..orchestration.state import AgentState
 from ..core.async_optimizer import optimize_async
 from ..config.logging_config import get_structured_logger
 from ..services.llm_service import EnhancedLLMService
+from ..services.error_recovery import ErrorRecoveryService
+from ..services.progress_tracker import ProgressTracker
 from ..utils.agent_error_handling import (
     AgentErrorHandler,
     with_node_error_handling,
 )
 from ..models.formatter_agent_models import FormatterAgentNodeResult
+from ..utils.prompt_utils import format_prompt
+from ..utils.error_utils import handle_errors
 
 try:
-    from weasyprint import HTML, CSS
+    from weasyprint import HTML
 
     WEASYPRINT_AVAILABLE = True
 except (ImportError, OSError) as e:
-    # WeasyPrint requires system dependencies that may not be available
     HTML = None
-    CSS = None
     WEASYPRINT_AVAILABLE = False
     logger = get_structured_logger(__name__)
-    logger.warning(f"WeasyPrint not available: {e}. PDF generation will be disabled.")
+    logger.warning("WeasyPrint not available: %s. PDF generation will be disabled.", e)
 
 logger = get_structured_logger(__name__)
+
+
+class FormatterAgentOutput(BaseModel):
+    formatted_cv_text: str
 
 
 class FormatterAgent(EnhancedAgentBase):
@@ -33,14 +42,22 @@ class FormatterAgent(EnhancedAgentBase):
     Agent responsible for formatting the tailored CV content.
     """
 
-    def __init__(self, name: str, description: str, llm_service=None):
-        """
-        Initializes the FormatterAgent.
+    def __init__(
+        self,
+        llm_service: EnhancedLLMService,
+        error_recovery_service: ErrorRecoveryService,
+        progress_tracker: ProgressTracker,
+        name: str = "FormatterAgent",
+        description: str = "Agent responsible for formatting CV content and generating files",
+    ):
+        """Initialize the FormatterAgent with required dependencies.
 
         Args:
+            llm_service: LLM service instance for content enhancement.
+            error_recovery_service: Error recovery service dependency.
+            progress_tracker: Progress tracker service dependency.
             name: The name of the agent.
             description: A description of the agent.
-            llm_service: Injected LLM service dependency.
         """
         super().__init__(
             name=name,
@@ -55,117 +72,135 @@ class FormatterAgent(EnhancedAgentBase):
                 required_fields=["final_output_path"],
                 optional_fields=["error_messages"],
             ),
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
         )
+
+        # Required service dependencies (constructor injection)
         self.llm_service = llm_service
 
-    @optimize_async("agent_execution", "formatter")
-    @with_node_error_handling
+        # Initialize Jinja2 template environment
+        self._init_template_environment()
+
+    def _init_template_environment(self):
+        """Initialize the Jinja2 template environment."""
+        try:
+            template_dir = Path(__file__).parent.parent / "templates"
+            self.jinja_env = Environment(
+                loader=FileSystemLoader(template_dir),
+                autoescape=select_autoescape(["html", "xml"]),
+                trim_blocks=True,
+                lstrip_blocks=True,
+            )
+            self.logger.info(
+                "Jinja2 template environment initialized with template directory: %s",
+                template_dir,
+            )
+        except Exception as e:
+            self.logger.error("Failed to initialize Jinja2 environment: %s", e)
+            self.jinja_env = Environment(autoescape=select_autoescape(["html", "xml"]))
+
+    @with_node_error_handling("formatter")
     async def run_as_node(
         self, state: AgentState, config: Optional[dict] = None
-    ) -> FormatterAgentNodeResult:
-        """Run the formatter agent as a node in the workflow."""
+    ) -> AgentState:
+        """Run the formatter agent as a node in the workflow, returning updated AgentState."""
         self.logger.info("Starting CV formatting")
-        try:
-            # Execute the main run method
-            result = await self.run(state)
+        from ..models.validation_schemas import validate_agent_input
 
-            # Return the final output path as expected by AgentState
-            if isinstance(result, dict) and result.get("final_output_path"):
+        try:
+            try:
+                validate_agent_input("formatter", state)
+            except Exception as ve:
+                self.logger.error("Input validation failed: %s", ve)
+                return state.model_copy(
+                    update={
+                        "error_messages": state.error_messages
+                        + [f"Input validation failed: {ve}"]
+                    }
+                )
+            result = await self.run(state)
+            if (
+                isinstance(result, FormatterAgentNodeResult)
+                and result.final_output_path
+            ):
                 self.logger.info("CV formatting completed")
-                return FormatterAgentNodeResult(
-                    final_output_path=result["final_output_path"]
+                return state.model_copy(
+                    update={"final_output_path": result.final_output_path}
                 )
             else:
-                # If no output path, return empty result
-                return FormatterAgentNodeResult()
+                return state
         except Exception as e:
-            self.logger.error(f"FormatterAgent error: {e}")
-            return FormatterAgentNodeResult(error_messages=[str(e)])
+            self.logger.error("FormatterAgent error: %s", e)
+            return state.model_copy(
+                update={"error_messages": state.error_messages + [str(e)]}
+            )
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
     ) -> "AgentResult":
-        """Async run method for consistency with enhanced agent interface."""
         from .agent_base import AgentResult
-        from ..models.validation_schemas import validate_agent_input, ValidationError
+        from ..models.validation_schemas import validate_agent_input
 
         try:
-            # Validate input data using Pydantic schemas
             try:
                 validated_input = validate_agent_input("formatter", input_data)
                 input_data = validated_input.model_dump()
-            except ValidationError as ve:
+            except Exception as ve:
                 return AgentErrorHandler.handle_validation_error(ve, "FormatterAgent")
-
-            # Process the formatting directly
             content_data = input_data.get("content_data")
             if not content_data:
                 return AgentResult(
                     success=False,
-                    output_data={"formatted_cv_text": "# No content data provided"},
+                    output_data=FormatterAgentOutput(
+                        formatted_cv_text="# No content data provided"
+                    ),
                     confidence_score=0.0,
                     error_message="Missing content data",
                     metadata={"agent_type": "formatter"},
                 )
-
             format_specs = input_data.get("format_specs", {})
-
             try:
                 formatted_text = await self.format_content(content_data, format_specs)
-                result = {"formatted_cv_text": formatted_text}
+                result = FormatterAgentOutput(formatted_cv_text=formatted_text)
             except Exception as e:
-                logger.error(f"Error formatting content: {e}")
-                result = {
-                    "formatted_cv_text": "# Error formatting CV\n\nAn error occurred during formatting."
-                }
-
+                logger.error("Error formatting content: %s", e)
+                result = FormatterAgentOutput(
+                    formatted_cv_text="# Error formatting CV\n\nAn error occurred during formatting."
+                )
             return AgentResult(
                 success=True,
                 output_data=result,
                 confidence_score=0.7,
                 metadata={"agent_type": "formatter"},
             )
-
         except Exception as e:
-            # Correct contract: return error dict from handle_node_error
-            return AgentErrorHandler.handle_node_error(
-                e, "FormatterAgent", context="run_async"
+            # Use handle_general_error to return an AgentResult on error
+            return AgentErrorHandler.handle_general_error(
+                e, agent_type="formatter", context="run_async"
             )
 
     async def format_content(
         self, content_data: ContentData, specifications: Optional[dict] = None
     ) -> str:
-        """
-        Formats the content data according to the specifications using LLM for intelligent formatting.
-
-        Args:
-            content_data: The content data to format
-            specifications: Formatting specifications (optional)
-
-        Returns:
-            Formatted text as a string
-        """
         if specifications is None:
             specifications = {}
-
-        # Try LLM-enhanced formatting first
         try:
             return await self._format_with_llm(content_data, specifications)
         except Exception as e:
-            logger.warning(f"LLM formatting failed, falling back to template: {e}")
+            logger.warning("LLM formatting failed, falling back to template: %s", e)
             return self._format_with_template(content_data, specifications)
 
+    @handle_errors(default_return=None)
     async def _format_with_llm(
         self, content_data: ContentData, specifications: dict
     ) -> str:
         """
         Use LLM to intelligently format the CV content.
         """
-        # Prepare content for LLM
         content_summary = self._prepare_content_for_llm(content_data)
-
-        # Create formatting prompt
-        formatting_prompt = f"""
+        formatting_prompt = format_prompt(
+            """
 You are an expert CV formatter. Format the following CV content into a professional, well-structured markdown document.
 
 Requirements:
@@ -179,22 +214,15 @@ CV Content to format:
 {content_summary}
 
 Format this into a professional CV in markdown format:
-"""
-
-        try:
-            llm_response = await self.llm_service.generate_content(
-                prompt=formatting_prompt
-            )
-            response = llm_response.content
-
-            if response and response.strip():
-                return response.strip()
-            else:
-                raise ValueError("Empty response from LLM")
-
-        except Exception as e:
-            logger.error(f"LLM formatting error: {e}")
-            raise
+""",
+            content_summary=content_summary,
+        )
+        llm_response = await self.llm_service.generate_content(prompt=formatting_prompt)
+        response = llm_response.content
+        if response and response.strip():
+            return response.strip()
+        else:
+            raise ValueError("Empty response from LLM")
 
     def _prepare_content_for_llm(self, content_data: ContentData) -> str:
         """
@@ -617,7 +645,7 @@ Format this into a professional CV in markdown format:
 
         return formatted_text
 
-    async def run(self, state_or_content: Any) -> dict:
+    async def run(self, state_or_content: Any) -> FormatterAgentNodeResult:
         """
         Main run method for the formatter agent.
 
@@ -625,65 +653,77 @@ Format this into a professional CV in markdown format:
             state_or_content: AgentState or dictionary containing content to format
 
         Returns:
-            Dictionary with formatted output
+            FormatterAgentNodeResult with formatted output path and metadata
         """
         try:
-            # Extract content data from state or direct input
+            # Robust extraction of structured_cv and related fields
+            structured_cv = None
+            format_type = "pdf"
+            template_name = "professional"
+            output_path = None
+
+            # Handle AgentState, dict, or mock objects
             if hasattr(state_or_content, "structured_cv"):
-                structured_cv = state_or_content.structured_cv
-                format_type = getattr(state_or_content, "format_type", "pdf")
-                template_name = getattr(
-                    state_or_content, "template_name", "professional"
-                )
-                output_path = getattr(state_or_content, "output_path", None)
+                try:
+                    structured_cv = getattr(state_or_content, "structured_cv", None)
+                    format_type = getattr(state_or_content, "format_type", "pdf")
+                    template_name = getattr(
+                        state_or_content, "template_name", "professional"
+                    )
+                    output_path = getattr(state_or_content, "output_path", None)
+                except Exception as e:
+                    self.logger.warning(
+                        f"Could not extract fields from AgentState-like object: {e}"
+                    )
             elif isinstance(state_or_content, dict):
                 structured_cv = state_or_content.get("structured_cv")
                 format_type = state_or_content.get("format_type", "pdf")
                 template_name = state_or_content.get("template_name", "professional")
-                output_path = state_or_content.get("output_path")
+                output_path = state_or_content.get("output_path", None)
             else:
-                # Assume it's a structured CV object
-                structured_cv = state_or_content
-                format_type = "pdf"
-                template_name = "professional"
-                output_path = None
+                self.logger.error(
+                    f"FormatterAgent.run received unsupported input type: {type(state_or_content)}"
+                )
+                return FormatterAgentNodeResult(
+                    final_output_path=None,
+                    error_message="Unsupported input type for FormatterAgent.run",
+                )
 
             if not structured_cv:
-                return {"success": False, "error": "No structured CV data provided"}
+                self.logger.error(
+                    "No structured_cv found in input to FormatterAgent.run"
+                )
+                return FormatterAgentNodeResult(
+                    final_output_path=None,
+                    error_message="No structured_cv provided to FormatterAgent",
+                )
 
             if format_type not in ["pdf", "html"]:
-                return {
-                    "success": False,
-                    "error": f"Unsupported format type: {format_type}",
-                }
+                self.logger.error(f"Unsupported format_type: {format_type}")
+                return FormatterAgentNodeResult(
+                    final_output_path=None,
+                    error_message=f"Unsupported format_type: {format_type}",
+                )
 
             if format_type == "pdf":
                 if not output_path:
-                    output_path = self._get_output_filename("pdf", None)
+                    output_path = "output/cv_output.pdf"
                 final_path = self._generate_pdf(
                     structured_cv, template_name, output_path
                 )
             else:
                 if not output_path:
-                    output_path = self._get_output_filename("html", None)
+                    output_path = "output/cv_output.html"
                 final_path = self._generate_html_file(
                     structured_cv, template_name, output_path
                 )
 
-            # Validate the output
-            if not self._validate_output(final_path):
-                return {"success": False, "error": "Output validation failed"}
-
-            return {
-                "success": True,
-                "final_output_path": final_path,
-                "format_type": format_type,
-                "template_used": template_name,
-            }
-
+            return FormatterAgentNodeResult(final_output_path=final_path)
         except Exception as e:
-            logger.error(f"Error in formatter run: {str(e)}")
-            return {"success": False, "error": str(e)}
+            self.logger.error(f"FormatterAgent.run encountered an error: {e}")
+            return FormatterAgentNodeResult(
+                final_output_path=None, error_message=str(e)
+            )
 
     def _generate_pdf(self, structured_cv, template_name: str, output_path: str) -> str:
         """
@@ -714,35 +754,39 @@ Format this into a professional CV in markdown format:
             logger.error(f"PDF generation failed: {e}")
             raise
 
-    def _generate_html(self, structured_cv, template_name: str) -> str:
+    def _generate_html(
+        self, structured_cv, template_name: str = "pdf_template.html"
+    ) -> str:
         """
-        Generate HTML content from structured CV.
+        Generate HTML content from structured CV using Jinja2 templates.
 
         Args:
             structured_cv: The structured CV data
-            template_name: Name of the template to use
+            template_name: Name of the template to use (defaults to pdf_template.html)
 
         Returns:
             HTML content as string
         """
-        # Convert structured CV to content for HTML generation
-        content = self._format_section_content_from_cv(structured_cv)
-        styled_content = self._apply_template_styling(content, template_name)
+        try:
+            # Load the Jinja2 template
+            template = self.jinja_env.get_template(template_name)
 
-        html_template = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>CV</title>
-    {self._get_template_css(template_name)}
-</head>
-<body>
-    {styled_content}
-</body>
-</html>
-"""
-        return html_template
+            # Prepare template variables
+            template_vars = {"cv": structured_cv}
+
+            # Render the template with the structured CV data
+            html_content = template.render(**template_vars)
+
+            self.logger.info(f"HTML content generated using template: {template_name}")
+            return html_content
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to generate HTML using Jinja2 template {template_name}: {e}"
+            )
+
+            # Fallback to basic HTML generation (safe fallback)
+            return self._generate_fallback_html(structured_cv)
 
     def _generate_html_file(
         self, structured_cv, template_name: str, output_path: str
@@ -1033,3 +1077,73 @@ p {
 
         # Default formatting
         return entry["content"]
+
+    def _generate_fallback_html(self, structured_cv) -> str:
+        """
+        Generate basic HTML content as fallback when Jinja2 template fails.
+
+        Args:
+            structured_cv: The structured CV data
+
+        Returns:
+            Basic HTML content as string
+        """
+        try:
+            # Extract basic information
+            name = getattr(structured_cv, "name", "CV")
+            if hasattr(structured_cv, "metadata") and structured_cv.metadata:
+                name = getattr(structured_cv.metadata, "name", name)
+
+            # Build basic HTML structure
+            html_parts = []
+            html_parts.append("<!DOCTYPE html>")
+            html_parts.append('<html lang="en">')
+            html_parts.append("<head>")
+            html_parts.append('<meta charset="UTF-8">')
+            html_parts.append(f"<title>{name}</title>")
+            html_parts.append("<style>")
+            html_parts.append("body { font-family: Arial, sans-serif; margin: 20px; }")
+            html_parts.append("h1 { color: #333; }")
+            html_parts.append("h2 { color: #666; border-bottom: 1px solid #ccc; }")
+            html_parts.append("</style>")
+            html_parts.append("</head>")
+            html_parts.append("<body>")
+            html_parts.append(f"<h1>{name}</h1>")
+
+            # Add sections if available
+            if hasattr(structured_cv, "sections") and structured_cv.sections:
+                for section in structured_cv.sections:
+                    section_name = getattr(section, "name", "Section")
+                    html_parts.append(f"<h2>{section_name}</h2>")
+
+                    if hasattr(section, "items") and section.items:
+                        html_parts.append("<ul>")
+                        for item in section.items:
+                            content = getattr(item, "content", str(item))
+                            html_parts.append(f"<li>{content}</li>")
+                        html_parts.append("</ul>")
+
+            html_parts.append("</body>")
+            html_parts.append("</html>")
+
+            return "\n".join(html_parts)
+
+        except Exception as e:
+            self.logger.error(f"Fallback HTML generation failed: {e}")
+            # Ultimate fallback
+            return """<!DOCTYPE html>
+<html><head><title>CV</title></head>
+<body><h1>CV Generation Failed</h1><p>Unable to generate CV content.</p></body>
+</html>"""
+
+    def _format_with_jinja2(self, content_data: ContentData) -> str:
+        """
+        Format the CV content using a Jinja2 markdown template.
+        """
+        template_dir = str(Path(__file__).parent.parent / "templates")
+        env = Environment(
+            loader=FileSystemLoader(template_dir),
+            autoescape=select_autoescape(["html", "xml", "md"]),
+        )
+        template = env.get_template("cv_markdown_template.md")
+        return template.render(cv=content_data)

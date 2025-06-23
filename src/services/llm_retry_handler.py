@@ -1,5 +1,6 @@
 from typing import Any
 from tenacity import retry, stop_after_attempt, wait_exponential
+import asyncio
 
 
 class LLMRetryHandler:
@@ -14,9 +15,9 @@ class LLMRetryHandler:
         wait=wait_exponential(multiplier=1, min=2, max=60),
         reraise=True,
     )
-    def generate_content(self, prompt: str) -> Any:
+    async def generate_content(self, prompt: str) -> Any:
         try:
-            return self.llm_client.generate_content(prompt)
+            return await self.llm_client.generate_content(prompt)
         except Exception as e:
             should_retry, _ = self.is_retryable_error(e)
             if not should_retry:

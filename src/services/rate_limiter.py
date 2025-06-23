@@ -153,20 +153,22 @@ class RateLimiter:
         )
         self.logger.log_rate_limit(rate_log)
 
-    def execute_with_rate_limit(self, func, model: str, estimated_tokens: int = 100, *args, **kwargs):
+    def execute_with_rate_limit(
+        self, func, model: str, estimated_tokens: int = 100, *args, **kwargs
+    ):
         """Execute a function with rate limiting.
-        
+
         Note: Retry logic has been moved to EnhancedLLMService for centralized handling.
-        
+
         Args:
             func: Function to execute
             model: Model name for rate limiting
             estimated_tokens: Estimated token usage
             *args, **kwargs: Arguments to pass to the function
-            
+
         Returns:
             Function result
-            
+
         Raises:
             RateLimitError: If rate limit is exceeded
             NetworkError: If network error occurs
@@ -204,17 +206,10 @@ class RateLimiter:
                 raise NetworkError(f"API call failed: {str(e)}") from e
 
     def _is_rate_limit_error(self, error: Exception) -> bool:
-        """Check if an error is a rate limit error."""
-        error_str = str(error).lower()
-        rate_limit_indicators = [
-            "rate limit",
-            "too many requests",
-            "quota exceeded",
-            "rate_limit_exceeded",
-            "429",
-            "throttled",
-        ]
-        return any(indicator in error_str for indicator in rate_limit_indicators)
+        """Check if an error is a rate limit error using centralized utility."""
+        from ..utils.error_classification import is_rate_limit_error
+
+        return is_rate_limit_error(error)
 
     def _extract_retry_after(self, error: Exception) -> float:
         """Extract retry-after time from error, or use default backoff."""

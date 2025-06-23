@@ -145,16 +145,24 @@ class StartupOptimizer:
         agents_count = 0
 
         if warmup_pools:
-            # Only register content writer for minimal functionality
+            # Use dependency container for agent creation
+            from .dependency_injection import get_container
             from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
             from .agent_lifecycle_manager import AgentPoolConfig, AgentPoolStrategy
 
+            container = get_container()
+            container.register_agents()
+
             lifecycle_manager.register_agent_type(
                 "content_writer",
-                lambda: EnhancedContentWriterAgent(),
+                lambda: container.get(
+                    EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+                ),
                 AgentPoolConfig(
                     agent_type="content_writer",
-                    factory=lambda: EnhancedContentWriterAgent(),
+                    factory=lambda: container.get(
+                        EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+                    ),
                     min_instances=1,
                     max_instances=1,
                     strategy=AgentPoolStrategy.LAZY,
@@ -193,10 +201,10 @@ class StartupOptimizer:
             container.register_singleton(
                 "error_recovery",
                 ErrorRecoveryService,
-                factory=get_error_recovery_service,
+                factory=lambda: ErrorRecoveryService(),
             )
             container.register_singleton(
-                "progress_tracker", ProgressTracker, factory=get_progress_tracker
+                "progress_tracker", ProgressTracker, factory=lambda: ProgressTracker()
             )
             deps_count = 3
 
@@ -211,13 +219,19 @@ class StartupOptimizer:
             from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
             from ..agents.specialized_agents import get_agent
             from .agent_lifecycle_manager import AgentPoolConfig, AgentPoolStrategy
-            from ..models.data_models import ContentType
+            from ..models.data_models import ContentType  # Get dependency container
+            from .dependency_injection import get_container
+
+            container = get_container()
+            container.register_agents()
 
             # Register core agents with balanced configuration
             agent_configs = [
                 (
                     "content_writer",
-                    lambda: EnhancedContentWriterAgent(),
+                    lambda: container.get(
+                        EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+                    ),
                     AgentPoolStrategy.EAGER,
                     1,
                     2,
@@ -298,8 +312,12 @@ class StartupOptimizer:
 
             services = [
                 ("logger", Logger, lambda: get_structured_logger("aggressive_startup")),
-                ("error_recovery", ErrorRecoveryService, get_error_recovery_service),
-                ("progress_tracker", ProgressTracker, get_progress_tracker),
+                (
+                    "error_recovery",
+                    ErrorRecoveryService,
+                    lambda: ErrorRecoveryService(),
+                ),
+                ("progress_tracker", ProgressTracker, lambda: ProgressTracker()),
                 ("session_manager", SessionManager, get_session_manager),
             ]
 
@@ -319,12 +337,19 @@ class StartupOptimizer:
             from ..agents.specialized_agents import get_agent
             from .agent_lifecycle_manager import AgentPoolConfig, AgentPoolStrategy
             from ..models.data_models import ContentType
+            from .dependency_injection import get_container
+
+            # Get dependency container
+            container = get_container()
+            container.register_agents()
 
             # Register all agents with aggressive configuration
             agent_configs = [
                 (
                     "content_writer",
-                    lambda: EnhancedContentWriterAgent(),
+                    lambda: container.get(
+                        EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+                    ),
                     AgentPoolStrategy.EAGER,
                     2,
                     5,
@@ -445,14 +470,23 @@ class StartupOptimizer:
             from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
             from .agent_lifecycle_manager import AgentPoolConfig, AgentPoolStrategy
             from ..models.data_models import ContentType
+            from .dependency_injection import get_container
+
+            # Get dependency container
+            container = get_container()
+            container.register_agents()
 
             # Register minimal agents for fast development cycles
             lifecycle_manager.register_agent_type(
                 "content_writer",
-                lambda: EnhancedContentWriterAgent(),
+                lambda: container.get(
+                    EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+                ),
                 AgentPoolConfig(
                     agent_type="content_writer",
-                    factory=lambda: EnhancedContentWriterAgent(),
+                    factory=lambda: container.get(
+                        EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+                    ),
                     min_instances=1,
                     max_instances=2,
                     strategy=AgentPoolStrategy.LAZY,

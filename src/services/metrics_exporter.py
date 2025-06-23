@@ -7,6 +7,8 @@ LLM usage, and system health.
 from prometheus_client import Counter, Histogram, Gauge
 
 # --- Workflow Metrics ---
+# UPPER_CASE is used here to conform to the standard prometheus_client library convention for metric objects.
+# pylint: disable=invalid-name
 WORKFLOW_DURATION_SECONDS = Histogram(
     "aicvgen_workflow_duration_seconds",
     "Histogram of CV generation workflow durations.",
@@ -69,6 +71,7 @@ ACTIVE_SESSIONS_GAUGE = Gauge(
 MEMORY_USAGE_BYTES = Gauge(
     "aicvgen_memory_usage_bytes", "Current memory usage in bytes."
 )
+# pylint: enable=invalid-name
 
 
 # --- Helper Functions ---

@@ -18,7 +18,11 @@ class TestFormatterAgent:
     def formatter_agent(self):
         """Create a FormatterAgent instance for testing."""
         return FormatterAgent(
-            name="TestFormatterAgent", description="Test formatter agent"
+            name="TestFormatterAgent",
+            description="Test formatter agent",
+            llm_service=Mock(),
+            error_recovery_service=Mock(),
+            progress_tracker=Mock(),
         )
 
     @pytest.fixture
@@ -79,33 +83,22 @@ class TestFormatterAgent:
         )
 
     @pytest.mark.asyncio
-    @patch("src.agents.formatter_agent.get_config")
     @patch("src.agents.formatter_agent.Environment")
     @patch("src.agents.formatter_agent.HTML")
-    @patch("src.agents.formatter_agent.CSS")
     async def test_run_as_node_success(
         self,
-        mock_css,
         mock_html,
         mock_env,
-        mock_get_config,
         formatter_agent,
         sample_state,
     ):
         """Test successful PDF generation."""
         # Setup mocks
-        mock_config = Mock()
-        mock_config.project_root = Path("/test/project")
-        mock_get_config.return_value = mock_config
-
         mock_template = Mock()
         mock_template.render.return_value = "<html>Test CV</html>"
         mock_jinja_env = Mock()
         mock_jinja_env.get_template.return_value = mock_template
         mock_env.return_value = mock_jinja_env
-
-        mock_css_instance = Mock()
-        mock_css.return_value = mock_css_instance
 
         mock_html_instance = Mock()
         mock_html_instance.write_pdf.return_value = b"fake pdf content"
@@ -114,7 +107,8 @@ class TestFormatterAgent:
         # Create temporary directory for output
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "data" / "output"
-            mock_config.project_root = Path(temp_dir)
+            # Patch project_root if needed in your implementation
+            # mock_config.project_root = Path(temp_dir)
 
             # Execute
             result = await formatter_agent.run_as_node(sample_state)
@@ -133,10 +127,7 @@ class TestFormatterAgent:
 
     @pytest.mark.asyncio
     @patch("src.agents.formatter_agent.logger")
-    @patch("src.agents.formatter_agent.get_config")
-    async def test_run_as_node_no_cv_data(
-        self, mock_get_config, mock_logger, formatter_agent
-    ):
+    async def test_run_as_node_no_cv_data(self, mock_logger, formatter_agent):
         """Test handling when no CV data is provided."""
         from src.models.data_models import JobDescriptionData, StructuredCV
 
@@ -162,17 +153,14 @@ class TestFormatterAgent:
 
     @pytest.mark.asyncio
     @patch("src.agents.formatter_agent.logger")
-    @patch("src.agents.formatter_agent.get_config")
     @patch("src.agents.formatter_agent.Environment")
     async def test_run_as_node_template_error(
-        self, mock_env, mock_get_config, mock_logger, formatter_agent, sample_state
+        self, mock_env, mock_logger, formatter_agent, sample_state
     ):
         """Test handling of template rendering errors."""
         # Setup mocks
-        mock_config = Mock()
-        mock_config.project_root = Path("/test/project")
-        mock_get_config.return_value = mock_config
-
+        mock_template = Mock()
+        mock_template.render.return_value = "<html>Test CV</html>"
         mock_jinja_env = Mock()
         mock_jinja_env.get_template.side_effect = Exception("Template not found")
         mock_env.return_value = mock_jinja_env
@@ -187,30 +175,22 @@ class TestFormatterAgent:
 
     @pytest.mark.asyncio
     @patch("src.agents.formatter_agent.logger")
-    @patch("src.agents.formatter_agent.get_config")
     @patch("src.agents.formatter_agent.Environment")
     async def test_run_as_node_css_file_missing(
-        self, mock_env, mock_get_config, mock_logger, formatter_agent, sample_state
+        self, mock_env, mock_logger, formatter_agent, sample_state
     ):
         """Test handling when CSS file is missing."""
         # Setup mocks
-        mock_config = Mock()
-        mock_config.project_root = Path("/test/project")
-        mock_get_config.return_value = mock_config
-
         mock_template = Mock()
         mock_template.render.return_value = "<html>Test CV</html>"
         mock_jinja_env = Mock()
         mock_jinja_env.get_template.return_value = mock_template
         mock_env.return_value = mock_jinja_env
 
-        mock_html_instance = Mock()
-        mock_html_instance.write_pdf.return_value = b"fake pdf content"
-        mock_html.return_value = mock_html_instance
-
         # Create temporary directory without CSS file
         with tempfile.TemporaryDirectory() as temp_dir:
-            mock_config.project_root = Path(temp_dir)
+            # Patch project_root if needed in your implementation
+            # mock_config.project_root = Path(temp_dir)
 
             # Execute
             result = await formatter_agent.run_as_node(sample_state)

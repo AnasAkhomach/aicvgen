@@ -61,6 +61,9 @@ class TestResearchAgentVectorIntegration:
             description="Test agent for vector store integration",
             llm_service=mock_llm_service,
             vector_db=mock_vector_store_service,
+            error_recovery_service=Mock(),
+            progress_tracker=Mock(),
+            settings=Mock(),
         )
         # Verify vector store service is used
         assert agent.vector_db == mock_vector_store_service
@@ -79,6 +82,9 @@ class TestResearchAgentVectorIntegration:
             description="Test agent for vector operations",
             llm_service=mock_llm_service,
             vector_db=mock_vector_store_service,
+            error_recovery_service=Mock(),
+            progress_tracker=Mock(),
+            settings=Mock(),
         )
         # Create test context
         context = AgentExecutionContext(
@@ -110,6 +116,9 @@ class TestResearchAgentVectorIntegration:
             description="Test agent initialization",
             llm_service=mock_llm_service,
             vector_db=mock_vector_store_service,
+            error_recovery_service=Mock(),
+            progress_tracker=Mock(),
+            settings=Mock(),
         )
         # Verify that the agent has the vector store service
         assert hasattr(agent, "vector_db")

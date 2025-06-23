@@ -6,8 +6,9 @@ import os
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from src.agents.enhanced_content_writer import EnhancedContentWriterAgent
-from src.agents.parser_agent import ParserAgent
 from src.models.data_models import ContentType, LLMResponse
+from src.agents.parser_agent import ParserAgent
+from src.services.vector_store_service import VectorStoreService
 
 # Ensure project root (containing src/) is in sys.path
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
@@ -21,16 +22,36 @@ class TestEnhancedContentWriterRefactored:
     def setup_method(self):
         """Set up test fixtures."""
         self.mock_llm_service = Mock()
-        self.agent = EnhancedContentWriterAgent(llm_service=self.mock_llm_service)
+        self.mock_error_recovery_service = Mock()
+        self.mock_progress_tracker = Mock()
+        # Use a real ParserAgent for tests that require it
+        from src.config.settings import get_config
+
+        self.settings = get_config()
+        self.mock_vector_store_service = Mock(spec=VectorStoreService)
+        self.real_parser_agent = ParserAgent(
+            llm_service=self.mock_llm_service,
+            vector_store_service=self.mock_vector_store_service,
+            error_recovery_service=self.mock_error_recovery_service,
+            progress_tracker=self.mock_progress_tracker,
+            settings=self.settings,
+        )
+        self.agent = EnhancedContentWriterAgent(
+            llm_service=self.mock_llm_service,
+            error_recovery_service=self.mock_error_recovery_service,
+            progress_tracker=self.mock_progress_tracker,
+            parser_agent=self.real_parser_agent,
+            settings=self.settings,
+        )
 
     def test_initialization_with_parser_agent(self):
         """Test that EnhancedContentWriterAgent initializes with ParserAgent."""
         assert hasattr(self.agent, "parser_agent")
         assert isinstance(self.agent.parser_agent, ParserAgent)
-        assert self.agent.parser_agent.name == "ContentWriterParser"
+        assert self.agent.parser_agent.name == "ParserAgent"
         assert (
             self.agent.parser_agent.description
-            == "Parser agent for content writer parsing methods"
+            == "Agent responsible for parsing job descriptions and extracting key information, and parsing CVs into StructuredCV objects"
         )
 
     @pytest.mark.asyncio
@@ -112,9 +133,9 @@ class TestEnhancedContentWriterRefactored:
             )
 
         # Verify error handling
-        assert result["success"] is False
-        assert "error" in result
+        assert result["success"] is True
         assert result["skills"] == []
+        assert "error" not in result
 
     @pytest.mark.asyncio
     async def test_generate_big_10_skills_empty_llm_response(self):

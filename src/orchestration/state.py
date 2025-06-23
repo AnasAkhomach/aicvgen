@@ -48,9 +48,7 @@ class AgentState(BaseModel):
 
     # User Feedback for Regeneration
     # Stores feedback from the UI to guide the next generation cycle.
-    user_feedback: Optional[UserFeedback] = None
-
-    # Agent Outputs & Finalization
+    user_feedback: Optional[UserFeedback] = None  # Agent Outputs & Finalization
     # Research findings from the ResearchAgent
     research_findings: Optional[ResearchFindings] = None
     # Quality check results from the QualityAssuranceAgent
@@ -61,6 +59,9 @@ class AgentState(BaseModel):
     final_output_path: Optional[str] = None
     # Accumulated error messages from the workflow.
     error_messages: List[str] = Field(default_factory=list)
+
+    # CB-02 Fix: Generic field for node-specific metadata
+    node_execution_metadata: Dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         arbitrary_types_allowed = True

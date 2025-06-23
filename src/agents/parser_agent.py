@@ -1,6 +1,8 @@
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..services.llm_service import EnhancedLLMService
-from ..services.vector_store_service import get_vector_store_service
+from ..services.vector_store_service import VectorStoreService
+from ..services.error_recovery import ErrorRecoveryService
+from ..services.progress_tracker import ProgressTracker
 from ..models.data_models import (
     JobDescriptionData,
     StructuredCV,
@@ -42,6 +44,18 @@ from ..utils.agent_error_handling import (
     with_error_handling,
     with_node_error_handling,
 )
+from src.utils.prompt_utils import load_prompt_template, format_prompt
+from .cv_structure_utils import (
+    create_empty_cv_structure,
+    determine_section_content_type,
+    determine_item_type,
+    add_section_items,
+    add_section_subsections,
+)
+from ..services.llm_cv_parser_service import LLMCVParserService
+from .cv_conversion_utils import (
+    convert_parsing_result_to_structured_cv,
+)
 import json  # Import json for parsing LLM output
 from typing import List, Optional, Dict, Any, Union
 import re  # For regex parsing of Markdown
@@ -54,18 +68,26 @@ logger = get_structured_logger(__name__)
 class ParserAgent(EnhancedAgentBase):
     """Agent responsible for parsing job descriptions and extracting key information, and parsing CVs into StructuredCV objects."""
 
-    def __init__(self, name: str, description: str, llm_service=None, llm=None):
-        self._job_data = {}  # Initialize job data storage
-        self.current_session_id = None
-        self.current_trace_id = None
-        """
-        Initialize the ParserAgent.
+    def __init__(
+        self,
+        llm_service: EnhancedLLMService,
+        vector_store_service: VectorStoreService,
+        error_recovery_service: ErrorRecoveryService,
+        progress_tracker: ProgressTracker,
+        settings,
+        name: str = "ParserAgent",
+        description: str = "Agent responsible for parsing job descriptions and extracting key information, and parsing CVs into StructuredCV objects",
+    ):
+        """Initialize the ParserAgent with required dependencies.
 
         Args:
+            llm_service: LLM service instance for content generation.
+            vector_store_service: Vector store service for similarity operations.
+            error_recovery_service: Error recovery service dependency.
+            progress_tracker: Progress tracker service dependency.
+            settings:
             name: The name of the agent.
             description: A description of the agent's purpose.
-            llm_service: Optional LLM service instance. If None, will use get_llm_service().
-            llm: Alternative parameter name for LLM service (for backward compatibility).
         """
         # Define input and output schemas
         input_schema = AgentIO(
@@ -77,23 +99,26 @@ class ParserAgent(EnhancedAgentBase):
             required_fields=["parsed_data"],
         )
 
-        # Call parent constructor
+        # Call parent constructor with required dependencies
         super().__init__(
             name=name,
             description=description,
             input_schema=input_schema,
             output_schema=output_schema,
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
         )
-        self.llm = llm_service or llm
-        if self.llm is None:
-            self._dependency_error = (
-                "ParserAgent requires a valid llm_service instance."
-            )
-        else:
-            self._dependency_error = None
-        self.settings = (
-            get_config()
-        )  # Removed _load_prompt method - now using centralized settings-based prompt loading
+
+        # Required service dependencies (constructor injection)
+        self.llm_service = llm_service
+        self.vector_store_service = vector_store_service
+        self.llm_cv_parser_service = LLMCVParserService(llm_service, settings)
+
+        # Initialize internal state
+        self._job_data = {}  # Initialize job data storage
+        self.current_session_id = None
+        self.current_trace_id = None
+        self.settings = settings
 
     async def parse_job_description(
         self, raw_text: str, trace_id: Optional[str] = None
@@ -124,24 +149,11 @@ class ParserAgent(EnhancedAgentBase):
                 industry_terms=[],
                 experience_level="N/A",
             )
-
-        # Check for LLM dependency before attempting to use it
-        if self.llm is None:
-            logger.error("LLM service is None, cannot parse job description")
-            return JobDescriptionData(
-                raw_text=raw_text,
-                skills=[],
-                responsibilities=[],
-                company_values=[],
-                industry_terms=[],
-                experience_level="N/A",
-                error="LLM service not available",
-                status=ItemStatus.GENERATION_FAILED,
-            )
-
         try:
-            return await self._parse_job_description_with_llm(
-                raw_text, trace_id=trace_id
+            return await self.llm_cv_parser_service.parse_job_description_with_llm(
+                raw_text,
+                session_id=getattr(self, "current_session_id", None),
+                trace_id=trace_id,
             )
         except Exception as e:
             logger.error(f"Failed to parse job description: {str(e)}")
@@ -156,69 +168,6 @@ class ParserAgent(EnhancedAgentBase):
                 status=ItemStatus.GENERATION_FAILED,
             )
 
-    async def _parse_job_description_with_llm(
-        self, raw_text: str, trace_id: Optional[str] = None
-    ) -> JobDescriptionData:
-        """
-        Internal method to parse job description using LLM.
-
-        Args:
-            raw_text: The raw job description as a string.
-
-        Returns:
-            A JobDescriptionData object with the parsed content.
-        """
-        # Load the updated prompt
-        prompt_path = self.settings.get_prompt_path_by_key("job_description_parser")
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            prompt_template = f.read()
-        prompt = prompt_template.format(raw_text=raw_text)
-
-        try:
-            # Use centralized JSON generation and parsing
-            parsed_data = await self._generate_and_parse_json(
-                prompt=prompt,
-                session_id=getattr(self, "current_session_id", None),
-                trace_id=trace_id,
-            )
-
-            # Validate with Pydantic
-            from ..models.validation_schemas import LLMJobDescriptionOutput
-
-            validated_output = LLMJobDescriptionOutput.model_validate(parsed_data)
-
-            # 5. Map validated data to the application's main data model
-            job_data = JobDescriptionData(
-                raw_text=raw_text,
-                skills=validated_output.skills,
-                experience_level=validated_output.experience_level,
-                responsibilities=validated_output.responsibilities,
-                industry_terms=validated_output.industry_terms,
-                company_values=validated_output.company_values,
-                status=ItemStatus.GENERATED,
-            )
-            logger.info(
-                "Job description successfully parsed and validated using LLM-generated JSON."
-            )
-            return job_data
-
-        except (json.JSONDecodeError, ValidationError, LLMResponseParsingError) as e:
-            error_message = f"Failed to parse or validate LLM response for job description: {str(e)}"
-            logger.error(error_message, exc_info=True)
-            # Create a failed state object
-            return JobDescriptionData(
-                raw_text=raw_text,
-                skills=[],
-                responsibilities=[],
-                company_values=[],
-                industry_terms=[],
-                experience_level="N/A",
-                error=error_message,
-                status=ItemStatus.GENERATION_FAILED,
-            )
-
-    # Removed _parse_job_description_with_regex method - replaced with LLM-first approach
-
     async def parse_cv_with_llm(
         self, cv_text: str, job_data: JobDescriptionData
     ) -> StructuredCV:
@@ -232,31 +181,25 @@ class ParserAgent(EnhancedAgentBase):
         Returns:
             A StructuredCV object representing the parsed CV.
         """
-        # Create a new StructuredCV with initial metadata
-        structured_cv = self._initialize_structured_cv(
-            cv_text, job_data
-        )  # If no CV text, return empty structure
+        structured_cv = self._initialize_structured_cv(cv_text, job_data)
         if not cv_text:
             logger.warning("Empty CV text provided to ParserAgent.")
             return structured_cv
-
         try:
-            # Parse CV content using LLM
-            parsing_result = await self._parse_cv_content_with_llm(cv_text)
-
-            # Convert LLM result to StructuredCV format
-            structured_cv = self._convert_parsing_result_to_structured_cv(
+            parsing_result = await self.llm_cv_parser_service.parse_cv_with_llm(
+                cv_text,
+                session_id=getattr(self, "current_session_id", None),
+                trace_id=getattr(self, "current_trace_id", None),
+            )
+            structured_cv = convert_parsing_result_to_structured_cv(
                 parsing_result, cv_text, job_data
             )
-
             logger.info(
                 f"Successfully parsed CV with {len(structured_cv.sections)} sections using LLM"
             )
             return structured_cv
-
         except Exception as e:
             logger.error(f"Failed to parse CV with LLM: {str(e)}")
-            # Fallback to empty structure with error metadata
             structured_cv.metadata["parsing_error"] = str(e)
             return structured_cv
 
@@ -308,10 +251,10 @@ class ParserAgent(EnhancedAgentBase):
         prompt_path = self.settings.get_prompt_path_by_key("cv_parser")
         with open(prompt_path, "r", encoding="utf-8") as f:
             prompt_template = f.read()
-        prompt = prompt_template.replace("{{raw_cv_text}}", cv_text)
-
-        # Check for LLM dependency before attempting to use it
-        if self.llm is None:
+        prompt = prompt_template.replace(
+            "{{raw_cv_text}}", cv_text
+        )  # Check for LLM dependency before attempting to use it
+        if self.llm_service is None:
             raise ValueError("LLM service is None, cannot parse CV content")
 
         # Use centralized LLM generation and JSON parsing
@@ -350,23 +293,10 @@ class ParserAgent(EnhancedAgentBase):
         Returns:
             A StructuredCV object
         """
-        try:
-            # Create new StructuredCV with metadata
-            structured_cv = self._create_structured_cv_with_metadata(cv_text, job_data)
-
-            # Add personal info to metadata
-            self._add_contact_info_to_metadata(structured_cv, parsing_result)
-
-            # Convert sections
-            self._convert_sections_to_structured_cv(structured_cv, parsing_result)
-
-            return structured_cv
-        except Exception as e:
-            # Handle validation errors by returning empty CV with error metadata
-            logger.error(f"Error converting parsing result to StructuredCV: {str(e)}")
-            structured_cv = self._create_structured_cv_with_metadata(cv_text, job_data)
-            structured_cv.metadata["error"] = str(e)
-            return structured_cv
+        # Deprecated: now handled by cv_conversion_utils
+        raise NotImplementedError(
+            "Use convert_parsing_result_to_structured_cv from cv_conversion_utils."
+        )
 
     def _create_structured_cv_with_metadata(
         self, cv_text: str, job_data: JobDescriptionData
@@ -458,17 +388,19 @@ class ParserAgent(EnhancedAgentBase):
         Returns:
             "DYNAMIC" or "STATIC" content type
         """
-        dynamic_sections = [
-            "Executive Summary",
-            "Key Qualifications",
-            "Professional Experience",
-            "Project Experience",
-        ]
-        return (
-            "DYNAMIC"
-            if any(section_name.lower() == s.lower() for s in dynamic_sections)
-            else "STATIC"
-        )
+        return determine_section_content_type(section_name)
+
+    def _determine_item_type(self, section_name: str) -> ItemType:
+        """
+        Determine the appropriate ItemType based on section name.
+
+        Args:
+            section_name: The name of the section
+
+        Returns:
+            The appropriate ItemType
+        """
+        return determine_item_type(section_name)
 
     def _add_section_items(
         self, section: Section, parsed_section, content_type: str
@@ -481,22 +413,7 @@ class ParserAgent(EnhancedAgentBase):
             parsed_section: The parsed section data
             content_type: "DYNAMIC" or "STATIC"
         """
-        for item_content in parsed_section.items:
-            if item_content.strip():
-                # Determine item type based on section
-                item_type = self._determine_item_type(parsed_section.name)
-
-                # Determine status (dynamic sections start as INITIAL, static as STATIC)
-                status = (
-                    ItemStatus.INITIAL
-                    if content_type == "DYNAMIC"
-                    else ItemStatus.STATIC
-                )
-
-                item = Item(
-                    content=item_content.strip(), status=status, item_type=item_type
-                )
-                section.items.append(item)
+        add_section_items(section, parsed_section, content_type)
 
     def _add_section_subsections(
         self, section: Section, parsed_section, content_type: str
@@ -509,49 +426,7 @@ class ParserAgent(EnhancedAgentBase):
             parsed_section: The parsed section data
             content_type: "DYNAMIC" or "STATIC"
         """
-        for parsed_subsection in parsed_section.subsections:
-            subsection = Subsection(name=parsed_subsection.name)
-
-            for item_content in parsed_subsection.items:
-                if item_content.strip():
-                    item_type = self._determine_item_type(parsed_section.name)
-                    status = (
-                        ItemStatus.INITIAL
-                        if content_type == "DYNAMIC"
-                        else ItemStatus.STATIC
-                    )
-
-                    item = Item(
-                        content=item_content.strip(), status=status, item_type=item_type
-                    )
-                    subsection.items.append(item)
-
-            section.subsections.append(subsection)
-
-    def _determine_item_type(self, section_name: str) -> ItemType:
-        """
-        Determine the appropriate ItemType based on section name.
-
-        Args:
-            section_name: The name of the section
-
-        Returns:
-            The appropriate ItemType
-        """
-        section_lower = section_name.lower()
-
-        if "qualification" in section_lower or "skill" in section_lower:
-            return ItemType.KEY_QUALIFICATION
-        elif "executive" in section_lower or "summary" in section_lower:
-            return ItemType.EXECUTIVE_SUMMARY_PARA
-        elif "education" in section_lower:
-            return ItemType.EDUCATION_ENTRY
-        elif "certification" in section_lower:
-            return ItemType.CERTIFICATION_ENTRY
-        elif "language" in section_lower:
-            return ItemType.LANGUAGE_ENTRY
-        else:
-            return ItemType.BULLET_POINT
+        add_section_subsections(section, parsed_section, content_type)
 
     def parse_cv_text(self, cv_text: str, job_data: JobDescriptionData) -> StructuredCV:
         """
@@ -578,13 +453,8 @@ class ParserAgent(EnhancedAgentBase):
             # No event loop running, we can create one
             return asyncio.run(self.parse_cv_with_llm(cv_text, job_data))
 
-        # The old regex-based parsing logic has been replaced with LLM-first approach
-        # This method now serves as a backward compatibility wrapper
+        # The old regex-based parsing logic has been replaced with LLM-first approach        # This method now serves as a backward compatibility wrapper
         pass
-
-    # Old LLM enhancement method removed - replaced with LLM-first parsing
-
-    # Old section-specific LLM parsing methods removed - replaced with unified LLM-first parsing
 
     def _extract_company_from_cv(
         self, role_name: str, generation_context: Dict[str, Any]
@@ -822,114 +692,7 @@ class ParserAgent(EnhancedAgentBase):
         Returns:
             A StructuredCV object with empty sections.
         """
-        # Create a new StructuredCV
-        structured_cv = StructuredCV()
-
-        # Add metadata - handle both dict and JobDescriptionData object types
-        if job_data:
-            if hasattr(job_data, "to_dict"):
-                # JobDescriptionData object
-                structured_cv.metadata["job_description"] = job_data.to_dict()
-            elif isinstance(job_data, dict):
-                # Already a dictionary
-                structured_cv.metadata["job_description"] = job_data
-            else:
-                # Fallback for other types
-                structured_cv.metadata["job_description"] = {}
-        else:
-            structured_cv.metadata["job_description"] = {}
-        structured_cv.metadata["start_from_scratch"] = True
-
-        # Create standard CV sections with proper order
-        sections = [
-            {"name": "Executive Summary", "type": "DYNAMIC", "order": 0},
-            {"name": "Key Qualifications", "type": "DYNAMIC", "order": 1},
-            {"name": "Professional Experience", "type": "DYNAMIC", "order": 2},
-            {"name": "Project Experience", "type": "DYNAMIC", "order": 3},
-            {"name": "Education", "type": "STATIC", "order": 4},
-            {"name": "Certifications", "type": "STATIC", "order": 5},
-            {"name": "Languages", "type": "STATIC", "order": 6},
-        ]
-
-        # Create and add the sections
-        for section_info in sections:
-            section = Section(
-                name=section_info["name"],
-                content_type=section_info["type"],
-                order=section_info["order"],
-            )
-
-            # For Executive Summary, add an empty item
-            if section.name == "Executive Summary":
-                section.items.append(  # pylint: disable=no-member
-                    Item(
-                        content="",
-                        status=ItemStatus.TO_REGENERATE,
-                        item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
-                    )
-                )
-
-            # For Key Qualifications, add empty items based on skills from job description
-            if section.name == "Key Qualifications":
-                skills = None
-                if job_data:
-                    if hasattr(job_data, "skills"):
-                        skills = job_data.skills
-                    elif isinstance(job_data, dict) and "skills" in job_data:
-                        skills = job_data["skills"]
-
-                if skills:
-                    # Limit to 8 skills maximum
-                    for skill in skills[:8]:
-                        section.items.append(  # pylint: disable=no-member
-                            Item(
-                                content=skill,
-                                status=ItemStatus.TO_REGENERATE,
-                                item_type=ItemType.KEY_QUALIFICATION,
-                            )
-                        )
-                else:
-                    # Add default empty items if no skills available
-                    for i in range(6):  # Default 6 qualifications
-                        section.items.append(  # pylint: disable=no-member
-                            Item(
-                                content=f"Key qualification {i+1}",
-                                status=ItemStatus.TO_REGENERATE,
-                                item_type=ItemType.KEY_QUALIFICATION,
-                            )
-                        )
-
-            # For Professional Experience, add an empty subsection
-            if section.name == "Professional Experience":
-                subsection = Subsection(name="Position Title at Company Name")
-                # Add some default bullet points
-                for _ in range(3):
-                    subsection.items.append(  # pylint: disable=no-member
-                        Item(
-                            content="",
-                            status=ItemStatus.TO_REGENERATE,
-                            item_type=ItemType.BULLET_POINT,
-                        )
-                    )
-                section.subsections.append(subsection)  # pylint: disable=no-member
-
-            # For Project Experience, add an empty subsection
-            if section.name == "Project Experience":
-                subsection = Subsection(name="Project Name")
-                # Add some default bullet points
-                for _ in range(2):
-                    subsection.items.append(  # pylint: disable=no-member
-                        Item(
-                            content="",
-                            status=ItemStatus.TO_REGENERATE,
-                            item_type=ItemType.BULLET_POINT,
-                        )
-                    )
-                section.subsections.append(subsection)  # pylint: disable=no-member
-
-            structured_cv.sections.append(section)  # pylint: disable=no-member
-
-        return structured_cv
+        return create_empty_cv_structure(job_data)
 
     def get_job_data(self) -> Dict[str, Any]:
         """
@@ -969,17 +732,11 @@ class ParserAgent(EnhancedAgentBase):
 
         for field in required_fields:
             if field in output_data and output_data[field]:
-                present_fields += 1
-
-        # Calculate confidence based on completeness
+                present_fields += 1  # Calculate confidence based on completeness
         field_completeness = present_fields / len(required_fields)
         confidence += field_completeness * 0.7
 
         return min(confidence, 1.0)
-
-    # Removed _extract_skills_from_text method - replaced with LLM-first approach
-
-    # Removed _extract_sections, _is_section_header, and parse_cv methods - replaced with LLM-first approach
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"

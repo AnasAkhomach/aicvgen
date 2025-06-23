@@ -19,7 +19,17 @@ from src.utils.agent_error_handling import (
 from src.models.validation_schemas import ValidationError
 from src.agents.agent_base import AgentResult, AgentExecutionContext
 from src.orchestration.state import AgentState
-from src.models.data_models import StructuredCV, JobDescriptionData
+from src.models.data_models import (
+    StructuredCV,
+    JobDescriptionData,
+    ContentData,
+    MetadataModel,
+)
+from pydantic import BaseModel
+
+
+class ErrorFallbackModel(BaseModel):
+    error: str
 
 
 class TestAgentErrorHandler:
@@ -38,7 +48,9 @@ class TestAgentErrorHandler:
         except PydanticValidationError as e:
             error = e
         agent_type = "test_agent"
-        fallback_data = {"test": "data"}
+        fallback_data = JobDescriptionData(
+            raw_text="test", skills=[], responsibilities=[]
+        )
 
         result = AgentErrorHandler.handle_validation_error(
             error, agent_type, fallback_data
@@ -46,7 +58,8 @@ class TestAgentErrorHandler:
 
         assert isinstance(result, AgentResult)
         assert not result.success
-        assert result.output_data == fallback_data
+        assert isinstance(result.output_data, JobDescriptionData)
+        assert result.output_data.raw_text == "test"
         assert result.confidence_score == 0.0
         assert "Input validation failed" in result.error_message
         assert result.metadata["agent_type"] == agent_type
@@ -58,7 +71,9 @@ class TestAgentErrorHandler:
         error = ValueError("Test error")
         agent_type = "test_agent"
         context = "test_method"
-        fallback_data = {"test": "data"}
+        fallback_data = JobDescriptionData(
+            raw_text="test", skills=[], responsibilities=[]
+        )
 
         result = AgentErrorHandler.handle_general_error(
             error, agent_type, fallback_data, context
@@ -66,7 +81,8 @@ class TestAgentErrorHandler:
 
         assert isinstance(result, AgentResult)
         assert not result.success
-        assert result.output_data == fallback_data
+        assert isinstance(result.output_data, JobDescriptionData)
+        assert result.output_data.raw_text == "test"
         assert result.confidence_score == 0.0
         assert str(error) == result.error_message
         assert result.metadata["agent_type"] == agent_type
@@ -149,8 +165,9 @@ class TestAgentErrorHandler:
     def test_create_fallback_data_unknown_agent(self):
         """Test fallback data creation for unknown agent type."""
         fallback = AgentErrorHandler.create_fallback_data("unknown_agent")
-
-        assert fallback["error"] == "unknown_agent failed"
+        # Wrap fallback dict in ErrorFallbackModel for AgentResult compatibility
+        fallback_model = ErrorFallbackModel(**fallback)
+        assert fallback_model.error == "unknown_agent failed"
 
 
 class TestLLMErrorHandler:
@@ -236,6 +253,10 @@ class TestErrorHandlingDecorators:
         assert not result.success
         assert "Input validation failed" in result.error_message
         assert result.metadata["validation_error"] is True
+        # output_data should be a Pydantic model
+        assert isinstance(result.output_data, BaseModel)
+        if hasattr(result.output_data, "error"):
+            assert result.output_data.error == "test_agent failed"
 
     @pytest.mark.asyncio
     async def test_with_error_handling_async_general_error(self):
@@ -251,6 +272,10 @@ class TestErrorHandlingDecorators:
         assert result.error_message == "Test error"
         assert result.metadata["error_type"] == "ValueError"
         assert result.metadata["context"] == "test_context"
+        # output_data should be a Pydantic model
+        assert isinstance(result.output_data, BaseModel)
+        if hasattr(result.output_data, "error"):
+            assert result.output_data.error == "test_agent failed"
 
     def test_with_error_handling_sync_success(self):
         """Test error handling decorator with successful sync function."""
@@ -273,6 +298,10 @@ class TestErrorHandlingDecorators:
         assert isinstance(result, AgentResult)
         assert not result.success
         assert result.error_message == "Test error"
+        # output_data should be a Pydantic model
+        assert isinstance(result.output_data, BaseModel)
+        if hasattr(result.output_data, "error"):
+            assert result.output_data.error == "test_agent failed"
 
     @pytest.mark.asyncio
     async def test_with_node_error_handling_async_success(self):

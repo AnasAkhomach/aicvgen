@@ -1,5 +1,7 @@
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..services.llm_service import EnhancedLLMService
+from ..services.error_recovery import ErrorRecoveryService
+from ..services.progress_tracker import ProgressTracker
 from ..models.data_models import (
     ContentData,
     AgentIO,
@@ -48,14 +50,22 @@ class QualityAssuranceAgent(EnhancedAgentBase):
     This agent fulfills REQ-FUNC-QA-1 from the SRS.
     """
 
-    def __init__(self, name: str, description: str, llm_service=None):
-        """
-        Initializes the QualityAssuranceAgent.
+    def __init__(
+        self,
+        llm_service: EnhancedLLMService,
+        error_recovery_service: ErrorRecoveryService,
+        progress_tracker: ProgressTracker,
+        name: str = "QualityAssuranceAgent",
+        description: str = "Agent responsible for quality assurance of CV content",
+    ):
+        """Initialize the QualityAssuranceAgent with required dependencies.
 
         Args:
+            llm_service: LLM service instance for sophisticated quality checks.
+            error_recovery_service: Error recovery service dependency.
+            progress_tracker: Progress tracker service dependency.
             name: The name of the agent.
             description: A description of the agent.
-            llm_service: Optional LLM service instance for more sophisticated checks.
         """
         super().__init__(
             name=name,
@@ -70,8 +80,12 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 required_fields=["quality_check_results"],
                 optional_fields=["structured_cv", "error_messages"],
             ),
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
         )
-        self.llm = llm_service
+
+        # Required service dependencies (constructor injection)
+        self.llm_service = llm_service
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
@@ -124,7 +138,15 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             )
 
             node_result = await self.run_as_node(agent_state)
-            result = node_result.get("output_data", {}) if node_result else {}
+            result = node_result.get("output_data", None) if node_result else None
+            from ..models.quality_assurance_agent_models import QualityAssuranceResult
+
+            if isinstance(result, dict):
+                # Convert dict to QualityAssuranceResult if possible
+                result = QualityAssuranceResult(**result)
+            elif not isinstance(result, QualityAssuranceResult):
+                # Fallback to empty result
+                result = QualityAssuranceResult(section_results=[], overall_checks=[])
 
             return AgentResult(
                 success=True,

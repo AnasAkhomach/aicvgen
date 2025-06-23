@@ -56,10 +56,18 @@ class TestAgentStateAlignment:
     ):
         """Test that ParserAgent returns keys matching AgentState fields."""
         # Arrange
+        vector_store_service = Mock()
+        error_recovery_service = Mock()
+        progress_tracker = Mock()
+        settings = Mock()
         parser_agent = ParserAgent(
             name="TestParserAgent",
             description="Test parser agent",
             llm_service=mock_llm_service,
+            vector_store_service=vector_store_service,
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
+            settings=settings,
         )
 
         # Act
@@ -92,10 +100,18 @@ class TestAgentStateAlignment:
     ):
         """Test that ResearchAgent returns keys matching AgentState fields."""
         # Arrange
+        error_recovery_service = Mock()
+        progress_tracker = Mock()
+        vector_db = Mock()
+        settings = Mock()
         research_agent = ResearchAgent(
             name="TestResearchAgent",
             description="Test research agent",
             llm_service=mock_llm_service,
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
+            vector_db=vector_db,
+            settings=settings,
         )
 
         # Mock the async method to return expected structure
@@ -139,10 +155,14 @@ class TestAgentStateAlignment:
     ):
         """Test that QualityAssuranceAgent returns keys matching AgentState fields."""
         # Arrange
+        error_recovery_service = Mock()
+        progress_tracker = Mock()
         qa_agent = QualityAssuranceAgent(
             name="TestQAAgent",
             description="Test QA agent",
             llm_service=mock_llm_service,
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
         )
 
         # Mock the async method to return expected structure

@@ -9,13 +9,12 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import pytest
-import asyncio
-from unittest.mock import Mock, patch, AsyncMock
-from datetime import datetime
+from unittest.mock import Mock, patch
 
 from src.agents.cleaning_agent import CleaningAgent
 from src.agents.agent_base import AgentExecutionContext, AgentResult
 from src.utils.agent_error_handling import AgentErrorHandler
+from src.models.data_models import ErrorFallbackModel
 
 
 class TestCleaningAgentErrorHandling:
@@ -24,7 +23,11 @@ class TestCleaningAgentErrorHandling:
     @pytest.fixture
     def cleaning_agent(self):
         """Create a CleaningAgent instance for testing."""
-        return CleaningAgent(llm_service=Mock())
+        return CleaningAgent(
+            llm_service=Mock(),
+            error_recovery_service=Mock(),
+            progress_tracker=Mock(),
+        )
 
     @pytest.fixture
     def mock_context(self):
@@ -40,13 +43,12 @@ class TestCleaningAgentErrorHandling:
     @pytest.mark.asyncio
     async def test_error_handler_call_fix(self, cleaning_agent, mock_context):
         """Test that the correct error handler method is called."""
-        # Mock the error handler to verify the correct method is called
         from unittest.mock import ANY
 
         with patch.object(AgentErrorHandler, "handle_general_error") as mock_handler:
             mock_handler.return_value = AgentResult(
                 success=False,
-                output_data=None,
+                output_data=ErrorFallbackModel(error="Test error"),
                 confidence_score=0.0,
                 error_message="Test error",
             )
@@ -71,6 +73,7 @@ class TestCleaningAgentErrorHandling:
                 assert not result.success
                 assert result.error_message == "Test error"
                 assert result.confidence_score == 0.0
+                assert isinstance(result.output_data, ErrorFallbackModel)
 
     @pytest.mark.asyncio
     async def test_no_handle_agent_error_method_called(
@@ -90,6 +93,7 @@ class TestCleaningAgentErrorHandling:
             )
             assert isinstance(result, AgentResult)
             assert not result.success
+            assert isinstance(result.output_data, ErrorFallbackModel)
 
     @pytest.mark.asyncio
     async def test_successful_execution_no_error_handler(
@@ -101,6 +105,10 @@ class TestCleaningAgentErrorHandling:
                 cleaning_agent,
                 "_clean_big_10_skills",
                 return_value=["Python", "JavaScript"],
+            ), patch.object(
+                cleaning_agent,
+                "_calculate_confidence_score",
+                return_value=1.0,
             ):
                 result = await cleaning_agent.run_async(
                     mock_context.input_data, mock_context
@@ -111,4 +119,5 @@ class TestCleaningAgentErrorHandling:
 
                 # Verify successful result
                 assert result.success
-                assert "cleaned_data" in result.output_data
+                assert hasattr(result.output_data, "cleaned_data")
+                assert result.output_data.cleaned_data == ["Python", "JavaScript"]

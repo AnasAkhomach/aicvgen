@@ -25,6 +25,12 @@ from ..utils.exceptions import (
     StateManagerError,
     ValidationError,
 )
+from ..utils.error_classification import (
+    is_rate_limit_error,
+    is_network_error,
+    is_timeout_error,
+    is_api_auth_error,
+)
 
 
 # Additional exception types for comprehensive error handling
@@ -202,8 +208,7 @@ class ErrorRecoveryService:
     ) -> ErrorType:
         """Classify an exception into an error type.
 
-        Uses type-based classification first (most robust), then falls back to
-        string-based classification for generic errors.
+        Uses centralized error classification utilities for consistent categorization.
         """
         # --- Type-based classification (most robust) ---
         if isinstance(exception, (WorkflowPreconditionError, ValidationError)):
@@ -216,42 +221,19 @@ class ErrorRecoveryService:
             return ErrorType.SYSTEM_ERROR
         if isinstance(exception, StateManagerError):
             return ErrorType.SYSTEM_ERROR
-        if isinstance(exception, RateLimitError):
+
+        # --- Use centralized error classification ---
+        if is_rate_limit_error(exception):
             return ErrorType.RATE_LIMIT
-        if isinstance(exception, NetworkError):
+        if is_network_error(exception):
             return ErrorType.NETWORK_ERROR
-        if isinstance(exception, OperationTimeoutError):
+        if is_timeout_error(exception):
             return ErrorType.TIMEOUT_ERROR
-
-        # --- String-based classification (fallback for generic errors) ---
-        error_message = str(exception).lower()
-
-        # Rate limiting errors
-        if any(
-            keyword in error_message
-            for keyword in ["rate limit", "too many requests", "quota exceeded", "429"]
-        ):
-            return ErrorType.RATE_LIMIT
-
-        # API errors
-        if any(
-            keyword in error_message
-            for keyword in [
-                "api error",
-                "invalid api key",
-                "unauthorized",
-                "401",
-                "403",
-            ]
-        ):
+        if is_api_auth_error(exception):
             return ErrorType.API_ERROR
 
-        # Network errors
-        if any(
-            keyword in error_message
-            for keyword in ["connection", "network", "timeout", "dns", "unreachable"]
-        ):
-            return ErrorType.NETWORK_ERROR
+        # Default to system error for unknown exceptions
+        return ErrorType.SYSTEM_ERROR
 
         # Timeout errors
         if any(
@@ -544,6 +526,40 @@ class ErrorRecoveryService:
             return template.format(field=field)
         except KeyError:
             return template
+
+    async def get_fallback_content(
+        self,
+        content_type: ContentType,
+        error_message: str = "",
+        item_id: str = "",
+        **kwargs,
+    ) -> str:
+        """
+        Public method to get fallback content for a given content type.
+
+        Args:
+            content_type: The type of content to generate fallback for
+            error_message: The error message that triggered fallback
+            item_id: Optional item ID for context
+            **kwargs: Additional context data
+
+        Returns:
+            Fallback content string
+        """
+        # Create a minimal error context for template processing
+        error_context = ErrorContext(
+            error_type=ErrorType.CONTENT_ERROR,
+            error_message=error_message,
+            item_id=item_id,
+            item_type=content_type,
+            session_id=kwargs.get("session_id", ""),
+            timestamp=datetime.now(),
+            stack_trace="",
+            retry_count=0,
+            metadata=kwargs,
+        )
+
+        return self._generate_fallback_content(content_type, error_context)
 
     async def execute_recovery_action(
         self, action: RecoveryAction, item: Item, session_id: str

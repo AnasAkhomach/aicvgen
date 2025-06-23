@@ -79,11 +79,28 @@ def handle_api_key_validation(llm_service=None):
         with st.spinner("Validating API key..."):
             # Use injected llm_service if provided, else create one
             if llm_service is None:
-                from ..services.llm_service import EnhancedLLMService
+                from ..services.llm_service import (
+                    EnhancedLLMService,
+                    get_advanced_cache,
+                )
+                from ..services.llm_client import LLMClient
+                from ..services.llm_retry_handler import LLMRetryHandler
                 from ..services.rate_limiter import get_rate_limiter
+                from src.utils.error_classification import is_retryable_error
+                import google.generativeai as genai
+
+                settings = get_config()
+                model_name = settings.llm_settings.default_model
+                llm_model = genai.GenerativeModel(model_name)
+                llm_client = LLMClient(llm_model)
+                llm_retry_handler = LLMRetryHandler(llm_client, is_retryable_error)
+                cache = get_advanced_cache()
 
                 llm_service = EnhancedLLMService(
-                    settings=get_config(),
+                    settings=settings,
+                    llm_client=llm_client,
+                    llm_retry_handler=llm_retry_handler,
+                    cache=cache,
                     rate_limiter=get_rate_limiter(),
                     user_api_key=user_api_key,
                 )

@@ -19,11 +19,15 @@ async def test_cv_analyzer_node_metadata_propagation(monkeypatch):
     # Provide dummy llm_service and settings
     dummy_llm = MagicMock()
     dummy_settings = MagicMock()
+    dummy_error_recovery = MagicMock()
+    dummy_progress_tracker = MagicMock()
     agent = CVAnalyzerAgent(
-        name="cv_analyzer",
-        description="desc",
         llm_service=dummy_llm,
         settings=dummy_settings,
+        error_recovery_service=dummy_error_recovery,
+        progress_tracker=dummy_progress_tracker,
+        name="cv_analyzer",
+        description="desc",
     )
 
     # Patch agent method to return expected metadata

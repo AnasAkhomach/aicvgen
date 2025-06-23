@@ -17,9 +17,10 @@ from ..utils.error_handling import (
     ErrorSeverity,
     ErrorContext,
 )
-from src.services.llm_client import LLMClient
-from src.services.llm_retry_handler import LLMRetryHandler
-from src.services.llm_service import EnhancedLLMService
+from ..services.llm_client import LLMClient
+from ..services.llm_retry_handler import LLMRetryHandler
+from ..services.llm_service import EnhancedLLMService, AdvancedCache
+from ..utils.error_classification import get_retry_delay_for_error
 
 logger = get_structured_logger(__name__)
 T = TypeVar("T")
@@ -478,6 +479,194 @@ class DependencyContainer(IDependencyProvider):
 
             logger.info("Dependency container shutdown complete")
 
+    def register_agents(self) -> None:
+        """Register all agents with proper dependency injection."""
+        from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
+        from ..agents.parser_agent import ParserAgent
+        from ..agents.quality_assurance_agent import QualityAssuranceAgent
+        from ..agents.formatter_agent import FormatterAgent
+        from ..agents.research_agent import ResearchAgent
+        from ..agents.cv_analyzer_agent import CVAnalyzerAgent
+        from ..agents.cleaning_agent import CleaningAgent
+        from ..services.error_recovery import ErrorRecoveryService
+        from ..services.progress_tracker import ProgressTracker
+        from ..services.vector_store_service import VectorStoreService
+        from ..config.settings import Settings
+
+        settings = self.get(Settings, "settings")
+
+        self.register_singleton(
+            name="ParserAgent",
+            dependency_type=ParserAgent,
+            factory=lambda: ParserAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                vector_store_service=self.get(VectorStoreService, "VectorStoreService"),
+                error_recovery_service=self.get(
+                    ErrorRecoveryService, "ErrorRecoveryService"
+                ),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                settings=settings,
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "VectorStoreService",
+                "ErrorRecoveryService",
+                "ProgressTracker",
+                "settings",
+            ],
+        )
+
+        self.register_singleton(
+            name="EnhancedContentWriterAgent",
+            dependency_type=EnhancedContentWriterAgent,
+            factory=lambda: EnhancedContentWriterAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                error_recovery_service=self.get(
+                    ErrorRecoveryService, "ErrorRecoveryService"
+                ),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                parser_agent=self.get(ParserAgent, "ParserAgent"),
+                settings=settings,
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ErrorRecoveryService",
+                "ProgressTracker",
+                "ParserAgent",
+                "settings",
+            ],
+        )
+
+        self.register_singleton(
+            name="QualityAssuranceAgent",
+            dependency_type=QualityAssuranceAgent,
+            factory=lambda: QualityAssuranceAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                error_recovery_service=self.get(
+                    ErrorRecoveryService, "ErrorRecoveryService"
+                ),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ErrorRecoveryService",
+                "ProgressTracker",
+            ],
+        )
+
+        self.register_singleton(
+            name="FormatterAgent",
+            dependency_type=FormatterAgent,
+            factory=lambda: FormatterAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                error_recovery_service=self.get(
+                    ErrorRecoveryService, "ErrorRecoveryService"
+                ),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ErrorRecoveryService",
+                "ProgressTracker",
+            ],
+        )
+
+        self.register_singleton(
+            name="ResearchAgent",
+            dependency_type=ResearchAgent,
+            factory=lambda: ResearchAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                error_recovery_service=self.get(
+                    ErrorRecoveryService, "ErrorRecoveryService"
+                ),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                vector_db=self.get(VectorStoreService, "VectorStoreService"),
+                settings=settings,
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ErrorRecoveryService",
+                "ProgressTracker",
+                "VectorStoreService",
+                "settings",
+            ],
+        )
+
+        self.register_singleton(
+            name="CVAnalyzerAgent",
+            dependency_type=CVAnalyzerAgent,
+            factory=lambda: CVAnalyzerAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                settings=settings,
+                error_recovery_service=self.get(
+                    ErrorRecoveryService, "ErrorRecoveryService"
+                ),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "settings",
+                "ErrorRecoveryService",
+                "ProgressTracker",
+            ],
+        )
+
+        self.register_singleton(
+            name="CleaningAgent",
+            dependency_type=CleaningAgent,
+            factory=lambda: CleaningAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                error_recovery_service=self.get(
+                    ErrorRecoveryService, "ErrorRecoveryService"
+                ),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ErrorRecoveryService",
+                "ProgressTracker",
+            ],
+        )
+
+        logger.info("All agents registered successfully with dependency injection")
+
+    def register_agents_and_services(self):
+        """Register all agents and services with explicit constructor-based DI."""
+        from ..agents.parser_agent import ParserAgent
+        from ..services.error_recovery import ErrorRecoveryService
+        from ..services.progress_tracker import ProgressTracker
+
+        # Example: Register EnhancedLLMService with all dependencies injected
+        self.register_singleton(
+            name="enhanced_llm_service",
+            dependency_type=EnhancedLLMService,
+            factory=lambda: EnhancedLLMService(
+                settings=self.get("settings"),
+                llm_client=self.get(LLMClient),
+                llm_retry_handler=self.get(LLMRetryHandler),
+                cache=self.get("advanced_cache"),
+                timeout=30,
+                rate_limiter=self.get("rate_limiter"),
+                error_recovery=self.get("error_recovery"),
+                performance_optimizer=self.get("performance_optimizer"),
+                async_optimizer=None,
+                user_api_key=None,
+            ),
+        )
+        # Register ParserAgent with explicit dependencies
+        self.register_transient(
+            name="parser_agent",
+            dependency_type=ParserAgent,
+            factory=lambda: ParserAgent(
+                llm_service=self.get(EnhancedLLMService),
+                vector_store_service=self.get("vector_store_service"),
+                error_recovery_service=self.get(ErrorRecoveryService),
+                progress_tracker=self.get(ProgressTracker),
+                settings=self.get("settings"),
+            ),
+        )
+        # ...repeat for all other agents and services...
+
 
 # Global container instance
 _global_container: Optional[DependencyContainer] = None
@@ -509,27 +698,57 @@ def build_llm_service(
     rate_limiter,
     error_recovery,
     performance_optimizer,
-    async_optimizer,
     cache,
     user_api_key=None,
 ):
-    llm_client = LLMClient(genai.GenerativeModel(settings.llm_settings.default_model))
-    llm_retry_handler = LLMRetryHandler(
-        llm_client, EnhancedLLMService._is_retryable_error
-    )
+    llm_model = genai.GenerativeModel(settings.llm_settings.default_model)
+    llm_client = LLMClient(llm_model)
+
+    def is_retryable_error(exception, retry_count=0, max_retries=5):
+        # Use the same logic as EnhancedLLMService._is_retryable_error
+        if retry_count >= max_retries:
+            return False, 0.0
+        if not is_retryable_error(exception):
+            return False, 0.0
+        delay = get_retry_delay_for_error(exception, retry_count)
+        return True, delay
+
+    llm_retry_handler = LLMRetryHandler(llm_client, is_retryable_error)
     return EnhancedLLMService(
         settings=settings,
+        llm_client=llm_client,
+        llm_retry_handler=llm_retry_handler,
+        cache=cache,
+        timeout=30,
         rate_limiter=rate_limiter,
         error_recovery=error_recovery,
         performance_optimizer=performance_optimizer,
-        async_optimizer=async_optimizer,
-        cache=cache,
+        async_optimizer=None,
         user_api_key=user_api_key,
     )
 
 
 # Example registration in DI container (to be called during app startup)
 def register_services(container):
+    from ..services.vector_store_service import VectorStoreService
+    from ..services.progress_tracker import ProgressTracker
+
+    # Register VectorStoreService with settings dependency
+    container.register_singleton(
+        name="VectorStoreService",
+        dependency_type=VectorStoreService,
+        factory=lambda: VectorStoreService(
+            settings=container.get(
+                type(container._registrations["settings"].dependency_type), "settings"
+            )
+        ),
+    )
+    # Register ProgressTracker
+    container.register_singleton(
+        name="ProgressTracker",
+        dependency_type=ProgressTracker,
+        factory=lambda: ProgressTracker(),
+    )
     container.register_singleton(
         name="EnhancedLLMService",
         dependency_type=EnhancedLLMService,
@@ -538,8 +757,8 @@ def register_services(container):
                 type(container._registrations["settings"].dependency_type), "settings"
             ),
             rate_limiter=container.get(
-                type(container._registrations["EnhancedRateLimiter"].dependency_type),
-                "EnhancedRateLimiter",
+                type(container._registrations["RateLimiter"].dependency_type),
+                "RateLimiter",
             ),
             error_recovery=container.get(
                 type(container._registrations["ErrorRecoveryService"].dependency_type),
@@ -549,13 +768,6 @@ def register_services(container):
                 type(container._registrations["PerformanceOptimizer"].dependency_type),
                 "PerformanceOptimizer",
             ),
-            async_optimizer=container.get(
-                type(container._registrations["AsyncOptimizer"].dependency_type),
-                "AsyncOptimizer",
-            ),
-            cache=container.get(
-                type(container._registrations["AdvancedCache"].dependency_type),
-                "AdvancedCache",
-            ),
+            cache=AdvancedCache(),
         ),
     )

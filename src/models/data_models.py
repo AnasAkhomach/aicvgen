@@ -343,9 +343,14 @@ class StructuredCV(BaseModel):
 
     def to_content_data(self) -> Dict[str, Any]:
         """Convert StructuredCV to ContentData format for backward compatibility."""
-        # Use self.metadata.extra.get instead of self.metadata.get
+        # Ensure self.metadata is a MetadataModel instance
+        meta = (
+            self.metadata
+            if isinstance(self.metadata, MetadataModel)
+            else MetadataModel()
+        )
         content_data = {
-            "personal_info": self.metadata.extra.get("personal_info", {}),
+            "personal_info": getattr(meta, "extra", {}).get("personal_info", {}),
             "executive_summary": [],
             "professional_experience": [],
             "key_qualifications": [],
@@ -384,7 +389,13 @@ class StructuredCV(BaseModel):
 
             # Update personal info in metadata.extra
             if "personal_info" in content_data:
-                self.metadata.extra["personal_info"] = content_data["personal_info"]
+                meta = (
+                    self.metadata
+                    if isinstance(self.metadata, MetadataModel)
+                    else MetadataModel()
+                )
+                meta.extra["personal_info"] = content_data["personal_info"]
+                self.metadata = meta
 
             # Clear existing sections
             self.sections.clear()  # pylint: disable=no-member
@@ -501,17 +512,21 @@ class WorkflowState(BaseModel):
 
     def advance_to_stage(self, stage: WorkflowStage):
         """Advance workflow to a new stage."""
+        # Ensure completed_stages is a list, not FieldInfo
+        if not isinstance(self.completed_stages, list):
+            self.completed_stages = []
         if self.current_stage not in self.completed_stages:
-            self.completed_stages.append(
-                self.current_stage
-            )  # pylint: disable=no-member
+            self.completed_stages.append(self.current_stage)
         self.current_stage = stage
         self.updated_at = datetime.now()
 
     def mark_stage_failed(self, stage: WorkflowStage):
         """Mark a stage as failed."""
+        # Ensure failed_stages is a list, not FieldInfo
+        if not isinstance(self.failed_stages, list):
+            self.failed_stages = []
         if stage not in self.failed_stages:
-            self.failed_stages.append(stage)  # pylint: disable=no-member
+            self.failed_stages.append(stage)
         self.updated_at = datetime.now()
 
 
@@ -786,3 +801,7 @@ class LLMResponse(BaseModel):
     success: bool = True
     error_message: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ErrorFallbackModel(BaseModel):
+    error: str

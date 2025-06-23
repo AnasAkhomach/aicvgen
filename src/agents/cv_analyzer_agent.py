@@ -8,10 +8,14 @@ from typing import Any, TYPE_CHECKING
 
 from .agent_base import EnhancedAgentBase, AgentResult
 from ..config.logging_config import get_structured_logger
+from ..config.settings import Settings
 from ..models.data_models import AgentIO, AgentDecisionLog
 from ..models.cv_analyzer_models import BasicCVInfo, CVAnalyzerNodeResult
 from ..models.cv_analysis_result import CVAnalysisResult
 from ..models.validation_schemas import validate_agent_input
+from ..services.llm_service import EnhancedLLMService
+from ..services.error_recovery import ErrorRecoveryService
+from ..services.progress_tracker import ProgressTracker
 from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
 
 if TYPE_CHECKING:
@@ -23,15 +27,24 @@ class CVAnalyzerAgent(EnhancedAgentBase):
     Agent responsible for analyzing the user's CV and extracting relevant information.
     """
 
-    def __init__(self, name: str, description: str, llm_service, settings):
-        """
-        Initializes the CVAnalyzerAgent.
+    def __init__(
+        self,
+        llm_service: EnhancedLLMService,
+        settings: Settings,
+        error_recovery_service: ErrorRecoveryService,
+        progress_tracker: ProgressTracker,
+        name: str = "CVAnalyzerAgent",
+        description: str = "Agent responsible for analyzing the user's CV and extracting relevant information",
+    ):
+        """Initialize the CVAnalyzerAgent with required dependencies.
 
         Args:
+            llm_service: LLM service instance for content analysis.
+            settings: Settings/config dependency for prompt loading.
+            error_recovery_service: Error recovery service dependency.
+            progress_tracker: Progress tracker service dependency.
             name: The name of the agent.
             description: A description of the agent.
-            llm_service: Injected LLM service dependency.
-            settings: Injected settings/config dependency.
         """
         super().__init__(
             name=name,
@@ -44,10 +57,14 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 description="Extracted information from the CV.",
                 required_fields=["analysis_results", "extracted_data"],
             ),
+            error_recovery_service=error_recovery_service,
+            progress_tracker=progress_tracker,
         )
-        self.llm_service = llm_service  # Injected enhanced LLM service
+
+        # Required service dependencies (constructor injection)
+        self.llm_service = llm_service
+        self.settings = settings
         self.timeout = 30  # Maximum wait time in seconds
-        self.settings = settings  # Injected settings for prompt loading
 
     def extract_basic_info(self, cv_text: str) -> "BasicCVInfo":
         """

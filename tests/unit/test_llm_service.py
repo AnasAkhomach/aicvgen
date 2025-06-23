@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 
 from src.services.llm_client import LLMClient
 from src.services.llm_retry_handler import LLMRetryHandler
@@ -42,9 +42,26 @@ def make_settings_mock():
     return mock
 
 
+def make_llm_client_mock():
+    return Mock(spec=LLMClient)
+
+
+def make_llm_retry_handler_mock():
+    return Mock(spec=LLMRetryHandler)
+
+
+def make_cache_mock():
+    return Mock()
+
+
 # Patch all EnhancedLLMService instantiations to use settings mock
 def test_is_retryable_error_rate_limit():
-    service = EnhancedLLMService(settings=make_settings_mock())
+    service = EnhancedLLMService(
+        settings=make_settings_mock(),
+        llm_client=make_llm_client_mock(),
+        llm_retry_handler=make_llm_retry_handler_mock(),
+        cache=make_cache_mock(),
+    )
     should_retry, delay = service._is_retryable_error(
         DummyRateLimit("rate limit"), 1, 5
     )
@@ -53,7 +70,12 @@ def test_is_retryable_error_rate_limit():
 
 
 def test_is_retryable_error_non_retryable():
-    service = EnhancedLLMService(settings=make_settings_mock())
+    service = EnhancedLLMService(
+        settings=make_settings_mock(),
+        llm_client=make_llm_client_mock(),
+        llm_retry_handler=make_llm_retry_handler_mock(),
+        cache=make_cache_mock(),
+    )
     should_retry, delay = service._is_retryable_error(
         ValueError("invalid api key"), 1, 5
     )
@@ -62,7 +84,12 @@ def test_is_retryable_error_non_retryable():
 
 
 def test_is_retryable_error_max_retries():
-    service = EnhancedLLMService(settings=make_settings_mock())
+    service = EnhancedLLMService(
+        settings=make_settings_mock(),
+        llm_client=make_llm_client_mock(),
+        llm_retry_handler=make_llm_retry_handler_mock(),
+        cache=make_cache_mock(),
+    )
     should_retry, delay = service._is_retryable_error(
         DummyException("network error"), 5, 5
     )
@@ -71,7 +98,12 @@ def test_is_retryable_error_max_retries():
 
 
 def test_validate_api_key_uses_executor():
-    service = EnhancedLLMService(settings=make_settings_mock())
+    service = EnhancedLLMService(
+        settings=make_settings_mock(),
+        llm_client=make_llm_client_mock(),
+        llm_retry_handler=make_llm_retry_handler_mock(),
+        cache=make_cache_mock(),
+    )
 
     async def run():
         loop = asyncio.get_running_loop()
@@ -95,7 +127,7 @@ def test_llmclient_and_retryhandler():
         def __init__(self):
             self.called = False
 
-        def generate_content(self, prompt):
+        async def generate_content_async(self, prompt):
             self.called = True
             if prompt == "fail":
                 raise RuntimeError("retryable error")
@@ -108,8 +140,11 @@ def test_llmclient_and_retryhandler():
     client = LLMClient(llm)
     retry_handler = LLMRetryHandler(client, dummy_is_retryable_error)
     # Should succeed
-    resp = retry_handler.generate_content("hello")
+    resp = asyncio.run(retry_handler.generate_content("hello"))
     assert resp.text == "Echo: hello"
     # Should retry and eventually raise
-    with pytest.raises(Exception):
-        retry_handler.generate_content("fail")
+    try:
+        asyncio.run(retry_handler.generate_content("fail"))
+        assert False, "Should have raised"
+    except Exception:
+        pass

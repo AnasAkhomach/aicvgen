@@ -10,7 +10,9 @@ class DummyItem:
 
 
 def test_vector_store_search_returns_pydantic_models(monkeypatch):
-    service = VectorStoreService(settings=None)
+    from src.config.settings import AppConfig
+
+    service = VectorStoreService(settings=AppConfig())
     # Patch collection.query to return a fake result
     monkeypatch.setattr(
         service,

@@ -16,6 +16,18 @@ if PROJECT_ROOT not in sys.path:
 class TestAPIKeyManagement:
     """Test API key management consolidation in EnhancedLLMService."""
 
+    def _service_with_mocks(self, **kwargs):
+        from src.config.settings import AppConfig
+
+        mock_settings = kwargs.get("settings") or AppConfig()
+        return EnhancedLLMService(
+            settings=mock_settings,
+            user_api_key=kwargs.get("user_api_key", None),
+            llm_client=Mock(),
+            llm_retry_handler=Mock(),
+            cache=Mock(),
+        )
+
     @patch("src.services.llm_service.genai")
     @patch("src.services.llm_service.get_config")
     def test_determine_active_api_key_user_priority(self, mock_get_config, mock_genai):
@@ -35,7 +47,9 @@ class TestAPIKeyManagement:
         from src.config.settings import AppConfig
 
         mock_settings = AppConfig()
-        service = EnhancedLLMService(settings=mock_settings, user_api_key="user_key")
+        service = self._service_with_mocks(
+            settings=mock_settings, user_api_key="user_key"
+        )
         assert service.active_api_key == "user_key"
         assert service.using_user_key is True
         assert service.using_fallback is False
@@ -61,7 +75,7 @@ class TestAPIKeyManagement:
         from src.config.settings import AppConfig
 
         mock_settings = AppConfig()
-        service = EnhancedLLMService(settings=mock_settings)
+        service = self._service_with_mocks(settings=mock_settings)
         # Use the actual key from settings for assertion
         assert service.active_api_key == mock_settings.llm.gemini_api_key_primary
         assert service.using_user_key is False
@@ -84,7 +98,7 @@ class TestAPIKeyManagement:
         from src.config.settings import AppConfig
 
         mock_settings = AppConfig()
-        service = EnhancedLLMService(settings=mock_settings)
+        service = self._service_with_mocks(settings=mock_settings)
         assert service.active_api_key == mock_settings.llm.gemini_api_key_fallback
         assert service.using_user_key is False
         assert service.using_fallback in (True, False)
@@ -121,7 +135,7 @@ class TestAPIKeyManagement:
         from src.config.settings import AppConfig
 
         mock_settings = AppConfig()
-        service = EnhancedLLMService(settings=mock_settings)
+        service = self._service_with_mocks(settings=mock_settings)
         # Simulate switching to fallback
         service.using_fallback = False
         service.fallback_api_key = "fallback_key"
@@ -149,7 +163,7 @@ class TestAPIKeyManagement:
         from src.config.settings import AppConfig
 
         mock_settings = AppConfig()
-        service = EnhancedLLMService(settings=mock_settings)
+        service = self._service_with_mocks(settings=mock_settings)
         result = service._switch_to_fallback_key()
         assert result is False
         assert service.active_api_key == "primary_key"
@@ -173,7 +187,7 @@ class TestAPIKeyManagement:
         from src.config.settings import AppConfig
 
         mock_settings = AppConfig()
-        service = EnhancedLLMService(settings=mock_settings)
+        service = self._service_with_mocks(settings=mock_settings)
         service._switch_to_fallback_key()
         result = service._switch_to_fallback_key()
         assert result is False
@@ -195,7 +209,9 @@ class TestAPIKeyManagement:
         from src.config.settings import AppConfig
 
         mock_settings = AppConfig()
-        service = EnhancedLLMService(settings=mock_settings, user_api_key="user_key")
+        service = self._service_with_mocks(
+            settings=mock_settings, user_api_key="user_key"
+        )
         info = service.get_current_api_key_info()
         assert info.key_source == "user"
         assert info.using_user_key is True

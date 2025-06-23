@@ -125,7 +125,17 @@ class TestStateManagementIntegration:
         with patch(
             "src.services.llm.EnhancedLLMService", return_value=mock_llm_service
         ):
-            parser = ParserAgent()
+            vector_store_service = MagicMock()
+            error_recovery_service = MagicMock()
+            progress_tracker = MagicMock()
+            settings = MagicMock()
+            parser = ParserAgent(
+                llm_service=mock_llm_service,
+                vector_store_service=vector_store_service,
+                error_recovery_service=error_recovery_service,
+                progress_tracker=progress_tracker,
+                settings=settings,
+            )
 
             # Execute parser
             result_state = await parser.run_as_node(initial_state)
@@ -156,7 +166,17 @@ class TestStateManagementIntegration:
         with patch(
             "src.services.llm.EnhancedLLMService", return_value=mock_llm_service
         ):
-            parser = ParserAgent()
+            vector_store_service = MagicMock()
+            error_recovery_service = MagicMock()
+            progress_tracker = MagicMock()
+            settings = MagicMock()
+            parser = ParserAgent(
+                llm_service=mock_llm_service,
+                vector_store_service=vector_store_service,
+                error_recovery_service=error_recovery_service,
+                progress_tracker=progress_tracker,
+                settings=settings,
+            )
             parsed_state_dict = await parser.run_as_node(initial_state)
 
             # Convert back to AgentState for research agent
@@ -171,8 +191,17 @@ class TestStateManagementIntegration:
                 output_data=parsed_state_dict.get("output_data", {}),
             )
 
-            # Execute research agent
-            research = ResearchAgent()
+            error_recovery_service = MagicMock()
+            progress_tracker = MagicMock()
+            vector_db = MagicMock()
+            settings = MagicMock()
+            research = ResearchAgent(
+                llm_service=mock_llm_service,
+                error_recovery_service=error_recovery_service,
+                progress_tracker=progress_tracker,
+                vector_db=vector_db,
+                settings=settings,
+            )
             result_state = await research.run_as_node(parsed_state)
 
             # Verify research data was added

@@ -112,6 +112,26 @@ class QualityAssuranceAgentInput(BaseModel):
     current_item_id: str
 
 
+class FormatterAgentInput(BaseModel):
+    """Input schema for the Formatter Agent."""
+
+    structured_cv: StructuredCV
+    job_description_data: Optional[JobDescriptionData] = None
+
+
+class CVAnalyzerAgentInput(BaseModel):
+    """Input schema for the CV Analyzer Agent."""
+
+    cv_text: str
+    job_description_data: JobDescriptionData
+
+
+class CleaningAgentInput(BaseModel):
+    """Input schema for the Cleaning Agent."""
+
+    structured_cv: StructuredCV
+
+
 def validate_agent_input(agent_type: str, state: AgentState) -> Any:
     """Validate agent input data against a specific Pydantic model."""
     try:
@@ -135,6 +155,20 @@ def validate_agent_input(agent_type: str, state: AgentState) -> Any:
             return QualityAssuranceAgentInput(
                 structured_cv=state.structured_cv,
                 current_item_id=state.current_item_id,
+            )
+        elif agent_type == "formatter":
+            return FormatterAgentInput(
+                structured_cv=state.structured_cv,
+                job_description_data=getattr(state, "job_description_data", None),
+            )
+        elif agent_type == "cv_analyzer":
+            return CVAnalyzerAgentInput(
+                cv_text=state.cv_text,
+                job_description_data=state.job_description_data,
+            )
+        elif agent_type == "cleaning":
+            return CleaningAgentInput(
+                structured_cv=state.structured_cv,
             )
         else:
             return state

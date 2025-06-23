@@ -8,93 +8,11 @@ import streamlit as st
 import uuid
 from typing import Dict, Any, Optional
 from ..config.logging_config import setup_logging
-from ..core.state_manager import StateManager
 from ..orchestration.state import AgentState
 from ..models.data_models import JobDescriptionData, StructuredCV
 
 # Initialize logging
 logger = setup_logging()
-
-
-def initialize_session_state() -> None:
-    """Initialize all session state variables with default values."""
-    # Core session management
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())
-
-    if "state_manager" not in st.session_state:
-        st.session_state.state_manager = StateManager(
-            session_id=st.session_state.session_id
-        )
-
-    # API Configuration
-    if "user_gemini_api_key" not in st.session_state:
-        st.session_state.user_gemini_api_key = ""
-
-    if "api_key_validated" not in st.session_state:
-        st.session_state.api_key_validated = False
-
-    # Processing state
-    if "processing" not in st.session_state:
-        st.session_state.processing = False
-
-    if "stop_processing" not in st.session_state:
-        st.session_state.stop_processing = False
-
-    if "current_step" not in st.session_state:
-        st.session_state.current_step = "input"
-
-    if "progress" not in st.session_state:
-        st.session_state.progress = 0
-
-    if "status_message" not in st.session_state:
-        st.session_state.status_message = "Ready to start"
-
-    # Input data
-    if "job_description" not in st.session_state:
-        st.session_state.job_description = ""
-
-    if "cv_content" not in st.session_state:
-        st.session_state.cv_content = ""
-
-    if "cv_text" not in st.session_state:
-        st.session_state.cv_text = ""
-
-    if "start_from_scratch" not in st.session_state:
-        st.session_state.start_from_scratch = False
-
-    # Token usage and budget management
-    if "token_usage" not in st.session_state:
-        st.session_state.token_usage = {
-            "session_tokens": 0,
-            "daily_tokens": 0,
-            "total_tokens": 0,
-        }
-
-    if "session_token_limit" not in st.session_state:
-        st.session_state.session_token_limit = 50000
-
-    if "daily_token_limit" not in st.session_state:
-        st.session_state.daily_token_limit = 200000
-
-    # Orchestrator configuration
-    if "orchestrator_config" not in st.session_state:
-        st.session_state.orchestrator_config = None
-
-    # Enhanced CV integration configuration
-    if "enhanced_cv_integration_config" not in st.session_state:
-        st.session_state.enhanced_cv_integration_config = None
-
-    # Workflow state
-    if "workflow_state" not in st.session_state:
-        st.session_state.workflow_state = None
-
-    # Error handling
-    if "error_messages" not in st.session_state:
-        st.session_state.error_messages = []
-
-    # UI state management
-    _initialize_ui_state()
 
 
 def _initialize_ui_state() -> None:
@@ -412,13 +330,13 @@ def reset_session_state(preserve_keys: Optional[list] = None) -> None:
 
     # Clear all session state
     for key in list(st.session_state.keys()):
-        del st.session_state[key]
-
-    # Restore preserved values
+        del st.session_state[key]  # Restore preserved values
     for key, value in preserved_values.items():
         st.session_state[key] = value
 
     # Reinitialize session state
+    from ..frontend.state_helpers import initialize_session_state
+
     initialize_session_state()
 
     logger.info(f"Session state reset, preserved keys: {list(preserved_values.keys())}")

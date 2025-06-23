@@ -15,13 +15,8 @@ def create_async_sync_decorator(
 
     def decorator(func):
         if asyncio.iscoroutinefunction(func):
-
-            @functools.wraps(func)
-            async def method_async_wrapper(*args, **kwargs):
-                bound_func = func
-                return await async_wrapper_func(bound_func)(*args, **kwargs)
-
-            return method_async_wrapper
+            # Only wrap once, do not double-wrap
+            return async_wrapper_func(func)
         else:
 
             @functools.wraps(func)

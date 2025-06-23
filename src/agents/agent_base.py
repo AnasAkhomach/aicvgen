@@ -6,39 +6,18 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional, TYPE_CHECKING, Union, List
+from typing import Any, Dict, Optional, TYPE_CHECKING, Union
+from pydantic import BaseModel, model_validator
 
 from ..config.logging_config import get_structured_logger
 from ..core.async_optimizer import optimize_async
 from ..models.data_models import (
     AgentExecutionLog,
     AgentDecisionLog,
-    JobDescriptionData,
-    StructuredCV,
     AgentIO,
 )
-from ..models.data_models import ContentType
-from ..models.validation_schemas import validate_agent_input, ValidationError
-from ..services.error_recovery import get_error_recovery_service
-from ..services.llm_service import EnhancedLLMService
-from ..services.progress_tracker import get_progress_tracker
-from ..services.session_manager import get_session_manager
-from ..utils.agent_error_handling import (
-    LLMErrorHandler,
-    with_error_handling,
-    AgentErrorHandler,
-    with_node_error_handling,
-)
-from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
-from ..utils.exceptions import (
-    LLMResponseParsingError,
-    WorkflowPreconditionError,
-    AgentExecutionError,
-    ConfigurationError,
-    StateManagerError,
-)
-
-# Removed duplicate import - already imported from config.logging_config
+from ..services.error_recovery import ErrorRecoveryService
+from ..services.progress_tracker import ProgressTracker
 
 if TYPE_CHECKING:
     from ..orchestration.state import AgentState
@@ -50,7 +29,7 @@ class AgentExecutionContext:
 
     session_id: str
     item_id: Optional[str] = None
-    content_type: Optional[ContentType] = None
+    content_type: Optional[str] = None
     retry_count: int = 0
     metadata: Dict[str, Any] = None
     input_data: Optional[Dict[str, Any]] = None
@@ -65,20 +44,36 @@ class AgentExecutionContext:
             self.processing_options = {}
 
 
-@dataclass
-class AgentResult:
-    """Structured result from agent execution."""
+class AgentResult(BaseModel):
+    """Structured result from agent execution. Enforces Pydantic model output_data."""
 
     success: bool
-    output_data: Any
+    output_data: Union[BaseModel, dict[str, BaseModel]]
     confidence_score: float = 1.0
     processing_time: float = 0.0
     error_message: Optional[str] = None
     metadata: Dict[str, Any] = None
 
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+    @classmethod
+    @model_validator(mode="before")
+    def check_output_data_is_pydantic(cls, values):
+        od = values.get("output_data")
+        if od is None:
+            raise ValueError("output_data must not be None")
+        # Allow single Pydantic model
+        if isinstance(od, BaseModel):
+            return values
+        # Allow dict of Pydantic models
+        if isinstance(od, dict):
+            if all(isinstance(v, BaseModel) for v in od.values()):
+                return values
+            raise TypeError("All values in output_data dict must be Pydantic models")
+        raise TypeError(
+            "output_data must be a Pydantic model or dict of Pydantic models"
+        )
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class EnhancedAgentBase(ABC):
@@ -90,24 +85,20 @@ class EnhancedAgentBase(ABC):
         description: str,
         input_schema: AgentIO,
         output_schema: AgentIO,
-        content_type: Optional[ContentType] = None,
-        logger=None,
-        error_recovery=None,
-        progress_tracker=None,
-        session_manager=None,
+        error_recovery_service: ErrorRecoveryService,
+        progress_tracker: ProgressTracker,
+        content_type: Optional[str] = None,
     ):
-        """Initializes the EnhancedAgentBase with the given attributes.
+        """Initializes the EnhancedAgentBase with required dependencies.
 
         Args:
             name: The name of the agent.
             description: The description of the agent.
             input_schema: The input schema of the agent.
             output_schema: The output schema of the agent.
+            error_recovery_service: Error recovery service dependency.
+            progress_tracker: Progress tracker service dependency.
             content_type: The type of content this agent processes.
-            logger: Injected logger dependency.
-            error_recovery: Injected error recovery service.
-            progress_tracker: Injected progress tracker service.
-            session_manager: Injected session manager service.
         """
         self.name = name
         self.description = description
@@ -115,11 +106,9 @@ class EnhancedAgentBase(ABC):
         self.output_schema = output_schema
         self.content_type = content_type
 
-        # Enhanced services (injected)
-        self.logger = logger
-        self.error_recovery = error_recovery
+        # Required service dependencies (constructor injection)
+        self.error_recovery_service = error_recovery_service
         self.progress_tracker = progress_tracker
-        self.session_manager = session_manager
 
         # Performance tracking
         self.execution_count = 0
@@ -246,7 +235,7 @@ class EnhancedAgentBase(ABC):
                 processing_time = (datetime.now() - start_time).total_seconds()
 
                 # Handle error with recovery service
-                recovery_action = await self.error_recovery.handle_error(
+                recovery_action = await self.error_recovery_service.handle_error(
                     e,
                     context.item_id or "unknown",
                     context.content_type or self.content_type,
@@ -486,31 +475,30 @@ class EnhancedAgentBase(ABC):
 
         except Exception as e:
             self.logger.error(
-                f"LLM generation failed for agent {self.name}",
-                error=str(e),
-                prompt_preview=prompt[:200],
+                "LLM generation failed for agent %s: %s", self.name, str(e)
             )
+            self.logger.debug("Prompt preview: %s", prompt[:200])
             raise
 
         # Check if LLMResponse indicates failure
         if not llm_response.success:
             from ..utils.exceptions import (
-                AgentError,
+                AgentExecutionError,
             )  # pylint: disable=import-outside-toplevel
 
-            raise AgentError(f"LLM generation failed: {llm_response.error_message}")
+            raise AgentExecutionError(
+                self.name, f"LLM generation failed: {llm_response.error_message}"
+            )
 
         raw_text = llm_response.content
 
         # Check for empty or invalid content
         if not raw_text or raw_text.strip() == "":
-            self.logger.error(
-                f"Empty response received for agent {self.name}",
-                response_preview=str(llm_response)[:200],
-            )
-            raise ValueError("Received empty response from LLM")
-
-        # Regex to find JSON within ```json ... ``` code blocks
+            self.logger.error("Empty response received for agent %s", self.name)
+            self.logger.debug("Response preview: %s", str(llm_response)[:200])
+            raise ValueError(
+                "Received empty response from LLM"
+            )  # Regex to find JSON within ```json ... ``` code blocks
         json_match = re.search(r"```json\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
         if json_match:
             json_str = json_match.group(1)
@@ -527,57 +515,9 @@ class EnhancedAgentBase(ABC):
         except json.JSONDecodeError as e:
             self.logger.error("Failed to decode JSON from LLM response: %s", e)
             self.logger.debug("Malformed JSON string: %s", json_str)
-            raise ValueError(f"Could not parse JSON from LLM response. Error: {e}")
-
-    def _extract_json_from_response(self, response: str) -> str:
-        """
-        Extract JSON content from LLM response, handling common formatting issues.
-        This method is kept for backward compatibility with existing agent implementations.
-
-        Args:
-            response: Raw response from LLM
-
-        Returns:
-            str: Cleaned JSON string
-        """
-        # Remove markdown code blocks
-        response = re.sub(r"```(?:json)?\s*", "", response)
-        response = re.sub(r"```\s*$", "", response)
-
-        # Remove leading/trailing whitespace
-        response = response.strip()
-
-        # Try to find JSON object boundaries with proper bracket counting
-        json_start = response.find("{")
-        if json_start == -1:
-            # No opening brace found, return as-is
-            return response
-
-        # Count braces to find the matching closing brace
-        brace_count = 0
-        json_end = -1
-
-        for i in range(json_start, len(response)):
-            if response[i] == "{":
-                brace_count += 1
-            elif response[i] == "}":
-                brace_count -= 1
-                if brace_count == 0:
-                    json_end = i + 1
-                    break
-
-        if json_end > json_start:
-            extracted = response[json_start:json_end]
-            # Basic validation - try to parse to ensure it's valid JSON
-            try:
-                json.loads(extracted)
-                return extracted
-            except json.JSONDecodeError:
-                # If extracted JSON is invalid, return the original response
-                pass
-
-        # If no clear JSON boundaries or invalid JSON, return cleaned response
-        return response
+            raise ValueError(
+                f"Could not parse JSON from LLM response. Error: {e}"
+            ) from e
 
     @abstractmethod
     @optimize_async("agent_execution", "base_agent")

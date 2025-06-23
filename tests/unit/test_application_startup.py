@@ -11,7 +11,7 @@ if PROJECT_ROOT not in sys.path:
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 
 from src.core.application_startup import (
     ApplicationStartup,
@@ -124,7 +124,9 @@ class TestApplicationStartup:
         assert "llm_service" in self.startup.services
         assert self.startup.services["llm_service"].initialized is True
         assert self.startup.services["llm_service"].error is None
-        mock_llm_service.assert_called_once_with(user_api_key="test_api_key")
+        mock_llm_service.assert_called_once_with(
+            settings=ANY, rate_limiter=ANY, user_api_key="test_api_key"
+        )
 
     @patch("src.core.application_startup.EnhancedLLMService")
     def test_initialize_llm_service_failure(self, mock_llm_service):

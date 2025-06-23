@@ -70,9 +70,18 @@ async def test_full_cv_workflow(monkeypatch):
         current_item_id="item-1",  # Added valid string for current_item_id
     )
 
+    # Mock all required dependencies for DI
+    vector_store_service = Mock()
+    error_recovery_service = Mock()
+    progress_tracker = Mock()
+
     # Run parser agent
     parser_agent = ParserAgent(
         llm_service=llm_service,
+        vector_store_service=vector_store_service,
+        error_recovery_service=error_recovery_service,
+        progress_tracker=progress_tracker,
+        settings=mock_settings,
         name="ParserAgent",
         description="Parses CVs into structured format.",
     )
@@ -82,12 +91,25 @@ async def test_full_cv_workflow(monkeypatch):
     # Run research agent
     research_agent = ResearchAgent(
         llm_service=llm_service,
+        error_recovery_service=error_recovery_service,
+        progress_tracker=progress_tracker,
+        vector_db=vector_store_service,
+        settings=mock_settings,
         name="ResearchAgent",
         description="Performs research on job description and CV.",
     )
     research_result = await research_agent.run_as_node(parser_result)
     assert hasattr(research_result, "research_findings")  # Run content writer agent
-    content_writer = EnhancedContentWriterAgent(llm_service=llm_service)
+
+    # Mock parser_agent for EnhancedContentWriterAgent DI
+    parser_agent_for_writer = Mock()
+    content_writer = EnhancedContentWriterAgent(
+        llm_service=llm_service,
+        error_recovery_service=error_recovery_service,
+        progress_tracker=progress_tracker,
+        parser_agent=parser_agent_for_writer,
+        settings=mock_settings,
+    )
     content_result = await content_writer.run_as_node(research_result)
     # Check that the content writer returned a valid structured CV
     assert hasattr(content_result, "structured_cv")
@@ -104,6 +126,8 @@ async def test_full_cv_workflow(monkeypatch):
     # Run QA agent
     qa_agent = QualityAssuranceAgent(
         llm_service=llm_service,
+        error_recovery_service=error_recovery_service,
+        progress_tracker=progress_tracker,
         name="QualityAssuranceAgent",
         description="Performs quality assurance on CV content.",
     )

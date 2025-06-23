@@ -2,6 +2,9 @@ import pytest
 from datetime import datetime, timedelta
 from src.services.session_manager import SessionManager
 from src.models.vector_store_and_session_models import SessionInfoModel
+import tempfile
+import os
+from pathlib import Path
 
 
 class DummySession:
@@ -41,7 +44,12 @@ class DummySession:
 
 
 def test_session_manager_summary_returns_pydantic_models(monkeypatch):
-    manager = SessionManager()
+    class DummySettings:
+        def __init__(self):
+            self.sessions_directory = Path(tempfile.mkdtemp())
+
+    settings = DummySettings()
+    manager = SessionManager(settings=settings)
     dummy = DummySession("sess1")
     manager.active_sessions = {"sess1": dummy}
     summary = manager.get_session_summary()

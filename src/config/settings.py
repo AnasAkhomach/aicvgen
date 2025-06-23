@@ -13,19 +13,23 @@ from pydantic import BaseModel, Field, DirectoryPath
 # Try to import python-dotenv, but don't fail if it's not available
 try:
     from dotenv import load_dotenv
+
     # Load .env file from project root
-    env_path = Path(__file__).parent.parent.parent / '.env'
+    env_path = Path(__file__).parent.parent.parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
         print(f"Loaded environment variables from {env_path}")
     else:
         print(f"Warning: .env file not found at {env_path}")
 except ImportError:
-    print("Warning: python-dotenv not available, environment variables must be set manually")
+    print(
+        "Warning: python-dotenv not available, environment variables must be set manually"
+    )
 
 
 class LLMSettings(BaseModel):
     """Configuration for Large Language Model services."""
+
     default_model: str = "gemini-2.0-flash"
     default_temperature: float = 0.7
     max_tokens: int = 4096
@@ -33,6 +37,7 @@ class LLMSettings(BaseModel):
 
 class PromptSettings(BaseModel):
     """Configuration for prompt templates, mapping a key to a filename."""
+
     job_description_parser: str = "job_description_parsing_prompt.md"
     resume_role_writer: str = "resume_role_prompt.md"
     project_writer: str = "side_project_prompt.md"
@@ -49,27 +54,37 @@ class PromptSettings(BaseModel):
 @dataclass
 class LLMConfig:
     """Configuration for LLM models and API settings."""
-    
+
     # Gemini API Configuration
-    gemini_api_key_primary: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    gemini_api_key_fallback: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY_FALLBACK", ""))
-    
+    gemini_api_key_primary: str = field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY", "")
+    )
+    gemini_api_key_fallback: str = field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY_FALLBACK", "")
+    )
+
     # Model Configuration
     generation_model: str = "deepseek-r1-distill-llama-70b"
     cleaning_model: str = "llama-3.3-70b-versatile"
-    
+
     # Rate Limiting Configuration
-    max_requests_per_minute: int = field(default_factory=lambda: int(os.getenv("LLM_REQUESTS_PER_MINUTE", "30")))
-    max_tokens_per_minute: int = field(default_factory=lambda: int(os.getenv("LLM_TOKENS_PER_MINUTE", "60000")))
-    
+    max_requests_per_minute: int = field(
+        default_factory=lambda: int(os.getenv("LLM_REQUESTS_PER_MINUTE", "30"))
+    )
+    max_tokens_per_minute: int = field(
+        default_factory=lambda: int(os.getenv("LLM_TOKENS_PER_MINUTE", "60000"))
+    )
+
     # Retry Configuration
     max_retries: int = 3
     retry_delay: float = 1.0
     exponential_backoff: bool = True
-    
+
     # Timeout Configuration
-    request_timeout: int = field(default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", "60")))
-    
+    request_timeout: int = field(
+        default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", "60"))
+    )
+
     def __post_init__(self):
         """Validate configuration after initialization."""
         # Check if at least one Gemini API key is available (primary or fallback)
@@ -85,15 +100,15 @@ class LLMConfig:
 @dataclass
 class VectorDBConfig:
     """Configuration for vector database settings."""
-    
+
     # ChromaDB Configuration
     persist_directory: str = "data/vector_db"
     collection_name: str = "cv_content"
-    
+
     # Embedding Configuration
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_dimension: int = 384
-    
+
     # Search Configuration
     max_search_results: int = 10
     similarity_threshold: float = 0.7
@@ -102,33 +117,35 @@ class VectorDBConfig:
 @dataclass
 class UIConfig:
     """Configuration for user interface settings."""
-    
+
     # Streamlit Configuration
     page_title: str = "AI CV Generator"
     page_icon: str = "📄"
     layout: str = "wide"
-    
+
     # Session Configuration
-    session_timeout_seconds: int = field(default_factory=lambda: int(os.getenv("SESSION_TIMEOUT_SECONDS", "3600")))
+    session_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("SESSION_TIMEOUT_SECONDS", "3600"))
+    )
     auto_save_interval_seconds: int = 30
-    
+
     # Display Configuration
     show_raw_llm_output: bool = True
     items_per_page: int = 5
-    
+
 
 @dataclass
 class OutputConfig:
     """Configuration for output generation settings."""
-    
+
     # Output Formats
     primary_format: str = "pdf"
     supported_formats: list = field(default_factory=lambda: ["pdf", "markdown", "html"])
-    
+
     # PDF Configuration
     pdf_template_path: str = "src/templates/cv_template.md"
     pdf_output_directory: str = "data/output"
-    
+
     # Content Configuration
     max_skills_count: int = 10  # "Big 10" instead of "Big 6"
     max_bullet_points_per_role: int = 5
@@ -138,20 +155,20 @@ class OutputConfig:
 @dataclass
 class LoggingConfig:
     """Configuration for logging settings."""
-    
+
     # Log Levels
     log_level: str = "INFO"
-    
+
     # Log Files
     log_directory: str = "logs"
     main_log_file: str = "app.log"
     error_log_file: str = "error.log"
     llm_log_file: str = "llm_calls.log"
-    
+
     # Log Rotation
     max_log_size_mb: int = 10
     backup_count: int = 5
-    
+
     # Log Format
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     date_format: str = "%Y-%m-%d %H:%M:%S"
@@ -160,50 +177,56 @@ class LoggingConfig:
 @dataclass
 class AppConfig:
     """Main application configuration."""
-    
+
     # Sub-configurations
     llm: LLMConfig = field(default_factory=LLMConfig)
     vector_db: VectorDBConfig = field(default_factory=VectorDBConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
-    
+
     # NEW: Add structured configuration sections
     llm_settings: LLMSettings = field(default_factory=LLMSettings)
     prompts: PromptSettings = field(default_factory=PromptSettings)
-    
+
     # Application Metadata
     app_name: str = "AI CV Generator"
     app_version: str = "1.0.0"
-    
+
     # Environment
-    environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
-    debug: bool = field(default_factory=lambda: os.getenv("DEBUG_MODE", "false").lower() == "true")
-    
+    environment: str = field(
+        default_factory=lambda: os.getenv("ENVIRONMENT", "development")
+    )
+    debug: bool = field(
+        default_factory=lambda: os.getenv("DEBUG_MODE", "false").lower() == "true"
+    )
+
     # Paths
-    project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)
+    project_root: Path = field(
+        default_factory=lambda: Path(__file__).parent.parent.parent
+    )
     data_directory: Path = field(default_factory=lambda: Path("data"))
     prompts_directory: Path = field(default_factory=lambda: Path("data/prompts"))
     sessions_directory: Path = field(default_factory=lambda: Path("data/sessions"))
-    
+
     def __post_init__(self):
         """Initialize paths and create directories if needed."""
         # Ensure data directories exist
         self.data_directory.mkdir(exist_ok=True)
         self.sessions_directory.mkdir(parents=True, exist_ok=True)
-        
+
         # Ensure log directory exists
         log_dir = Path(self.logging.log_directory)
         log_dir.mkdir(exist_ok=True)
-        
+
         # Ensure output directory exists
         output_dir = Path(self.output.pdf_output_directory)
         output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def get_prompt_path(self, prompt_name: str) -> Path:
         """Get the full path to a prompt file."""
         return self.prompts_directory / f"{prompt_name}.md"
-    
+
     def get_prompt_path_by_key(self, prompt_key: str) -> str:
         """
         Constructs the full path to a prompt file using a key from PromptSettings.
@@ -216,15 +239,18 @@ class AppConfig:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Prompt file does not exist at path: {path}")
         return path
-    
+
     def get_session_path(self, session_id: str) -> Path:
         """Get the full path to a session directory."""
         return self.sessions_directory / session_id
-    
+
     def get_output_path(self, filename: str) -> Path:
         """Get the full path to an output file."""
         return Path(self.output.pdf_output_directory) / filename
 
+
+# For backward compatibility: export Settings as AppConfig
+Settings = AppConfig
 
 # Global configuration instance
 _config: Optional[AppConfig] = None

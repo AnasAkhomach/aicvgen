@@ -63,3 +63,14 @@ def initialize_session_state():
 
     if "start_from_scratch_input" not in st.session_state:
         st.session_state.start_from_scratch_input = False
+
+    # Error handling
+    if "error_messages" not in st.session_state:
+        st.session_state.error_messages = []
+
+    # Workflow execution state
+    if "workflow_result" not in st.session_state:
+        st.session_state.workflow_result = None
+
+    if "workflow_error" not in st.session_state:
+        st.session_state.workflow_error = None

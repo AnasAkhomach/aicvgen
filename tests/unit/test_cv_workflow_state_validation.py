@@ -66,3 +66,12 @@ async def test_route_after_qa_continue():
     state = minimal_state()
     result = await route_after_qa(state.model_dump())
     assert result == "complete"
+
+
+@pytest.mark.asyncio
+async def test_route_after_qa_regenerate_takes_precedence_over_error():
+    """If both user feedback (regenerate) and error are present, user intent should win."""
+    feedback = UserFeedback(action=UserAction.REGENERATE, item_id="id1")
+    state = minimal_state(user_feedback=feedback, error_messages=["fail"])
+    result = await route_after_qa(state.model_dump())
+    assert result == "regenerate"

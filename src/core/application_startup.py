@@ -187,13 +187,36 @@ class ApplicationStartup:
         """Initialize LLM service with fail-fast pattern."""
         from src.config.settings import get_config
         from src.services.rate_limiter import get_rate_limiter
+        from src.services.llm_client import LLMClient
+        from src.services.llm_retry_handler import LLMRetryHandler
+        from src.services.llm_service import get_advanced_cache
+        from src.utils.error_classification import is_retryable_error
 
         start_time = time.time()
         try:
             settings = get_config()
             rate_limiter = get_rate_limiter()
+
+            # --- LLMClient setup ---
+            import google.generativeai as genai
+
+            model_name = settings.llm_settings.default_model
+            llm_model = genai.GenerativeModel(model_name)
+            llm_client = LLMClient(llm_model)
+
+            # --- LLMRetryHandler setup ---
+            llm_retry_handler = LLMRetryHandler(llm_client, is_retryable_error)
+
+            # --- Cache setup ---
+            cache = get_advanced_cache()
+
             llm_service = EnhancedLLMService(
-                settings=settings, rate_limiter=rate_limiter, user_api_key=user_api_key
+                settings=settings,
+                llm_client=llm_client,
+                llm_retry_handler=llm_retry_handler,
+                cache=cache,
+                rate_limiter=rate_limiter,
+                user_api_key=user_api_key,
             )
             self.services["llm_service"] = ServiceStatus(
                 name="llm_service",
