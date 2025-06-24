@@ -4,14 +4,19 @@ Service for LLM-based CV and job description parsing.
 
 from typing import Optional, Any
 import json
-from ..models.data_models import (
+import logging
+import re
+from src.models.data_models import (
     JobDescriptionData,
     CVParsingResult,
     ContentType,
 )
-from ..templates.content_templates import ContentTemplateManager
-from ..services.llm_service import EnhancedLLMService
-from ..config.settings import Settings
+from src.templates.content_templates import ContentTemplateManager
+from src.services.llm_service import EnhancedLLMService
+from src.config.settings import Settings
+from src.utils.exceptions import LLMResponseParsingError
+
+logger = logging.getLogger(__name__)
 
 
 class LLMCVParserService:
@@ -103,26 +108,47 @@ class LLMCVParserService:
             session_id=session_id,
             trace_id=trace_id,
         )
+        parsing_data["raw_text"] = raw_text  # Preserve original raw text
         return JobDescriptionData(**parsing_data)
 
     async def _generate_and_parse_json(
         self, prompt: str, session_id: Optional[str], trace_id: Optional[str]
     ) -> Any:
-        """Generate content with the LLM and parse the JSON response.
-
-        Args:
-            prompt: The prompt to send to the LLM.
-            session_id: The session ID for the request.
-            trace_id: The trace ID for the request.
-
-        Returns:
-            The parsed JSON data from the LLM response.
-        """
-        # Centralized LLM call and JSON parsing logic
+        """Generates content and robustly parses the JSON output."""
         llm_response = await self.llm_service.generate(
             prompt=prompt,
             session_id=session_id,
             trace_id=trace_id,
         )
-        # Assume llm_response is JSON or can be parsed as such
-        return json.loads(llm_response)
+
+        raw_text = llm_response.content
+        if not raw_text or not isinstance(raw_text, str):
+            raise LLMResponseParsingError(
+                "Received empty or non-string response from LLM.",
+                raw_response=str(raw_text),
+            )
+
+        # Use regex to find JSON within ```json ... ``` code blocks
+        json_match = re.search(r"""```json\s*(\{.*?\})\s*```""", raw_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Fallback for raw JSON or JSON embedded in text
+            start_index = raw_text.find("{")
+            if start_index == -1:
+                raise LLMResponseParsingError(
+                    "No valid JSON object found in the LLM response.",
+                    raw_response=raw_text,
+                )
+            json_str = raw_text[start_index:]
+            # Always try to parse, let json.loads raise if malformed
+
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.error("Failed to decode JSON from LLM response: %s", e)
+            logger.debug("Malformed JSON string: %s", json_str)
+            raise LLMResponseParsingError(
+                f"Could not parse JSON from LLM response. Error: {e}",
+                raw_response=raw_text,
+            ) from e

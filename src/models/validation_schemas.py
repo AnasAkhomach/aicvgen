@@ -103,7 +103,7 @@ class ParserAgentInput(BaseModel):
 class ContentWriterAgentInput(BaseModel):
     structured_cv: StructuredCV
     research_findings: Optional[ResearchFindings] = None
-    current_item_id: str
+    current_item_id: Optional[str] = None
 
 
 class ResearchAgentInput(BaseModel):
@@ -113,7 +113,7 @@ class ResearchAgentInput(BaseModel):
 
 class QualityAssuranceAgentInput(BaseModel):
     structured_cv: StructuredCV
-    current_item_id: str
+    current_item_id: Optional[str] = None
 
 
 class FormatterAgentInput(BaseModel):

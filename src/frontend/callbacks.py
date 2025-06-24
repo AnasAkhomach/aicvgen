@@ -7,15 +7,29 @@ from typing import Optional
 
 from ..orchestration.state import AgentState, UserFeedback
 from ..utils.exceptions import ConfigurationError
-from ..core.dependency_injection import (
-    DependencyContainer,
-    configure_container,
-    build_llm_service,
-)
+from ..core.dependency_injection import get_container
 from ..utils.state_utils import create_initial_agent_state
+from ..core.application_startup import get_startup_manager
+from ..models.data_models import UserAction
 
-# Import the workflow graph
-from ..orchestration.cv_workflow_graph import cv_graph_app
+# Import the workflow graph class
+from ..orchestration.cv_workflow_graph import CVWorkflowGraph
+from ..services.llm_service import EnhancedLLMService
+
+
+def get_workflow_graph() -> CVWorkflowGraph:
+    """Get or create the workflow graph for the current session."""
+    if "workflow_graph" not in st.session_state:
+        session_id = st.session_state.get("session_id")
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            st.session_state.session_id = session_id
+        # Ensure application is initialized before creating workflow
+        startup_manager = get_startup_manager()
+        if not startup_manager.is_initialized:
+            startup_manager.initialize_application()
+        st.session_state.workflow_graph = CVWorkflowGraph(session_id=session_id)
+    return st.session_state.workflow_graph
 
 
 def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
@@ -40,10 +54,11 @@ def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
             },
         )
 
+        # Get the session-specific workflow graph
+        workflow_graph = get_workflow_graph()
+
         # Run the async workflow
-        final_state = loop.run_until_complete(
-            cv_graph_app.ainvoke(state_to_run, {"configurable": {"trace_id": trace_id}})
-        )
+        final_state = loop.run_until_complete(workflow_graph.invoke(state_to_run))
 
         # Update the session state with the final results
         st.session_state.agent_state = final_state
@@ -89,7 +104,6 @@ def _start_workflow_thread(state_to_run: AgentState):
         target=_execute_workflow_in_thread, args=(state_to_run, trace_id), daemon=True
     )
     thread.start()
-    # Note: st.rerun() removed - calling within callback is not allowed
 
 
 def start_cv_generation():
@@ -109,12 +123,8 @@ def start_cv_generation():
 
 def handle_user_action(action: str, item_id: str):
     """
-    Handle user actions like 'accept', 'regenerate', or 'validate_api_key'.
+    Handle user actions like 'accept' or 'regenerate'.
     """
-    if action == "validate_api_key":
-        handle_api_key_validation()
-        return
-
     agent_state: Optional[AgentState] = st.session_state.get("agent_state")
     if not agent_state:
         st.error("No agent state found")
@@ -122,31 +132,29 @@ def handle_user_action(action: str, item_id: str):
 
     # Create user feedback based on action
     if action == "accept":
-        feedback_type = "accept"
-        feedback_data = {"item_id": item_id}
+        user_action = UserAction.ACCEPT
+        feedback_text = "User accepted the item."
         st.success("✅ Item accepted")
     elif action == "regenerate":
-        feedback_type = "regenerate"
-        feedback_data = {"item_id": item_id}
+        user_action = UserAction.REQUEST_REFINEMENT
+        feedback_text = "User requested to regenerate the item."
         st.info("🔄 Regenerating item...")
     else:
         st.error(f"Unknown action: {action}")
         return
 
-    agent_state.user_feedback = UserFeedback(
-        feedback_type=feedback_type, data=feedback_data
-    )
+    agent_state.user_action = user_action
+    agent_state.user_feedback = UserFeedback(item_id=item_id, feedback=feedback_text)
     st.session_state.agent_state = agent_state
 
     # Start the workflow to process the user feedback
     _start_workflow_thread(agent_state)
 
 
-def handle_api_key_validation(llm_service=None):
+def handle_api_key_validation():
     """
     Handle API key validation by calling the LLM service validate_api_key method.
     Updates session state with validation results.
-    Accepts an optional llm_service for DI/testing.
     """
     import logging
 
@@ -163,11 +171,14 @@ def handle_api_key_validation(llm_service=None):
     try:
         # Show validation in progress
         with st.spinner("Validating API key..."):
-            # Use injected llm_service if provided, else create one using DI
-            if llm_service is None:
-                container = DependencyContainer()
-                configure_container(container)
-                llm_service = build_llm_service(container, user_api_key=user_api_key)
+            # Get container and update settings with the new key
+            container = get_container()
+            settings = container.get_by_name("settings")
+            settings.gemini_api_key = user_api_key
+
+            # The LLM service is a singleton. We assume it's designed to handle
+            # settings changes, or it's re-initialized on next use internally.
+            llm_service: EnhancedLLMService = container.get_by_name("llm_service")
 
             # Run validation asynchronously
             loop = asyncio.new_event_loop()
@@ -195,5 +206,3 @@ def handle_api_key_validation(llm_service=None):
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Validation failed: {e}")
         logging.error("Gemini API key validation exception: %s", e, exc_info=True)
-
-    # Note: st.rerun() removed - calling within callback is not allowed

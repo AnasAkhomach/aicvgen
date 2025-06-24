@@ -19,8 +19,10 @@ from ..config.logging_config import get_structured_logger
 from ..core.async_optimizer import optimize_async
 from ..models.enhanced_content_writer_models import (
     ContentWriterJobData,
-    ContentWriterResult,
 )
+from ..models.agent_output_models import EnhancedContentWriterOutput
+from ..core.dependency_injection import get_container
+
 
 logger = get_structured_logger("enhanced_content_writer")
 
@@ -1178,7 +1180,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             content_item = {}
 
         # Always wrap output_data in a Pydantic model
-        error_result = ContentWriterResult(
+        error_result = EnhancedContentWriterOutput(
             structured_cv=input_data.get("structured_cv", None),
             error_messages=[str(error)],
         )
@@ -1263,7 +1265,6 @@ def create_content_writer(content_type: ContentType) -> EnhancedContentWriterAge
         ContentType.CV_PARSING: "Specialized agent for CV parsing and extraction",
         ContentType.ACHIEVEMENTS: "Specialized agent for achievements section content",
     }  # Use dependency container for consistent agent creation
-    from ..core.dependency_injection import get_container
 
     container = get_container()
     container.register_agents()

@@ -3,13 +3,11 @@ print("DEBUG: llm_service.py module is being loaded")
 import os
 import time
 import asyncio
-import concurrent.futures
-import threading
 import hashlib
-import functools
 import json
 import pickle
 import traceback
+import threading
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -47,7 +45,6 @@ from ..utils.error_classification import (
     is_network_error,
     is_api_auth_error,
     is_retryable_error,
-    get_retry_delay_for_error,
 )
 from .llm_client import LLMClient
 from .llm_retry_handler import LLMRetryHandler
@@ -348,9 +345,6 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         self.total_processing_time = 0.0
         self.cache_hits = 0
         self.cache_misses = 0
-        self.executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=5, thread_name_prefix="llm_worker"
-        )
         logger.info(
             "Enhanced LLM service initialized",
             model=self.model_name,
@@ -415,9 +409,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
             # Make a lightweight API call to validate the key
             # genai.list_models() is a simple call that requires authentication
-            models = await loop.run_in_executor(
-                self.executor, lambda: list(genai.list_models())
-            )
+            models = await loop.run_in_executor(None, lambda: list(genai.list_models()))
 
             # If we get here without exception, the key is valid
             logger.info(
@@ -501,127 +493,21 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             ),
         )
 
-    def _is_retryable_error(
-        self, exception: Exception, retry_count: int = 0, max_retries: int = 5
-    ) -> Tuple[bool, float]:
-        """
-        Centralized retry logic with intelligent delay calculation and error-type-specific strategies.
-        Returns (should_retry: bool, delay_seconds: float)
-        """
-        # Check if we've exceeded max retries
-        if retry_count >= max_retries:
-            return False, 0.0
-
-        # Use centralized error classification
-        if not is_retryable_error(exception):
-            logger.debug(
-                f"Non-retryable exception detected: {type(exception).__name__}"
-            )
-            return False, 0.0
-
-        # Use centralized delay calculation
-        delay = get_retry_delay_for_error(exception, retry_count)
-        return True, delay
-
-    async def _generate_with_timeout(
-        self, prompt: str, session_id: str = None, trace_id: Optional[str] = None
+    async def _call_llm_with_retry(
+        self, prompt: str, session_id: str, trace_id: str
     ) -> Any:
-        """
-        Generate content with timeout and consolidated retry logic.
-
-        This method now handles both timeout and executor management internally,
-        consolidating the async execution pattern.
-
-        Args:
-            prompt: Text prompt to send to the model
-            session_id: Optional session ID for tracking
-            trace_id: Optional trace ID for tracking
-
-        Returns:
-            Generated text response or raises TimeoutError
-        """
-        try:
-            # Get the current event loop
-            loop = asyncio.get_event_loop()
-
-            # Create executor task and wrap with timeout
-            executor_task = loop.run_in_executor(
-                self.executor, self._make_llm_api_call, prompt
-            )
-
-            # Use asyncio.wait_for to handle timeout
-            result = await asyncio.wait_for(executor_task, timeout=self.timeout)
-
-            # Log successful call
-            response_length = (
-                len(result.text)
-                if hasattr(result, "text") and isinstance(result.text, str)
-                else 0
-            )
-            logger.info(
-                "LLM call completed successfully",
-                session_id=session_id,
-                model=self.model_name,
-                prompt_length=len(prompt),
-                response_length=response_length,
-            )
-
-            return result
-
-        except asyncio.TimeoutError:
-            # Log timeout
-            logger.error(
-                "LLM request timed out",
-                extra={
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "timeout": self.timeout,
-                    "prompt_length": len(prompt),
-                },
-            )
-
-            raise OperationTimeoutError(
-                "LLM request timed out after {} seconds".format(self.timeout)
-            )
-        except Exception as e:
-            # Log other exceptions
-            logger.error(
-                "LLM request failed with exception",
-                extra={
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "prompt_length": len(prompt),
-                },
-            )
-            # Re-raise the exception to be handled by the caller
-            raise
-
-    def _make_llm_api_call(self, prompt: str) -> Any:
-        """
-        Make the actual LLM API call using the composed retry handler.
-
-        Args:
-            prompt: Text prompt to send to the model
-
-        Returns:
-            Generated response from the LLM        Raises:
-            Various exceptions from the google-generativeai library
-        """
-        try:
-            # Use injected retry handler (which uses injected client)
-            response = self.llm_retry_handler.generate_content(prompt)
-            logger.debug("LLM API call successful (via retry handler)")
-            return response
-        except Exception as e:
-            logger.error(
-                "LLM API call failed",
-                error_type=type(e).__name__,
-                error_message=str(e),
-                prompt_length=len(prompt),
-            )
-            raise
+        """Call LLM with retry logic using the composed retry handler."""
+        self.call_count += 1
+        logger.info(
+            "Starting LLM generation",
+            extra={
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "prompt_length": len(prompt),
+            },
+        )
+        # Directly await the retry handler
+        return await self.llm_retry_handler.generate_content(prompt)
 
     async def generate_content(
         self,
@@ -662,7 +548,11 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
         # 3. Call with retry logic
         try:
-            response = await self._call_llm_with_retry(prompt, session_id, trace_id)
+            # Await the retry handler with timeout
+            response = await asyncio.wait_for(
+                self._call_llm_with_retry(prompt, session_id, trace_id),
+                timeout=self.timeout,
+            )
             processing_time = time.time() - start_time
 
             # 4. Cache result and return
@@ -676,6 +566,19 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         except ConfigurationError:
             # Do not retry on fatal config errors. Re-raise immediately.
             raise
+        except asyncio.TimeoutError:
+            logger.error(
+                "LLM request timed out",
+                extra={
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "timeout": self.timeout,
+                    "prompt_length": len(prompt),
+                },
+            )
+            raise OperationTimeoutError(
+                f"LLM request timed out after {self.timeout} seconds"
+            )
         except Exception as e:
             # Handle errors and try fallback content
             return await self._handle_error_with_fallback(
@@ -729,26 +632,6 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         if self.rate_limiter:
             await self.rate_limiter.wait_if_needed_async(self.model_name)
 
-    async def _call_llm_with_retry(
-        self, prompt: str, session_id: str, trace_id: str
-    ) -> Any:
-        """Call LLM with retry logic using the composed retry handler."""
-        # Update call tracking
-        self.call_count += 1
-
-        # Log the attempt
-        logger.info(
-            "Starting LLM generation",
-            extra={
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "prompt_length": len(prompt),
-            },
-        )
-
-        # Generate content with timeout
-        return await self._generate_with_timeout(prompt, session_id, trace_id)
-
     def _create_llm_response(
         self,
         response: Any,
@@ -786,9 +669,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             model_used=self.model_name,
             success=True,
             metadata=safe_metadata,
-        )
-
-        # Log successful generation
+        )  # Log successful generation
         logger.info(
             "LLM generation completed successfully",
             session_id=session_id,
@@ -804,7 +685,6 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         self, prompt: str, content_type: ContentType, llm_response: LLMResponse
     ) -> None:
         """Cache the successful response."""
-        cache_key = create_cache_key(prompt, self.model_name, content_type.value)
         cache_data = {
             "content": llm_response.content,
             "tokens_used": llm_response.tokens_used,
@@ -819,7 +699,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             },
         }
         if self.cache:
-            self.cache.set(cache_key, cache_data, ttl_hours=2)
+            self.cache.set(prompt, self.model_name, cache_data, ttl_hours=2)
 
     async def _handle_error_with_fallback(
         self,

@@ -12,8 +12,9 @@ class BasicCVInfo(BaseModel):
     # Add more fields as needed
 
 
-class CVAnalyzerNodeResult(BaseModel):
-    cv_analysis_results: Optional[CVAnalysisResult] = None
-    cv_analyzer_success: bool = False
-    cv_analyzer_confidence: float = 0.0
-    cv_analyzer_error: Optional[str] = None
+# DEPRECATED: Use CVAnalyzerAgentOutput from agent_output_models.py instead.
+# class CVAnalyzerNodeResult(BaseModel):
+#     cv_analysis_results: Optional[CVAnalysisResult] = None
+#     cv_analyzer_success: bool = False
+#     cv_analyzer_confidence: float = 0.0
+#     cv_analyzer_error: Optional[str] = None

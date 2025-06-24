@@ -15,7 +15,6 @@ from ..models.quality_assurance_agent_models import (
     ItemQualityResultModel,
     KeyTerms,
     OverallQualityCheckResultModel,
-    QualityAssuranceResult,
     SectionQualityResultModel,
 )
 from ..models.validation_schemas import validate_agent_input
@@ -24,6 +23,7 @@ from ..services.llm_service import EnhancedLLMService
 from ..services.progress_tracker import ProgressTracker
 from ..templates.content_templates import ContentTemplateManager
 from .agent_base import AgentExecutionContext, AgentResult, EnhancedAgentBase
+from ..models.agent_output_models import QualityAssuranceAgentOutput
 
 
 logger = get_structured_logger(__name__)
@@ -95,8 +95,10 @@ class QualityAssuranceAgent(EnhancedAgentBase):
             node_result = await self.run_as_node(agent_state)
             result = node_result.get("quality_check_results")
 
-            if not isinstance(result, QualityAssuranceResult):
-                result = QualityAssuranceResult(section_results=[], overall_checks=[])
+            if not isinstance(result, QualityAssuranceAgentOutput):
+                result = QualityAssuranceAgentOutput(
+                    section_results=[], overall_checks=[]
+                )
 
             return AgentResult(
                 success=True,
@@ -205,7 +207,7 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 self._check_section(section) for section in structured_cv.sections
             ]
             overall_checks = self._check_overall_cv()
-            qa_results = QualityAssuranceResult(
+            qa_results = QualityAssuranceAgentOutput(
                 section_results=section_results,
                 overall_checks=overall_checks,
             )

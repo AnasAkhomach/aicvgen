@@ -8,25 +8,38 @@ error handling, and service dependency management.
 import os
 import time
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import threading
 
-from ..config.logging_config import setup_logging, get_logger
-from ..config.environment import load_config
-from ..config.settings import Settings
-from ..services.llm_service import EnhancedLLMService
-from ..services.vector_store_service import get_vector_store_service
-from ..services.session_manager import get_session_manager
-from ..utils.exceptions import ConfigurationError, ServiceInitializationError
-from ..core.dependency_injection import (
-    configure_container,
-    DependencyContainer,
+import google.generativeai as genai
+
+from ..config.logging_config import setup_logging, get_structured_logger
+from ..config.settings import Settings, get_config as settings_factory
+from ..services.llm_service import (
+    EnhancedLLMService,
+    get_advanced_cache,
+    AdvancedCache,
 )
-from ..utils.streamlit_utils import configure_page
+from ..services.vector_store_service import get_vector_store_service, VectorStoreService
+from ..services.session_manager import get_session_manager, SessionManager
+from ..services.error_recovery import ErrorRecoveryService
+from ..utils.exceptions import ConfigurationError, ServiceInitializationError
+from ..core.dependency_injection import get_container, DependencyContainer
+from ..agents.parser_agent import ParserAgent
+from ..agents.research_agent import ResearchAgent
+from ..agents.quality_assurance_agent import QualityAssuranceAgent
+from ..agents.enhanced_content_writer import (
+    EnhancedContentWriterAgent as WriterAgent,
+)
+from ..orchestration.cv_workflow_graph import CVWorkflowGraph
+from ..services.llm_client import LLMClient
+from ..services.llm_retry_handler import LLMRetryHandler
+from ..services.progress_tracker import ProgressTracker
+from ..templates.content_templates import ContentTemplateManager
 
 
-logger = get_logger(__name__)
+logger = get_structured_logger(__name__)
 
 
 @dataclass
@@ -37,7 +50,7 @@ class ServiceStatus:
     initialized: bool
     initialization_time: float
     error: Optional[str] = None
-    dependencies: List[str] = None
+    dependencies: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -51,6 +64,20 @@ class StartupResult:
     timestamp: datetime
 
 
+def create_llm_client(settings: Settings) -> LLMClient:
+    """Factory function to create an LLMClient instance."""
+    # Configure the generative AI model with the API key from settings
+    if not settings.llm.gemini_api_key_primary:
+        raise ConfigurationError("Gemini API key is not configured.")
+    genai.configure(api_key=settings.llm.gemini_api_key_primary)
+
+    # Create the generative model instance
+    llm_model = genai.GenerativeModel(settings.llm_settings.default_model)
+
+    # Create and return the LLMClient
+    return LLMClient(llm_model=llm_model)
+
+
 class ApplicationStartup:
     """Manages application startup sequence and service initialization."""
 
@@ -58,16 +85,134 @@ class ApplicationStartup:
         self.services: Dict[str, ServiceStatus] = {}
         self.startup_time = None
         self.is_initialized = False
+        self.container = get_container()
+
+    def _register_dependencies(self):
+        """Register all application dependencies with the container."""
+        try:
+            self.container.get_by_name("settings")
+            logger.debug("Dependencies already registered. Skipping.")
+            return
+        except ValueError:
+            logger.info("Registering application dependencies.")
+
+        # Configuration
+        self.container.register_singleton(
+            "settings", Settings, factory=settings_factory
+        )
+
+        # Core Services
+        self.container.register_singleton(
+            "llm_client",
+            LLMClient,
+            factory=create_llm_client,
+            dependencies=["settings"],
+        )
+        self.container.register_singleton(
+            "llm_retry_handler",
+            LLMRetryHandler,
+            dependencies=["llm_client"],
+        )
+        self.container.register_singleton(
+            "cache", AdvancedCache, factory=get_advanced_cache
+        )
+        self.container.register_singleton(
+            "llm_service",
+            EnhancedLLMService,
+            dependencies=["settings", "llm_client", "llm_retry_handler", "cache"],
+        )
+        self.container.register_singleton(
+            "vector_store_service",
+            VectorStoreService,
+            factory=get_vector_store_service,
+        )
+        # Alias for compatibility with ResearchAgent constructor
+        self.container.register_singleton(
+            "vector_db",
+            VectorStoreService,
+            factory=get_vector_store_service,
+        )
+        self.container.register_singleton(
+            "session_manager",
+            SessionManager,
+            factory=get_session_manager,
+        )
+        self.container.register_singleton("template_manager", ContentTemplateManager)
+
+        # Create ErrorRecoveryService with proper logger
+        def create_error_recovery_service():
+            from ..config.logging_config import get_structured_logger
+
+            return ErrorRecoveryService(logger=get_structured_logger("error_recovery"))
+
+        self.container.register_singleton(
+            "error_recovery_service",
+            ErrorRecoveryService,
+            factory=create_error_recovery_service,
+        )
+
+        # Session-scoped services
+        self.container.register_session("progress_tracker", ProgressTracker)
+
+        # Agents (Session-scoped)
+        self.container.register_session(
+            "parser_agent",
+            ParserAgent,
+            dependencies=[
+                "llm_service",
+                "vector_store_service",
+                "progress_tracker",
+                "settings",
+                "template_manager",
+            ],
+        )
+        self.container.register_session(
+            "research_agent",
+            ResearchAgent,
+            dependencies=[
+                "llm_service",
+                "progress_tracker",
+                "vector_db",
+                "settings",
+                "template_manager",
+            ],
+        )
+        self.container.register_session(
+            "writer_agent",
+            WriterAgent,
+            dependencies=[
+                "llm_service",
+                "progress_tracker",
+                "parser_agent",
+                "settings",
+            ],
+        )
+        self.container.register_session(
+            "qa_agent",
+            QualityAssuranceAgent,
+            dependencies=[
+                "llm_service",
+                "progress_tracker",
+                "template_manager",
+            ],
+        )
+
+        # Orchestration (Session-scoped)
+        self.container.register_session(
+            "cv_workflow_graph",
+            CVWorkflowGraph,
+            dependencies=[
+                "parser_agent",
+                "research_agent",
+                "writer_agent",
+                "session_manager",
+                "settings",
+            ],
+        )
+        logger.info("All application dependencies registered successfully.")
 
     def initialize_application(self, user_api_key: str = "") -> StartupResult:
-        """Initialize the application with proper startup sequence.
-
-        Args:
-            user_api_key: User-provided API key for LLM service (unused)
-
-        Returns:
-            StartupResult: Result of the startup process
-        """
+        """Initialize the application with proper startup sequence."""
         _ = user_api_key  # Mark as intentionally unused
         start_time = time.time()
         errors = []
@@ -75,373 +220,117 @@ class ApplicationStartup:
         logger.info("Starting application initialization")
 
         try:
-            # Get container and register services
-            self.container = DependencyContainer()
-
-            # Check if settings is registered, if not register core services
-            try:
-                self.container.get(Settings, "settings")
-                logger.debug("Settings already registered")
-            except ValueError:
-                logger.info("Settings not registered, configuring container")
-                configure_container(self.container)
+            # Phase 0: Register Dependencies
+            self._register_dependencies()
 
             # Phase 1: Core Infrastructure
-            self._initialize_logging()
-            self._initialize_environment()
+            setup_logging()
+            logger.info("Service 'logging' initialized successfully.")
+
+            # Trigger initialization by getting services from the container
+            self.container.get_by_name("settings")
+            logger.info("Service 'environment' (settings) initialized successfully.")
+
             self._ensure_directories()
 
             # Phase 2: External Services
-            logger.info("Starting LLM service initialization...")
-            self._initialize_llm_service()
-            logger.info("LLM service initialization complete")
+            self.container.get_by_name("llm_service")
+            logger.info("Service 'llm_service' initialized successfully.")
 
-            logger.info("Starting vector store initialization...")
-            self._initialize_vector_store()
-            logger.info("Vector store initialization complete")
+            self.container.get_by_name("vector_store_service")
+            logger.info("Service 'vector_store_service' initialized successfully.")
 
-            # Phase 3: Application Services
-            logger.info("Starting session manager initialization...")
-            self._initialize_session_manager()
-            logger.info("Session manager initialization complete")
-
-            # Phase 4: Streamlit Configuration
-            logger.info("Starting Streamlit configuration...")
-            self._configure_streamlit()
-            logger.info("Streamlit configuration complete")
+            # Phase 3: Session Management
+            self.container.get_by_name("session_manager")
+            logger.info("Service 'session_manager' initialized successfully.")
 
             self.is_initialized = True
-            total_time = time.time() - start_time
-            self.startup_time = total_time
+            logger.info("Application initialization successful")
 
-            logger.info("Application initialization completed in %.2fs", total_time)
-
-            return StartupResult(
-                success=True,
-                total_time=total_time,
-                services=self.services.copy(),
-                errors=errors,
-                timestamp=datetime.now(),
-            )
-
-        except (ServiceInitializationError, ConfigurationError) as e:
-            total_time = time.time() - start_time
-            error_msg = f"Application initialization failed: {e}"
-            errors.append(error_msg)
-            logger.error(error_msg, exc_info=True)
-            raise
+        except (ConfigurationError, ServiceInitializationError) as e:
+            logger.error(f"Application initialization failed: {e}", exc_info=True)
+            errors.append(str(e))
+            self.is_initialized = False
         except Exception as e:
-            total_time = time.time() - start_time
-            error_msg = (
-                f"An unexpected error occurred during application initialization: {e}"
+            logger.error(
+                f"An unexpected error occurred during startup: {e}", exc_info=True
             )
-            errors.append(error_msg)
-            logger.error(error_msg, exc_info=True)
-            return StartupResult(
-                success=False,
-                total_time=total_time,
-                services=self.services.copy(),
-                errors=errors,
-                timestamp=datetime.now(),
-            )
+            errors.append(f"An unexpected error occurred: {e}")
+            self.is_initialized = False
 
-    def _initialize_logging(self):
-        """Initialize logging system."""
-        start_time = time.time()
-        try:
-            setup_logging()
-            self.services["logging"] = ServiceStatus(
-                name="logging",
-                initialized=True,
-                initialization_time=time.time() - start_time,
-            )
-            logger.info("Logging system initialized")
-        except Exception as e:
-            self.services["logging"] = ServiceStatus(
-                name="logging",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error=str(e),
-            )
-            raise ServiceInitializationError(
-                f"Failed to initialize logging: {e}"
-            ) from e
+        end_time = time.time()
+        self.startup_time = end_time - start_time
 
-    def _initialize_environment(self):
-        """Initialize environment configuration."""
-        start_time = time.time()
-        try:
-            load_config()
-            self.services["environment"] = ServiceStatus(
-                name="environment",
-                initialized=True,
-                initialization_time=time.time() - start_time,
-            )
-            logger.info("Environment configuration loaded")
-        except Exception as e:
-            self.services["environment"] = ServiceStatus(
-                name="environment",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error=str(e),
-            )
-            raise ConfigurationError(
-                f"Failed to load environment configuration: {e}"
-            ) from e
+        result = StartupResult(
+            success=self.is_initialized,
+            total_time=self.startup_time,
+            services=self.services,  # This is now sparsely populated, but kept for compatibility
+            errors=errors,
+            timestamp=datetime.now(),
+        )
+
+        logger.info(f"Application startup finished in {self.startup_time:.2f} seconds.")
+        return result
 
     def _ensure_directories(self):
-        """Ensure required directories exist."""
-        start_time = time.time()
+        """Ensure all necessary directories exist."""
+        start_service_time = time.time()
         try:
-            directories = [
-                "data/sessions",
-                "data/output",
-                "data/cache",
-                "logs",
-                "data/vector_db",
+            settings: Settings = self.container.get_by_name("settings")
+
+            dirs_to_check = [
+                settings.logging.log_directory,
+                settings.data_directory,
+                settings.vector_db.persist_directory,
+                settings.prompts_directory,
+                settings.output.pdf_output_directory,
+                settings.sessions_directory,
             ]
 
-            for directory in directories:
-                os.makedirs(directory, exist_ok=True)
+            for directory in dirs_to_check:
+                try:
+                    # Path objects can be used directly with os.makedirs
+                    if not os.path.exists(directory):
+                        os.makedirs(directory)
+                        logger.info(f"Created directory: {directory}")
+                except OSError as e:
+                    raise ConfigurationError(
+                        f"Failed to create directory {directory}: {e}"
+                    )
 
-            self.services["directories"] = ServiceStatus(
+            status = ServiceStatus(
                 name="directories",
                 initialized=True,
-                initialization_time=time.time() - start_time,
+                initialization_time=time.time() - start_service_time,
             )
-            logger.info("Required directories ensured")
+            self.services["directories"] = status
+            logger.info("Service 'directories' initialized successfully.")
         except Exception as e:
-            self.services["directories"] = ServiceStatus(
+            logger.error(
+                f"Failed to initialize service 'directories': {e}", exc_info=True
+            )
+            status = ServiceStatus(
                 name="directories",
                 initialized=False,
-                initialization_time=time.time() - start_time,
+                initialization_time=time.time() - start_service_time,
                 error=str(e),
             )
+            self.services["directories"] = status
             raise ServiceInitializationError(
-                f"Failed to create directories: {e}"
-            ) from e
-
-    def _initialize_llm_service(self):
-        """Initialize LLM service using the DI container."""
-        start_time = time.time()
-
-        # Check if LLM service initialization should be skipped
-        if os.getenv("SKIP_LLM_SERVICE", "false").lower() == "true":
-            logger.warning(
-                "Skipping LLM service initialization (SKIP_LLM_SERVICE=true)"
+                f"Failed to initialize service 'directories': {e}"
             )
-            self.services["llm_service"] = ServiceStatus(
-                name="llm_service",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error="Skipped via SKIP_LLM_SERVICE environment variable",
-            )
-            return
-
-        try:
-            logger.info("Getting DI container...")
-            container = self.container
-            logger.info("Calling container.get() for EnhancedLLMService...")
-            # The factory registered in initialize_application will be called here
-            llm_service = container.get(EnhancedLLMService, "EnhancedLLMService")
-            logger.info("EnhancedLLMService obtained from container")
-
-            if not llm_service:
-                raise ServiceInitializationError(
-                    "LLM service could not be created from DI container."
-                )
-
-            self.services["llm_service"] = ServiceStatus(
-                name="llm_service",
-                initialized=True,
-                initialization_time=time.time() - start_time,
-                dependencies=[
-                    "environment",
-                    "settings",
-                    "RateLimiter",
-                    "AdvancedCache",
-                ],
-            )
-            logger.info("LLM service initialized via DI container")
-        except Exception as e:
-            self.services["llm_service"] = ServiceStatus(
-                name="llm_service",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error=str(e),
-            )
-            raise ServiceInitializationError(
-                f"Failed to initialize LLM service from DI container: {e}"
-            ) from e
-
-    def _initialize_vector_store(self):
-        """Initialize vector store service."""
-        start_time = time.time()
-
-        # Check if vector store initialization should be skipped
-        if os.getenv("SKIP_VECTOR_STORE", "false").lower() == "true":
-            logger.warning(
-                "Skipping vector store initialization (SKIP_VECTOR_STORE=true)"
-            )
-            self.services["vector_store"] = ServiceStatus(
-                name="vector_store",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error="Skipped via SKIP_VECTOR_STORE environment variable",
-                dependencies=["directories"],
-            )
-            return
-
-        try:
-            get_vector_store_service()
-            self.services["vector_store"] = ServiceStatus(
-                name="vector_store",
-                initialized=True,
-                initialization_time=time.time() - start_time,
-                dependencies=["directories"],
-            )
-            logger.info("Vector store service initialized")
-        except Exception as e:
-            self.services["vector_store"] = ServiceStatus(
-                name="vector_store",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error=str(e),
-                dependencies=["directories"],
-            )
-            raise ServiceInitializationError(
-                f"Failed to initialize vector store: {e}"
-            ) from e
-
-    def _initialize_session_manager(self):
-        """Initialize session manager service."""
-        start_time = time.time()
-        try:
-            get_session_manager()
-            self.services["session_manager"] = ServiceStatus(
-                name="session_manager",
-                initialized=True,
-                initialization_time=time.time() - start_time,
-                dependencies=["directories"],
-            )
-            logger.info("Session manager initialized")
-        except Exception as e:
-            self.services["session_manager"] = ServiceStatus(
-                name="session_manager",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error=str(e),
-                dependencies=["directories"],
-            )
-            # Session manager is not critical, log warning but continue
-            logger.warning("Session manager initialization failed: %s", e)
-
-    def _configure_streamlit(self):
-        """Configure Streamlit page settings."""
-        start_time = time.time()
-        try:
-            configure_page()
-
-            self.services["streamlit"] = ServiceStatus(
-                name="streamlit",
-                initialized=True,
-                initialization_time=time.time() - start_time,
-            )
-            logger.info("Streamlit configuration applied")
-        except Exception as e:
-            self.services["streamlit"] = ServiceStatus(
-                name="streamlit",
-                initialized=False,
-                initialization_time=time.time() - start_time,
-                error=str(e),
-            )
-            # Streamlit config failure is not critical
-            logger.warning("Streamlit configuration failed: %s", e)
-
-    def get_startup_status(self) -> Dict[str, Any]:
-        """Get current startup status and metrics."""
-        return {
-            "initialized": self.is_initialized,
-            "startup_time": self.startup_time,
-            "services": {
-                name: {
-                    "initialized": status.initialized,
-                    "initialization_time": status.initialization_time,
-                    "error": status.error,
-                    "dependencies": status.dependencies or [],
-                }
-                for name, status in self.services.items()
-            },
-            "total_services": len(self.services),
-            "successful_services": sum(
-                1 for s in self.services.values() if s.initialized
-            ),
-            "failed_services": sum(
-                1 for s in self.services.values() if not s.initialized
-            ),
-        }
-
-    def validate_services(self) -> List[str]:
-        """Validate that all critical services are properly initialized.
-
-        Returns:
-            List of validation errors
-        """
-        errors = []
-
-        critical_services = ["logging", "environment", "llm_service", "vector_store"]
-
-        for service_name in critical_services:
-            if service_name not in self.services:
-                errors.append(f"Critical service '{service_name}' not found")
-            elif not self.services[service_name].initialized:
-                error_msg = self.services[service_name].error or "Unknown error"
-                errors.append(
-                    f"Critical service '{service_name}' failed to initialize: {error_msg}"
-                )
-
-        return errors
 
 
-# Global startup manager instance
-_startup_manager: Optional[ApplicationStartup] = None
-_startup_manager_lock = threading.Lock()
+# Singleton instance of the startup manager
+_startup_manager_instance = None
+_startup_lock = threading.Lock()
 
 
 def get_startup_manager() -> ApplicationStartup:
-    """Get the global startup manager instance in a thread-safe manner."""
-    # Use a function attribute instead of global
-    if not hasattr(get_startup_manager, "_startup_manager"):
-        with _startup_manager_lock:
-            if not hasattr(get_startup_manager, "_startup_manager"):
-                get_startup_manager._startup_manager = ApplicationStartup()
-    return get_startup_manager._startup_manager
-
-
-def initialize_application(user_api_key: str = "") -> StartupResult:
-    """Initialize the application using the startup manager.
-
-    Args:
-        user_api_key: User-provided API key for LLM service
-
-    Returns:
-        StartupResult: Result of the startup process
-    """
-    startup_manager = get_startup_manager()
-    return startup_manager.initialize_application(user_api_key)
-
-
-def get_application_status() -> Dict[str, Any]:
-    """Get current application startup status."""
-    startup_manager = get_startup_manager()
-    return startup_manager.get_startup_status()
-
-
-def validate_application() -> List[str]:
-    """Validate that the application is properly initialized.
-
-    Returns:
-        List of validation errors
-    """
-    startup_manager = get_startup_manager()
-    return startup_manager.validate_services()
+    """Get the singleton instance of the application startup manager."""
+    global _startup_manager_instance
+    if _startup_manager_instance is None:
+        with _startup_lock:
+            if _startup_manager_instance is None:
+                _startup_manager_instance = ApplicationStartup()
+    return _startup_manager_instance

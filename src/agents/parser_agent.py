@@ -24,7 +24,7 @@ from ..services.llm_service import EnhancedLLMService
 from ..services.progress_tracker import ProgressTracker
 from ..services.vector_store_service import VectorStoreService
 from ..templates.content_templates import ContentTemplateManager
-from ..utils.exceptions import AgentExecutionError
+from ..utils.exceptions import AgentExecutionError, LLMResponseParsingError
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 
 # Set up structured logging
@@ -98,6 +98,13 @@ class ParserAgent(EnhancedAgentBase):
                 error=str(e),
                 status=ItemStatus.GENERATION_FAILED,
             )
+        except LLMResponseParsingError as e:
+            logger.error(f"LLM response parsing error: {e}")
+            return JobDescriptionData(
+                raw_text=raw_text,
+                error=str(e),
+                status=ItemStatus.GENERATION_FAILED,
+            )
 
     async def parse_cv_with_llm(
         self, cv_text: str, job_data: JobDescriptionData
@@ -125,6 +132,10 @@ class ParserAgent(EnhancedAgentBase):
             return structured_cv
         except AgentExecutionError as e:
             logger.error(f"Failed to parse CV with LLM: {e}")
+            structured_cv.metadata.extra["parsing_error"] = str(e)
+            return structured_cv
+        except LLMResponseParsingError as e:
+            logger.error(f"LLM response parsing error: {e}")
             structured_cv.metadata.extra["parsing_error"] = str(e)
             return structured_cv
 
@@ -293,129 +304,6 @@ class ParserAgent(EnhancedAgentBase):
             structured_cv.metadata.extra["error"] = str(e)
             return structured_cv
 
-    def create_empty_cv_structure(
-        self, job_data: Optional[JobDescriptionData]
-    ) -> StructuredCV:
-        """
-        Creates an empty CV structure for the "Start from Scratch" option.
-        """
-        structured_cv = StructuredCV()
-        # Add metadata - handle both dict and JobDescriptionData object types
-        if job_data:
-            if hasattr(job_data, "to_dict"):
-                structured_cv.metadata.extra["job_description"] = job_data.to_dict()
-            elif hasattr(job_data, "model_dump"):
-                structured_cv.metadata.extra["job_description"] = job_data.model_dump()
-            elif isinstance(job_data, dict):
-                structured_cv.metadata.extra["job_description"] = job_data
-            else:
-                structured_cv.metadata.extra["job_description"] = {}
-        else:
-            structured_cv.metadata.extra["job_description"] = {}
-        structured_cv.metadata.extra["start_from_scratch"] = True
-
-        # Create standard CV sections with proper order
-        sections = [
-            {"name": "Executive Summary", "type": "DYNAMIC", "order": 0},
-            {"name": "Key Qualifications", "type": "DYNAMIC", "order": 1},
-            {"name": "Professional Experience", "type": "DYNAMIC", "order": 2},
-            {"name": "Project Experience", "type": "DYNAMIC", "order": 3},
-            {"name": "Education", "type": "STATIC", "order": 4},
-            {"name": "Certifications", "type": "STATIC", "order": 5},
-            {"name": "Languages", "type": "STATIC", "order": 6},
-        ]
-
-        for section_info in sections:
-            section = Section(
-                name=section_info["name"],
-                content_type=section_info["type"],
-                order=section_info["order"],
-                items=[],
-                subsections=[],
-            )
-            # Ensure section.items and section.subsections are lists
-            if not isinstance(section.items, list):
-                section.items = list(section.items) if section.items else []
-            if not isinstance(section.subsections, list):
-                section.subsections = (
-                    list(section.subsections) if section.subsections else []
-                )
-            if section.name == "Executive Summary":
-                section.items.append(
-                    Item(
-                        content="",
-                        status=ItemStatus.TO_REGENERATE,
-                        item_type=Item.ItemType.EXECUTIVE_SUMMARY_PARA,
-                    )
-                )
-            if section.name == "Key Qualifications":
-                skills = None
-                if job_data:
-                    if hasattr(job_data, "skills"):
-                        skills = job_data.skills
-                    elif isinstance(job_data, dict) and "skills" in job_data:
-                        skills = job_data["skills"]
-                if skills:
-                    for skill in skills[:8]:
-                        section.items.append(
-                            Item(
-                                content=skill,
-                                status=ItemStatus.TO_REGENERATE,
-                                item_type=Item.ItemType.KEY_QUALIFICATION,
-                            )
-                        )
-                else:
-                    for i in range(6):
-                        section.items.append(
-                            Item(
-                                content=f"Key qualification {i+1}",
-                                status=ItemStatus.TO_REGENERATE,
-                                item_type=Item.ItemType.KEY_QUALIFICATION,
-                            )
-                        )
-            if section.name == "Professional Experience":
-                subsection = Subsection(name="Position Title at Company Name", items=[])
-                if not isinstance(subsection.items, list):
-                    subsection.items = (
-                        list(subsection.items) if subsection.items else []
-                    )
-                for _ in range(3):
-                    subsection.items.append(
-                        Item(
-                            content="",
-                            status=ItemStatus.TO_REGENERATE,
-                            item_type=Item.ItemType.BULLET_POINT,
-                        )
-                    )
-                section.subsections.append(subsection)
-            if section.name == "Project Experience":
-                subsection = Subsection(name="Project Name", items=[])
-                if not isinstance(subsection.items, list):
-                    subsection.items = (
-                        list(subsection.items) if subsection.items else []
-                    )
-                for _ in range(2):
-                    subsection.items.append(
-                        Item(
-                            content="",
-                            status=ItemStatus.TO_REGENERATE,
-                            item_type=Item.ItemType.BULLET_POINT,
-                        )
-                    )
-                # Final check before append
-                if not isinstance(section.subsections, list):
-                    section.subsections = (
-                        list(section.subsections) if section.subsections else []
-                    )
-                section.subsections.append(subsection)
-            # Ensure structured_cv.sections is a list before appending
-            if not isinstance(structured_cv.sections, list):
-                structured_cv.sections = (
-                    list(structured_cv.sections) if structured_cv.sections else []
-                )
-            structured_cv.sections.append(section)
-        return structured_cv
-
     async def run_async(
         self, input_data: Any, context: AgentExecutionContext
     ) -> AgentResult:
@@ -529,16 +417,20 @@ class ParserAgent(EnhancedAgentBase):
     ) -> StructuredCV:
         """Determines the CV processing path and executes it."""
         logger.info("Processing CV.", extra={"trace_id": state.trace_id})
-        cv_meta = state.structured_cv.metadata if state.structured_cv else {}
-        start_from_scratch = cv_meta.get("extra", {}).get("start_from_scratch", False)
-        original_cv_text = cv_meta.get("extra", {}).get("original_cv_text", "")
+        cv_meta = state.structured_cv.metadata if state.structured_cv else None
+        if cv_meta and cv_meta.extra:
+            start_from_scratch = cv_meta.extra.get("start_from_scratch", False)
+            original_cv_text = cv_meta.extra.get("original_cv_text", "")
+        else:
+            start_from_scratch = False
+            original_cv_text = ""
 
         if start_from_scratch:
             logger.info(
                 "Creating empty CV for 'Start from Scratch'.",
                 extra={"trace_id": state.trace_id},
             )
-            return self.create_empty_cv_structure(job_data)
+            return StructuredCV.create_empty(job_data)
         if original_cv_text:
             logger.info("Parsing provided CV text.", extra={"trace_id": state.trace_id})
             return await self.parse_cv_with_llm(original_cv_text, job_data)
@@ -547,7 +439,7 @@ class ParserAgent(EnhancedAgentBase):
             "No CV text and not starting from scratch. Passing CV through.",
             extra={"trace_id": state.trace_id},
         )
-        return state.structured_cv or self.create_empty_cv_structure(job_data)
+        return state.structured_cv or StructuredCV.create_empty(job_data)
 
     def _ensure_current_item_exists(
         self, final_cv: StructuredCV, state: AgentState
@@ -575,7 +467,7 @@ class ParserAgent(EnhancedAgentBase):
         )
 
         if not final_cv:
-            final_cv = self.create_empty_cv_structure(JobDescriptionData(raw_text=""))
+            final_cv = StructuredCV.create_empty(JobDescriptionData(raw_text=""))
         if not final_cv.sections:
             final_cv.sections.append(Section(name="Auto-Generated Section"))
 

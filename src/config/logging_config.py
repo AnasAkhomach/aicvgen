@@ -96,12 +96,20 @@ class StructuredLogger:
     def warning(self, message, **kwargs):
         self._logger.warning(message, extra=kwargs)
 
-    def error(self, message, **kwargs):
+    def error(self, message, *args, **kwargs):
         exc_info = kwargs.pop("exc_info", None)
+        # Handle old-style string formatting
+        if args:
+            message = message % args
         self._logger.error(message, extra=kwargs, exc_info=exc_info)
 
     def debug(self, message, **kwargs):
         self._logger.debug(message, extra=kwargs)
+
+    def log_agent_decision(self, decision_log):
+        """Log agent decision data."""
+        # For compatibility, just log as info with agent decision context
+        self._logger.info("Agent decision", extra={"decision_log": decision_log})
 
 
 def get_structured_logger(name: str) -> "StructuredLogger":

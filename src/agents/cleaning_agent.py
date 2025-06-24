@@ -14,7 +14,8 @@ from ..config.settings import get_config
 from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
 from ..models.data_models import AgentIO, ContentType
 from ..orchestration.state import AgentState
-from ..models.cleaning_agent_models import CleaningAgentNodeResult, CleanedDataModel
+from ..models.agent_output_models import CleaningAgentOutput
+from ..models.cleaning_agent_models import CleanedDataModel
 from ..services.llm_service import EnhancedLLMService
 
 from ..services.progress_tracker import ProgressTracker

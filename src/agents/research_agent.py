@@ -67,7 +67,9 @@ class ResearchAgent(EnhancedAgentBase):
     ) -> "AgentResult":
         try:
             try:
-                validated_input = handle_errors(lambda: input_data)("research")
+                from ..models.validation_schemas import validate_agent_input
+
+                validated_input = validate_agent_input("research", input_data)
                 input_data = validated_input
                 self.log_decision(
                     "Input validation passed for ResearchAgent", context, "validation"
@@ -87,17 +89,21 @@ class ResearchAgent(EnhancedAgentBase):
                 )
             if input_data is None:
                 raise ValueError("input_data cannot be None for research agent")
+
             structured_cv = input_data.structured_cv
             job_desc_data = input_data.job_description_data
+
             if (
                 hasattr(job_desc_data, "company_name")
                 and not job_desc_data.company_name
             ):
-                job_desc_data = job_desc_data.copy(
+                job_desc_data = job_desc_data.model_copy(
                     update={"company_name": "Unknown Company"}
                 )
             if hasattr(job_desc_data, "title") and not job_desc_data.title:
-                job_desc_data = job_desc_data.copy(update={"title": "Unknown Title"})
+                job_desc_data = job_desc_data.model_copy(
+                    update={"title": "Unknown Title"}
+                )
 
             research_findings = await self._perform_research_analysis(
                 structured_cv, job_desc_data
@@ -129,8 +135,18 @@ class ResearchAgent(EnhancedAgentBase):
             experience_level = getattr(
                 job_desc_data, "experience_level", "Not specified"
             )
+            company_name = (
+                getattr(job_desc_data, "company_name", None) or "Unknown Company"
+            )
+            job_title = getattr(job_desc_data, "job_title", None) or "Unknown Position"
+
             job_analysis = await self.analyze_job_description(
-                job_desc_data.raw_text, skills, responsibilities, experience_level
+                job_desc_data.raw_text,
+                skills,
+                responsibilities,
+                experience_level,
+                company_name,
+                job_title,
             )
             company_info = await self._research_company_info(job_desc_data.raw_text)
             relevant_content = []
@@ -237,7 +253,7 @@ class ResearchAgent(EnhancedAgentBase):
                 if item.content:
                     try:
                         metadata = {
-                            "id": item.id,
+                            "id": str(item.id),
                             "section": section.name,
                             "type": str(item.item_type),
                         }
@@ -249,7 +265,7 @@ class ResearchAgent(EnhancedAgentBase):
                     if item.content:
                         try:
                             metadata = {
-                                "id": item.id,
+                                "id": str(item.id),
                                 "section": section.name,
                                 "subsection": subsection.name,
                                 "type": str(item.item_type),
@@ -318,11 +334,16 @@ class ResearchAgent(EnhancedAgentBase):
                 )
             else:
                 section_scores[section.name] = 0.5
-        return section_scores
+        return section_scores @ handle_errors(default_return=None)
 
-    @handle_errors(default_return=None)
     async def analyze_job_description(
-        self, raw_jd, skills, responsibilities, experience_level
+        self,
+        raw_jd,
+        skills,
+        responsibilities,
+        experience_level,
+        company_name,
+        job_title,
     ):
         prompt_path = self.settings.get_prompt_path("job_research_analysis_prompt")
         fallback_template = """
@@ -339,6 +360,8 @@ class ResearchAgent(EnhancedAgentBase):
             skills=", ".join(skills),
             responsibilities=", ".join(responsibilities),
             experience_level=experience_level,
+            company_name=company_name,
+            job_title=job_title,
         )
         analysis = await self._generate_and_parse_json(
             prompt=prompt,
@@ -424,14 +447,17 @@ class ResearchAgent(EnhancedAgentBase):
             result = await self.run_async(agent_input, state)
 
             if result.success:
-                if result.output_data and "research_findings" in result.output_data:
-                    research_findings = result.output_data["research_findings"]
-                    if isinstance(research_findings, dict):
-                        research_findings = ResearchFindings.from_dict(
-                            research_findings
-                        )
-                    logger.info("Research Agent: Successfully completed research")
-                    return {"research_findings": research_findings}
+                if result.output_data and hasattr(
+                    result.output_data, "research_findings"
+                ):
+                    research_findings = result.output_data.research_findings
+                    if research_findings:
+                        logger.info("Research Agent: Successfully completed research")
+                        return {"research_findings": research_findings}
+                    else:
+                        error_msg = "Research Agent: No research findings in result"
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg)
                 else:
                     error_msg = "Research Agent: No research findings in result"
                     logger.error(error_msg)

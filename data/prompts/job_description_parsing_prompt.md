@@ -1,20 +1,9 @@
 ---
 name: job_description_parser
 category: prompt
-content_type: job_description
-description: Job description parsing prompt for LLM
+content_type: job_analysis
+description: Prompt for parsing job descriptions into structured fields.
 ---
-
-You will extract key information from the job description below:
-
-Your task is to act as an expert job description analyzer. Extract the key information from the following job description text and provide it in a structured JSON format.
-
-**Job Description:**
-
-```text
-{raw_text}
-```
-
 **Instructions:**
 
 1. Read the job description carefully.

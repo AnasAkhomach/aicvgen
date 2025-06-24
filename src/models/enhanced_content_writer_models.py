@@ -31,8 +31,7 @@ class ContentWriterGenerationContext(BaseModel):
     # Add more fields as needed
 
 
-class ContentWriterResult(BaseModel):
-    """Result of the content writer agent's generation process."""
-
-    structured_cv: Any
-    error_messages: Optional[List[str]] = Field(default_factory=list)
+# DEPRECATED: Use EnhancedContentWriterOutput from agent_output_models.py instead.
+# class ContentWriterResult(BaseModel):
+#     structured_cv: Any
+#     error_messages: Optional[List[str]] = Field(default_factory=list)

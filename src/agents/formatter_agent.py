@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from ..config.logging_config import get_structured_logger
 from ..models.data_models import AgentIO, ContentData, StructuredCV
-from ..models.formatter_agent_models import FormatterAgentNodeResult
+from ..models.agent_output_models import FormatterAgentOutput
 from ..models.validation_schemas import validate_agent_input
 from ..orchestration.state import AgentState
 
@@ -216,12 +216,12 @@ class FormatterAgent(EnhancedAgentBase):
             logger.error(f"Error rendering template: {e}")
             return "Error rendering CV from template."
 
-    async def run(self, state_or_content: Any) -> FormatterAgentNodeResult:
+    async def run(self, state_or_content: Any) -> FormatterAgentOutput:
         """Main run method for the formatter agent."""
         try:
             params = self._prepare_run_parameters(state_or_content)
             if params.get("error_message"):
-                return FormatterAgentNodeResult(
+                return FormatterAgentOutput(
                     final_output_path=None,
                     error_message=params["error_message"],
                 )
@@ -239,12 +239,10 @@ class FormatterAgent(EnhancedAgentBase):
                 final_path = self._generate_html_file(
                     structured_cv, template_name, output_path
                 )
-            return FormatterAgentNodeResult(final_output_path=final_path)
+            return FormatterAgentOutput(final_output_path=final_path)
         except AgentExecutionError as e:
             logger.error(f"FormatterAgent.run error: {e}", exc_info=True)
-            return FormatterAgentNodeResult(
-                final_output_path=None, error_message=str(e)
-            )
+            return FormatterAgentOutput(final_output_path=None, error_message=str(e))
 
     def _prepare_run_parameters(self, state_or_content: Any) -> Dict[str, Any]:
         """Extracts and validates run parameters from input."""

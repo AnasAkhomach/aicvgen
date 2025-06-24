@@ -342,6 +342,128 @@ class StructuredCV(BaseModel):
                         items.append(item)
         return items
 
+    @staticmethod
+    def create_empty(job_data: Optional["JobDescriptionData"] = None) -> "StructuredCV":
+        """
+        Creates an empty CV structure for the "Start from Scratch" option.
+        """
+        structured_cv = StructuredCV()
+        # Add metadata - handle both dict and JobDescriptionData object types
+        if job_data:
+            if hasattr(job_data, "to_dict"):
+                structured_cv.metadata.extra["job_description"] = job_data.to_dict()
+            elif hasattr(job_data, "model_dump"):
+                structured_cv.metadata.extra["job_description"] = job_data.model_dump()
+            elif isinstance(job_data, dict):
+                structured_cv.metadata.extra["job_description"] = job_data
+            else:
+                structured_cv.metadata.extra["job_description"] = {}
+        else:
+            structured_cv.metadata.extra["job_description"] = {}
+        structured_cv.metadata.extra["start_from_scratch"] = True
+
+        # Create standard CV sections with proper order
+        sections = [
+            {"name": "Executive Summary", "type": "DYNAMIC", "order": 0},
+            {"name": "Key Qualifications", "type": "DYNAMIC", "order": 1},
+            {"name": "Professional Experience", "type": "DYNAMIC", "order": 2},
+            {"name": "Project Experience", "type": "DYNAMIC", "order": 3},
+            {"name": "Education", "type": "STATIC", "order": 4},
+            {"name": "Certifications", "type": "STATIC", "order": 5},
+            {"name": "Languages", "type": "STATIC", "order": 6},
+        ]
+
+        for section_info in sections:
+            section = Section(
+                name=section_info["name"],
+                content_type=section_info["type"],
+                order=section_info["order"],
+                items=[],
+                subsections=[],
+            )
+            # Ensure section.items and section.subsections are lists
+            if not isinstance(section.items, list):
+                section.items = list(section.items) if section.items else []
+            if not isinstance(section.subsections, list):
+                section.subsections = (
+                    list(section.subsections) if section.subsections else []
+                )
+            if section.name == "Executive Summary":
+                section.items.append(
+                    Item(
+                        content="",
+                        status=ItemStatus.TO_REGENERATE,
+                        item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
+                    )
+                )
+            if section.name == "Key Qualifications":
+                skills = None
+                if job_data:
+                    if hasattr(job_data, "skills"):
+                        skills = job_data.skills
+                    elif isinstance(job_data, dict) and "skills" in job_data:
+                        skills = job_data["skills"]
+                if skills:
+                    for skill in skills[:8]:
+                        section.items.append(
+                            Item(
+                                content=skill,
+                                status=ItemStatus.TO_REGENERATE,
+                                item_type=ItemType.KEY_QUALIFICATION,
+                            )
+                        )
+                else:
+                    for i in range(6):
+                        section.items.append(
+                            Item(
+                                content=f"Key qualification {i+1}",
+                                status=ItemStatus.TO_REGENERATE,
+                                item_type=ItemType.KEY_QUALIFICATION,
+                            )
+                        )
+            if section.name == "Professional Experience":
+                subsection = Subsection(name="Position Title at Company Name", items=[])
+                if not isinstance(subsection.items, list):
+                    subsection.items = (
+                        list(subsection.items) if subsection.items else []
+                    )
+                for _ in range(3):
+                    subsection.items.append(
+                        Item(
+                            content="",
+                            status=ItemStatus.TO_REGENERATE,
+                            item_type=ItemType.BULLET_POINT,
+                        )
+                    )
+                section.subsections.append(subsection)
+            if section.name == "Project Experience":
+                subsection = Subsection(name="Project Name", items=[])
+                if not isinstance(subsection.items, list):
+                    subsection.items = (
+                        list(subsection.items) if subsection.items else []
+                    )
+                for _ in range(2):
+                    subsection.items.append(
+                        Item(
+                            content="",
+                            status=ItemStatus.TO_REGENERATE,
+                            item_type=ItemType.BULLET_POINT,
+                        )
+                    )
+                # Final check before append
+                if not isinstance(section.subsections, list):
+                    section.subsections = (
+                        list(section.subsections) if section.subsections else []
+                    )
+                section.subsections.append(subsection)
+            # Ensure structured_cv.sections is a list before appending
+            if not isinstance(structured_cv.sections, list):
+                structured_cv.sections = (
+                    list(structured_cv.sections) if structured_cv.sections else []
+                )
+            structured_cv.sections.append(section)
+        return structured_cv
+
     def to_content_data(self) -> Dict[str, Any]:
         """Convert StructuredCV to ContentData format for backward compatibility."""
         # Ensure self.metadata is a MetadataModel instance

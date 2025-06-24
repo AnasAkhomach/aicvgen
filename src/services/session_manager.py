@@ -567,9 +567,15 @@ class SessionManager:
         try:
             yield session_info
         finally:
-            # Auto-save on exit
-            if session_id in self.active_sessions:
-                self._save_session(session_id)
+            # Auto-save on exit            if session_id in self.active_sessions:
+            self._save_session(session_id)
+
+    def get_next_item_for_generation(self, session_id: str) -> Optional[str]:
+        """Get the next item ID that needs content generation."""
+        # For now, return None to indicate no more items to process
+        # This method should be implemented based on the actual queue logic
+        # when the content generation workflow is fully defined
+        return None
 
     def shutdown(self):
         """Shutdown the session manager."""

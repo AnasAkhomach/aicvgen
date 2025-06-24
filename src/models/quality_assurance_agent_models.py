@@ -31,6 +31,7 @@ class OverallQualityCheckResultModel(BaseModel):
     details: Optional[str] = None
 
 
-class QualityAssuranceResult(BaseModel):
-    section_results: List[SectionQualityResultModel]
-    overall_checks: List[OverallQualityCheckResultModel]
+# DEPRECATED: Use QualityAssuranceAgentOutput from agent_output_models.py instead.
+# class QualityAssuranceResult(BaseModel):
+#     section_results: List[SectionQualityResultModel]
+#     overall_checks: List[OverallQualityCheckResultModel]

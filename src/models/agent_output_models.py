@@ -6,12 +6,12 @@ validation for agent outputs according to Task C-03.
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .data_models import JobDescriptionData, StructuredCV
-from .quality_assurance_agent_models import QualityAssuranceResult
 from .cv_analysis_result import CVAnalysisResult
 from .cv_analyzer_models import BasicCVInfo
+from .research_models import ResearchFindings
 
 
 class ParserAgentOutput(BaseModel):
@@ -68,7 +68,7 @@ class CVAnalyzerAgentOutput(BaseModel):
 class QualityAssuranceAgentOutput(BaseModel):
     """Output model for QualityAssuranceAgent run_async method."""
 
-    quality_check_results: Optional[QualityAssuranceResult] = Field(
+    quality_check_results: Optional[Dict[str, Any]] = Field(
         default=None, description="Quality assessment results"
     )
     passed_checks: List[str] = Field(
@@ -96,7 +96,7 @@ class FormatterAgentOutput(BaseModel):
 class ResearchAgentOutput(BaseModel):
     """Output model for ResearchAgent run_async method."""
 
-    research_findings: Optional[Dict[str, Any]] = Field(
+    research_findings: Optional[ResearchFindings] = Field(
         default=None, description="Research findings and insights"
     )
     sources: List[str] = Field(
@@ -108,3 +108,17 @@ class ResearchAgentOutput(BaseModel):
         le=1.0,
         description="Confidence level of research findings",
     )
+
+    @field_validator("research_findings", mode="before")
+    @classmethod
+    def validate_research_findings(cls, v):
+        """Convert dict to ResearchFindings if needed."""
+        if v is None:
+            return v
+        if isinstance(v, dict):
+            return ResearchFindings.from_dict(v)
+        if isinstance(v, ResearchFindings):
+            return v
+        raise ValueError(
+            f"research_findings must be a dict or ResearchFindings instance, got {type(v)}"
+        )

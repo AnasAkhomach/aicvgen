@@ -10,6 +10,7 @@ class CleanedDataModel(BaseModel):
     output_type: Optional[str] = None
 
 
-class CleaningAgentNodeResult(BaseModel):
-    cleaned_data: dict = Field(default_factory=dict)
-    processing_status: ProcessingStatus = ProcessingStatus.FAILED
+# DEPRECATED: Use CleaningAgentOutput from agent_output_models.py instead.
+# class CleaningAgentNodeResult(BaseModel):
+#     cleaned_data: dict = Field(default_factory=dict)
+#     processing_status: ProcessingStatus = ProcessingStatus.FAILED
