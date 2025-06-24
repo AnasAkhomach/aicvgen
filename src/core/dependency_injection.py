@@ -2,10 +2,9 @@
 
 import threading
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Type, TypeVar, Callable, List, Union
+from typing import Any, Dict, Optional, Type, TypeVar, Callable, List
 from dataclasses import dataclass, field
 from enum import Enum
-import weakref
 import time
 from datetime import datetime, timedelta
 import google.generativeai as genai
@@ -20,7 +19,7 @@ from ..utils.error_handling import (
 from ..services.llm_client import LLMClient
 from ..services.llm_retry_handler import LLMRetryHandler
 from ..services.llm_service import EnhancedLLMService, AdvancedCache
-from ..utils.error_classification import get_retry_delay_for_error, is_retryable_error
+from ..utils.error_classification import is_retryable_error
 from ..config.settings import Settings
 from ..services.rate_limiter import RateLimiter
 from ..services.error_recovery import ErrorRecoveryService
@@ -95,17 +94,14 @@ class IDependencyProvider(ABC):
     @abstractmethod
     def get(self, dependency_type: Type[T], name: Optional[str] = None) -> T:
         """Get a dependency instance."""
-        pass
 
     @abstractmethod
     def register(self, metadata: DependencyMetadata) -> None:
         """Register a dependency."""
-        pass
 
     @abstractmethod
     def dispose(self, name: str) -> None:
         """Dispose of a dependency."""
-        pass
 
 
 class DependencyContainer(IDependencyProvider):
@@ -206,74 +202,10 @@ class DependencyContainer(IDependencyProvider):
         )
         self.register(metadata)
 
-    def get(self, dependency_type: Type[T], name: Optional[str] = None) -> T:
-        """Get a dependency instance."""
-        if name is None:
-            name = dependency_type.__name__
-
-        with self._lock:
-            if name not in self._registrations:
-                raise ValueError(f"Dependency '{name}' not registered")
-
-            metadata = self._registrations[name]
-
-            # Check for existing instance based on scope
-            existing_instance = self._get_existing_instance(name, metadata)
-            if existing_instance:
-                existing_instance.mark_accessed()
-                self._stats["cache_hits"] += 1
-                return existing_instance.instance
-
-            # Create new instance
-            self._stats["cache_misses"] += 1
-            return self._create_instance(name, metadata)
-
-    def get_or_create(
-        self,
-        dependency_type: Type[T],
-        name: Optional[str] = None,
-        factory: Optional[Callable[[], T]] = None,
-        scope: LifecycleScope = LifecycleScope.SINGLETON,
-    ) -> T:
-        """Get an existing dependency or create and register it if it doesn't exist."""
-        if name is None:
-            name = dependency_type.__name__
-
-        with self._lock:
-            # If already registered, just get it
-            if name in self._registrations:
-                return self.get(dependency_type, name)
-
-            # Register and create new dependency
-            metadata = DependencyMetadata(
-                name=name,
-                dependency_type=dependency_type,
-                scope=scope,
-                factory=factory,
-                dependencies=[],
-                lazy=True,
-            )
-            self.register(metadata)
-
-            # Now get the newly registered dependency
-            return self.get(dependency_type, name)
-
-    def _get_existing_instance(
+    def _create_instance(
         self, name: str, metadata: DependencyMetadata
-    ) -> Optional[DependencyInstance]:
-        """Get existing instance if available based on scope."""
-        if metadata.scope == LifecycleScope.SINGLETON:
-            return self._instances.get(name)
-        elif metadata.scope == LifecycleScope.SESSION and self.session_id:
-            session_instances = self._session_instances.get(self.session_id, {})
-            return session_instances.get(name)
-        elif metadata.scope == LifecycleScope.TRANSIENT:
-            return None  # Always create new instance
-
-        return None
-
-    def _create_instance(self, name: str, metadata: DependencyMetadata) -> Any:
-        """Create a new instance of a dependency."""
+    ) -> DependencyInstance:
+        """Create a new instance of a dependency and return a DependencyInstance."""
         if name in self._creating:
             raise ValueError(f"Circular dependency detected for '{name}'")
 
@@ -287,8 +219,9 @@ class DependencyContainer(IDependencyProvider):
             resolved_deps = {}
             for dep_name in metadata.dependencies:
                 if dep_name in self._registrations:
-                    dep_metadata = self._registrations[dep_name]
-                    resolved_deps[dep_name] = self._get_by_name_internal(dep_name)
+                    resolved_deps[dep_name] = self._get_by_name_internal(
+                        dep_name
+                    ).instance
 
             # Create instance
             if metadata.factory:
@@ -335,7 +268,7 @@ class DependencyContainer(IDependencyProvider):
                 scope=metadata.scope.value,
             )
 
-            return instance
+            return dep_instance
 
         except Exception as e:
             error_msg = f"Failed to create dependency '{name}': {str(e)}"
@@ -354,6 +287,72 @@ class DependencyContainer(IDependencyProvider):
         finally:
             self._creating.discard(name)
 
+    def get(self, dependency_type: Type[T], name: Optional[str] = None) -> T:
+        """Get a dependency instance."""
+        if name is None:
+            name = dependency_type.__name__
+
+        with self._lock:
+            if name not in self._registrations:
+                raise ValueError(f"Dependency '{name}' not registered")
+
+            metadata = self._registrations[name]
+
+            # Check for existing instance based on scope
+            existing_instance = self._get_existing_instance(name, metadata)
+            if existing_instance:
+                existing_instance.mark_accessed()
+                self._stats["cache_hits"] += 1
+                return existing_instance.instance
+
+            # Create new instance
+            self._stats["cache_misses"] += 1
+            return self._create_instance(name, metadata).instance
+
+    def get_or_create(
+        self,
+        dependency_type: Type[T],
+        name: Optional[str] = None,
+        factory: Optional[Callable[[], T]] = None,
+        scope: LifecycleScope = LifecycleScope.SINGLETON,
+    ) -> T:
+        """Get an existing dependency or create and register it if it doesn't exist."""
+        if name is None:
+            name = dependency_type.__name__
+
+        with self._lock:
+            # If already registered, just get it
+            if name in self._registrations:
+                return self.get(dependency_type, name)
+
+            # Register and create new dependency
+            metadata = DependencyMetadata(
+                name=name,
+                dependency_type=dependency_type,
+                scope=scope,
+                factory=factory,
+                dependencies=[],
+                lazy=True,
+            )
+            self.register(metadata)
+
+            # Now get the newly registered dependency
+            return self.get(dependency_type, name)
+
+    def _get_existing_instance(
+        self, name: str, metadata: DependencyMetadata
+    ) -> Optional[DependencyInstance]:
+        """Get existing instance if available based on scope."""
+        if metadata.scope == LifecycleScope.SINGLETON:
+            return self._instances.get(name)
+        elif metadata.scope == LifecycleScope.SESSION and self.session_id:
+            session_instances = self._session_instances.get(self.session_id, {})
+            return session_instances.get(name)
+        elif metadata.scope == LifecycleScope.TRANSIENT:
+            return None  # Always create new instance
+
+        return None
+
     def dispose(self, name: str) -> None:
         """Dispose of a dependency instance."""
         with self._lock:
@@ -363,7 +362,7 @@ class DependencyContainer(IDependencyProvider):
                 self._dispose_instance(instance)
 
             # Remove from session instances
-            for session_id, session_instances in self._session_instances.items():
+            for session_instances in self._session_instances.values():
                 if name in session_instances:
                     instance = session_instances.pop(name)
                     self._dispose_instance(instance)
@@ -384,11 +383,13 @@ class DependencyContainer(IDependencyProvider):
 
             logger.debug(f"Dependency disposed: {dep_instance.metadata.name}")
 
-        except Exception as e:
+        except (
+            Exception
+        ) as exc:  # linter: justified, must catch all for resource cleanup
             dep_instance.state = DependencyState.ERROR
-            dep_instance.error = e
+            dep_instance.error = exc
             logger.error(
-                f"Error disposing dependency {dep_instance.metadata.name}: {e}"
+                f"Error disposing dependency {dep_instance.metadata.name}: {exc}"
             )
 
     def dispose_session(self, session_id: str) -> None:
@@ -400,7 +401,7 @@ class DependencyContainer(IDependencyProvider):
                     self._dispose_instance(instance)
 
                 logger.info(
-                    f"Session dependencies disposed",
+                    "Session dependencies disposed",
                     session_id=session_id,
                     count=len(session_instances),
                 )
@@ -421,7 +422,7 @@ class DependencyContainer(IDependencyProvider):
                     to_dispose.append((name, instance))
 
             # Check session instances
-            for session_id, session_instances in self._session_instances.items():
+            for session_instances in self._session_instances.values():
                 for name, instance in session_instances.items():
                     if (
                         instance.metadata.max_idle_time
@@ -458,8 +459,10 @@ class DependencyContainer(IDependencyProvider):
                     time.sleep(60)  # Run cleanup every minute
                     if not self._shutdown:
                         self.cleanup_idle_instances()
-                except Exception as e:
-                    logger.error(f"Error in cleanup thread: {e}")
+                except (
+                    Exception
+                ) as exc:  # linter: justified, must catch all for background thread
+                    logger.error(f"Error in cleanup thread: {exc}")
 
         self._cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
         self._cleanup_thread.start()
@@ -481,195 +484,7 @@ class DependencyContainer(IDependencyProvider):
 
             logger.info("Dependency container shutdown complete")
 
-    def register_agents(self) -> None:
-        """Register all agents with proper dependency injection."""
-        from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
-        from ..agents.parser_agent import ParserAgent
-        from ..agents.quality_assurance_agent import QualityAssuranceAgent
-        from ..agents.formatter_agent import FormatterAgent
-        from ..agents.research_agent import ResearchAgent
-        from ..agents.cv_analyzer_agent import CVAnalyzerAgent
-        from ..agents.cleaning_agent import CleaningAgent
-        from ..services.error_recovery import ErrorRecoveryService
-        from ..services.progress_tracker import ProgressTracker
-        from ..services.vector_store_service import VectorStoreService
-        from ..config.settings import Settings
-
-        settings = self.get(Settings, "settings")
-
-        self.register_singleton(
-            name="ParserAgent",
-            dependency_type=ParserAgent,
-            factory=lambda: ParserAgent(
-                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
-                vector_store_service=self.get(VectorStoreService, "VectorStoreService"),
-                error_recovery_service=self.get(
-                    ErrorRecoveryService, "ErrorRecoveryService"
-                ),
-                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
-                settings=settings,
-            ),
-            dependencies=[
-                "EnhancedLLMService",
-                "VectorStoreService",
-                "ErrorRecoveryService",
-                "ProgressTracker",
-                "settings",
-            ],
-        )
-
-        self.register_singleton(
-            name="EnhancedContentWriterAgent",
-            dependency_type=EnhancedContentWriterAgent,
-            factory=lambda: EnhancedContentWriterAgent(
-                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
-                error_recovery_service=self.get(
-                    ErrorRecoveryService, "ErrorRecoveryService"
-                ),
-                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
-                parser_agent=self.get(ParserAgent, "ParserAgent"),
-                settings=settings,
-            ),
-            dependencies=[
-                "EnhancedLLMService",
-                "ErrorRecoveryService",
-                "ProgressTracker",
-                "ParserAgent",
-                "settings",
-            ],
-        )
-
-        self.register_singleton(
-            name="QualityAssuranceAgent",
-            dependency_type=QualityAssuranceAgent,
-            factory=lambda: QualityAssuranceAgent(
-                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
-                error_recovery_service=self.get(
-                    ErrorRecoveryService, "ErrorRecoveryService"
-                ),
-                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
-            ),
-            dependencies=[
-                "EnhancedLLMService",
-                "ErrorRecoveryService",
-                "ProgressTracker",
-            ],
-        )
-
-        self.register_singleton(
-            name="FormatterAgent",
-            dependency_type=FormatterAgent,
-            factory=lambda: FormatterAgent(
-                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
-                error_recovery_service=self.get(
-                    ErrorRecoveryService, "ErrorRecoveryService"
-                ),
-                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
-            ),
-            dependencies=[
-                "EnhancedLLMService",
-                "ErrorRecoveryService",
-                "ProgressTracker",
-            ],
-        )
-
-        self.register_singleton(
-            name="ResearchAgent",
-            dependency_type=ResearchAgent,
-            factory=lambda: ResearchAgent(
-                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
-                error_recovery_service=self.get(
-                    ErrorRecoveryService, "ErrorRecoveryService"
-                ),
-                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
-                vector_db=self.get(VectorStoreService, "VectorStoreService"),
-                settings=settings,
-            ),
-            dependencies=[
-                "EnhancedLLMService",
-                "ErrorRecoveryService",
-                "ProgressTracker",
-                "VectorStoreService",
-                "settings",
-            ],
-        )
-
-        self.register_singleton(
-            name="CVAnalyzerAgent",
-            dependency_type=CVAnalyzerAgent,
-            factory=lambda: CVAnalyzerAgent(
-                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
-                settings=settings,
-                error_recovery_service=self.get(
-                    ErrorRecoveryService, "ErrorRecoveryService"
-                ),
-                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
-            ),
-            dependencies=[
-                "EnhancedLLMService",
-                "settings",
-                "ErrorRecoveryService",
-                "ProgressTracker",
-            ],
-        )
-
-        self.register_singleton(
-            name="CleaningAgent",
-            dependency_type=CleaningAgent,
-            factory=lambda: CleaningAgent(
-                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
-                error_recovery_service=self.get(
-                    ErrorRecoveryService, "ErrorRecoveryService"
-                ),
-                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
-            ),
-            dependencies=[
-                "EnhancedLLMService",
-                "ErrorRecoveryService",
-                "ProgressTracker",
-            ],
-        )
-
-        logger.info("All agents registered successfully with dependency injection")
-
-    def register_agents_and_services(self):
-        """Register all agents and services with explicit constructor-based DI."""
-        from ..agents.parser_agent import ParserAgent
-        from ..services.error_recovery import ErrorRecoveryService
-        from ..services.progress_tracker import ProgressTracker
-
-        # Example: Register EnhancedLLMService with all dependencies injected
-        self.register_singleton(
-            name="enhanced_llm_service",
-            dependency_type=EnhancedLLMService,
-            factory=lambda: EnhancedLLMService(
-                settings=self.get("settings"),
-                llm_client=self.get(LLMClient),
-                llm_retry_handler=self.get(LLMRetryHandler),
-                cache=self.get("advanced_cache"),
-                timeout=30,
-                rate_limiter=self.get("rate_limiter"),
-                error_recovery=self.get("error_recovery"),
-                performance_optimizer=self.get("performance_optimizer"),
-                async_optimizer=None,
-                user_api_key=None,
-            ),
-        )
-        # Register ParserAgent with explicit dependencies
-        self.register_transient(
-            name="parser_agent",
-            dependency_type=ParserAgent,
-            factory=lambda: ParserAgent(
-                llm_service=self.get(EnhancedLLMService),
-                vector_store_service=self.get("vector_store_service"),
-                error_recovery_service=self.get(ErrorRecoveryService),
-                progress_tracker=self.get(ProgressTracker),
-                settings=self.get("settings"),
-            ),
-        )
-        # ...repeat for all other agents and services...
-
-    def _get_by_name_internal(self, name: str) -> Any:
+    def _get_by_name_internal(self, name: str) -> DependencyInstance:
         """
         Internal method to get a dependency by name without acquiring locks.
         Should only be called when the caller already holds self._lock.
@@ -683,30 +498,30 @@ class DependencyContainer(IDependencyProvider):
                 self._instances[name] = self._create_instance(name, metadata)
             dep_instance = self._instances[name]
             dep_instance.mark_accessed()
-            return dep_instance.instance
+            return dep_instance
 
         if metadata.scope == LifecycleScope.SESSION:
-            if not self._session_id:
+            if not self.session_id:
                 raise ValueError("Session scope requires a session_id.")
-            if self._session_id not in self._session_instances:
-                self._session_instances[self._session_id] = {}
-            if name not in self._session_instances[self._session_id]:
-                self._session_instances[self._session_id][name] = self._create_instance(
+            if self.session_id not in self._session_instances:
+                self._session_instances[self.session_id] = {}
+            if name not in self._session_instances[self.session_id]:
+                self._session_instances[self.session_id][name] = self._create_instance(
                     name, metadata
                 )
-            dep_instance = self._session_instances[self._session_id][name]
+            dep_instance = self._session_instances[self.session_id][name]
             dep_instance.mark_accessed()
-            return dep_instance.instance
+            return dep_instance
 
         if metadata.scope == LifecycleScope.TRANSIENT:
-            return self._create_instance(name, metadata).instance
+            return self._create_instance(name, metadata)
 
         raise NotImplementedError(f"Lifecycle scope {metadata.scope} not implemented.")
 
     def get_by_name(self, name: str) -> Any:
         """Get a dependency instance by name."""
         with self._lock:
-            return self._get_by_name_internal(name)
+            return self._get_by_name_internal(name).instance
 
 
 def build_llm_service(
@@ -770,8 +585,8 @@ def build_llm_service(
         def target():
             try:
                 result[0] = func()
-            except Exception as e:
-                exception[0] = e
+            except Exception as exc:  # linter: justified, must catch all for timeout
+                exception[0] = exc
 
         thread = threading.Thread(target=target, daemon=True)
         thread.start()
@@ -783,9 +598,12 @@ def build_llm_service(
                 "This might be due to network issues or invalid API key."
             )
 
-        if exception[0]:
-            raise exception[0]
-
+        if exception[0] is not None:
+            if isinstance(exception[0], BaseException):
+                raise exception[0]
+            raise RuntimeError(
+                f"Unexpected non-exception raised in run_with_timeout: {exception[0]}"
+            )
         return result[0]
 
     # Configure the Google Generative AI client with the API key (with timeout)
@@ -793,11 +611,11 @@ def build_llm_service(
         logger.info("Configuring Google Generative AI client...")
         run_with_timeout(lambda: genai.configure(api_key=api_key), timeout_seconds=10)
         logger.info("Google Generative AI client configured successfully")
-    except Exception as e:
+    except Exception as exc:  # Narrowed variable name
         raise ConfigurationError(
-            f"Failed to configure Google Generative AI client: {e}. "
+            f"Failed to configure Google Generative AI client: {exc}. "
             "Please check your API key and network connection."
-        ) from e
+        ) from exc
 
     # Create the LLM model with proper error handling (with timeout)
     try:
@@ -809,11 +627,11 @@ def build_llm_service(
         logger.info(
             "LLM model created successfully", model=settings.llm_settings.default_model
         )
-    except Exception as e:
+    except Exception as exc:  # Narrowed variable name
         raise ConfigurationError(
-            f"Failed to create LLM model '{settings.llm_settings.default_model}': {e}. "
+            f"Failed to create LLM model '{settings.llm_settings.default_model}': {exc}. "
             "Please check your model name and API key."
-        ) from e
+        ) from exc
 
     logger.info("Creating LLMClient...")
     llm_client = LLMClient(llm_model)
@@ -845,42 +663,10 @@ def build_llm_service(
     return service
 
 
-def register_services(container: "DependencyContainer"):
-    """Register services required by agents."""
-    # Import services locally to avoid circular imports
-    from ..services.vector_store_service import VectorStoreService
-    from ..services.progress_tracker import ProgressTracker
-    from ..templates.content_templates import ContentTemplateManager
-
-    # Register VectorStoreService with settings dependency
-    container.register_singleton(
-        name="VectorStoreService",
-        dependency_type=VectorStoreService,
-        factory=lambda: VectorStoreService(
-            settings=container.get(Settings, "settings")
-        ),
-    )
-    # Register ProgressTracker
-    container.register_singleton(
-        name="ProgressTracker",
-        dependency_type=ProgressTracker,
-        factory=ProgressTracker,
-    )
-    # Register ContentTemplateManager
-    container.register_singleton(
-        name="ContentTemplateManager",
-        dependency_type=ContentTemplateManager,
-        factory=ContentTemplateManager,
-    )
-    # NOTE: EnhancedLLMService is now registered in register_core_services() to avoid duplication
-
-
-def register_core_services(container: "DependencyContainer"):
-    """Register all core application services as singletons."""
-    # Settings and Configuration
+def configure_container(container: "DependencyContainer"):
+    """Configure the dependency injection container with all agents and services."""
+    # Settings and Core Services
     container.register_singleton("settings", Settings, factory=Settings)
-
-    # Core Services
     container.register_singleton("RateLimiter", RateLimiter)
     container.register_singleton("AdvancedCache", AdvancedCache)
     container.register_singleton("ErrorHandler", ErrorHandler)
@@ -907,27 +693,171 @@ def register_core_services(container: "DependencyContainer"):
         factory=llm_service_factory,
     )
 
+    # Vector Store, Progress Tracker, Content Template Manager
+    from ..services.vector_store_service import VectorStoreService
+    from ..services.progress_tracker import ProgressTracker
+    from ..templates.content_templates import ContentTemplateManager
 
-# Global container instance
-_global_container: Optional[DependencyContainer] = None
-_container_lock = threading.Lock()
+    container.register_singleton(
+        name="VectorStoreService",
+        dependency_type=VectorStoreService,
+        factory=lambda: VectorStoreService(
+            settings=container.get(Settings, "settings")
+        ),
+    )
+    container.register_singleton(
+        name="ProgressTracker",
+        dependency_type=ProgressTracker,
+        factory=ProgressTracker,
+    )
+    container.register_singleton(
+        name="ContentTemplateManager",
+        dependency_type=ContentTemplateManager,
+        factory=ContentTemplateManager,
+    )
+
+    # Agents
+    from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
+    from ..agents.parser_agent import ParserAgent
+    from ..agents.quality_assurance_agent import QualityAssuranceAgent
+    from ..agents.formatter_agent import FormatterAgent
+    from ..agents.research_agent import ResearchAgent
+    from ..agents.cv_analyzer_agent import CVAnalyzerAgent
+    from ..agents.cleaning_agent import CleaningAgent
+
+    settings = container.get(Settings, "settings")
+    template_manager = container.get(ContentTemplateManager, "ContentTemplateManager")
+
+    container.register_singleton(
+        name="ParserAgent",
+        dependency_type=ParserAgent,
+        factory=lambda: ParserAgent(
+            llm_service=container.get(EnhancedLLMService, "EnhancedLLMService"),
+            vector_store_service=container.get(
+                VectorStoreService, "VectorStoreService"
+            ),
+            progress_tracker=container.get(ProgressTracker, "ProgressTracker"),
+            settings=settings.agent if hasattr(settings, "agent") else settings,
+            template_manager=template_manager,
+        ),
+        dependencies=[
+            "EnhancedLLMService",
+            "VectorStoreService",
+            "ProgressTracker",
+            "settings",
+            "ContentTemplateManager",
+        ],
+    )
+
+    container.register_singleton(
+        name="EnhancedContentWriterAgent",
+        dependency_type=EnhancedContentWriterAgent,
+        factory=lambda: EnhancedContentWriterAgent(
+            llm_service=container.get(EnhancedLLMService, "EnhancedLLMService"),
+            progress_tracker=container.get(ProgressTracker, "ProgressTracker"),
+            parser_agent=container.get(ParserAgent, "ParserAgent"),
+            settings=settings.agent if hasattr(settings, "agent") else settings,
+        ),
+        dependencies=[
+            "EnhancedLLMService",
+            "ProgressTracker",
+            "ParserAgent",
+            "settings",
+        ],
+    )
+
+    container.register_singleton(
+        name="QualityAssuranceAgent",
+        dependency_type=QualityAssuranceAgent,
+        factory=lambda: QualityAssuranceAgent(
+            llm_service=container.get(EnhancedLLMService, "EnhancedLLMService"),
+            progress_tracker=container.get(ProgressTracker, "ProgressTracker"),
+            template_manager=template_manager,
+        ),
+        dependencies=[
+            "EnhancedLLMService",
+            "ProgressTracker",
+            "ContentTemplateManager",
+        ],
+    )
+
+    container.register_singleton(
+        name="FormatterAgent",
+        dependency_type=FormatterAgent,
+        factory=lambda: FormatterAgent(
+            llm_service=container.get(EnhancedLLMService, "EnhancedLLMService"),
+            progress_tracker=container.get(ProgressTracker, "ProgressTracker"),
+            template_manager=template_manager,
+        ),
+        dependencies=[
+            "EnhancedLLMService",
+            "ProgressTracker",
+            "ContentTemplateManager",
+        ],
+    )
+
+    container.register_singleton(
+        name="ResearchAgent",
+        dependency_type=ResearchAgent,
+        factory=lambda: ResearchAgent(
+            llm_service=container.get(EnhancedLLMService, "EnhancedLLMService"),
+            progress_tracker=container.get(ProgressTracker, "ProgressTracker"),
+            vector_db=container.get(VectorStoreService, "VectorStoreService"),
+            settings=settings.agent if hasattr(settings, "agent") else settings,
+            template_manager=template_manager,
+        ),
+        dependencies=[
+            "EnhancedLLMService",
+            "ProgressTracker",
+            "VectorStoreService",
+            "settings",
+            "ContentTemplateManager",
+        ],
+    )
+
+    container.register_singleton(
+        name="CVAnalyzerAgent",
+        dependency_type=CVAnalyzerAgent,
+        factory=lambda: CVAnalyzerAgent(
+            config={
+                "llm_service": container.get(EnhancedLLMService, "EnhancedLLMService"),
+                "settings": settings.agent if hasattr(settings, "agent") else settings,
+                "progress_tracker": container.get(ProgressTracker, "ProgressTracker"),
+                "template_manager": template_manager,
+                "name": "CVAnalyzerAgent",
+                "description": "Agent responsible for analyzing the user's CV and extracting relevant information",
+            }
+        ),
+        dependencies=[
+            "EnhancedLLMService",
+            "settings",
+            "ProgressTracker",
+            "ContentTemplateManager",
+        ],
+    )
+
+    container.register_singleton(
+        name="CleaningAgent",
+        dependency_type=CleaningAgent,
+        factory=lambda: CleaningAgent(
+            llm_service=container.get(EnhancedLLMService, "EnhancedLLMService"),
+            progress_tracker=container.get(ProgressTracker, "ProgressTracker"),
+            template_manager=template_manager,
+        ),
+        dependencies=[
+            "EnhancedLLMService",
+            "ProgressTracker",
+            "ContentTemplateManager",
+        ],
+    )
+    logger.info(
+        "All agents and services registered successfully with dependency injection"
+    )
 
 
-def get_container(session_id: Optional[str] = None) -> "DependencyContainer":
-    """Get the global dependency container."""
-    global _global_container
-
-    with _container_lock:
-        if _global_container is None:
-            _global_container = DependencyContainer(session_id)
-        return _global_container
-
-
-def reset_container() -> None:
-    """Reset the global container (mainly for testing)."""
-    global _global_container
-
-    with _container_lock:
-        if _global_container:
-            _global_container.shutdown()
-        _global_container = None
+# Explicitly export configure_container for import
+__all__ = [
+    "DependencyContainer",
+    "configure_container",
+    "build_llm_service",
+]

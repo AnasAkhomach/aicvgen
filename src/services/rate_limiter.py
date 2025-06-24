@@ -21,9 +21,9 @@ from tenacity import (
     before_sleep_log,
 )
 
-from ..config.logging_config import get_structured_logger, RateLimitLog
+from ..config.logging_config import get_structured_logger
 from ..config.settings import LLMConfig
-from ..models.data_models import RateLimitState
+from ..models.data_models import RateLimitState, RateLimitLog
 from ..utils.exceptions import RateLimitError, NetworkError
 
 

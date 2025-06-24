@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from .data_models import JobDescriptionData, StructuredCV
 from .quality_assurance_agent_models import QualityAssuranceResult
+from .cv_analysis_result import CVAnalysisResult
+from .cv_analyzer_models import BasicCVInfo
 
 
 class ParserAgentOutput(BaseModel):
@@ -49,8 +51,11 @@ class CleaningAgentOutput(BaseModel):
 class CVAnalyzerAgentOutput(BaseModel):
     """Output model for CVAnalyzerAgent run_async method."""
 
-    analysis_results: Optional[Dict[str, Any]] = Field(
+    analysis_results: Optional[CVAnalysisResult] = Field(
         default=None, description="CV analysis results"
+    )
+    extracted_data: Optional[BasicCVInfo] = Field(
+        default=None, description="Fallback basic CV extraction if LLM fails"
     )
     recommendations: List[str] = Field(
         default_factory=list, description="Analysis recommendations"

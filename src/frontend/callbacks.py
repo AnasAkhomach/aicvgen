@@ -8,11 +8,11 @@ from typing import Optional
 from ..orchestration.state import AgentState, UserFeedback
 from ..utils.exceptions import ConfigurationError
 from ..core.dependency_injection import (
-    get_container,
+    DependencyContainer,
+    configure_container,
     build_llm_service,
-    register_core_services,
 )
-from ..core.state_helpers import create_initial_agent_state
+from ..utils.state_utils import create_initial_agent_state
 
 # Import the workflow graph
 from ..orchestration.cv_workflow_graph import cv_graph_app
@@ -24,8 +24,10 @@ def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
     Executes the LangGraph workflow, updating the agent_state directly upon completion.
     """
     from ..config.logging_config import setup_logging
+    import logging
 
-    logger = setup_logging()
+    setup_logging()
+    logger = logging.getLogger(__name__)
     try:  # Each thread needs its own event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -51,9 +53,10 @@ def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
             extra={"trace_id": trace_id},
         )
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(
-            f"LangGraph workflow failed in background thread: {str(e)}",
+            "LangGraph workflow failed in background thread: %s",
+            str(e),
             extra={"trace_id": trace_id, "error_type": type(e).__name__},
             exc_info=True,
         )
@@ -67,8 +70,10 @@ def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
 def _start_workflow_thread(state_to_run: AgentState):
     """Helper to configure and start the background workflow thread."""
     from ..config.logging_config import setup_logging
+    import logging
 
-    logger = setup_logging()
+    setup_logging()
+    logger = logging.getLogger(__name__)
     trace_id = str(uuid.uuid4())
     state_to_run.trace_id = trace_id  # Set flags to indicate processing has started
     st.session_state.is_processing = True
@@ -89,7 +94,15 @@ def _start_workflow_thread(state_to_run: AgentState):
 
 def start_cv_generation():
     """Initializes state from UI inputs and starts the CV generation workflow."""
-    initial_state = create_initial_agent_state()
+    job_desc_raw = st.session_state.get("job_description_input", "")
+    cv_text = st.session_state.get("cv_text_input", "")
+    start_from_scratch = st.session_state.get("start_from_scratch_input", False)
+
+    initial_state = create_initial_agent_state(
+        job_description_raw=job_desc_raw,
+        cv_text=cv_text,
+        start_from_scratch=start_from_scratch,
+    )
     st.session_state.agent_state = initial_state
     _start_workflow_thread(initial_state)
 
@@ -111,11 +124,11 @@ def handle_user_action(action: str, item_id: str):
     if action == "accept":
         feedback_type = "accept"
         feedback_data = {"item_id": item_id}
-        st.success(f"✅ Item accepted")
+        st.success("✅ Item accepted")
     elif action == "regenerate":
         feedback_type = "regenerate"
         feedback_data = {"item_id": item_id}
-        st.info(f"🔄 Regenerating item...")
+        st.info("🔄 Regenerating item...")
     else:
         st.error(f"Unknown action: {action}")
         return
@@ -152,12 +165,8 @@ def handle_api_key_validation(llm_service=None):
         with st.spinner("Validating API key..."):
             # Use injected llm_service if provided, else create one using DI
             if llm_service is None:
-                container = get_container()
-                # Ensure core services like settings are registered
-                if not container._registrations.get("settings"):
-                    register_core_services(container)
-
-                # Build the LLM service with the user-provided API key
+                container = DependencyContainer()
+                configure_container(container)
                 llm_service = build_llm_service(container, user_api_key=user_api_key)
 
             # Run validation asynchronously
@@ -181,10 +190,10 @@ def handle_api_key_validation(llm_service=None):
     except ConfigurationError as e:
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Configuration error: {e}")
-        logging.error(f"Gemini API key configuration error: {e}")
-    except Exception as e:
+        logging.error("Gemini API key configuration error: %s", e)
+    except Exception as e:  # noqa: BLE001
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Validation failed: {e}")
-        logging.error(f"Gemini API key validation exception: {e}", exc_info=True)
+        logging.error("Gemini API key validation exception: %s", e, exc_info=True)
 
     # Note: st.rerun() removed - calling within callback is not allowed

@@ -7,10 +7,10 @@ error handling, and service dependency management.
 
 import os
 import time
-import threading
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from datetime import datetime
+import threading
 
 from ..config.logging_config import setup_logging, get_logger
 from ..config.environment import load_config
@@ -20,9 +20,8 @@ from ..services.vector_store_service import get_vector_store_service
 from ..services.session_manager import get_session_manager
 from ..utils.exceptions import ConfigurationError, ServiceInitializationError
 from ..core.dependency_injection import (
-    get_container,
-    build_llm_service,
-    register_core_services,
+    configure_container,
+    DependencyContainer,
 )
 from ..utils.streamlit_utils import configure_page
 
@@ -64,11 +63,12 @@ class ApplicationStartup:
         """Initialize the application with proper startup sequence.
 
         Args:
-            user_api_key: User-provided API key for LLM service
+            user_api_key: User-provided API key for LLM service (unused)
 
         Returns:
             StartupResult: Result of the startup process
         """
+        _ = user_api_key  # Mark as intentionally unused
         start_time = time.time()
         errors = []
 
@@ -76,15 +76,15 @@ class ApplicationStartup:
 
         try:
             # Get container and register services
-            container = get_container()
+            self.container = DependencyContainer()
 
             # Check if settings is registered, if not register core services
             try:
-                container.get(Settings, "settings")
+                self.container.get(Settings, "settings")
                 logger.debug("Settings already registered")
             except ValueError:
-                logger.info("Settings not registered, registering core services")
-                register_core_services(container)
+                logger.info("Settings not registered, configuring container")
+                configure_container(self.container)
 
             # Phase 1: Core Infrastructure
             self._initialize_logging()
@@ -124,24 +124,12 @@ class ApplicationStartup:
                 timestamp=datetime.now(),
             )
 
-        except ServiceInitializationError as e:
+        except (ServiceInitializationError, ConfigurationError) as e:
             total_time = time.time() - start_time
-            error_msg = f"Application initialization failed during service startup: {e}"
+            error_msg = f"Application initialization failed: {e}"
             errors.append(error_msg)
             logger.error(error_msg, exc_info=True)
-            # Re-raise critical service initialization errors
             raise
-
-        except ConfigurationError as e:
-            total_time = time.time() - start_time
-            error_msg = (
-                f"Application initialization failed due to configuration error: {e}"
-            )
-            errors.append(error_msg)
-            logger.error(error_msg, exc_info=True)
-            # Re-raise critical configuration errors
-            raise
-
         except Exception as e:
             total_time = time.time() - start_time
             error_msg = (
@@ -149,7 +137,6 @@ class ApplicationStartup:
             )
             errors.append(error_msg)
             logger.error(error_msg, exc_info=True)
-
             return StartupResult(
                 success=False,
                 total_time=total_time,
@@ -253,7 +240,7 @@ class ApplicationStartup:
 
         try:
             logger.info("Getting DI container...")
-            container = get_container()
+            container = self.container
             logger.info("Calling container.get() for EnhancedLLMService...")
             # The factory registered in initialize_application will be called here
             llm_service = container.get(EnhancedLLMService, "EnhancedLLMService")
@@ -423,12 +410,12 @@ _startup_manager_lock = threading.Lock()
 
 def get_startup_manager() -> ApplicationStartup:
     """Get the global startup manager instance in a thread-safe manner."""
-    global _startup_manager
-    if _startup_manager is None:
+    # Use a function attribute instead of global
+    if not hasattr(get_startup_manager, "_startup_manager"):
         with _startup_manager_lock:
-            if _startup_manager is None:
-                _startup_manager = ApplicationStartup()
-    return _startup_manager
+            if not hasattr(get_startup_manager, "_startup_manager"):
+                get_startup_manager._startup_manager = ApplicationStartup()
+    return get_startup_manager._startup_manager
 
 
 def initialize_application(user_api_key: str = "") -> StartupResult:

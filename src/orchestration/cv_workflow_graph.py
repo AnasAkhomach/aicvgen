@@ -41,22 +41,12 @@ def get_workflow_container():
     if _CONTAINER is None:
         # Import late to avoid circular imports
         from ..core.dependency_injection import (
-            get_container,
-        )  # pylint: disable=import-outside-toplevel
-        from ..config.settings import (
-            get_config,
-            Settings,
+            DependencyContainer,
+            configure_container,
         )  # pylint: disable=import-outside-toplevel
 
-        _CONTAINER = get_container()
-        # Only register if not already registered
-        if not _CONTAINER.get_registrations().get("settings"):
-            settings = get_config()
-            _CONTAINER.register_singleton(
-                name="settings",
-                dependency_type=Settings,
-                factory=lambda: settings,
-            )
+        _CONTAINER = DependencyContainer()
+        configure_container(_CONTAINER)
     return _CONTAINER
 
 

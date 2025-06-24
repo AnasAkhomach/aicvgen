@@ -25,6 +25,7 @@ class AgentState(BaseModel):
     # Core Data Models
     structured_cv: StructuredCV
     job_description_data: Optional[JobDescriptionData] = None
+    cv_text: str  # The raw text of the user's CV
 
     # Workflow Control & Granular Processing
     # The key of the section currently being processed (e.g., "professional_experience")

@@ -77,8 +77,12 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
 
         logger.info(
             "Enhanced Content Writer Agent initialized",
-            agent_name=name,
-            supported_content_types=[ct.value for ct in self.content_templates.keys()],
+            extra={
+                "agent_name": name,
+                "supported_content_types": [
+                    ct.value for ct in self.content_templates.keys()
+                ],
+            },
         )
 
     async def run_async(
@@ -190,21 +194,20 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
                 response.metadata["validation_model"] = "LLMRoleGenerationOutput"
 
                 logger.info(
-                    "Successfully parsed and validated role generation JSON for %s",
-                    content_type,
+                    f"Successfully parsed and validated role generation JSON for {content_type}"
                 )
 
             except json.JSONDecodeError as e:
-                logger.error("JSON parsing failed for role generation: %s", e)
+                logger.error(f"JSON parsing failed for role generation: {e}")
                 response.metadata["json_parse_error"] = str(e)
                 response.metadata["json_validated"] = False
                 # Keep original content as fallback            except ValidationError as e:
-                logger.error("Pydantic validation failed for role generation: %s", e)
+                logger.error(f"Pydantic validation failed for role generation: {e}")
                 response.metadata["validation_error"] = str(e)
                 response.metadata["json_validated"] = False
                 # Keep original content as fallback            except Exception as e:
                 logger.error(
-                    "Unexpected error during role generation JSON processing: %s", e
+                    f"Unexpected error during role generation JSON processing: {e}"
                 )
                 response.metadata["processing_error"] = str(e)
                 response.metadata["json_validated"] = False
@@ -224,9 +227,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         # Defensive programming: Ensure job_data is a dictionary
         if not isinstance(job_data, dict):
             logger.error(
-                "Expected job_data to be a dict, but got %s. Input (first 200 chars): %s",
-                type(job_data),
-                str(job_data)[:200],
+                f"Expected job_data to be a dict, but got {type(job_data)}. Input (first 200 chars): {str(job_data)[:200]}"
             )
             # Fallback to an empty dictionary to prevent AttributeError and allow graceful degradation
             job_data = {}
@@ -305,9 +306,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         """Build prompt specifically for experience content using resume_role_prompt template."""  # Defensive programming: Ensure job_data is a dictionary
         if not isinstance(job_data, dict):
             logger.error(
-                "Expected job_data to be a dict, but got %s. Input (first 200 chars): %s",
-                type(job_data),
-                str(job_data)[:200],
+                f"Expected job_data to be a dict, but got {type(job_data)}. Input (first 200 chars): {str(job_data)[:200]}"
             )
             # Fallback to an empty dictionary to prevent AttributeError and allow graceful degradation
             job_data = {}
@@ -338,9 +337,7 @@ class EnhancedContentWriterAgent(EnhancedAgentBase):
         # No parsing of raw CV text here. Only formatting of structured data.
         if not isinstance(content_item, dict):
             logger.error(
-                "Expected dict for content_item, got %s: %s",
-                type(content_item),
-                content_item,
+                f"Expected dict for content_item, got {type(content_item)}: {content_item}"
             )
             content_item = {"name": "Unknown Role", "items": []}
 
@@ -380,7 +377,7 @@ Description: {role_name} position with focus on data analysis and technical impl
         # No parsing of raw CV text here. Only formatting of structured data.
         if not isinstance(role_data, dict):
             logger.error(
-                "Expected dict for role_data, got %s: %s", type(role_data), role_data
+                f"Expected dict for role_data, got {type(role_data)}: {role_data}"
             )
             role_data = {"name": "Unknown Role", "items": []}
 
@@ -534,9 +531,7 @@ Description: {role_name} position with focus on data analysis and technical impl
         """Determine content type from item data."""  # Ensure content_item is a dictionary before checking keys
         if not isinstance(content_item, dict):
             logger.warning(
-                "Expected dict for content_item, got %s: %s",
-                type(content_item),
-                content_item,
+                f"Expected dict for content_item, got {type(content_item)}: {content_item}"
             )
             return ContentType.QUALIFICATION
 
@@ -623,14 +618,12 @@ Description: {role_name} position with focus on data analysis and technical impl
             formatted_prompt = template.format(**context_vars)
 
             logger.info(
-                "Built single item prompt for %s with research insights: %s",
-                subsection.name if subsection else section.name,
-                bool(research_findings),
+                f"Built single item prompt for {subsection.name if subsection else section.name} with research insights: {bool(research_findings)}"
             )
             return formatted_prompt
 
         except (OSError, IOError, KeyError, ValueError) as e:
-            logger.error("Error building single item prompt: %s", str(e))
+            logger.error(f"Error building single item prompt: {str(e)}")
             return self._get_fallback_template().format(
                 job_title="Target Position",
                 company_name="Target Company",
@@ -719,7 +712,7 @@ Description: {role_name} position with focus on data analysis and technical impl
 
         if not isinstance(validated_data, LLMRoleGenerationOutput):
             logger.error(
-                "Expected LLMRoleGenerationOutput, got %s", type(validated_data)
+                f"Expected LLMRoleGenerationOutput, got {type(validated_data)}"
             )
             return "Error: Invalid data format for role generation"
 
@@ -746,11 +739,11 @@ Description: {role_name} position with focus on data analysis and technical impl
             prompt_path = self.settings.get_prompt_path_by_key(prompt_key)
             with open(prompt_path, "r", encoding="utf-8") as f:
                 template = f.read()
-            logger.info("Successfully loaded prompt template: %s", prompt_key)
+            logger.info(f"Successfully loaded prompt template: {prompt_key}")
             return template
 
         except (OSError, IOError, FileNotFoundError) as e:
-            logger.error("Error loading prompt template %s: %s", prompt_key, e)
+            logger.error(f"Error loading prompt template {prompt_key}: {e}")
             # Fallback to basic template
             return self._get_fallback_template()
 
@@ -801,7 +794,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
         )
 
         logger.info(
-            "EnhancedContentWriterAgent processing item: %s", state.current_item_id
+            f"EnhancedContentWriterAgent processing item: {state.current_item_id}"
         )
 
         if not state.current_item_id:
@@ -892,7 +885,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                     skills_list = self._simple_skills_extraction(response.content)
 
             except (AttributeError, TypeError, ValueError) as e:
-                logger.error("Error extracting skills from parser agent: %s", e)
+                logger.error(f"Error extracting skills from parser agent: {e}")
                 skills_list = []
 
             try:
@@ -900,7 +893,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             except (TypeError, AttributeError):
                 skills_count = 0
 
-            logger.info("Successfully generated %s skills", skills_count)
+            logger.info(f"Successfully generated {skills_count} skills")
 
             # Format the skills for display
             formatted_content = self._format_big_10_skills_display(skills_list)
@@ -913,7 +906,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             }
 
         except (ValueError, TypeError, AttributeError, RuntimeError) as e:
-            logger.error("Error generating Big 10 skills: %s", str(e))
+            logger.error(f"Error generating Big 10 skills: {str(e)}")
             return {
                 "skills": [],
                 "raw_llm_output": "",
@@ -1011,7 +1004,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
             )
 
             if not target_item:
-                logger.error("Could not find item with ID: %s", item_id)
+                logger.error(f"Could not find item with ID: {item_id}")
                 return AgentResult(
                     success=False,
                     error_message=f"Item with ID {item_id} not found",
@@ -1037,7 +1030,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                     target_item.status = ItemStatus.GENERATED
                     target_item.raw_llm_output = raw_output
 
-                    logger.info("Successfully processed item: %s", item_id)
+                    logger.info(f"Successfully processed item: {item_id}")
 
                     return AgentResult(
                         success=True,
@@ -1053,9 +1046,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 else:
                     # LLM failed, use central error recovery service for fallback content
                     logger.warning(
-                        "LLM generation failed for item %s, using fallback: %s",
-                        item_id,
-                        response.error_message,
+                        f"LLM generation failed for item {item_id}, using fallback: {response.error_message}"
                     )
                     # Get fallback content - simple fallback since error_recovery_service removed
                     fallback_content = "⚠️ Content generation failed. Please try again."
@@ -1073,7 +1064,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                         update={"fallback_used": True, "error": response.error_message}
                     )
 
-                    logger.info("Applied fallback content for item: %s", item_id)
+                    logger.info(f"Applied fallback content for item: {item_id}")
 
                     return AgentResult(
                         success=True,  # Still successful, just with fallback
@@ -1094,9 +1085,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 TypeError,
                 AttributeError,
             ) as llm_error:  # Handle any LLM service exceptions
-                logger.error(
-                    "LLM service exception for item %s: %s", item_id, llm_error
-                )
+                logger.error(f"LLM service exception for item {item_id}: {llm_error}")
 
                 # Always return a StructuredCV model in output_data
                 return AgentResult(
@@ -1106,7 +1095,7 @@ Generate enhanced content that aligns with the job requirements and demonstrates
                 )
 
         except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
-            logger.error("Error processing single item %s: %s", item_id, e)
+            logger.error(f"Error processing single item {item_id}: {e}")
             return AgentResult(
                 success=False,
                 error_message=str(e),

@@ -12,6 +12,8 @@ from ..models.data_models import (
     JobDescriptionData,
     StructuredCV,
     Section,
+    Subsection,
+    ItemType,
     AgentIO,
 )
 from ..models.agent_output_models import ParserAgentOutput
@@ -24,8 +26,6 @@ from ..services.vector_store_service import VectorStoreService
 from ..templates.content_templates import ContentTemplateManager
 from ..utils.exceptions import AgentExecutionError
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from .cv_conversion_utils import convert_parsing_result_to_structured_cv
-from .cv_structure_utils import create_empty_cv_structure
 
 # Set up structured logging
 logger = get_structured_logger(__name__)
@@ -92,7 +92,7 @@ class ParserAgent(EnhancedAgentBase):
                 trace_id=trace_id,
             )
         except AgentExecutionError as e:
-            logger.error("Failed to parse job description: %s", e)
+            logger.error(f"Failed to parse job description: {e}")
             return JobDescriptionData(
                 raw_text=raw_text,
                 error=str(e),
@@ -116,17 +116,16 @@ class ParserAgent(EnhancedAgentBase):
                 session_id=self.current_session_id,
                 trace_id=self.current_trace_id,
             )
-            structured_cv = convert_parsing_result_to_structured_cv(
+            structured_cv = self._convert_parsing_result_to_structured_cv(
                 parsing_result, cv_text, job_data
             )
             logger.info(
-                "Successfully parsed CV with %d sections using LLM",
-                len(structured_cv.sections),
+                f"Successfully parsed CV with {len(structured_cv.sections)} sections using LLM"
             )
             return structured_cv
         except AgentExecutionError as e:
-            logger.error("Failed to parse CV with LLM: %s", e)
-            structured_cv.metadata["parsing_error"] = str(e)
+            logger.error(f"Failed to parse CV with LLM: {e}")
+            structured_cv.metadata.extra["parsing_error"] = str(e)
             return structured_cv
 
     def _initialize_structured_cv(
@@ -137,10 +136,10 @@ class ParserAgent(EnhancedAgentBase):
         """
         structured_cv = StructuredCV()
         if job_data:
-            structured_cv.metadata["job_description"] = job_data.model_dump()
+            structured_cv.metadata.extra["job_description"] = job_data.model_dump()
         else:
-            structured_cv.metadata["job_description"] = {}
-        structured_cv.metadata["original_cv_text"] = cv_text
+            structured_cv.metadata.extra["job_description"] = {}
+        structured_cv.metadata.extra["original_cv_text"] = cv_text
         return structured_cv
 
     def _parse_bullet_points(self, content: str) -> List[str]:
@@ -158,11 +157,264 @@ class ParserAgent(EnhancedAgentBase):
             return [content.strip()]
         return bullet_points[: config.output.max_bullet_points_per_role]
 
-    def create_empty_cv_structure(self, job_data: JobDescriptionData) -> StructuredCV:
+    def _create_structured_cv_with_metadata(
+        self, cv_text: str, job_data: JobDescriptionData
+    ) -> StructuredCV:
+        structured_cv = StructuredCV(sections=[])
+        if hasattr(job_data, "model_dump"):
+            structured_cv.metadata.extra["job_description"] = job_data.model_dump()
+        elif isinstance(job_data, dict):
+            structured_cv.metadata.extra["job_description"] = job_data
+        else:
+            structured_cv.metadata.extra["job_description"] = {}
+        structured_cv.metadata.extra["original_cv_text"] = cv_text
+        return structured_cv
+
+    def _add_contact_info_to_metadata(
+        self, structured_cv: StructuredCV, parsing_result: Any
+    ) -> None:
+        try:
+            personal_info = parsing_result.personal_info
+            structured_cv.metadata.extra.update(
+                {
+                    "name": personal_info.name,
+                    "email": personal_info.email,
+                    "phone": personal_info.phone,
+                    "linkedin": personal_info.linkedin,
+                    "github": personal_info.github,
+                    "location": personal_info.location,
+                }
+            )
+        except Exception as e:
+            structured_cv.metadata.extra["parsing_error"] = str(e)
+            logger.error(f"Error accessing personal info: {e}")
+            logger.error(f"Parsing result type: {type(parsing_result)}")
+            logger.error(f"Parsing result: {parsing_result}")
+
+    def _determine_section_content_type(self, section_name: str) -> str:
+        dynamic_sections = [
+            "Executive Summary",
+            "Key Qualifications",
+            "Professional Experience",
+            "Project Experience",
+        ]
+        return (
+            "DYNAMIC"
+            if any(section_name.lower() == s.lower() for s in dynamic_sections)
+            else "STATIC"
+        )
+
+    def _determine_item_type(self, section_name: str):
+        section_lower = section_name.lower()
+        if "qualification" in section_lower or "skill" in section_lower:
+            return ItemType.KEY_QUALIFICATION
+        elif "executive" in section_lower or "summary" in section_lower:
+            return ItemType.EXECUTIVE_SUMMARY_PARA
+        elif "education" in section_lower:
+            return ItemType.EDUCATION_ENTRY
+        elif "certification" in section_lower:
+            return ItemType.CERTIFICATION_ENTRY
+        elif "language" in section_lower:
+            return ItemType.LANGUAGE_ENTRY
+        else:
+            return ItemType.BULLET_POINT
+
+    def _add_section_items(
+        self, section: Section, parsed_section: Any, content_type: str
+    ) -> None:
+        # Ensure section.items is a list (handle FieldInfo edge case)
+        if not isinstance(section.items, list):
+            section.items = list(section.items) if section.items else []
+        for item_content in parsed_section.items:
+            if item_content.strip():
+                item_type = self._determine_item_type(parsed_section.name)
+                status = (
+                    ItemStatus.INITIAL
+                    if content_type == "DYNAMIC"
+                    else ItemStatus.STATIC
+                )
+                item = Item(
+                    content=item_content.strip(), status=status, item_type=item_type
+                )
+                section.items.append(item)
+
+    def _add_section_subsections(
+        self, section: Section, parsed_section: Any, content_type: str
+    ) -> None:
+        # Ensure section.subsections is a list (handle FieldInfo edge case)
+        if not isinstance(section.subsections, list):
+            section.subsections = (
+                list(section.subsections) if section.subsections else []
+            )
+        for parsed_subsection in getattr(parsed_section, "subsections", []):
+            subsection = Subsection(name=parsed_subsection.name, items=[])
+            # Ensure subsection.items is a list
+            if not isinstance(subsection.items, list):
+                subsection.items = list(subsection.items) if subsection.items else []
+            for item_content in parsed_subsection.items:
+                if item_content.strip():
+                    item_type = self._determine_item_type(parsed_section.name)
+                    status = (
+                        ItemStatus.INITIAL
+                        if content_type == "DYNAMIC"
+                        else ItemStatus.STATIC
+                    )
+                    item = Item(
+                        content=item_content.strip(), status=status, item_type=item_type
+                    )
+                    subsection.items.append(item)
+            section.subsections.append(subsection)
+
+    def _convert_sections_to_structured_cv(
+        self, structured_cv: StructuredCV, parsing_result: Any
+    ) -> None:
+        section_order = 0
+        for parsed_section in parsing_result.sections:
+            content_type = self._determine_section_content_type(parsed_section.name)
+            section = Section(
+                name=parsed_section.name, content_type=content_type, order=section_order
+            )
+            section_order += 1
+            self._add_section_items(section, parsed_section, content_type)
+            self._add_section_subsections(section, parsed_section, content_type)
+            structured_cv.sections.append(section)
+
+    def _convert_parsing_result_to_structured_cv(
+        self, parsing_result: Any, cv_text: str, job_data: JobDescriptionData
+    ) -> StructuredCV:
+        try:
+            structured_cv = self._create_structured_cv_with_metadata(cv_text, job_data)
+            self._add_contact_info_to_metadata(structured_cv, parsing_result)
+            self._convert_sections_to_structured_cv(structured_cv, parsing_result)
+            return structured_cv
+        except Exception as e:
+            logger.error(f"Error converting parsing result to StructuredCV: {e}")
+            structured_cv = self._create_structured_cv_with_metadata(cv_text, job_data)
+            structured_cv.metadata.extra["error"] = str(e)
+            return structured_cv
+
+    def create_empty_cv_structure(
+        self, job_data: Optional[JobDescriptionData]
+    ) -> StructuredCV:
         """
         Creates an empty CV structure for the "Start from Scratch" option.
         """
-        return create_empty_cv_structure(job_data)
+        structured_cv = StructuredCV()
+        # Add metadata - handle both dict and JobDescriptionData object types
+        if job_data:
+            if hasattr(job_data, "to_dict"):
+                structured_cv.metadata.extra["job_description"] = job_data.to_dict()
+            elif hasattr(job_data, "model_dump"):
+                structured_cv.metadata.extra["job_description"] = job_data.model_dump()
+            elif isinstance(job_data, dict):
+                structured_cv.metadata.extra["job_description"] = job_data
+            else:
+                structured_cv.metadata.extra["job_description"] = {}
+        else:
+            structured_cv.metadata.extra["job_description"] = {}
+        structured_cv.metadata.extra["start_from_scratch"] = True
+
+        # Create standard CV sections with proper order
+        sections = [
+            {"name": "Executive Summary", "type": "DYNAMIC", "order": 0},
+            {"name": "Key Qualifications", "type": "DYNAMIC", "order": 1},
+            {"name": "Professional Experience", "type": "DYNAMIC", "order": 2},
+            {"name": "Project Experience", "type": "DYNAMIC", "order": 3},
+            {"name": "Education", "type": "STATIC", "order": 4},
+            {"name": "Certifications", "type": "STATIC", "order": 5},
+            {"name": "Languages", "type": "STATIC", "order": 6},
+        ]
+
+        for section_info in sections:
+            section = Section(
+                name=section_info["name"],
+                content_type=section_info["type"],
+                order=section_info["order"],
+                items=[],
+                subsections=[],
+            )
+            # Ensure section.items and section.subsections are lists
+            if not isinstance(section.items, list):
+                section.items = list(section.items) if section.items else []
+            if not isinstance(section.subsections, list):
+                section.subsections = (
+                    list(section.subsections) if section.subsections else []
+                )
+            if section.name == "Executive Summary":
+                section.items.append(
+                    Item(
+                        content="",
+                        status=ItemStatus.TO_REGENERATE,
+                        item_type=Item.ItemType.EXECUTIVE_SUMMARY_PARA,
+                    )
+                )
+            if section.name == "Key Qualifications":
+                skills = None
+                if job_data:
+                    if hasattr(job_data, "skills"):
+                        skills = job_data.skills
+                    elif isinstance(job_data, dict) and "skills" in job_data:
+                        skills = job_data["skills"]
+                if skills:
+                    for skill in skills[:8]:
+                        section.items.append(
+                            Item(
+                                content=skill,
+                                status=ItemStatus.TO_REGENERATE,
+                                item_type=Item.ItemType.KEY_QUALIFICATION,
+                            )
+                        )
+                else:
+                    for i in range(6):
+                        section.items.append(
+                            Item(
+                                content=f"Key qualification {i+1}",
+                                status=ItemStatus.TO_REGENERATE,
+                                item_type=Item.ItemType.KEY_QUALIFICATION,
+                            )
+                        )
+            if section.name == "Professional Experience":
+                subsection = Subsection(name="Position Title at Company Name", items=[])
+                if not isinstance(subsection.items, list):
+                    subsection.items = (
+                        list(subsection.items) if subsection.items else []
+                    )
+                for _ in range(3):
+                    subsection.items.append(
+                        Item(
+                            content="",
+                            status=ItemStatus.TO_REGENERATE,
+                            item_type=Item.ItemType.BULLET_POINT,
+                        )
+                    )
+                section.subsections.append(subsection)
+            if section.name == "Project Experience":
+                subsection = Subsection(name="Project Name", items=[])
+                if not isinstance(subsection.items, list):
+                    subsection.items = (
+                        list(subsection.items) if subsection.items else []
+                    )
+                for _ in range(2):
+                    subsection.items.append(
+                        Item(
+                            content="",
+                            status=ItemStatus.TO_REGENERATE,
+                            item_type=Item.ItemType.BULLET_POINT,
+                        )
+                    )
+                # Final check before append
+                if not isinstance(section.subsections, list):
+                    section.subsections = (
+                        list(section.subsections) if section.subsections else []
+                    )
+                section.subsections.append(subsection)
+            # Ensure structured_cv.sections is a list before appending
+            if not isinstance(structured_cv.sections, list):
+                structured_cv.sections = (
+                    list(structured_cv.sections) if structured_cv.sections else []
+                )
+            structured_cv.sections.append(section)
+        return structured_cv
 
     async def run_async(
         self, input_data: Any, context: AgentExecutionContext
@@ -211,8 +463,7 @@ class ParserAgent(EnhancedAgentBase):
 
         except Exception as e:
             logger.error(
-                "ParserAgent run_async failed: %s",
-                e,
+                f"ParserAgent run_async failed: {e}",
                 extra={"trace_id": context.trace_id},
             )
             # Return error result with empty output data (using Pydantic model)
@@ -237,9 +488,7 @@ class ParserAgent(EnhancedAgentBase):
 
             return {"structured_cv": final_cv, "job_description_data": job_data}
         except Exception as e:
-            logger.error(
-                "ParserAgent failed: %s", e, extra={"trace_id": state.trace_id}
-            )
+            logger.error(f"ParserAgent failed: {e}", extra={"trace_id": state.trace_id})
             # Fail fast - let the orchestration layer handle recovery
             raise AgentExecutionError(agent_name="ParserAgent", message=str(e)) from e
 
@@ -309,8 +558,7 @@ class ParserAgent(EnhancedAgentBase):
             return final_cv
 
         logger.info(
-            "Ensuring item with ID %s exists in CV.",
-            current_item_id,
+            f"Ensuring item with ID {current_item_id} exists in CV.",
             extra={"trace_id": state.trace_id},
         )
 
@@ -322,8 +570,7 @@ class ParserAgent(EnhancedAgentBase):
             return final_cv
 
         logger.warning(
-            "Item with ID %s not found. Adding a placeholder.",
-            current_item_id,
+            f"Item with ID {current_item_id} not found. Adding a placeholder.",
             extra={"trace_id": state.trace_id},
         )
 

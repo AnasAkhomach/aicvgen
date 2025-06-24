@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field
 
 
 class CVAnalysisResult(BaseModel):
+    summary: Optional[str] = None
+    key_skills: List[str] = Field(default_factory=list)
     skill_matches: List[str] = Field(default_factory=list)
     experience_relevance: float = 0.0
     gaps_identified: List[str] = Field(default_factory=list)

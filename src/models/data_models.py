@@ -806,3 +806,17 @@ class LLMResponse(BaseModel):
 
 class ErrorFallbackModel(BaseModel):
     error: str
+
+
+@dataclass
+class RateLimitLog:
+    """Structured log for rate limiting events."""
+
+    timestamp: str
+    model: str
+    requests_in_window: int
+    tokens_in_window: int
+    window_start: str
+    window_end: str
+    limit_exceeded: bool
+    wait_time_seconds: Optional[float] = None

@@ -31,7 +31,9 @@ except (ImportError, OSError) as e:
     HTML = None
     WEASYPRINT_AVAILABLE = False
     logger = get_structured_logger(__name__)
-    logger.warning("WeasyPrint not available: %s. PDF generation will be disabled.", e)
+    logger.warning(
+        f"WeasyPrint not available: {e}. PDF generation will be disabled.", error=str(e)
+    )
 
 logger = get_structured_logger(__name__)
 
@@ -87,10 +89,12 @@ class FormatterAgent(EnhancedAgentBase):
                 trim_blocks=True,
                 lstrip_blocks=True,
             )
-            logger.info("Jinja2 template environment initialized: %s", template_dir)
-        except IOError as e:
-            logger.error("Failed to initialize Jinja2 environment: %s", e)
-            self.jinja_env = None
+            logger.info(f"Jinja2 template environment initialized: {template_dir}")
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize Jinja2 template environment: {e}", error=str(e)
+            )
+            raise
 
     @with_node_error_handling("formatter")
     async def run_as_node(
@@ -135,7 +139,7 @@ class FormatterAgent(EnhancedAgentBase):
             result = FormatterAgentOutput(formatted_cv_text=formatted_text)
             return AgentResult(success=True, output_data=result, confidence_score=1.0)
         except (ValueError, TypeError) as e:
-            logger.error("Error in run_async: %s", e)
+            logger.error(f"Error in run_async: {e}")
             return AgentResult(
                 success=False,
                 output_data=FormatterAgentOutput(),
@@ -150,7 +154,7 @@ class FormatterAgent(EnhancedAgentBase):
         try:
             return await self._format_with_llm(content_data, specifications)
         except AgentExecutionError as e:
-            logger.warning("LLM formatting failed, falling back to template: %s", e)
+            logger.warning(f"LLM formatting failed, falling back to template: {e}")
             return self._format_with_template(content_data)
 
     @handle_errors(default_return="")
@@ -209,7 +213,7 @@ class FormatterAgent(EnhancedAgentBase):
             template = self.jinja_env.get_template("cv_template.md")
             return template.render(cv=content_data)
         except TemplateError as e:
-            logger.error("Error rendering template: %s", e)
+            logger.error(f"Error rendering template: {e}")
             return "Error rendering CV from template."
 
     async def run(self, state_or_content: Any) -> FormatterAgentNodeResult:
@@ -237,7 +241,7 @@ class FormatterAgent(EnhancedAgentBase):
                 )
             return FormatterAgentNodeResult(final_output_path=final_path)
         except AgentExecutionError as e:
-            logger.error("FormatterAgent.run error: %s", e, exc_info=True)
+            logger.error(f"FormatterAgent.run error: {e}", exc_info=True)
             return FormatterAgentNodeResult(
                 final_output_path=None, error_message=str(e)
             )
@@ -285,10 +289,10 @@ class FormatterAgent(EnhancedAgentBase):
 
             final_path = output_path or "cv.pdf"
             HTML(string=html_content).write_pdf(final_path)
-            logger.info("Successfully generated PDF: %s", final_path)
+            logger.info(f"Successfully generated PDF: {final_path}")
             return final_path
         except (TemplateError, IOError) as e:
-            logger.error("Failed to generate PDF: %s", e)
+            logger.error(f"Failed to generate PDF: {e}")
             return None
 
     def _generate_html_file(
@@ -308,8 +312,8 @@ class FormatterAgent(EnhancedAgentBase):
             final_path = output_path or "cv.html"
             with open(final_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
-            logger.info("Successfully generated HTML file: %s", final_path)
+            logger.info(f"Successfully generated HTML file: {final_path}")
             return final_path
         except (TemplateError, IOError) as e:
-            logger.error("Failed to generate HTML file: %s", e)
+            logger.error(f"Failed to generate HTML file: {e}")
             return None

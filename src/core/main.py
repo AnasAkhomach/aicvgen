@@ -6,20 +6,6 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-"""
-Main module for the AI CV Generator - A Streamlit application that helps users tailor their CVs
-to specific job descriptions using AI. This version implements section-level control for editing
-and regenerating CV content, which simplifies the user experience compared to the more granular
-item-level approach.
-
-Key features:
-- Input handling for job descriptions and existing CVs
-- Section-level editing and regeneration controls
-- Multiple export formats
-- Session management for saving and loading work
-
-For more details, see the Software Design Document (SDD) v1.3 with Section-Level Control.
-"""
 
 import streamlit as st
 
@@ -107,10 +93,11 @@ def main():
 
         logger.info(
             f"Application started successfully in {startup_result.total_time:.2f}s"
-        )  # 2. Initialize Session State
-        from ..frontend.state_helpers import initialize_session_state
-
-        initialize_session_state()
+        )
+        # Session state initialization is now handled via create_initial_agent_state in utils.state_utils
+        # Remove import of deleted state_helpers
+        # from ..frontend.state_helpers import initialize_session_state
+        # initialize_session_state()
 
         # 3. Display Static UI Components
         display_sidebar()
