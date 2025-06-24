@@ -107,8 +107,9 @@ def main():
 
         logger.info(
             f"Application started successfully in {startup_result.total_time:.2f}s"
-        )        # 2. Initialize Session State
+        )  # 2. Initialize Session State
         from ..frontend.state_helpers import initialize_session_state
+
         initialize_session_state()
 
         # 3. Display Static UI Components
@@ -117,7 +118,7 @@ def main():
         st.markdown(
             "Transform your CV to match any job description using advanced AI. "
             "Get personalized, ATS-friendly CVs that highlight your most relevant skills and experience."
-        )        # 4. Handle UI based on processing state
+        )  # 4. Handle UI based on processing state
         if st.session_state.get("is_processing"):
             with st.spinner("Processing your CV... Please wait."):
                 # The UI is blocked here by the spinner, but the work is in a thread.
@@ -143,7 +144,7 @@ def main():
         tab1, tab2, tab3 = st.tabs(
             ["📝 Input & Generate", "✏️ Review & Edit", "📄 Export"]
         )
-        
+
         with tab1:
             display_input_form()
 
@@ -158,8 +159,13 @@ def main():
             if st.session_state.get("agent_state"):
                 display_export_tab(st.session_state.agent_state)
             else:
-                st.info("Complete CV generation to export your results.")        # Display any errors from the agent_state model itself
-        if st.session_state.get("agent_state") and st.session_state.agent_state.error_messages:
+                st.info(
+                    "Complete CV generation to export your results."
+                )  # Display any errors from the agent_state model itself
+        if (
+            st.session_state.get("agent_state")
+            and st.session_state.agent_state.error_messages
+        ):
             for error in st.session_state.agent_state.error_messages:
                 st.error(error)
 

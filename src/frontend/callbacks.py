@@ -26,7 +26,7 @@ def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
     from ..config.logging_config import setup_logging
 
     logger = setup_logging()
-    try:        # Each thread needs its own event loop
+    try:  # Each thread needs its own event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -70,7 +70,7 @@ def _start_workflow_thread(state_to_run: AgentState):
 
     logger = setup_logging()
     trace_id = str(uuid.uuid4())
-    state_to_run.trace_id = trace_id    # Set flags to indicate processing has started
+    state_to_run.trace_id = trace_id  # Set flags to indicate processing has started
     st.session_state.is_processing = True
     st.session_state.workflow_error = None  # Clear previous errors
     st.session_state.just_finished = False
@@ -79,7 +79,7 @@ def _start_workflow_thread(state_to_run: AgentState):
         "Starting workflow thread",
         extra={"trace_id": trace_id, "session_id": st.session_state.get("session_id")},
     )
-    
+
     thread = threading.Thread(
         target=_execute_workflow_in_thread, args=(state_to_run, trace_id), daemon=True
     )
@@ -167,7 +167,7 @@ def handle_api_key_validation(llm_service=None):
                 is_valid = loop.run_until_complete(llm_service.validate_api_key())
             finally:
                 loop.close()
-            
+
             if is_valid:
                 st.session_state.api_key_validated = True
                 st.success("✅ API key is valid and ready to use!")

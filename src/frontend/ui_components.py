@@ -62,7 +62,7 @@ def display_sidebar():
             """
             )
 
-        st.divider()        # Safety Controls Section
+        st.divider()  # Safety Controls Section
         st.subheader("🛡️ Safety Controls")  # Manual Stop Button
         if st.session_state.get("is_processing"):
             if st.button(
