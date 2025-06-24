@@ -26,12 +26,6 @@ class AgentState(BaseModel):
     structured_cv: StructuredCV
     job_description_data: Optional[JobDescriptionData] = None
 
-    # Input Data for Processing
-    # Raw CV text input for parsing
-    cv_text: Optional[str] = None
-    # Flag to indicate starting from scratch (no existing CV)
-    start_from_scratch: Optional[bool] = None
-
     # Workflow Control & Granular Processing
     # The key of the section currently being processed (e.g., "professional_experience")
     current_section_key: Optional[str] = None

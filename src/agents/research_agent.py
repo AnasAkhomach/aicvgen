@@ -1,9 +1,12 @@
 from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
 from ..models.data_models import AgentIO
+from ..models.agent_output_models import ResearchAgentOutput
 from ..config.logging_config import get_structured_logger
+from ..config.settings import get_config
 from ..services.llm_service import EnhancedLLMService
-from ..services.error_recovery import ErrorRecoveryService
+
 from ..services.progress_tracker import ProgressTracker
+from ..templates.content_templates import ContentTemplateManager
 from ..utils.exceptions import ValidationError
 from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
 from src.utils.prompt_utils import load_prompt_template, format_prompt
@@ -29,10 +32,10 @@ class ResearchAgent(EnhancedAgentBase):
     def __init__(
         self,
         llm_service: EnhancedLLMService,
-        error_recovery_service: ErrorRecoveryService,
         progress_tracker: ProgressTracker,
         vector_db,
         settings,
+        template_manager: ContentTemplateManager,
         name: str = "ResearchAgent",
         description: str = "Agent responsible for conducting research and gathering insights",
     ):
@@ -49,12 +52,12 @@ class ResearchAgent(EnhancedAgentBase):
             description=description,
             input_schema=input_schema,
             output_schema=output_schema,
-            error_recovery_service=error_recovery_service,
             progress_tracker=progress_tracker,
         )
         self.llm_service = llm_service
         self.vector_db = vector_db
         self.settings = settings
+        self.template_manager = template_manager
         self.current_session_id = None
         self.current_trace_id = None
         self._latest_research_results = None
@@ -95,13 +98,15 @@ class ResearchAgent(EnhancedAgentBase):
                 )
             if hasattr(job_desc_data, "title") and not job_desc_data.title:
                 job_desc_data = job_desc_data.copy(update={"title": "Unknown Title"})
+
             research_findings = await self._perform_research_analysis(
                 structured_cv, job_desc_data
             )
-            result = {"research_findings": research_findings}
+            # Wrap in proper output model
+            output_data = ResearchAgentOutput(research_findings=research_findings)
             return AgentResult(
                 success=True,
-                output_data=result,
+                output_data=output_data,
                 confidence_score=1.0,
                 metadata={"agent_type": "research"},
             )
@@ -130,7 +135,10 @@ class ResearchAgent(EnhancedAgentBase):
             company_info = await self._research_company_info(job_desc_data.raw_text)
             relevant_content = []
             if job_analysis.get("key_skills"):
-                for skill in job_analysis["key_skills"][:3]:
+                config = get_config()
+                for skill in job_analysis["key_skills"][
+                    : config.output.max_bullet_points_per_project
+                ]:
                     content = self._search_relevant_content(
                         skill, structured_cv, num_results=2
                     )
@@ -402,35 +410,38 @@ class ResearchAgent(EnhancedAgentBase):
 
     @with_node_error_handling("research")
     async def run_as_node(self, state):
-        if getattr(self, "_dependency_error", None):
-            return state.model_copy(
-                update={
-                    "error_messages": state.error_messages
-                    + [f"ResearchAgent dependency error: {self._dependency_error}"]
-                }
-            )
-        logger.info("Research Agent: Starting node execution")
-        from ..models.validation_schemas import validate_agent_input
-
-        validate_agent_input("research", state)
-        agent_input = state
-        result = await self.run_async(agent_input, state)
-        if result.success:
-            if result.output_data and "research_findings" in result.output_data:
-                research_findings = result.output_data["research_findings"]
-                if isinstance(research_findings, dict):
-                    research_findings = ResearchFindings.from_dict(research_findings)
-                logger.info("Research Agent: Successfully completed research")
-                return state.model_copy(update={"research_findings": research_findings})
-            else:
-                error_msg = "Research Agent: No research findings in result"
-                logger.error(error_msg)
-                return state.model_copy(
-                    update={"error_messages": state.error_messages + [error_msg]}
+        try:
+            if getattr(self, "_dependency_error", None):
+                raise RuntimeError(
+                    f"ResearchAgent dependency error: {self._dependency_error}"
                 )
-        else:
-            error_msg = f"Research Agent failed: {result.error_message}"
-            logger.error(error_msg)
-            return state.model_copy(
-                update={"error_messages": state.error_messages + [error_msg]}
-            )
+
+            logger.info("Research Agent: Starting node execution")
+            from ..models.validation_schemas import validate_agent_input
+
+            validate_agent_input("research", state)
+            agent_input = state
+            result = await self.run_async(agent_input, state)
+
+            if result.success:
+                if result.output_data and "research_findings" in result.output_data:
+                    research_findings = result.output_data["research_findings"]
+                    if isinstance(research_findings, dict):
+                        research_findings = ResearchFindings.from_dict(
+                            research_findings
+                        )
+                    logger.info("Research Agent: Successfully completed research")
+                    return {"research_findings": research_findings}
+                else:
+                    error_msg = "Research Agent: No research findings in result"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+            else:
+                error_msg = f"Research Agent failed: {result.error_message}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+        except Exception as e:
+            logger.error(f"ResearchAgent failed: {e}", exc_info=True)
+            from ..utils.exceptions import AgentExecutionError
+
+            raise AgentExecutionError(agent_name="ResearchAgent", message=str(e)) from e

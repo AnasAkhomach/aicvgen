@@ -51,6 +51,30 @@ class PromptSettings(BaseModel):
     cv_parser: str = "cv_parsing_prompt.md"
 
 
+class AgentSettings(BaseModel):
+    """Settings for agent behavior and default values."""
+
+    default_skills: list[str] = Field(
+        default_factory=lambda: [
+            "Problem Solving",
+            "Team Collaboration",
+            "Communication Skills",
+            "Analytical Thinking",
+            "Project Management",
+            "Technical Documentation",
+            "Quality Assurance",
+            "Process Improvement",
+            "Leadership",
+            "Adaptability",
+        ]
+    )
+    max_skills_to_parse: int = 10
+    max_bullet_points_per_role: int = 5
+    max_bullet_points_per_project: int = 3
+    default_company_name: str = "Unknown Company"
+    default_job_title: str = "Unknown Title"
+
+
 @dataclass
 class LLMConfig:
     """Configuration for LLM models and API settings."""
@@ -78,23 +102,16 @@ class LLMConfig:
     # Retry Configuration
     max_retries: int = 3
     retry_delay: float = 1.0
-    exponential_backoff: bool = True
-
-    # Timeout Configuration
+    exponential_backoff: bool = True  # Timeout Configuration
     request_timeout: int = field(
         default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", "60"))
     )
 
     def __post_init__(self):
         """Validate configuration after initialization."""
-        # Check if at least one Gemini API key is available (primary or fallback)
-        if not self.gemini_api_key_primary and not self.gemini_api_key_fallback:
-            raise ValueError(
-                "At least one Gemini API key is required. "
-                "Please set GEMINI_API_KEY or GEMINI_API_KEY_FALLBACK environment variables. "
-                "CRITICAL SECURITY NOTE: Never hardcode API keys in source code!"
-                "or ensure fallback key is configured."
-            )
+        # Note: API key validation is deferred to LLM service initialization
+        # to prevent startup hangs. The LLM service will validate keys when needed.
+        pass
 
 
 @dataclass
@@ -146,10 +163,11 @@ class OutputConfig:
     pdf_template_path: str = "src/templates/cv_template.md"
     pdf_output_directory: str = "data/output"
 
-    # Content Configuration
-    max_skills_count: int = 10  # "Big 10" instead of "Big 6"
+    # Content Generation Constants
+    max_skills_count: int = 10
     max_bullet_points_per_role: int = 5
     max_bullet_points_per_project: int = 3
+    min_skill_length: int = 2
 
 
 @dataclass
@@ -188,6 +206,7 @@ class AppConfig:
     # NEW: Add structured configuration sections
     llm_settings: LLMSettings = field(default_factory=LLMSettings)
     prompts: PromptSettings = field(default_factory=PromptSettings)
+    agent_settings: AgentSettings = field(default_factory=AgentSettings)
 
     # Application Metadata
     app_name: str = "AI CV Generator"

@@ -107,11 +107,28 @@ class SessionManager:
     """Manager for user sessions and state persistence."""
 
     def __init__(self, logger=None, settings=None, storage_path: Optional[Path] = None):
-        self.logger = logger
-        self.settings = settings
+        # Initialize logger
+        self.logger = logger or get_structured_logger(__name__)
+
+        # Initialize settings
+        if settings is None:
+            try:
+                from ..config.settings import get_config
+
+                self.settings = get_config()
+            except Exception as e:
+                self.logger.warning(f"Could not load settings, using defaults: {e}")
+                # Create a minimal settings object with required attributes
+                self.settings = type(
+                    "Settings", (), {"sessions_directory": Path("data/sessions")}
+                )()
+        else:
+            self.settings = settings
 
         # Storage configuration
-        self.storage_path = storage_path or self.settings.sessions_directory
+        self.storage_path = storage_path or getattr(
+            self.settings, "sessions_directory", Path("data/sessions")
+        )
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         # In-memory session tracking

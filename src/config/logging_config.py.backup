@@ -202,8 +202,11 @@ class StructuredLogger:
         import logging
 
         self.logger = logging.getLogger(name)
-        # Don't auto-setup logging here to avoid circular imports
-        # Let the caller handle logging setup
+        if self.logger is None:
+            from .logging_config import setup_logging
+
+            setup_logging()
+            self.logger = logging.getLogger(name)
         self.llm_logger = logging.getLogger(f"{name}.llm")
         self.rate_limit_logger = logging.getLogger(f"{name}.rate_limit")
         self.agent_logger = logging.getLogger(f"{name}.agent")
@@ -258,7 +261,7 @@ class StructuredLogger:
 
         self.performance_logger.info(json.dumps(log_entry))
 
-    def info(self, message: str, *args, extra=None, exc_info=None, **kwargs):
+    def info(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log info message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
@@ -274,25 +277,19 @@ class StructuredLogger:
         if exc_info is not None:
             log_kwargs["exc_info"] = exc_info
 
-        # Format message with args if provided
-        if args:
-            formatted_message = message % args
-        else:
-            formatted_message = message
-
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
             log_kwargs["extra"] = safe_log_data
-            self.logger.info(formatted_message, **log_kwargs)
+            self.logger.info(message, **log_kwargs)
         else:
-            safe_message = redact_log_message(formatted_message)
+            safe_message = redact_log_message(message)
             self.logger.info(safe_message, **log_kwargs)
 
-    def error(self, message: str, *args, extra=None, exc_info=None, **kwargs):
+    def error(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log error message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
-        if extra and isinstance(extra, dict):
+        if extra:
             log_data.update(extra)
         if kwargs:
             log_data.update(kwargs)
@@ -301,50 +298,40 @@ class StructuredLogger:
         log_kwargs = {}
         if exc_info is not None:
             log_kwargs["exc_info"] = exc_info
-
-        # Format message with args if provided
-        if args:
-            formatted_message = message % args
-        else:
-            formatted_message = message
-
-        if log_data:
+            if log_data:
             safe_log_data = redact_sensitive_data(log_data)
             log_kwargs["extra"] = safe_log_data
-            self.logger.error(formatted_message, **log_kwargs)
+            self.logger.error(message, **log_kwargs)
         else:
-            safe_message = redact_log_message(formatted_message)
+            safe_message = redact_log_message(message)
             self.logger.error(safe_message, **log_kwargs)
 
-    def warning(self, message: str, *args, extra=None, exc_info=None, **kwargs):
+    def warning(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log warning message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
-        if extra and isinstance(extra, dict):
-            log_data.update(extra)
+        if extra:
+            # Ensure extra is a dictionary before updating
+            if isinstance(extra, dict):
+                log_data.update(extra)
+            else:
+                # If extra is not a dict, skip it to prevent crashes
+                pass
         if kwargs:
-            log_data.update(kwargs)
-
-        # Prepare logging arguments
+            log_data.update(kwargs)  # Prepare logging arguments
         log_kwargs = {}
         if exc_info is not None:
             log_kwargs["exc_info"] = exc_info
 
-        # Format message with args if provided
-        if args:
-            formatted_message = message % args
-        else:
-            formatted_message = message
-
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
             log_kwargs["extra"] = safe_log_data
-            self.logger.warning(formatted_message, **log_kwargs)
+            self.logger.warning(message, **log_kwargs)
         else:
-            safe_message = redact_log_message(formatted_message)
+            safe_message = redact_log_message(message)
             self.logger.warning(safe_message, **log_kwargs)
 
-    def debug(self, message: str, *args, extra=None, exc_info=None, **kwargs):
+    def debug(self, message: str, extra=None, exc_info=None, **kwargs):
         """Log debug message with optional structured data."""
         # Handle both extra parameter and kwargs
         log_data = {}
@@ -358,18 +345,12 @@ class StructuredLogger:
         if exc_info is not None:
             log_kwargs["exc_info"] = exc_info
 
-        # Format message with args if provided
-        if args:
-            formatted_message = message % args
-        else:
-            formatted_message = message
-
         if log_data:
             safe_log_data = redact_sensitive_data(log_data)
             log_kwargs["extra"] = safe_log_data
-            self.logger.debug(formatted_message, **log_kwargs)
+            self.logger.debug(message, **log_kwargs)
         else:
-            safe_message = redact_log_message(formatted_message)
+            safe_message = redact_log_message(message)
             self.logger.debug(safe_message, **log_kwargs)
 
 
@@ -562,9 +543,22 @@ def get_structured_logger(name: str):
     """Get a structured logger instance for LLM operations. Always ensure logging is initialized."""
     import logging
 
-    # Simply return a StructuredLogger without auto-setup to avoid circular imports
-    # The caller should ensure logging is properly initialized
-    return StructuredLogger(name)
+    try:
+        logger = logging.getLogger(name)
+        # If no handlers, initialize logging (safe for repeated calls)
+        if not logger.hasHandlers():
+            from .logging_config import setup_logging
+
+            setup_logging()
+        return StructuredLogger(name)
+    except Exception:
+        # Fallback to stdlib logger
+        logger = logging.getLogger(name)
+        if not logger.hasHandlers():
+            from .logging_config import setup_logging
+
+            setup_logging()
+        return logger
 
 
 def get_logger(name: str) -> logging.Logger:

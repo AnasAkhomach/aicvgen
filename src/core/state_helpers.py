@@ -9,7 +9,7 @@ import uuid
 from typing import Dict, Any, Optional
 from ..config.logging_config import setup_logging
 from ..orchestration.state import AgentState
-from ..models.data_models import JobDescriptionData, StructuredCV
+from ..models.data_models import JobDescriptionData, StructuredCV, MetadataModel
 
 # Initialize logging
 logger = setup_logging()
@@ -54,15 +54,19 @@ def create_initial_agent_state() -> AgentState:
 
     # The ParserAgent will later populate the full StructuredCV from cv_text.
     # For initialization, we only need the raw text and metadata.
-    structured_cv = StructuredCV(
-        metadata={"original_cv_text": cv_text, "start_from_scratch": start_from_scratch}
+    metadata = MetadataModel(
+        extra={
+            "original_cv_text": cv_text,
+            "start_from_scratch": start_from_scratch,
+        }
     )
+    structured_cv = StructuredCV(metadata=metadata)
 
     # 3. Construct the final AgentState
     initial_state = AgentState(
         structured_cv=structured_cv,
         job_description_data=job_description_data,
-        cv_text=cv_text,  # <-- Ensure cv_text is set for parser validation
+        # cv_text and start_from_scratch are no longer top-level fields
         # Initialize other fields with sensible defaults
         user_feedback=None,
         error_messages=[],

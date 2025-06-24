@@ -11,9 +11,21 @@ class TestParserAgent:
 
     def setup_method(self):
         """Set up test fixtures."""
+        mock_llm_service = Mock()
+        mock_vector_store_service = Mock()
+        mock_error_recovery_service = Mock()
+        mock_progress_tracker = Mock()
+        mock_settings = Mock()
+        mock_template_manager = Mock()
         self.parser_agent = ParserAgent(
+            llm_service=mock_llm_service,
+            vector_store_service=mock_vector_store_service,
+            error_recovery_service=mock_error_recovery_service,
+            progress_tracker=mock_progress_tracker,
+            settings=mock_settings,
+            template_manager=mock_template_manager,
             name="TestParserAgent",
-            description="Test parser agent for unit tests"
+            description="Test parser agent for unit tests",
         )
 
     def test_parse_big_10_skills_valid_response(self):
@@ -30,9 +42,9 @@ class TestParserAgent:
         • Technical Documentation
         • Quality Assurance
         """
-        
+
         result = self.parser_agent._parse_big_10_skills(llm_response)
-        
+
         assert len(result) == 10
         assert "Python Programming" in result
         assert "Data Analysis" in result
@@ -50,9 +62,9 @@ class TestParserAgent:
         • SQL Database Management
         • Project Management
         """
-        
+
         result = self.parser_agent._parse_big_10_skills(llm_response)
-        
+
         # Should filter out template content and return valid skills
         assert len(result) == 10  # Should pad with generic skills
         assert "Python Programming" in result
@@ -66,9 +78,9 @@ class TestParserAgent:
         • Data Analysis
         • Machine Learning
         """
-        
+
         result = self.parser_agent._parse_big_10_skills(llm_response)
-        
+
         # Should pad with generic skills to reach 10
         assert len(result) == 10
         assert "Python Programming" in result
@@ -90,9 +102,9 @@ class TestParserAgent:
         • Skill 11
         • Skill 12
         """
-        
+
         result = self.parser_agent._parse_big_10_skills(llm_response)
-        
+
         # Should truncate to exactly 10
         assert len(result) == 10
         assert "Skill 1" in result
@@ -103,7 +115,7 @@ class TestParserAgent:
         """Test error handling in _parse_big_10_skills."""
         # Test with None input
         result = self.parser_agent._parse_big_10_skills(None)
-        
+
         # Should return fallback skills
         assert len(result) == 10
         assert "Problem Solving" in result
@@ -116,9 +128,9 @@ class TestParserAgent:
         - Third bullet point
         * Fourth bullet point
         """
-        
+
         result = self.parser_agent._parse_bullet_points(content)
-        
+
         assert len(result) == 4
         assert "First bullet point" in result
         assert "Second bullet point" in result
@@ -132,9 +144,9 @@ class TestParserAgent:
         Another meaningful line of content
         Short
         """
-        
+
         result = self.parser_agent._parse_bullet_points(content)
-        
+
         # Should include lines longer than 10 characters
         assert "This is a longer line that should be included" in result
         assert "Another meaningful line of content" in result
@@ -149,9 +161,9 @@ class TestParserAgent:
         Dates: 2020-2023
         • Another valid bullet point
         """
-        
+
         result = self.parser_agent._parse_bullet_points(content)
-        
+
         assert "Valid bullet point" in result
         assert "Another valid bullet point" in result
         assert "Role: Software Engineer" not in result
@@ -168,16 +180,16 @@ class TestParserAgent:
         • Point 6
         • Point 7
         """
-        
+
         result = self.parser_agent._parse_bullet_points(content)
-        
+
         # Should limit to 5 bullet points
         assert len(result) <= 5
 
     def test_parse_bullet_points_empty_content(self):
         """Test parsing empty or whitespace-only content."""
         result = self.parser_agent._parse_bullet_points("   \n\n   ")
-        
+
         # Should return the stripped content as single item
         assert len(result) == 0 or result == [""]
 
@@ -185,8 +197,10 @@ class TestParserAgent:
         """Test company extraction with role mapping."""
         role_name = "Trainee Data Analyst"
         generation_context = {"original_cv_text": "Some CV text"}
-        
-        result = self.parser_agent._extract_company_from_cv(role_name, generation_context)
+
+        result = self.parser_agent._extract_company_from_cv(
+            role_name, generation_context
+        )
         assert result == "STE Smart-Send"
 
     def test_extract_company_from_cv_fallback(self):
@@ -195,16 +209,20 @@ class TestParserAgent:
         generation_context = {
             "original_cv_text": "Software Engineer\n[TechCorp] | 2020-2023\n* Developed applications"
         }
-        
-        result = self.parser_agent._extract_company_from_cv(role_name, generation_context)
+
+        result = self.parser_agent._extract_company_from_cv(
+            role_name, generation_context
+        )
         assert result == "TechCorp"
 
     def test_extract_company_from_cv_no_match(self):
         """Test company extraction when no match found."""
         role_name = "Unknown Role"
         generation_context = {"original_cv_text": "Some CV text without the role"}
-        
-        result = self.parser_agent._extract_company_from_cv(role_name, generation_context)
+
+        result = self.parser_agent._extract_company_from_cv(
+            role_name, generation_context
+        )
         assert result == "Previous Company"
 
     def test_parse_cv_text_to_content_item_integration(self):
@@ -214,18 +232,20 @@ class TestParserAgent:
         [TechCorp] | 2020-2023
         * Developed web applications
         * Led team of 5 developers
-        
+
         Data Analyst
         [DataCorp] | 2018-2020
         * Analyzed customer data
         * Created reports
         """
         generation_context = {"original_cv_text": cv_text}
-        
-        result = self.parser_agent._parse_cv_text_to_content_item(cv_text, generation_context)
-        
-        assert isinstance(result, dict)
-        assert "name" in result
-        assert "subsections" in result
-        assert isinstance(result["subsections"], list)
-        assert len(result["subsections"]) > 0
+
+        result = self.parser_agent._parse_cv_text_to_content_item(
+            cv_text, generation_context
+        )
+
+        from src.models.data_models import Subsection
+
+        assert isinstance(result, Subsection)
+        assert result.name == "Professional Experience"
+        assert len(result.items) > 0

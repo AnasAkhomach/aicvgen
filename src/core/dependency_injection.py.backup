@@ -1,0 +1,637 @@
+"""Dependency injection system for agent lifecycle management and optimization."""
+
+# pylint: disable=too-many-instance-attributes, unnecessary-pass, too-many-branches, global-statement
+
+import threading
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional, Type, TypeVar, Callable, List
+from dataclasses import dataclass, field
+from enum import Enum
+import time
+from datetime import datetime, timedelta
+import google.generativeai as genai
+
+from ..config.logging_config import get_structured_logger
+from ..utils.error_handling import ErrorHandler
+from ..services.llm_client import LLMClient
+from ..services.llm_retry_handler import LLMRetryHandler
+from ..services.llm_service import EnhancedLLMService, AdvancedCache
+from ..utils.error_classification import is_retryable_error
+from ..config.settings import Settings
+from ..services.rate_limiter import RateLimiter
+from ..services.error_recovery import ErrorRecoveryService
+from ..core.performance_optimizer import PerformanceOptimizer
+from ..templates.content_templates import ContentTemplateManager
+from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
+from ..agents.parser_agent import ParserAgent
+from ..agents.quality_assurance_agent import QualityAssuranceAgent
+from ..agents.formatter_agent import FormatterAgent
+from ..agents.research_agent import ResearchAgent
+from ..agents.cv_analyzer_agent import CVAnalyzerAgent
+from ..agents.cleaning_agent import CleaningAgent
+from ..services.progress_tracker import ProgressTracker
+from ..services.vector_store_service import VectorStoreService
+
+
+logger = get_structured_logger(__name__)
+T = TypeVar("T")
+
+
+class LifecycleScope(Enum):
+    """Defines the lifecycle scope of dependencies."""
+
+    SINGLETON = "singleton"  # Single instance for entire application
+    SESSION = "session"  # One instance per session
+    REQUEST = "request"  # New instance per request
+    TRANSIENT = "transient"  # New instance every time
+    PROTOTYPE = "prototype"  # New instance with custom lifecycle
+
+
+class DependencyState(Enum):
+    """States of a dependency during its lifecycle."""
+
+    NOT_CREATED = "not_created"
+    CREATING = "creating"
+    CREATED = "created"
+    INITIALIZING = "initializing"
+    READY = "ready"
+    DISPOSING = "disposing"
+    DISPOSED = "disposed"
+    ERROR = "error"
+
+
+@dataclass
+class DependencyMetadata:
+    """Metadata for dependency registration and management."""
+
+    name: str
+    dependency_type: Type
+    scope: LifecycleScope
+    factory: Optional[Callable[[], Any]] = None
+    dependencies: List[str] = field(default_factory=list)
+    lazy: bool = True
+    auto_dispose: bool = True
+    max_idle_time: Optional[timedelta] = None
+    priority: int = 0  # Higher priority dependencies are created first
+    tags: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DependencyInstance:
+    """Represents an instance of a dependency with its lifecycle information."""
+
+    instance: Any
+    metadata: DependencyMetadata
+    state: DependencyState = DependencyState.CREATED
+    created_at: datetime = field(default_factory=datetime.now)
+    last_accessed: datetime = field(default_factory=datetime.now)
+    access_count: int = 0
+    session_id: Optional[str] = None
+    error: Optional[Exception] = None
+
+    def mark_accessed(self):
+        """Mark the instance as accessed."""
+        self.last_accessed = datetime.now()
+        self.access_count += 1
+
+
+class IDependencyProvider(ABC):
+    """Interface for dependency providers."""
+
+    @abstractmethod
+    def get(self, dependency_type: Type[T], name: Optional[str] = None) -> T:
+        """Get a dependency instance."""
+        pass
+
+    @abstractmethod
+    def get_all(self, dependency_type: Type[T]) -> List[T]:
+        """Get all instances of a given type."""
+        pass
+
+    @abstractmethod
+    def get_by_name(self, name: str) -> Any:
+        """Get a dependency by its registered name."""
+        pass
+
+
+class DependencyContainer(IDependencyProvider):
+    """
+    A sophisticated dependency injection container for managing object lifecycles.
+    """
+
+    def __init__(self, session_id: Optional[str] = None):
+        """
+        Initializes the dependency container.
+
+        Args:
+            session_id: An optional identifier for session-scoped dependencies.
+        """
+        self._registrations: Dict[str, DependencyMetadata] = {}
+        self._instances: Dict[str, DependencyInstance] = {}
+        self._session_instances: Dict[str, Dict[str, DependencyInstance]] = {}
+        self._lock = threading.Lock()
+        self._session_id = session_id
+        self._stats = {"creations": 0, "disposals": 0, "errors": 0}
+        self._cleanup_thread = None
+        self._shutdown = False
+        self._start_cleanup_thread()
+
+    def register(self, metadata: DependencyMetadata):
+        """Register a dependency with metadata."""
+        with self._lock:
+            logger.info("Registering dependency: %s", metadata.name)
+            if metadata.name in self._registrations:
+                logger.warning(
+                    f"Dependency {metadata.name} is already registered. Overwriting."
+                )
+            self._registrations[metadata.name] = metadata
+
+    def register_singleton(
+        self,
+        name: str,
+        dependency_type: Type[T],
+        factory: Optional[Callable[[], T]] = None,
+        **kwargs,
+    ):
+        """Register a singleton dependency."""
+        metadata = DependencyMetadata(
+            name=name,
+            dependency_type=dependency_type,
+            scope=LifecycleScope.SINGLETON,
+            factory=factory,
+            **kwargs,
+        )
+        self.register(metadata)
+
+    def register_transient(
+        self,
+        name: str,
+        dependency_type: Type[T],
+        factory: Optional[Callable[[], T]] = None,
+        **kwargs,
+    ):
+        """Register a transient dependency."""
+        metadata = DependencyMetadata(
+            name=name,
+            dependency_type=dependency_type,
+            scope=LifecycleScope.TRANSIENT,
+            factory=factory,
+            **kwargs,
+        )
+        self.register(metadata)
+
+    def get(self, dependency_type: Type[T], name: Optional[str] = None) -> T:
+        """Get a dependency instance by type and optional name."""
+        if name:
+            return self.get_by_name(name)
+
+        candidates = [
+            reg_name
+            for reg_name, reg in self._registrations.items()
+            if reg.dependency_type == dependency_type
+        ]
+        if not candidates:
+            raise ValueError(
+                f"No dependency registered for type {dependency_type.__name__}"
+            )
+        if len(candidates) > 1:
+            raise ValueError(
+                f"Multiple dependencies registered for type {dependency_type.__name__}. "
+                f"Specify a name from: {', '.join(candidates)}"
+            )
+        return self.get_by_name(candidates[0])
+
+    def get_all(self, dependency_type: Type[T]) -> List[T]:
+        """Get all registered instances of a specific type."""
+        instances = []
+        with self._lock:
+            for name, reg in self._registrations.items():
+                if reg.dependency_type == dependency_type:
+                    instances.append(self.get_by_name(name))
+        return instances
+
+    def get_by_name(self, name: str) -> Any:
+        """
+        Get a dependency by its registered name, handling different lifecycle scopes.
+        """
+        with self._lock:
+            metadata = self._registrations.get(name)
+            if not metadata:
+                raise ValueError(f"No dependency named '{name}' is registered.")
+
+            if metadata.scope == LifecycleScope.SINGLETON:
+                if name not in self._instances:
+                    self._instances[name] = self._create_instance(name, metadata)
+                dep_instance = self._instances[name]
+                dep_instance.mark_accessed()
+                return dep_instance.instance
+
+            if metadata.scope == LifecycleScope.SESSION:
+                if not self._session_id:
+                    raise ValueError("Session scope requires a session_id.")
+                if self._session_id not in self._session_instances:
+                    self._session_instances[self._session_id] = {}
+                if name not in self._session_instances[self._session_id]:
+                    self._session_instances[self._session_id][name] = (
+                        self._create_instance(name, metadata)
+                    )
+                dep_instance = self._session_instances[self._session_id][name]
+                dep_instance.mark_accessed()
+                return dep_instance.instance
+
+            if metadata.scope == LifecycleScope.TRANSIENT:
+                return self._create_instance(name, metadata).instance
+
+            raise NotImplementedError(
+                f"Lifecycle scope {metadata.scope} not implemented."
+            )
+
+    def _create_instance(
+        self, name: str, metadata: DependencyMetadata
+    ) -> DependencyInstance:
+        """
+        Create a new instance of a dependency using its factory or constructor.
+        """
+        logger.debug("Creating instance for dependency: %s", name)
+        self._stats["creations"] += 1
+        instance = None
+        try:
+            if metadata.factory:
+                instance = metadata.factory()
+            else:
+                # Resolve dependencies from their names
+                dependencies = {
+                    dep_name: self.get_by_name(dep_name)
+                    for dep_name in metadata.dependencies
+                }
+                instance = metadata.dependency_type(**dependencies)
+
+            return DependencyInstance(instance=instance, metadata=metadata)
+
+        except (ValueError, TypeError, AttributeError, ImportError) as e:
+            logger.error("Error creating dependency %s: %s", name, e, exc_info=True)
+            self._stats["errors"] += 1
+            raise
+
+    def dispose(self, name: str) -> None:
+        """Dispose of a specific singleton dependency instance."""
+        with self._lock:
+            if name in self._instances:
+                self._dispose_instance(self._instances.pop(name))
+
+    def _dispose_instance(self, dep_instance: DependencyInstance) -> None:
+        """Helper method to dispose of a single dependency instance."""
+        try:
+            if dep_instance.metadata.auto_dispose and hasattr(
+                dep_instance.instance, "dispose"
+            ):
+                dep_instance.instance.dispose()
+            logger.info("Disposed dependency: %s", dep_instance.metadata.name)
+            self._stats["disposals"] += 1
+        except (AttributeError, TypeError) as e:
+            logger.error(
+                "Error disposing dependency %s: %s", dep_instance.metadata.name, e
+            )
+            self._stats["errors"] += 1
+
+    def dispose_session(self, session_id: str) -> None:
+        """Dispose all dependencies for a specific session."""
+        with self._lock:
+            if session_id in self._session_instances:
+                for dep_instance in self._session_instances[session_id].values():
+                    self._dispose_instance(dep_instance)
+                del self._session_instances[session_id]
+                logger.info("Disposed all dependencies for session: %s", session_id)
+
+    def cleanup_idle_instances(self) -> None:
+        """Clean up idle instances that exceed their max idle time."""
+        with self._lock:
+            now = datetime.now()
+            to_dispose = []
+
+            # Check singleton instances
+            for name, instance in self._instances.items():
+                if instance.metadata.max_idle_time and (
+                    now - instance.last_accessed > instance.metadata.max_idle_time
+                ):
+                    to_dispose.append((name, instance))
+
+            # Check session instances
+            for session_id, session_instances in self._session_instances.items():
+                for name, instance in session_instances.items():
+                    if instance.metadata.max_idle_time and (
+                        now - instance.last_accessed > instance.metadata.max_idle_time
+                    ):
+                        to_dispose.append((name, instance, session_id))
+
+            # Dispose idle instances
+            for item in to_dispose:
+                name, instance = item[0], item[1]
+                logger.info("Disposing idle instance: %s", name)
+                self._dispose_instance(instance)
+                if instance.metadata.scope == LifecycleScope.SINGLETON:
+                    del self._instances[name]
+                elif instance.metadata.scope == LifecycleScope.SESSION:
+                    session_id = item[2]
+                    del self._session_instances[session_id][name]
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get container usage statistics."""
+        with self._lock:
+            return {
+                **self._stats,
+                "registered_dependencies": len(self._registrations),
+                "singleton_instances": len(self._instances),
+                "session_instances": sum(
+                    len(instances) for instances in self._session_instances.values()
+                ),
+                "total_instances": len(self._instances)
+                + sum(len(instances) for instances in self._session_instances.values()),
+            }
+
+    def _start_cleanup_thread(self) -> None:
+        """Start a background thread to clean up idle instances."""
+
+        def cleanup_worker():
+            """The worker function for the cleanup thread."""
+            while not self._shutdown:
+                time.sleep(60)  # Check every minute
+                try:
+                    self.cleanup_idle_instances()
+                except (AttributeError, TypeError) as e:
+                    logger.error("Error in cleanup thread: %s", e)
+
+        self._cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
+        self._cleanup_thread.start()
+
+    def shutdown(self) -> None:
+        """Shutdown the container and dispose of all managed instances."""
+        with self._lock:
+            self._shutdown = True
+
+            # Dispose all instances
+            for instance in self._instances.values():
+                self._dispose_instance(instance)
+            self._instances.clear()
+
+            for session_instances in self._session_instances.values():
+                for instance in session_instances.values():
+                    self._dispose_instance(instance)
+            self._session_instances.clear()
+
+            logger.info("Dependency container shutdown complete")
+
+    def register_agents(self) -> None:
+        """Register all agents with proper dependency injection."""
+        settings = self.get(Settings, "settings")
+
+        self.register_singleton(
+            name="ParserAgent",
+            dependency_type=ParserAgent,
+            factory=lambda: ParserAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                vector_store_service=self.get(VectorStoreService, "VectorStoreService"),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                settings=settings,
+                template_manager=self.get(
+                    ContentTemplateManager, "ContentTemplateManager"
+                ),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "VectorStoreService",
+                "ProgressTracker",
+                "settings",
+                "ContentTemplateManager",
+            ],
+        )
+
+        self.register_singleton(
+            name="EnhancedContentWriterAgent",
+            dependency_type=EnhancedContentWriterAgent,
+            factory=lambda: EnhancedContentWriterAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                parser_agent=self.get(ParserAgent, "ParserAgent"),
+                settings=settings,
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ProgressTracker",
+                "ParserAgent",
+                "settings",
+            ],
+        )
+
+        self.register_singleton(
+            name="QualityAssuranceAgent",
+            dependency_type=QualityAssuranceAgent,
+            factory=lambda: QualityAssuranceAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                template_manager=self.get(
+                    ContentTemplateManager, "ContentTemplateManager"
+                ),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ProgressTracker",
+                "ContentTemplateManager",
+            ],
+        )
+
+        self.register_singleton(
+            name="FormatterAgent",
+            dependency_type=FormatterAgent,
+            factory=lambda: FormatterAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                template_manager=self.get(
+                    ContentTemplateManager, "ContentTemplateManager"
+                ),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ProgressTracker",
+                "ContentTemplateManager",
+            ],
+        )
+
+        self.register_singleton(
+            name="ResearchAgent",
+            dependency_type=ResearchAgent,
+            factory=lambda: ResearchAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                vector_db=self.get(VectorStoreService, "VectorStoreService"),
+                settings=settings,
+                template_manager=self.get(
+                    ContentTemplateManager, "ContentTemplateManager"
+                ),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ProgressTracker",
+                "VectorStoreService",
+                "settings",
+                "ContentTemplateManager",
+            ],
+        )
+
+        self.register_singleton(
+            name="CVAnalyzerAgent",
+            dependency_type=CVAnalyzerAgent,
+            factory=lambda: CVAnalyzerAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                settings=settings,
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                template_manager=self.get(
+                    ContentTemplateManager, "ContentTemplateManager"
+                ),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "settings",
+                "ProgressTracker",
+                "ContentTemplateManager",
+            ],
+        )
+
+        self.register_singleton(
+            name="CleaningAgent",
+            dependency_type=CleaningAgent,
+            factory=lambda: CleaningAgent(
+                llm_service=self.get(EnhancedLLMService, "EnhancedLLMService"),
+                progress_tracker=self.get(ProgressTracker, "ProgressTracker"),
+                template_manager=self.get(
+                    ContentTemplateManager, "ContentTemplateManager"
+                ),
+            ),
+            dependencies=[
+                "EnhancedLLMService",
+                "ProgressTracker",
+                "ContentTemplateManager",
+            ],
+        )
+
+        logger.info("All agents registered successfully with dependency injection")
+
+    def get_registrations(self) -> Dict[str, DependencyMetadata]:
+        """Return the dictionary of registered dependencies."""
+        return self._registrations
+
+
+# Global container instance
+_global_container: Optional[DependencyContainer] = None
+_container_lock = threading.Lock()
+
+
+def get_container(session_id: Optional[str] = None) -> "DependencyContainer":
+    """Get the global dependency container."""
+    global _global_container
+
+    with _container_lock:
+        if _global_container is None:
+            _global_container = DependencyContainer(session_id)
+        return _global_container
+
+
+def reset_container() -> None:
+    """Reset the global container (mainly for testing)."""
+    global _global_container
+
+    with _container_lock:
+        if _global_container:
+            _global_container.shutdown()
+        _global_container = None
+
+
+def build_llm_service(
+    container: "DependencyContainer", user_api_key: Optional[str] = None
+) -> EnhancedLLMService:
+    """Factory to build the EnhancedLLMService with all its dependencies."""
+    settings = container.get(Settings, "settings")
+    rate_limiter = container.get(RateLimiter, "RateLimiter")
+    error_recovery = container.get(ErrorRecoveryService, "ErrorRecoveryService")
+    performance_optimizer = container.get(PerformanceOptimizer, "PerformanceOptimizer")
+    cache = container.get(AdvancedCache, "AdvancedCache")
+
+    # This logic is now centralized here
+    llm_client = LLMClient(genai.GenerativeModel(settings.llm_settings.default_model))
+
+    # Correctly define the retry handler logic
+    def _is_retryable(exception: Exception) -> bool:
+        return is_retryable_error(exception)
+
+    retry_handler = LLMRetryHandler(llm_client, _is_retryable)
+
+    return EnhancedLLMService(
+        settings=settings,
+        llm_client=llm_client,
+        llm_retry_handler=retry_handler,
+        cache=cache,
+        rate_limiter=rate_limiter,
+        error_recovery=error_recovery,
+        performance_optimizer=performance_optimizer,
+        user_api_key=user_api_key,
+        timeout=settings.llm_settings.default_timeout,
+        async_optimizer=None,  # Assuming this is handled elsewhere or not needed for now
+    )
+
+
+def register_services(container: "DependencyContainer"):
+    """Register services required by agents."""
+    # Register VectorStoreService with settings dependency
+    container.register_singleton(
+        name="VectorStoreService",
+        dependency_type=VectorStoreService,
+        factory=lambda: VectorStoreService(
+            settings=container.get(Settings, "settings")
+        ),
+    )
+    # Register ProgressTracker
+    container.register_singleton(
+        name="ProgressTracker",
+        dependency_type=ProgressTracker,
+        factory=ProgressTracker,
+    )
+    container.register_singleton(
+        "EnhancedLLMService",
+        EnhancedLLMService,
+        factory=lambda: build_llm_service(container),  # Factory for general use
+    )
+
+
+def register_core_services(container: "DependencyContainer"):
+    """Register all core application services as singletons."""
+    # Settings and Configuration
+    container.register_singleton("settings", Settings, factory=Settings)
+
+    # Core Services
+    container.register_singleton("RateLimiter", RateLimiter)
+    container.register_singleton("AdvancedCache", AdvancedCache)
+    container.register_singleton("ErrorHandler", ErrorHandler)
+    container.register_singleton(
+        "PerformanceOptimizer",
+        PerformanceOptimizer,
+        factory=PerformanceOptimizer,
+    )
+    container.register_singleton("ContentTemplateManager", ContentTemplateManager)
+    container.register_singleton(
+        "ErrorRecoveryService",
+        ErrorRecoveryService,
+        factory=lambda: ErrorRecoveryService(
+            container.get(ErrorHandler, "ErrorHandler")
+        ),
+    )
+
+    # LLM Service Factory and Registration
+    def llm_service_factory() -> EnhancedLLMService:
+        return build_llm_service(container)
+
+    container.register_singleton(
+        "EnhancedLLMService",
+        EnhancedLLMService,
+        factory=llm_service_factory,
+    )

@@ -13,11 +13,13 @@ sys.path.insert(0, str(project_root))
 import pytest
 
 if __name__ == "__main__":
-    # Run the new test files
-    exit_code = pytest.main([
-        "tests/unit/test_llm_service_comprehensive.py",
-        "tests/unit/test_item_processor_simplified.py",
-        "-v",
-        "--tb=short"
-    ])
+    # Run the relevant test files for the state and parser changes
+    exit_code = pytest.main(
+        [
+            "tests/unit/test_orchestration_state.py",
+            "tests/unit/test_parser_agent.py",
+            "-v",
+            "--tb=short",
+        ]
+    )
     sys.exit(exit_code)

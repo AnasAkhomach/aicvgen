@@ -14,18 +14,16 @@ def initialize_session_state():
     """
     # Session management
     if "session_id" not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())
-
-    # Core state
+        st.session_state.session_id = str(uuid.uuid4())  # Core state
     if "agent_state" not in st.session_state:
         st.session_state.agent_state = None
 
-    # Workflow control
-    if "run_workflow" not in st.session_state:
-        st.session_state.run_workflow = False
+    # Processing state (simplified for F-01)
+    if "is_processing" not in st.session_state:
+        st.session_state.is_processing = False
 
-    if "processing" not in st.session_state:
-        st.session_state.processing = False
+    if "just_finished" not in st.session_state:
+        st.session_state.just_finished = False
 
     if "stop_processing" not in st.session_state:
         st.session_state.stop_processing = False
@@ -62,15 +60,10 @@ def initialize_session_state():
         st.session_state.cv_text_input = ""
 
     if "start_from_scratch_input" not in st.session_state:
-        st.session_state.start_from_scratch_input = False
-
-    # Error handling
+        st.session_state.start_from_scratch_input = False  # Error handling
     if "error_messages" not in st.session_state:
         st.session_state.error_messages = []
 
-    # Workflow execution state
-    if "workflow_result" not in st.session_state:
-        st.session_state.workflow_result = None
-
+    # Workflow execution state (simplified for F-01)
     if "workflow_error" not in st.session_state:
         st.session_state.workflow_error = None

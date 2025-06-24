@@ -27,14 +27,15 @@ import streamlit as st
 # Only set page config if this file is being run directly (not imported)
 try:
     from ..utils.streamlit_utils import configure_page
+
     configure_page()
 except Exception:
     # If we can't access the state or page config is already set, continue
     pass
 
 # Now import everything else after set_page_config
-from typing import Dict, Any
-import asyncio
+import streamlit as st
+import time
 
 # Project imports
 from ..core.application_startup import initialize_application, validate_application
@@ -45,16 +46,8 @@ from ..frontend.ui_components import (
     display_review_and_edit_tab,
     display_export_tab,
 )
-from ..frontend.state_helpers import initialize_session_state
-from ..frontend.callbacks import handle_workflow_execution
-from ..core.state_helpers import create_initial_agent_state
 from ..orchestration.state import AgentState
-from ..orchestration.cv_workflow_graph import (
-    cv_graph_app,
-)  # Assumes this is the compiled graph
 from ..utils.exceptions import ConfigurationError, ServiceInitializationError
-import uuid
-import time
 
 # Get logger (will be initialized by startup service)
 logger = get_logger(__name__)
@@ -78,25 +71,32 @@ def main():
         # 1. Initialize Application Services
         user_api_key = st.session_state.get("user_gemini_api_key", "")
         startup_result = initialize_application(user_api_key=user_api_key)
-        
+
         if not startup_result.success:
             st.error("**Application Startup Failed:**")
             for error in startup_result.errors:
                 st.error(f"• {error}")
             st.warning("Please check your configuration and restart the application.")
-            
+
             # Show startup details in expander
             with st.expander("🔍 Startup Details", expanded=False):
-                st.json({
-                    "total_time": f"{startup_result.total_time:.2f}s",
-                    "services": {name: {
-                        "status": "✅ Success" if service.initialized else "❌ Failed",
-                        "time": f"{service.initialization_time:.3f}s",
-                        "error": service.error
-                    } for name, service in startup_result.services.items()}
-                })
+                st.json(
+                    {
+                        "total_time": f"{startup_result.total_time:.2f}s",
+                        "services": {
+                            name: {
+                                "status": (
+                                    "✅ Success" if service.initialized else "❌ Failed"
+                                ),
+                                "time": f"{service.initialization_time:.3f}s",
+                                "error": service.error,
+                            }
+                            for name, service in startup_result.services.items()
+                        },
+                    }
+                )
             st.stop()
-        
+
         # Validate critical services
         validation_errors = validate_application()
         if validation_errors:
@@ -104,79 +104,62 @@ def main():
             for error in validation_errors:
                 st.error(f"• {error}")
             st.stop()
-        
-        logger.info(f"Application started successfully in {startup_result.total_time:.2f}s")
 
-        # 2. Initialize Session State
+        logger.info(
+            f"Application started successfully in {startup_result.total_time:.2f}s"
+        )        # 2. Initialize Session State
+        from ..frontend.state_helpers import initialize_session_state
         initialize_session_state()
 
         # 3. Display Static UI Components
-        display_sidebar(st.session_state.agent_state)
+        display_sidebar()
         st.title("🤖 AI CV Generator")
         st.markdown(
             "Transform your CV to match any job description using advanced AI. "
             "Get personalized, ATS-friendly CVs that highlight your most relevant skills and experience."
-        )
+        )        # 4. Handle UI based on processing state
+        if st.session_state.get("is_processing"):
+            with st.spinner("Processing your CV... Please wait."):
+                # The UI is blocked here by the spinner, but the work is in a thread.
+                # We can use a simple time.sleep to allow the UI to feel responsive
+                # while we wait for the background thread to update the state.
+                while st.session_state.get("is_processing"):
+                    time.sleep(0.1)
+            # After the spinner, the state should be updated
+            # Note: st.rerun() removed - UI will update automatically on next interaction
 
-        # 4. Handle background thread results
-        if st.session_state.get("processing"):
-            st.spinner("Processing your CV... Please wait.")
-            # The UI is not blocked here. You could add a progress bar that updates.
-
-        if "workflow_result" in st.session_state and st.session_state.workflow_result:
-            # Workflow is done, process the result
-            final_state_dict = st.session_state.workflow_result
-            st.session_state.agent_state = AgentState.model_validate(final_state_dict)
-            st.session_state.workflow_result = None  # Clear the result
-
-            # Clear feedback so the same action doesn't run again on the next rerun
-            if st.session_state.agent_state.user_feedback:
-                st.session_state.agent_state.user_feedback = None
-
+        # Check if the workflow just finished to show a success message
+        if st.session_state.get("just_finished"):
             st.success("CV Generation Complete!")
-            st.rerun()  # Rerun to display the new state in the 'Review & Edit' tab
+            st.session_state.just_finished = False  # Reset flag
 
-        if "workflow_error" in st.session_state and st.session_state.workflow_error:
-            # Workflow failed
+        # Display any errors from the workflow
+        if st.session_state.get("workflow_error"):
             error = st.session_state.workflow_error
             st.error(f"An error occurred during CV generation: {error}")
-            st.session_state.workflow_error = None  # Clear the error
-
-        # 5. Main Interaction & Backend Loop
-        if st.session_state.get("run_workflow"):
-            st.session_state.processing = True
-            st.session_state.run_workflow = False  # Reset flag
-
-            # Generate trace_id for this workflow execution
-            trace_id = str(uuid.uuid4())
-
-            logger.info(
-                "Starting CV generation workflow",
-                extra={
-                    "trace_id": trace_id,
-                    "session_id": st.session_state.get("session_id"),
-                },
-            )
-
-            handle_workflow_execution(trace_id)
-            st.rerun()  # Rerun to show the spinner immediately
-
-        # 6. Render UI Tabs based on the current state
+            st.session_state.workflow_error = None  # Clear the error        # 5. Render UI Tabs based on the current state
+        # The button clicks in the UI now directly trigger the callbacks,
+        # so no explicit workflow management is needed here.
         tab1, tab2, tab3 = st.tabs(
             ["📝 Input & Generate", "✏️ Review & Edit", "📄 Export"]
         )
-
+        
         with tab1:
-            display_input_form(st.session_state.agent_state)
+            display_input_form()
 
         with tab2:
-            display_review_and_edit_tab(st.session_state.agent_state)
+            # Ensure agent_state exists before rendering tabs that depend on it
+            if st.session_state.get("agent_state"):
+                display_review_and_edit_tab(st.session_state.agent_state)
+            else:
+                st.info("Start CV generation in the first tab to see results here.")
 
         with tab3:
-            display_export_tab(st.session_state.agent_state)
-
-        # Display any errors from the workflow
-        if st.session_state.agent_state and st.session_state.agent_state.error_messages:
+            if st.session_state.get("agent_state"):
+                display_export_tab(st.session_state.agent_state)
+            else:
+                st.info("Complete CV generation to export your results.")        # Display any errors from the agent_state model itself
+        if st.session_state.get("agent_state") and st.session_state.agent_state.error_messages:
             for error in st.session_state.agent_state.error_messages:
                 st.error(error)
 
@@ -188,12 +171,13 @@ def main():
         st.stop()
     except Exception as e:
         st.error(f"An unexpected error occurred: {e}")
-        
+
         # Show error details in expander for debugging
         with st.expander("🔍 Error Details", expanded=False):
             import traceback
+
             st.code(traceback.format_exc(), language="text")
-        
+
         st.stop()
 
 

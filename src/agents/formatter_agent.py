@@ -1,24 +1,27 @@
-from typing import Any, Optional, Dict
+"""
+This module defines the FormatterAgent, responsible for formatting CVs.
+"""
+
 from pathlib import Path
+from typing import Any, Dict, Optional
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from pydantic import BaseModel, Field
+from jinja2 import Environment, FileSystemLoader, select_autoescape, TemplateError
+from pydantic import BaseModel
 
-from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from ..models.data_models import AgentIO, ContentData
-from ..orchestration.state import AgentState
-from ..core.async_optimizer import optimize_async
 from ..config.logging_config import get_structured_logger
-from ..services.llm_service import EnhancedLLMService
-from ..services.error_recovery import ErrorRecoveryService
-from ..services.progress_tracker import ProgressTracker
-from ..utils.agent_error_handling import (
-    AgentErrorHandler,
-    with_node_error_handling,
-)
+from ..models.data_models import AgentIO, ContentData, StructuredCV
 from ..models.formatter_agent_models import FormatterAgentNodeResult
-from ..utils.prompt_utils import format_prompt
+from ..models.validation_schemas import validate_agent_input
+from ..orchestration.state import AgentState
+
+from ..services.llm_service import EnhancedLLMService
+from ..services.progress_tracker import ProgressTracker
+from ..templates.content_templates import ContentTemplateManager
+from ..utils.agent_error_handling import with_node_error_handling
 from ..utils.error_utils import handle_errors
+from ..utils.prompt_utils import format_prompt
+from ..utils.exceptions import AgentExecutionError
+from .agent_base import AgentResult, EnhancedAgentBase, AgentExecutionContext
 
 try:
     from weasyprint import HTML
@@ -34,6 +37,8 @@ logger = get_structured_logger(__name__)
 
 
 class FormatterAgentOutput(BaseModel):
+    """Output model for the FormatterAgent."""
+
     formatted_cv_text: str
 
 
@@ -42,44 +47,34 @@ class FormatterAgent(EnhancedAgentBase):
     Agent responsible for formatting the tailored CV content.
     """
 
+    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def __init__(
         self,
         llm_service: EnhancedLLMService,
-        error_recovery_service: ErrorRecoveryService,
         progress_tracker: ProgressTracker,
+        template_manager: ContentTemplateManager,
         name: str = "FormatterAgent",
-        description: str = "Agent responsible for formatting CV content and generating files",
+        description: str = "Formats CV content and generates files.",
     ):
-        """Initialize the FormatterAgent with required dependencies.
-
-        Args:
-            llm_service: LLM service instance for content enhancement.
-            error_recovery_service: Error recovery service dependency.
-            progress_tracker: Progress tracker service dependency.
-            name: The name of the agent.
-            description: A description of the agent.
-        """
+        """Initialize the FormatterAgent with required dependencies."""
+        input_schema = AgentIO(
+            description="Reads structured CV from AgentState for formatting.",
+            required_fields=["structured_cv"],
+        )
+        output_schema = AgentIO(
+            description="Populates 'final_output_path' in AgentState.",
+            required_fields=["final_output_path"],
+        )
         super().__init__(
             name=name,
             description=description,
-            input_schema=AgentIO(
-                description="Reads structured CV from AgentState for formatting and file generation.",
-                required_fields=["structured_cv"],
-                optional_fields=["job_description_data"],
-            ),
-            output_schema=AgentIO(
-                description="Populates the 'final_output_path' field in AgentState with generated file location.",
-                required_fields=["final_output_path"],
-                optional_fields=["error_messages"],
-            ),
-            error_recovery_service=error_recovery_service,
+            input_schema=input_schema,
+            output_schema=output_schema,
             progress_tracker=progress_tracker,
         )
-
-        # Required service dependencies (constructor injection)
         self.llm_service = llm_service
-
-        # Initialize Jinja2 template environment
+        self.template_manager = template_manager
+        self.jinja_env: Optional[Environment] = None
         self._init_template_environment()
 
     def _init_template_environment(self):
@@ -92,169 +87,107 @@ class FormatterAgent(EnhancedAgentBase):
                 trim_blocks=True,
                 lstrip_blocks=True,
             )
-            self.logger.info(
-                "Jinja2 template environment initialized with template directory: %s",
-                template_dir,
-            )
-        except Exception as e:
-            self.logger.error("Failed to initialize Jinja2 environment: %s", e)
-            self.jinja_env = Environment(autoescape=select_autoescape(["html", "xml"]))
+            logger.info("Jinja2 template environment initialized: %s", template_dir)
+        except IOError as e:
+            logger.error("Failed to initialize Jinja2 environment: %s", e)
+            self.jinja_env = None
 
     @with_node_error_handling("formatter")
     async def run_as_node(
-        self, state: AgentState, config: Optional[dict] = None
-    ) -> AgentState:
-        """Run the formatter agent as a node in the workflow, returning updated AgentState."""
-        self.logger.info("Starting CV formatting")
-        from ..models.validation_schemas import validate_agent_input
-
+        self, state: AgentState, _config: Optional[dict] = None
+    ) -> Dict[str, Any]:
+        """Run formatter agent as a node, returning an update dictionary."""
+        logger.info("Starting CV formatting")
         try:
-            try:
-                validate_agent_input("formatter", state)
-            except Exception as ve:
-                self.logger.error("Input validation failed: %s", ve)
-                return state.model_copy(
-                    update={
-                        "error_messages": state.error_messages
-                        + [f"Input validation failed: {ve}"]
-                    }
-                )
+            validate_agent_input("formatter", state)
+
             result = await self.run(state)
-            if (
-                isinstance(result, FormatterAgentNodeResult)
-                and result.final_output_path
-            ):
-                self.logger.info("CV formatting completed")
-                return state.model_copy(
-                    update={"final_output_path": result.final_output_path}
-                )
-            else:
-                return state
+            if result.error_message:
+                raise RuntimeError(result.error_message)
+            if result.final_output_path:
+                logger.info("CV formatting completed")
+                return {"final_output_path": result.final_output_path}
+            return {}
         except Exception as e:
-            self.logger.error("FormatterAgent error: %s", e)
-            return state.model_copy(
-                update={"error_messages": state.error_messages + [str(e)]}
-            )
+            logger.error(f"FormatterAgent failed: {e}", exc_info=True)
+            from ..utils.exceptions import AgentExecutionError
+
+            raise AgentExecutionError(
+                agent_name="FormatterAgent", message=str(e)
+            ) from e
 
     async def run_async(
         self, input_data: Any, context: "AgentExecutionContext"
     ) -> "AgentResult":
-        from .agent_base import AgentResult
-        from ..models.validation_schemas import validate_agent_input
-
+        """Asynchronously formats content based on input data."""
         try:
-            try:
-                validated_input = validate_agent_input("formatter", input_data)
-                input_data = validated_input.model_dump()
-            except Exception as ve:
-                return AgentErrorHandler.handle_validation_error(ve, "FormatterAgent")
-            content_data = input_data.get("content_data")
+            validated_input = validate_agent_input("formatter", input_data)
+            content_data = validated_input.content_data
             if not content_data:
                 return AgentResult(
                     success=False,
-                    output_data=FormatterAgentOutput(
-                        formatted_cv_text="# No content data provided"
-                    ),
-                    confidence_score=0.0,
+                    output_data=FormatterAgentOutput(),
                     error_message="Missing content data",
-                    metadata={"agent_type": "formatter"},
                 )
-            format_specs = input_data.get("format_specs", {})
-            try:
-                formatted_text = await self.format_content(content_data, format_specs)
-                result = FormatterAgentOutput(formatted_cv_text=formatted_text)
-            except Exception as e:
-                logger.error("Error formatting content: %s", e)
-                result = FormatterAgentOutput(
-                    formatted_cv_text="# Error formatting CV\n\nAn error occurred during formatting."
-                )
+
+            format_specs = validated_input.get("format_specs", {})
+            formatted_text = await self.format_content(content_data, format_specs)
+            result = FormatterAgentOutput(formatted_cv_text=formatted_text)
+            return AgentResult(success=True, output_data=result, confidence_score=1.0)
+        except (ValueError, TypeError) as e:
+            logger.error("Error in run_async: %s", e)
             return AgentResult(
-                success=True,
-                output_data=result,
-                confidence_score=0.7,
-                metadata={"agent_type": "formatter"},
-            )
-        except Exception as e:
-            # Use handle_general_error to return an AgentResult on error
-            return AgentErrorHandler.handle_general_error(
-                e, agent_type="formatter", context="run_async"
+                success=False,
+                output_data=FormatterAgentOutput(),
+                error_message=f"Formatting failed: {e}",
             )
 
     async def format_content(
         self, content_data: ContentData, specifications: Optional[dict] = None
     ) -> str:
-        if specifications is None:
-            specifications = {}
+        """Formats content using LLM or a template fallback."""
+        specifications = specifications or {}
         try:
             return await self._format_with_llm(content_data, specifications)
-        except Exception as e:
+        except AgentExecutionError as e:
             logger.warning("LLM formatting failed, falling back to template: %s", e)
-            return self._format_with_template(content_data, specifications)
+            return self._format_with_template(content_data)
 
-    @handle_errors(default_return=None)
+    @handle_errors(default_return="")
     async def _format_with_llm(
-        self, content_data: ContentData, specifications: dict
+        self, content_data: ContentData, _specifications: dict
     ) -> str:
-        """
-        Use LLM to intelligently format the CV content.
-        """
+        """Use LLM to intelligently format the CV content."""
         content_summary = self._prepare_content_for_llm(content_data)
-        formatting_prompt = format_prompt(
-            """
-You are an expert CV formatter. Format the following CV content into a professional, well-structured markdown document.
+        prompt = self.template_manager.get_prompt("cv_formatting")
+        if not prompt:
+            raise ValueError("CV formatting prompt not found.")
 
-Requirements:
-- Start with "# Tailored CV" as the main header
-- Use proper markdown formatting with headers, bullet points, and emphasis
-- Ensure professional presentation and readability
-- Maintain all provided information while improving structure and flow
-- Use consistent formatting throughout
-
-CV Content to format:
-{content_summary}
-
-Format this into a professional CV in markdown format:
-""",
-            content_summary=content_summary,
-        )
-        llm_response = await self.llm_service.generate_content(prompt=formatting_prompt)
-        response = llm_response.content
-        if response and response.strip():
-            return response.strip()
-        else:
+        formatted_prompt = format_prompt(prompt, content_summary=content_summary)
+        llm_response = await self.llm_service.generate_content(prompt=formatted_prompt)
+        response = llm_response.content.strip()
+        if not response:
             raise ValueError("Empty response from LLM")
+        return response
 
     def _prepare_content_for_llm(self, content_data: ContentData) -> str:
-        """
-        Prepare content data for LLM formatting.
-        """
+        """Prepare content data for LLM formatting."""
         content_parts = []
 
-        # Personal information
-        if hasattr(content_data, "name") and content_data.name:
-            content_parts.append(f"Name: {content_data.name}")
-        if hasattr(content_data, "email") and content_data.email:
-            content_parts.append(f"Email: {content_data.email}")
-        if hasattr(content_data, "phone") and content_data.phone:
-            content_parts.append(f"Phone: {content_data.phone}")
-        if hasattr(content_data, "linkedin") and content_data.linkedin:
-            content_parts.append(f"LinkedIn: {content_data.linkedin}")
-        if hasattr(content_data, "github") and content_data.github:
-            content_parts.append(f"GitHub: {content_data.github}")
+        def add_part(label: str, value: Any):
+            if value:
+                content_parts.append(f"{label}: {value}")
 
-        # Professional summary
-        if hasattr(content_data, "summary") and content_data.summary:
-            content_parts.append(f"Professional Summary: {content_data.summary}")
-
-        # Skills
-        if hasattr(content_data, "skills_section") and content_data.skills_section:
-            content_parts.append(f"Skills: {content_data.skills_section}")
+        add_part("Name", getattr(content_data, "name", None))
+        add_part("Email", getattr(content_data, "email", None))
+        add_part("Phone", getattr(content_data, "phone", None))
+        add_part("LinkedIn", getattr(content_data, "linkedin", None))
+        add_part("GitHub", getattr(content_data, "github", None))
+        add_part("Professional Summary", getattr(content_data, "summary", None))
+        add_part("Skills", getattr(content_data, "skills_section", None))
 
         # Experience
-        if (
-            hasattr(content_data, "experience_bullets")
-            and content_data.experience_bullets
-        ):
+        if getattr(content_data, "experience_bullets", None):
             exp_text = "Experience:\n"
             for exp in content_data.experience_bullets:
                 if isinstance(exp, str):
@@ -266,884 +199,117 @@ Format this into a professional CV in markdown format:
                         exp_text += f"- {bullet}\n"
             content_parts.append(exp_text)
 
-        # Education
-        if hasattr(content_data, "education") and content_data.education:
-            edu_text = "Education:\n"
-            for edu in content_data.education:
-                if isinstance(edu, str):
-                    edu_text += f"- {edu}\n"
-                elif isinstance(edu, dict):
-                    if edu.get("degree"):
-                        edu_text += f"- {edu['degree']}"
-                        if edu.get("institution"):
-                            edu_text += f" at {edu['institution']}"
-                        edu_text += "\n"
-            content_parts.append(edu_text)
-
-        # Projects
-        if hasattr(content_data, "projects") and content_data.projects:
-            proj_text = "Projects:\n"
-            for proj in content_data.projects:
-                if isinstance(proj, str):
-                    proj_text += f"- {proj}\n"
-            content_parts.append(proj_text)
-
-        # Certifications
-        if hasattr(content_data, "certifications") and content_data.certifications:
-            cert_text = "Certifications:\n"
-            for cert in content_data.certifications:
-                if isinstance(cert, str):
-                    cert_text += f"- {cert}\n"
-            content_parts.append(cert_text)
-
         return "\n\n".join(content_parts)
 
-    def _format_with_template(
-        self, content_data: ContentData, _specifications: Optional[dict] = None
-    ) -> str:
-        """
-        Fallback template-based formatting.
-        """
-        formatted_text = "# Tailored CV\n\n"
-
-        # Add header with name and contact info
-        if hasattr(content_data, "name") and content_data.name:
-            formatted_text += f"## {content_data.name}\n\n"
-
-        # Format contact info if available
-        contact_parts = []
-        if hasattr(content_data, "phone") and content_data.phone:
-            contact_parts.append(f"📞 {content_data.phone}")
-        if hasattr(content_data, "email") and content_data.email:
-            contact_parts.append(f"📧 {content_data.email}")
-        if hasattr(content_data, "linkedin") and content_data.linkedin:
-            contact_parts.append(f"🔗 [LinkedIn]({content_data.linkedin})")
-        if hasattr(content_data, "github") and content_data.github:
-            contact_parts.append(f"💻 [GitHub]({content_data.github})")
-
-        if contact_parts:
-            formatted_text += " | ".join(contact_parts) + "\n\n"
-            formatted_text += "---\n\n"
-
-        # Process Professional Profile/Summary
-        if hasattr(content_data, "summary") and content_data.summary:
-            formatted_text += "## Professional Profile\n\n"
-            formatted_text += content_data.summary + "\n\n"
-            formatted_text += "---\n\n"
-
-        # Process Key Qualifications
-        if hasattr(content_data, "skills_section") and content_data.skills_section:
-            formatted_text += "## Key Qualifications\n\n"
-
-            # Check if skills are just a string or need parsing
-            skills_content = content_data.skills_section
-            if isinstance(skills_content, str):
-                # Remove any duplicate skills that might have been introduced
-                skills_list = [skill.strip() for skill in skills_content.split("|")]
-                # Remove duplicates while preserving order
-                unique_skills = []
-                for skill in skills_list:
-                    if (
-                        skill
-                        and skill not in unique_skills
-                        and not skill.startswith("Skills:")
-                    ):
-                        unique_skills.append(skill)
-
-                formatted_text += " | ".join(unique_skills) + "\n\n"
-            else:
-                formatted_text += str(skills_content) + "\n\n"
-
-            formatted_text += "---\n\n"
-
-        # Process Professional Experience
-        if (
-            hasattr(content_data, "experience_bullets")
-            and content_data.experience_bullets
-        ):
-            formatted_text += "## Professional Experience\n\n"
-            for exp in content_data.experience_bullets:
-                if isinstance(exp, str):
-                    # Handle string bullet points
-                    bullet = exp
-                    # Ensure the bullet point isn't truncated
-                    if (
-                        bullet.endswith("...")
-                        or bullet.endswith("…")
-                        or bullet.endswith("and")
-                        or bullet.endswith("or")
-                    ):
-                        # Log this as an issue
-                        print(f"Warning: Found truncated bullet point: {bullet}")
-                        # Try to clean it up - remove trailing ellipsis and conjunctions
-                        bullet = (
-                            bullet.rstrip("…")
-                            .rstrip("...")
-                            .rstrip(" and")
-                            .rstrip(" or")
-                            .rstrip(",")
-                            .strip()
-                        )
-                        bullet += "."  # Add a period at the end
-
-                    # Ensure bullet points have proper punctuation
-                    if bullet and not bullet.endswith((".", "!", "?")):
-                        bullet += "."
-
-                    formatted_text += f"* {bullet}\n"
-                elif isinstance(exp, dict):
-                    if exp.get("position"):
-                        formatted_text += f"### {exp['position']}\n\n"
-
-                    # Add company, location, period if available
-                    company_info_parts = []
-                    if exp.get("company"):
-                        company_info_parts.append(exp["company"])
-                    if exp.get("location"):
-                        company_info_parts.append(exp["location"])
-                    if exp.get("period"):
-                        company_info_parts.append(exp["period"])
-
-                    if company_info_parts:
-                        formatted_text += f"*{' | '.join(company_info_parts)}*\n\n"
-
-                    # Add bullet points
-                    for bullet in exp.get("bullets", []):
-                        # Ensure the bullet point isn't truncated
-                        if (
-                            bullet.endswith("...")
-                            or bullet.endswith("…")
-                            or bullet.endswith("and")
-                            or bullet.endswith("or")
-                        ):
-                            # Log this as an issue
-                            print(f"Warning: Found truncated bullet point: {bullet}")
-                            # Try to clean it up - remove trailing ellipsis and conjunctions
-                            bullet = (
-                                bullet.rstrip("…")
-                                .rstrip("...")
-                                .rstrip(" and")
-                                .rstrip(" or")
-                                .rstrip(",")
-                                .strip()
-                            )
-                            bullet += "."  # Add a period at the end
-
-                        # Ensure bullet points have proper punctuation
-                        if bullet and not bullet.endswith((".", "!", "?")):
-                            bullet += "."
-
-                        formatted_text += f"* {bullet}\n"
-
-                    formatted_text += "\n"
-
-            formatted_text += "---\n\n"
-
-        # Process Projects
-        if hasattr(content_data, "projects") and content_data.projects:
-            formatted_text += "## Project Experience\n\n"
-            for project in content_data.projects:
-                if isinstance(project, dict):
-                    # Add project name and technologies if available
-                    project_header_parts = []
-                    if project.get("name"):
-                        project_header_parts.append(project["name"])
-                    if project.get("technologies") and isinstance(
-                        project["technologies"], list
-                    ):
-                        project_header_parts.append(", ".join(project["technologies"]))
-                    elif project.get("technologies") and isinstance(
-                        project["technologies"], str
-                    ):
-                        project_header_parts.append(project["technologies"])
-
-                    if project_header_parts:
-                        formatted_text += f"### {' | '.join(project_header_parts)}\n\n"
-
-                    # Add description if available
-                    if project.get("description"):
-                        formatted_text += f"{project['description']}\n\n"
-
-                    # Add bullet points
-                    for bullet in project.get("bullets", []):
-                        # Fix truncated bullets with a more complete ending
-                        if bullet.endswith("...") or bullet.endswith("…"):
-                            print(
-                                f"Warning: Found truncated project bullet point: {bullet}"
-                            )
-                            # Fix by adding appropriate completion based on context
-                            if (
-                                "manual data entry" in bullet
-                                and "reducing manual errors" in bullet
-                            ):
-                                bullet = (
-                                    bullet.rstrip("…").rstrip("...").strip()
-                                    + " and improving operational efficiency."
-                                )
-                            elif "dashboard" in bullet and "providing" in bullet:
-                                bullet = (
-                                    bullet.rstrip("…").rstrip("...").strip()
-                                    + " real-time metrics and actionable insights."
-                                )
-                            elif (
-                                "tracking" in bullet
-                                and "reduce processing time" in bullet
-                                and "improve" in bullet
-                            ):
-                                bullet = (
-                                    bullet.rstrip("…").rstrip("...").strip()
-                                    + " inventory accuracy by 35%."
-                                )
-                            elif (
-                                "hardware/software solutions" in bullet
-                                and "cost-effective tools within" in bullet
-                            ):
-                                bullet = (
-                                    bullet.rstrip("…").rstrip("...").strip()
-                                    + " budget constraints."
-                                )
-                            elif (
-                                "marketing budget" in bullet
-                                and "increase website" in bullet
-                            ):
-                                bullet = (
-                                    bullet.rstrip("…").rstrip("...").strip()
-                                    + " traffic by 22%."
-                                )
-                            elif "reduction in cos" in bullet:
-                                bullet = (
-                                    bullet.rstrip("…").rstrip("...").strip()
-                                    + "t per acquisition."
-                                )
-                            else:
-                                # Generic completion
-                                bullet = (
-                                    bullet.rstrip("…").rstrip("...").strip()
-                                    + " with measurable results."
-                                )
-
-                        # Also fix bullets ending abruptly with conjunctions
-                        elif bullet.endswith("and") or bullet.endswith("or"):
-                            bullet = (
-                                bullet.rstrip(" and").rstrip(" or").rstrip(",").strip()
-                                + "."
-                            )
-
-                        # Ensure proper punctuation
-                        if bullet and not bullet.endswith((".", "!", "?")):
-                            bullet += "."
-
-                        formatted_text += f"* {bullet}\n"
-
-                    formatted_text += "\n"
-                else:
-                    formatted_text += f"* {project}\n"
-
-            formatted_text += "---\n\n"
-
-        # Process Education
-        if content_data.get("education"):
-            formatted_text += "## Education\n\n"
-            for edu in content_data["education"]:
-                if isinstance(edu, dict):
-                    # Add degree name
-                    if edu.get("degree"):
-                        edu_header_parts = [edu["degree"]]
-
-                        # Add institution and location if available
-                        if edu.get("institution"):
-                            # Check if it's a URL or just a name
-                            if (
-                                edu["institution"].startswith("http")
-                                or "[" in edu["institution"]
-                            ):
-                                edu_header_parts.append(edu["institution"])
-                            else:
-                                edu_header_parts.append(f"[{edu['institution']}]")
-
-                        if edu.get("location"):
-                            edu_header_parts.append(edu["location"])
-
-                        formatted_text += f"### {' | '.join(edu_header_parts)}\n\n"
-
-                    # Add period if available
-                    if edu.get("period"):
-                        formatted_text += f"*{edu['period']}*\n\n"
-
-                    # Add details
-                    for detail in edu.get("details", []):
-                        formatted_text += f"* {detail}\n"
-
-                    formatted_text += "\n"
-                else:
-                    formatted_text += f"* {edu}\n"
-
-            formatted_text += "---\n\n"
-
-        # Process Certifications
-        if content_data.get("certifications"):
-            formatted_text += "## Certifications\n\n"
-            for cert in content_data["certifications"]:
-                if isinstance(cert, dict):
-                    cert_text = ""
-                    if cert.get("url") and cert.get("name"):
-                        cert_text = f"* [{cert['name']}]({cert['url']})"
-
-                        # Add date and issuer if available
-                        extra_parts = []
-                        if cert.get("issuer"):
-                            extra_parts.append(cert["issuer"])
-                        if cert.get("date"):
-                            extra_parts.append(cert["date"])
-
-                        if extra_parts:
-                            cert_text += f" - {', '.join(extra_parts)}"
-                    elif cert.get("name"):
-                        cert_text = f"* {cert['name']}"
-
-                    if cert_text:
-                        formatted_text += cert_text + "\n"
-                elif isinstance(cert, str):
-                    # If it's already a markdown link, use it as is
-                    if cert.startswith("[") and "](" in cert:
-                        formatted_text += f"* {cert}\n"
-                    else:
-                        formatted_text += f"* {cert}\n"
-
-            formatted_text += "\n---\n\n"
-
-        # Process Languages
-        if content_data.get("languages"):
-            formatted_text += "## Languages\n\n"
-            langs = []
-            for lang in content_data["languages"]:
-                if isinstance(lang, dict):
-                    if lang.get("name"):
-                        if lang.get("level"):
-                            langs.append(f"**{lang['name']}** ({lang['level']})")
-                        else:
-                            langs.append(f"**{lang['name']}**")
-                elif isinstance(lang, str):
-                    # Clean up language string to avoid formatting issues
-                    lang_text = lang
-                    # Remove excess asterisks
-                    lang_text = lang_text.replace("***", "**").replace("**", "")
-
-                    # If it contains parentheses, assume it already has level information
-                    if "(" in lang_text and ")" in lang_text:
-                        parts = lang_text.split("(", 1)
-                        name = parts[0].strip()
-                        level = "(" + parts[1]
-                        langs.append(f"**{name}** {level}")
-                    else:
-                        langs.append(f"**{lang_text}**")
-
-            if langs:
-                formatted_text += " | ".join(langs) + "\n\n"
-
-            formatted_text += "---\n\n"
-
-        return formatted_text
+    def _format_with_template(self, content_data: ContentData) -> str:
+        """Fallback template-based formatting."""
+        if not self.jinja_env:
+            return "Error: Jinja2 environment not initialized."
+        try:
+            template = self.jinja_env.get_template("cv_template.md")
+            return template.render(cv=content_data)
+        except TemplateError as e:
+            logger.error("Error rendering template: %s", e)
+            return "Error rendering CV from template."
 
     async def run(self, state_or_content: Any) -> FormatterAgentNodeResult:
-        """
-        Main run method for the formatter agent.
-
-        Args:
-            state_or_content: AgentState or dictionary containing content to format
-
-        Returns:
-            FormatterAgentNodeResult with formatted output path and metadata
-        """
+        """Main run method for the formatter agent."""
         try:
-            # Robust extraction of structured_cv and related fields
-            structured_cv = None
-            format_type = "pdf"
-            template_name = "professional"
-            output_path = None
-
-            # Handle AgentState, dict, or mock objects
-            if hasattr(state_or_content, "structured_cv"):
-                try:
-                    structured_cv = getattr(state_or_content, "structured_cv", None)
-                    format_type = getattr(state_or_content, "format_type", "pdf")
-                    template_name = getattr(
-                        state_or_content, "template_name", "professional"
-                    )
-                    output_path = getattr(state_or_content, "output_path", None)
-                except Exception as e:
-                    self.logger.warning(
-                        f"Could not extract fields from AgentState-like object: {e}"
-                    )
-            elif isinstance(state_or_content, dict):
-                structured_cv = state_or_content.get("structured_cv")
-                format_type = state_or_content.get("format_type", "pdf")
-                template_name = state_or_content.get("template_name", "professional")
-                output_path = state_or_content.get("output_path", None)
-            else:
-                self.logger.error(
-                    f"FormatterAgent.run received unsupported input type: {type(state_or_content)}"
-                )
+            params = self._prepare_run_parameters(state_or_content)
+            if params.get("error_message"):
                 return FormatterAgentNodeResult(
                     final_output_path=None,
-                    error_message="Unsupported input type for FormatterAgent.run",
+                    error_message=params["error_message"],
                 )
 
-            if not structured_cv:
-                self.logger.error(
-                    "No structured_cv found in input to FormatterAgent.run"
-                )
-                return FormatterAgentNodeResult(
-                    final_output_path=None,
-                    error_message="No structured_cv provided to FormatterAgent",
-                )
-
-            if format_type not in ["pdf", "html"]:
-                self.logger.error(f"Unsupported format_type: {format_type}")
-                return FormatterAgentNodeResult(
-                    final_output_path=None,
-                    error_message=f"Unsupported format_type: {format_type}",
-                )
+            structured_cv = params["structured_cv"]
+            format_type = params["format_type"]
+            template_name = params["template_name"]
+            output_path = params["output_path"]
 
             if format_type == "pdf":
-                if not output_path:
-                    output_path = "output/cv_output.pdf"
                 final_path = self._generate_pdf(
                     structured_cv, template_name, output_path
                 )
             else:
-                if not output_path:
-                    output_path = "output/cv_output.html"
                 final_path = self._generate_html_file(
                     structured_cv, template_name, output_path
                 )
-
             return FormatterAgentNodeResult(final_output_path=final_path)
-        except Exception as e:
-            self.logger.error(f"FormatterAgent.run encountered an error: {e}")
+        except AgentExecutionError as e:
+            logger.error("FormatterAgent.run error: %s", e, exc_info=True)
             return FormatterAgentNodeResult(
                 final_output_path=None, error_message=str(e)
             )
 
-    def _generate_pdf(self, structured_cv, template_name: str, output_path: str) -> str:
-        """
-        Generate PDF from structured CV.
-
-        Args:
-            structured_cv: The structured CV data
-            template_name: Name of the template to use
-            output_path: Path where PDF should be saved
-
-        Returns:
-            Path to the generated PDF file
-        """
-        html_content = self._generate_html(structured_cv, template_name)
-
-        if not WEASYPRINT_AVAILABLE:
-            # Fallback to HTML if WeasyPrint not available
-            html_path = output_path.replace(".pdf", ".html")
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(html_content)
-            return html_path
-
-        try:
-            html_doc = HTML(string=html_content)
-            html_doc.write_pdf(output_path)
-            return output_path
-        except Exception as e:
-            logger.error(f"PDF generation failed: {e}")
-            raise
-
-    def _generate_html(
-        self, structured_cv, template_name: str = "pdf_template.html"
-    ) -> str:
-        """
-        Generate HTML content from structured CV using Jinja2 templates.
-
-        Args:
-            structured_cv: The structured CV data
-            template_name: Name of the template to use (defaults to pdf_template.html)
-
-        Returns:
-            HTML content as string
-        """
-        try:
-            # Load the Jinja2 template
-            template = self.jinja_env.get_template(template_name)
-
-            # Prepare template variables
-            template_vars = {"cv": structured_cv}
-
-            # Render the template with the structured CV data
-            html_content = template.render(**template_vars)
-
-            self.logger.info(f"HTML content generated using template: {template_name}")
-            return html_content
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to generate HTML using Jinja2 template {template_name}: {e}"
-            )
-
-            # Fallback to basic HTML generation (safe fallback)
-            return self._generate_fallback_html(structured_cv)
-
-    def _generate_html_file(
-        self, structured_cv, template_name: str, output_path: str
-    ) -> str:
-        """
-        Generate HTML file from structured CV.
-
-        Args:
-            structured_cv: The structured CV data
-            template_name: Name of the template to use
-            output_path: Path where HTML should be saved
-
-        Returns:
-            Path to the generated HTML file
-        """
-        html_content = self._generate_html(structured_cv, template_name)
-
-        try:
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(html_content)
-            return output_path
-        except Exception as e:
-            logger.error(f"HTML file generation failed: {e}")
-            raise
-
-    def _format_section_content_from_cv(self, structured_cv) -> str:
-        """
-        Format content from structured CV.
-
-        Args:
-            structured_cv: The structured CV data
-
-        Returns:
-            Formatted content as HTML string
-        """
-        content_parts = []
-
-        if hasattr(structured_cv, "sections") and structured_cv.sections:
-            for section in structured_cv.sections:
-                section_content = self._format_section_content(section)
-                if section_content.strip():
-                    content_parts.append(
-                        f"<div class='section'><h2>{section.name}</h2>{section_content}</div>"
-                    )
-
-        return "\n".join(content_parts)
-
-    def _format_section_content(self, section) -> str:
-        """
-        Format content for a single section.
-
-        Args:
-            section: Section object with name and items
-
-        Returns:
-            Formatted section content as HTML string
-        """
-        if not hasattr(section, "items") or not section.items:
-            return ""
-
-        content_parts = []
-        for item in section.items:
-            if hasattr(item, "content") and item.content:
-                content_parts.append(f"<p>{item.content}</p>")
-
-        return "\n".join(content_parts)
-
-    def _apply_template_styling(self, content: str, template_name: str) -> str:
-        """
-        Apply template-specific styling to content.
-
-        Args:
-            content: HTML content to style
-            template_name: Name of the template
-
-        Returns:
-            Styled HTML content
-        """
-        # Get template CSS
-        css = self._get_template_css(template_name)
-
-        # Apply styling to content
-        if css and "<style>" not in content:
-            styled_content = f"<style>{css}</style>\n{content}"
+    def _prepare_run_parameters(self, state_or_content: Any) -> Dict[str, Any]:
+        """Extracts and validates run parameters from input."""
+        if isinstance(state_or_content, AgentState):
+            structured_cv = state_or_content.structured_cv
+            format_type = getattr(state_or_content, "format_type", "pdf")
+            template_name = getattr(state_or_content, "template_name", "professional")
+            output_path = getattr(state_or_content, "output_path", None)
+        elif isinstance(state_or_content, dict):
+            structured_cv = state_or_content.get("structured_cv")
+            format_type = state_or_content.get("format_type", "pdf")
+            template_name = state_or_content.get("template_name", "professional")
+            output_path = state_or_content.get("output_path")
         else:
-            styled_content = content
+            msg = f"Unsupported input type: {type(state_or_content)}"
+            logger.error(msg)
+            return {"error_message": msg}
 
-        return styled_content
+        if not structured_cv:
+            return {"error_message": "StructuredCV is missing."}
 
-    def _get_template_css(self, template_name: str) -> str:
-        """
-        Get CSS styles for the specified template.
-
-        Args:
-            template_name: Name of the template
-
-        Returns:
-            CSS styles as string
-        """
-        css_styles = {
-            "professional": """
-<style>
-body {
-    font-family: 'Times New Roman', serif;
-    line-height: 1.6;
-    color: #333;
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 20px;
-}
-h1, h2 {
-    color: #2c3e50;
-    border-bottom: 2px solid #3498db;
-}
-.section {
-    margin-bottom: 20px;
-}
-p {
-    margin-bottom: 10px;
-}
-</style>
-""",
-            "modern": """
-<style>
-body {
-    font-family: 'Arial', sans-serif;
-    line-height: 1.5;
-    color: #444;
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 20px;
-}
-h1, h2 {
-    color: #e74c3c;
-    font-weight: 300;
-}
-.section {
-    margin-bottom: 25px;
-    padding: 15px;
-    background-color: #f8f9fa;
-}
-p {
-    margin-bottom: 8px;
-}
-</style>
-""",
-            "creative": """
-<style>
-body {
-    font-family: 'Georgia', serif;
-    line-height: 1.7;
-    color: #2c3e50;
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 20px;
-    background-color: #ecf0f1;
-}
-h1, h2 {
-    color: #8e44ad;
-    font-style: italic;
-}
-.section {
-    margin-bottom: 30px;
-    padding: 20px;
-    background-color: white;
-    border-radius: 5px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-p {
-    margin-bottom: 12px;
-}
-</style>
-""",
+        return {
+            "structured_cv": structured_cv,
+            "format_type": format_type,
+            "template_name": template_name,
+            "output_path": output_path,
         }
 
-        return css_styles.get(template_name, css_styles["professional"])
-
-    def _validate_output(self, output_path: str) -> bool:
-        """
-        Validate that the output file was created successfully.
-
-        Args:
-            output_path: Path to the output file
-
-        Returns:
-            True if file exists and is not empty, False otherwise
-        """
-        try:
-            path = Path(output_path)
-            return path.exists() and path.stat().st_size > 0
-        except Exception:
-            return False
-
-    def _get_output_filename(
-        self, format_type: str, provided_filename: Optional[str]
-    ) -> str:
-        """
-        Generate output filename if not provided.
-
-        Args:
-            format_type: Type of format (pdf, html)
-            provided_filename: User-provided filename (optional)
-
-        Returns:
-            Output filename
-        """
-        if provided_filename:
-            return self._sanitize_filename(provided_filename)
-
-        import time
-
-        timestamp = int(time.time())
-        extension = ".pdf" if format_type == "pdf" else ".html"
-        return f"cv_{timestamp}{extension}"
-
-    def _sanitize_filename(self, filename: str) -> str:
-        """
-        Sanitize filename by removing invalid characters.
-
-        Args:
-            filename: Original filename
-
-        Returns:
-            Sanitized filename
-        """
-        import re
-
-        # Remove invalid characters
-        sanitized = re.sub(r'[<>:"/\\|?*]', "_", filename)
-        return sanitized
-
-    def get_confidence_score(self, output_data: dict) -> float:
-        """Calculate confidence score based on output quality."""
-        # Simple confidence calculation based on output availability
-        score = 0.3  # Base score
-
-        if output_data.get("final_output_path"):
-            score += 0.3
-
-        if output_data.get("format_type"):
-            score += 0.1
-
-        if output_data.get("template_used"):
-            score += 0.1
-
-        # Check file size if available
-        file_size = output_data.get("file_size", 0)
-        if file_size > 1000:  # At least 1KB
-            score += 0.2
-
-        return min(score, 1.0)
-
-    # Format the entry according to section-specific rules
-    def _format_entry(
+    def _generate_pdf(
         self,
-        entry: Dict[str, Any],
-        section_name: str,
-        _subsection_name: Optional[str] = None,
-    ) -> str:
-        """
-        Format a single entry according to section-specific rules.
-
-        Args:
-            entry: The entry data to format
-            section_name: The name of the section this entry belongs to
-            subsection_name: Optional subsection name if applicable
-
-        Returns:
-            Formatted entry as a string
-        """
-        section_type = section_name.lower()
-        if "languages" in section_type:
-            return f"**{entry['content']}**"
-
-        if "certifications" in section_type or "certificate" in section_type:
-            return f"* {entry['content']}"
-
-        if (
-            "key qualifications" in section_type
-            or "competencies" in section_type
-            or "skills" in section_type
-        ):
-            return entry["content"]
-
-        if "experience" in section_type:
-            # Format for experience bullet points
-            return f"* {entry['content']}"
-
-        # Default formatting
-        return entry["content"]
-
-    def _generate_fallback_html(self, structured_cv) -> str:
-        """
-        Generate basic HTML content as fallback when Jinja2 template fails.
-
-        Args:
-            structured_cv: The structured CV data
-
-        Returns:
-            Basic HTML content as string
-        """
+        structured_cv: StructuredCV,
+        template_name: str,
+        output_path: Optional[str],
+    ) -> Optional[str]:
+        """Generates a PDF from the structured CV."""
+        if not WEASYPRINT_AVAILABLE or not self.jinja_env:
+            logger.error("PDF generation is not available.")
+            return None
         try:
-            # Extract basic information
-            name = getattr(structured_cv, "name", "CV")
-            if hasattr(structured_cv, "metadata") and structured_cv.metadata:
-                name = getattr(structured_cv.metadata, "name", name)
+            html_template = self.jinja_env.get_template(f"{template_name}.html")
+            html_content = html_template.render(cv=structured_cv)
 
-            # Build basic HTML structure
-            html_parts = []
-            html_parts.append("<!DOCTYPE html>")
-            html_parts.append('<html lang="en">')
-            html_parts.append("<head>")
-            html_parts.append('<meta charset="UTF-8">')
-            html_parts.append(f"<title>{name}</title>")
-            html_parts.append("<style>")
-            html_parts.append("body { font-family: Arial, sans-serif; margin: 20px; }")
-            html_parts.append("h1 { color: #333; }")
-            html_parts.append("h2 { color: #666; border-bottom: 1px solid #ccc; }")
-            html_parts.append("</style>")
-            html_parts.append("</head>")
-            html_parts.append("<body>")
-            html_parts.append(f"<h1>{name}</h1>")
+            final_path = output_path or "cv.pdf"
+            HTML(string=html_content).write_pdf(final_path)
+            logger.info("Successfully generated PDF: %s", final_path)
+            return final_path
+        except (TemplateError, IOError) as e:
+            logger.error("Failed to generate PDF: %s", e)
+            return None
 
-            # Add sections if available
-            if hasattr(structured_cv, "sections") and structured_cv.sections:
-                for section in structured_cv.sections:
-                    section_name = getattr(section, "name", "Section")
-                    html_parts.append(f"<h2>{section_name}</h2>")
+    def _generate_html_file(
+        self,
+        structured_cv: StructuredCV,
+        template_name: str,
+        output_path: Optional[str],
+    ) -> Optional[str]:
+        """Generates an HTML file from the structured CV."""
+        if not self.jinja_env:
+            logger.error("HTML generation is not available.")
+            return None
+        try:
+            template = self.jinja_env.get_template(f"{template_name}.html")
+            html_content = template.render(cv=structured_cv)
 
-                    if hasattr(section, "items") and section.items:
-                        html_parts.append("<ul>")
-                        for item in section.items:
-                            content = getattr(item, "content", str(item))
-                            html_parts.append(f"<li>{content}</li>")
-                        html_parts.append("</ul>")
-
-            html_parts.append("</body>")
-            html_parts.append("</html>")
-
-            return "\n".join(html_parts)
-
-        except Exception as e:
-            self.logger.error(f"Fallback HTML generation failed: {e}")
-            # Ultimate fallback
-            return """<!DOCTYPE html>
-<html><head><title>CV</title></head>
-<body><h1>CV Generation Failed</h1><p>Unable to generate CV content.</p></body>
-</html>"""
-
-    def _format_with_jinja2(self, content_data: ContentData) -> str:
-        """
-        Format the CV content using a Jinja2 markdown template.
-        """
-        template_dir = str(Path(__file__).parent.parent / "templates")
-        env = Environment(
-            loader=FileSystemLoader(template_dir),
-            autoescape=select_autoescape(["html", "xml", "md"]),
-        )
-        template = env.get_template("cv_markdown_template.md")
-        return template.render(cv=content_data)
+            final_path = output_path or "cv.html"
+            with open(final_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            logger.info("Successfully generated HTML file: %s", final_path)
+            return final_path
+        except (TemplateError, IOError) as e:
+            logger.error("Failed to generate HTML file: %s", e)
+            return None

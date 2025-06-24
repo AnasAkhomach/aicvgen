@@ -1,3 +1,9 @@
+---
+name: cv_parsing
+category: prompt
+content_type: cv_parsing
+description: "Parses raw CV text into a structured JSON object."
+---
 You are an expert CV parsing system. Your task is to analyze the raw text of a user's CV and convert it into a structured JSON object. The JSON structure MUST conform to the Pydantic models provided below.
 
 **JSON Output Schema:**
@@ -43,5 +49,5 @@ Your entire output must be a single JSON object. Do not include any commentary o
 
 **CV Text to Parse:**
 ```
-{{raw_cv_text}}
+{raw_cv_text}
 ```

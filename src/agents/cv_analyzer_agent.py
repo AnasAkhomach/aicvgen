@@ -4,7 +4,7 @@ import datetime
 import json
 import os
 import time
-from typing import Any, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 from .agent_base import EnhancedAgentBase, AgentResult
 from ..config.logging_config import get_structured_logger
@@ -12,11 +12,15 @@ from ..config.settings import Settings
 from ..models.data_models import AgentIO, AgentDecisionLog
 from ..models.cv_analyzer_models import BasicCVInfo, CVAnalyzerNodeResult
 from ..models.cv_analysis_result import CVAnalysisResult
+from ..models.agent_output_models import CVAnalyzerAgentOutput
 from ..models.validation_schemas import validate_agent_input
 from ..services.llm_service import EnhancedLLMService
-from ..services.error_recovery import ErrorRecoveryService
+
 from ..services.progress_tracker import ProgressTracker
+from ..templates.content_templates import ContentTemplateManager
 from ..utils.agent_error_handling import AgentErrorHandler, with_node_error_handling
+
+logger = get_structured_logger(__name__)
 
 if TYPE_CHECKING:
     from .agent_base import AgentExecutionContext
@@ -31,8 +35,8 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         self,
         llm_service: EnhancedLLMService,
         settings: Settings,
-        error_recovery_service: ErrorRecoveryService,
         progress_tracker: ProgressTracker,
+        template_manager: ContentTemplateManager,
         name: str = "CVAnalyzerAgent",
         description: str = "Agent responsible for analyzing the user's CV and extracting relevant information",
     ):
@@ -41,8 +45,8 @@ class CVAnalyzerAgent(EnhancedAgentBase):
         Args:
             llm_service: LLM service instance for content analysis.
             settings: Settings/config dependency for prompt loading.
-            error_recovery_service: Error recovery service dependency.
             progress_tracker: Progress tracker service dependency.
+            template_manager: The template manager for loading prompts.
             name: The name of the agent.
             description: A description of the agent.
         """
@@ -57,13 +61,13 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 description="Extracted information from the CV.",
                 required_fields=["analysis_results", "extracted_data"],
             ),
-            error_recovery_service=error_recovery_service,
             progress_tracker=progress_tracker,
         )
 
         # Required service dependencies (constructor injection)
         self.llm_service = llm_service
         self.settings = settings
+        self.template_manager = template_manager
         self.timeout = 30  # Maximum wait time in seconds
 
     def extract_basic_info(self, cv_text: str) -> "BasicCVInfo":
@@ -256,8 +260,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
 
         logger = get_structured_logger(__name__)
 
-        try:
-            # Validate input data using Pydantic schemas
+        try:  # Validate input data using Pydantic schemas
             validation_result = AgentErrorHandler.handle_validation_error(
                 lambda: validate_agent_input("cv_analyzer", input_data),
                 "CVAnalyzerAgent",
@@ -265,7 +268,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             if not validation_result.success:
                 return AgentResult(
                     success=False,
-                    output_data={"error": validation_result.error_message},
+                    output_data=CVAnalyzerAgentOutput(),
                     confidence_score=0.0,
                     error_message=validation_result.error_message,
                     metadata={"agent_type": "cv_analyzer", "validation_error": True},
@@ -290,9 +293,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                     )
                 },
             )
-            logger.log_agent_decision(decision_log)
-
-            # Process the CV analysis directly
+            logger.log_agent_decision(decision_log)  # Process the CV analysis directly
             if isinstance(input_data, dict):
                 result = await self.analyze_cv(input_data, context)
             else:
@@ -303,9 +304,12 @@ class CVAnalyzerAgent(EnhancedAgentBase):
                 }
                 result = await self.analyze_cv(formatted_input, context)
 
+            # Wrap result in proper output model
+            output_data = CVAnalyzerAgentOutput(analysis_results=result)
+
             return AgentResult(
                 success=True,
-                output_data=result,
+                output_data=output_data,
                 confidence_score=1.0,
                 metadata={"agent_type": "cv_analyzer"},
             )
@@ -318,7 +322,7 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             return error_result
 
     @with_node_error_handling
-    async def run_as_node(self, state) -> "CVAnalyzerNodeResult":
+    async def run_as_node(self, state) -> Dict[str, Any]:
         """
         Executes the CV analyzer agent as a node within the LangGraph.
 
@@ -326,42 +330,49 @@ class CVAnalyzerAgent(EnhancedAgentBase):
             state: The current state of the LangGraph workflow.
 
         Returns:
-            CVAnalyzerNodeResult: Updated state with CV analysis results.
+            Dict[str, Any]: Dictionary slice with cv_analysis_results.
         """
-        from ..agents.agent_base import AgentExecutionContext
+        try:
+            from ..agents.agent_base import AgentExecutionContext
 
-        # Create execution context from state
-        context = AgentExecutionContext(
-            session_id=getattr(state, "session_id", "default"),
-            item_id=getattr(state, "current_item_id", None),
-            content_type=getattr(state, "content_type", None),
-            retry_count=getattr(state, "retry_count", 0),
-            metadata=getattr(state, "metadata", {}),
-            input_data=getattr(state, "input_data", {}),
-            processing_options=getattr(state, "processing_options", {}),
-        )
+            # Create execution context from state
+            context = AgentExecutionContext(
+                session_id=getattr(state, "session_id", "default"),
+                item_id=getattr(state, "current_item_id", None),
+                content_type=getattr(state, "content_type", None),
+                retry_count=getattr(state, "retry_count", 0),
+                metadata=getattr(state, "metadata", {}),
+                input_data=getattr(state, "input_data", {}),
+                processing_options=getattr(state, "processing_options", {}),
+            )
 
-        # Extract input data from state
-        input_data = {
-            "user_cv": getattr(state, "user_cv", {}),
-            "job_description": getattr(state, "job_description", ""),
-            "template_cv_path": getattr(state, "template_cv_path", ""),
-        }
+            # Extract input data from state
+            input_data = {
+                "user_cv": getattr(state, "user_cv", {}),
+                "job_description": getattr(state, "job_description", ""),
+                "template_cv_path": getattr(state, "template_cv_path", ""),
+            }
 
-        # Execute the agent
-        result = await self.run_async(input_data, context)
+            # Execute the agent
+            result = await self.run_async(input_data, context)
 
-        # Ensure output is a CVAnalysisResult instance
-        if isinstance(result.output_data, dict):
-            cv_analysis = CVAnalysisResult(**result.output_data)
-        elif isinstance(result.output_data, CVAnalysisResult):
-            cv_analysis = result.output_data
-        else:
-            cv_analysis = None
+            if result.success:
+                # Ensure output is a CVAnalysisResult instance
+                if isinstance(result.output_data, dict):
+                    cv_analysis = CVAnalysisResult(**result.output_data)
+                elif isinstance(result.output_data, CVAnalysisResult):
+                    cv_analysis = result.output_data
+                else:
+                    cv_analysis = None
 
-        return CVAnalyzerNodeResult(
-            cv_analysis_results=cv_analysis,
-            cv_analyzer_success=result.success,
-            cv_analyzer_confidence=result.confidence_score,
-            cv_analyzer_error=result.error_message,
-        )
+                return {"cv_analysis_results": cv_analysis}
+            else:
+                error_msg = result.error_message or "CVAnalyzerAgent failed"
+                raise RuntimeError(error_msg)
+        except Exception as e:
+            logger.error(f"CVAnalyzerAgent failed: {e}", exc_info=True)
+            from ..utils.exceptions import AgentExecutionError
+
+            raise AgentExecutionError(
+                agent_name="CVAnalyzerAgent", message=str(e)
+            ) from e

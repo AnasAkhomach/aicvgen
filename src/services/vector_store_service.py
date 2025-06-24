@@ -4,9 +4,46 @@ from ..config.settings import get_config
 from typing import List, Dict, Any, Optional
 import logging
 import hashlib
+import threading
+import time
 from ..models.vector_store_and_session_models import VectorStoreSearchResult
 
 logger = logging.getLogger("vector_store_service")
+
+
+class TimeoutError(Exception):
+    """Custom timeout error for ChromaDB operations."""
+
+    pass
+
+
+def run_with_timeout(func, args=(), kwargs=None, timeout=30):
+    """Run a function with a timeout using threading."""
+    if kwargs is None:
+        kwargs = {}
+
+    result = [None]
+    exception = [None]
+
+    def target():
+        try:
+            result[0] = func(*args, **kwargs)
+        except Exception as e:
+            exception[0] = e
+
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        # Thread is still running, timeout occurred
+        raise TimeoutError(f"Operation timed out after {timeout} seconds")
+
+    if exception[0]:
+        raise exception[0]
+
+    return result[0]
 
 
 class VectorStoreService:
@@ -17,21 +54,59 @@ class VectorStoreService:
 
     def _connect(self):
         try:
-            client = chromadb.PersistentClient(
-                path=self.settings.vector_db.persist_directory
+            logger.info(
+                f"Initializing ChromaDB at {self.settings.vector_db.persist_directory}"
             )
-            # Optionally, ping or check connection
-            if hasattr(client, "heartbeat"):
-                client.heartbeat()
+
+            # Create directory if it doesn't exist
+            import os
+
+            os.makedirs(self.settings.vector_db.persist_directory, exist_ok=True)
+
+            # Try to connect with a timeout to prevent hanging
+            def create_client():
+                client = chromadb.PersistentClient(
+                    path=self.settings.vector_db.persist_directory
+                )
+                # Test the connection with a simple operation
+                logger.info("Testing ChromaDB connection...")
+                test_collection = client.get_or_create_collection("test_connection")
+                # Try a simple operation to ensure it's working
+                test_collection.count()
+                logger.info("ChromaDB connection test successful")
+                return client
+
+            try:
+                client = run_with_timeout(create_client, timeout=30)
+            except TimeoutError:
+                raise ConfigurationError(
+                    f"ChromaDB initialization timed out after 30 seconds. "
+                    f"This might be due to:\n"
+                    f"1. ChromaDB downloading embedding models on first run\n"
+                    f"2. Network connectivity issues\n"
+                    f"3. File system permission problems\n"
+                    f"4. Another process using the database\n\n"
+                    f"Try restarting the application or clearing the vector_db directory."
+                )
+
             logger.info(
                 f"Successfully connected to ChromaDB at {self.settings.vector_db.persist_directory}"
             )
             return client
+
         except Exception as e:
-            raise ConfigurationError(
-                f"CRITICAL: Failed to connect to Vector Store (ChromaDB) at path '{self.settings.vector_db.persist_directory}'. "
-                f"Please check the path and permissions. Error: {e}"
-            ) from e
+            error_msg = (
+                f"CRITICAL: Failed to connect to Vector Store (ChromaDB) at path "
+                f"'{self.settings.vector_db.persist_directory}'. "
+                f"Error: {e}\n\n"
+                f"Troubleshooting steps:\n"
+                f"1. Check if the directory exists and is writable\n"
+                f"2. Ensure you have internet connectivity (ChromaDB may download models)\n"
+                f"3. Try clearing the vector_db directory and restart\n"
+                f"4. Check for conflicting processes using the database"
+            )
+            logger.error(error_msg)
+            raise ConfigurationError(error_msg) from e
 
     def _get_or_create_collection(self, collection_name: str = "cv_content"):
         """Get or create a ChromaDB collection for storing CV content."""
@@ -140,7 +215,38 @@ _vector_store_instance = None
 
 
 def get_vector_store_service():
+    """Get the global VectorStoreService instance (singleton)."""
     global _vector_store_instance
     if _vector_store_instance is None:
+        # Check for development mode to skip vector store initialization
+        import os
+
+        if os.getenv("SKIP_VECTOR_STORE", "false").lower() == "true":
+            logger.warning(
+                "Skipping vector store initialization (SKIP_VECTOR_STORE=true)"
+            )
+            return MockVectorStoreService()
+
         _vector_store_instance = VectorStoreService(get_config())
     return _vector_store_instance
+
+
+class MockVectorStoreService:
+    """Mock vector store service for development/testing."""
+
+    def __init__(self):
+        logger.info("Using mock vector store service")
+
+    def add_item(
+        self, item: Any, content: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Mock add_item implementation."""
+        return "mock_id"
+
+    def search(self, query: str, k: int = 5) -> list:
+        """Mock search implementation."""
+        return []
+
+    def get_client(self):
+        """Mock get_client implementation."""
+        return None

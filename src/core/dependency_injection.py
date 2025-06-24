@@ -20,7 +20,11 @@ from ..utils.error_handling import (
 from ..services.llm_client import LLMClient
 from ..services.llm_retry_handler import LLMRetryHandler
 from ..services.llm_service import EnhancedLLMService, AdvancedCache
-from ..utils.error_classification import get_retry_delay_for_error
+from ..utils.error_classification import get_retry_delay_for_error, is_retryable_error
+from ..config.settings import Settings
+from ..services.rate_limiter import RateLimiter
+from ..services.error_recovery import ErrorRecoveryService
+from ..core.performance_optimizer import PerformanceOptimizer
 
 logger = get_structured_logger(__name__)
 T = TypeVar("T")
@@ -277,16 +281,14 @@ class DependencyContainer(IDependencyProvider):
         self._creating.add(name)
 
         try:
-            logger.debug(f"Creating dependency instance: {name}")
-
-            # Resolve dependencies first
+            logger.debug(
+                f"Creating dependency instance: {name}"
+            )  # Resolve dependencies first
             resolved_deps = {}
             for dep_name in metadata.dependencies:
                 if dep_name in self._registrations:
                     dep_metadata = self._registrations[dep_name]
-                    resolved_deps[dep_name] = self.get(
-                        dep_metadata.dependency_type, dep_name
-                    )
+                    resolved_deps[dep_name] = self._get_by_name_internal(dep_name)
 
             # Create instance
             if metadata.factory:
@@ -667,13 +669,251 @@ class DependencyContainer(IDependencyProvider):
         )
         # ...repeat for all other agents and services...
 
+    def _get_by_name_internal(self, name: str) -> Any:
+        """
+        Internal method to get a dependency by name without acquiring locks.
+        Should only be called when the caller already holds self._lock.
+        """
+        metadata = self._registrations.get(name)
+        if not metadata:
+            raise ValueError(f"No dependency named '{name}' is registered.")
+
+        if metadata.scope == LifecycleScope.SINGLETON:
+            if name not in self._instances:
+                self._instances[name] = self._create_instance(name, metadata)
+            dep_instance = self._instances[name]
+            dep_instance.mark_accessed()
+            return dep_instance.instance
+
+        if metadata.scope == LifecycleScope.SESSION:
+            if not self._session_id:
+                raise ValueError("Session scope requires a session_id.")
+            if self._session_id not in self._session_instances:
+                self._session_instances[self._session_id] = {}
+            if name not in self._session_instances[self._session_id]:
+                self._session_instances[self._session_id][name] = self._create_instance(
+                    name, metadata
+                )
+            dep_instance = self._session_instances[self._session_id][name]
+            dep_instance.mark_accessed()
+            return dep_instance.instance
+
+        if metadata.scope == LifecycleScope.TRANSIENT:
+            return self._create_instance(name, metadata).instance
+
+        raise NotImplementedError(f"Lifecycle scope {metadata.scope} not implemented.")
+
+    def get_by_name(self, name: str) -> Any:
+        """Get a dependency instance by name."""
+        with self._lock:
+            return self._get_by_name_internal(name)
+
+
+def build_llm_service(
+    container: "DependencyContainer", user_api_key: Optional[str] = None
+) -> EnhancedLLMService:
+    """Factory to build the EnhancedLLMService with all its dependencies."""
+    from ..utils.exceptions import ConfigurationError
+
+    logger.info("Starting build_llm_service...")
+
+    logger.info("Getting settings...")
+    settings = container.get(Settings, "settings")
+    logger.info("Settings obtained")
+
+    logger.info("Getting rate_limiter...")
+    rate_limiter = container.get(RateLimiter, "RateLimiter")
+    logger.info("Rate limiter obtained")
+
+    logger.info("Getting error_recovery...")
+    error_recovery = container.get(ErrorRecoveryService, "ErrorRecoveryService")
+    logger.info("Error recovery obtained")
+
+    logger.info("Getting performance_optimizer...")
+    performance_optimizer = container.get(PerformanceOptimizer, "PerformanceOptimizer")
+    logger.info("Performance optimizer obtained")
+
+    logger.info("Getting cache...")
+    cache = container.get(AdvancedCache, "AdvancedCache")
+    logger.info("Cache obtained")
+
+    # Determine the API key to use (fail-fast if none available)
+    logger.info("Determining API key...")
+    api_key = None
+    if user_api_key:
+        api_key = user_api_key
+    elif (
+        hasattr(settings.llm, "gemini_api_key_primary")
+        and settings.llm.gemini_api_key_primary
+    ):
+        api_key = settings.llm.gemini_api_key_primary
+    elif (
+        hasattr(settings.llm, "gemini_api_key_fallback")
+        and settings.llm.gemini_api_key_fallback
+    ):
+        api_key = settings.llm.gemini_api_key_fallback
+
+    if not api_key:
+        raise ConfigurationError(
+            "CRITICAL: No Gemini API key configured. "
+            "Please set GEMINI_API_KEY or GEMINI_API_KEY_FALLBACK in your .env file. "
+            "Application cannot start without a valid API key."
+        )
+    logger.info("API key determined")
+
+    # Use timeout wrapper for potentially blocking operations
+    def run_with_timeout(func, timeout_seconds=10):
+        """Run a function with timeout to prevent hanging."""
+        result = [None]
+        exception = [None]
+
+        def target():
+            try:
+                result[0] = func()
+            except Exception as e:
+                exception[0] = e
+
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+        thread.join(timeout_seconds)
+
+        if thread.is_alive():
+            raise ConfigurationError(
+                f"LLM service initialization timed out after {timeout_seconds} seconds. "
+                "This might be due to network issues or invalid API key."
+            )
+
+        if exception[0]:
+            raise exception[0]
+
+        return result[0]
+
+    # Configure the Google Generative AI client with the API key (with timeout)
+    try:
+        logger.info("Configuring Google Generative AI client...")
+        run_with_timeout(lambda: genai.configure(api_key=api_key), timeout_seconds=10)
+        logger.info("Google Generative AI client configured successfully")
+    except Exception as e:
+        raise ConfigurationError(
+            f"Failed to configure Google Generative AI client: {e}. "
+            "Please check your API key and network connection."
+        ) from e
+
+    # Create the LLM model with proper error handling (with timeout)
+    try:
+        logger.info("Creating LLM model...")
+        llm_model = run_with_timeout(
+            lambda: genai.GenerativeModel(settings.llm_settings.default_model),
+            timeout_seconds=10,
+        )
+        logger.info(
+            "LLM model created successfully", model=settings.llm_settings.default_model
+        )
+    except Exception as e:
+        raise ConfigurationError(
+            f"Failed to create LLM model '{settings.llm_settings.default_model}': {e}. "
+            "Please check your model name and API key."
+        ) from e
+
+    logger.info("Creating LLMClient...")
+    llm_client = LLMClient(llm_model)
+    logger.info("LLMClient created")
+
+    # Correctly define the retry handler logic
+    def _is_retryable(exception: Exception) -> bool:
+        return is_retryable_error(exception)
+
+    logger.info("Creating LLMRetryHandler...")
+    retry_handler = LLMRetryHandler(llm_client, _is_retryable)
+    logger.info("LLMRetryHandler created")
+
+    logger.info("Creating EnhancedLLMService...")
+    service = EnhancedLLMService(
+        settings=settings,
+        llm_client=llm_client,
+        llm_retry_handler=retry_handler,
+        cache=cache,
+        rate_limiter=rate_limiter,
+        error_recovery=error_recovery,
+        performance_optimizer=performance_optimizer,
+        user_api_key=user_api_key,
+        timeout=settings.llm.request_timeout,  # Use the correct timeout field
+        async_optimizer=None,  # Assuming this is handled elsewhere or not needed for now
+    )
+    logger.info("EnhancedLLMService created successfully")
+
+    return service
+
+
+def register_services(container: "DependencyContainer"):
+    """Register services required by agents."""
+    # Import services locally to avoid circular imports
+    from ..services.vector_store_service import VectorStoreService
+    from ..services.progress_tracker import ProgressTracker
+    from ..templates.content_templates import ContentTemplateManager
+
+    # Register VectorStoreService with settings dependency
+    container.register_singleton(
+        name="VectorStoreService",
+        dependency_type=VectorStoreService,
+        factory=lambda: VectorStoreService(
+            settings=container.get(Settings, "settings")
+        ),
+    )
+    # Register ProgressTracker
+    container.register_singleton(
+        name="ProgressTracker",
+        dependency_type=ProgressTracker,
+        factory=ProgressTracker,
+    )
+    # Register ContentTemplateManager
+    container.register_singleton(
+        name="ContentTemplateManager",
+        dependency_type=ContentTemplateManager,
+        factory=ContentTemplateManager,
+    )
+    # NOTE: EnhancedLLMService is now registered in register_core_services() to avoid duplication
+
+
+def register_core_services(container: "DependencyContainer"):
+    """Register all core application services as singletons."""
+    # Settings and Configuration
+    container.register_singleton("settings", Settings, factory=Settings)
+
+    # Core Services
+    container.register_singleton("RateLimiter", RateLimiter)
+    container.register_singleton("AdvancedCache", AdvancedCache)
+    container.register_singleton("ErrorHandler", ErrorHandler)
+    container.register_singleton(
+        "PerformanceOptimizer",
+        PerformanceOptimizer,
+        factory=PerformanceOptimizer,
+    )
+    container.register_singleton(
+        "ErrorRecoveryService",
+        ErrorRecoveryService,
+        factory=lambda: ErrorRecoveryService(
+            logger=get_structured_logger("error_recovery")
+        ),
+    )
+
+    # LLM Service Factory and Registration
+    def llm_service_factory() -> EnhancedLLMService:
+        return build_llm_service(container)
+
+    container.register_singleton(
+        "EnhancedLLMService",
+        EnhancedLLMService,
+        factory=llm_service_factory,
+    )
+
 
 # Global container instance
 _global_container: Optional[DependencyContainer] = None
 _container_lock = threading.Lock()
 
 
-def get_container(session_id: Optional[str] = None) -> DependencyContainer:
+def get_container(session_id: Optional[str] = None) -> "DependencyContainer":
     """Get the global dependency container."""
     global _global_container
 
@@ -691,83 +931,3 @@ def reset_container() -> None:
         if _global_container:
             _global_container.shutdown()
         _global_container = None
-
-
-def build_llm_service(
-    settings,
-    rate_limiter,
-    error_recovery,
-    performance_optimizer,
-    cache,
-    user_api_key=None,
-):
-    llm_model = genai.GenerativeModel(settings.llm_settings.default_model)
-    llm_client = LLMClient(llm_model)
-
-    def is_retryable_error(exception, retry_count=0, max_retries=5):
-        # Use the same logic as EnhancedLLMService._is_retryable_error
-        if retry_count >= max_retries:
-            return False, 0.0
-        if not is_retryable_error(exception):
-            return False, 0.0
-        delay = get_retry_delay_for_error(exception, retry_count)
-        return True, delay
-
-    llm_retry_handler = LLMRetryHandler(llm_client, is_retryable_error)
-    return EnhancedLLMService(
-        settings=settings,
-        llm_client=llm_client,
-        llm_retry_handler=llm_retry_handler,
-        cache=cache,
-        timeout=30,
-        rate_limiter=rate_limiter,
-        error_recovery=error_recovery,
-        performance_optimizer=performance_optimizer,
-        async_optimizer=None,
-        user_api_key=user_api_key,
-    )
-
-
-# Example registration in DI container (to be called during app startup)
-def register_services(container):
-    from ..services.vector_store_service import VectorStoreService
-    from ..services.progress_tracker import ProgressTracker
-
-    # Register VectorStoreService with settings dependency
-    container.register_singleton(
-        name="VectorStoreService",
-        dependency_type=VectorStoreService,
-        factory=lambda: VectorStoreService(
-            settings=container.get(
-                type(container._registrations["settings"].dependency_type), "settings"
-            )
-        ),
-    )
-    # Register ProgressTracker
-    container.register_singleton(
-        name="ProgressTracker",
-        dependency_type=ProgressTracker,
-        factory=lambda: ProgressTracker(),
-    )
-    container.register_singleton(
-        name="EnhancedLLMService",
-        dependency_type=EnhancedLLMService,
-        factory=lambda: build_llm_service(
-            settings=container.get(
-                type(container._registrations["settings"].dependency_type), "settings"
-            ),
-            rate_limiter=container.get(
-                type(container._registrations["RateLimiter"].dependency_type),
-                "RateLimiter",
-            ),
-            error_recovery=container.get(
-                type(container._registrations["ErrorRecoveryService"].dependency_type),
-                "ErrorRecoveryService",
-            ),
-            performance_optimizer=container.get(
-                type(container._registrations["PerformanceOptimizer"].dependency_type),
-                "PerformanceOptimizer",
-            ),
-            cache=AdvancedCache(),
-        ),
-    )

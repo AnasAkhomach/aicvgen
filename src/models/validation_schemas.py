@@ -3,10 +3,14 @@
 This module provides validation functions and error handling for agent inputs and outputs.
 """
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field, ValidationError
 import logging
-from ..orchestration.state import AgentState
+
+# Use TYPE_CHECKING to avoid circular imports
+if TYPE_CHECKING:
+    from ..orchestration.state import AgentState
+
 from ..models.data_models import StructuredCV, JobDescriptionData
 from ..models.research_models import ResearchFindings
 
@@ -132,7 +136,7 @@ class CleaningAgentInput(BaseModel):
     structured_cv: StructuredCV
 
 
-def validate_agent_input(agent_type: str, state: AgentState) -> Any:
+def validate_agent_input(agent_type: str, state: "AgentState") -> Any:
     """Validate agent input data against a specific Pydantic model."""
     try:
         if agent_type == "parser":

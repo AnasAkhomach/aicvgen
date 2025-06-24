@@ -95,6 +95,7 @@ class ContentType(str, Enum):
     CV_ANALYSIS = "cv_analysis"
     CV_PARSING = "cv_parsing"
     ACHIEVEMENTS = "achievements"
+    JOB_ANALYSIS = "job_analysis"
 
 
 class UserAction(str, Enum):
