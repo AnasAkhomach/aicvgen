@@ -47,7 +47,7 @@ class CVWorkflowGraph:
         )  # Node wrapper functions for granular workflow
 
     @validate_node_output
-    async def parser_node(self, state: AgentState, **kwargs) -> AgentState:
+    async def parser_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
         """Execute parser node to process CV and job description."""
         logger.info("Executing parser_node")
         logger.info(f"Parser input state - trace_id: {state.trace_id}")
@@ -75,7 +75,7 @@ class CVWorkflowGraph:
             )
 
     @validate_node_output
-    async def content_writer_node(self, state: AgentState, **kwargs) -> AgentState:
+    async def content_writer_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
         """Execute content writer node for current item."""
         logger.info(f"Executing content_writer_node for item: {state.current_item_id}")
 
@@ -110,16 +110,16 @@ class CVWorkflowGraph:
         return result
 
     @validate_node_output
-    async def qa_node(self, state: AgentState, **kwargs) -> AgentState:
+    async def qa_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
         """Execute QA node for current item."""
         logger.info(f"Executing qa_node for item: {state.current_item_id}")
         qa_agent = self._get_agent("qa_agent")
         result = await qa_agent.run_as_node(state)
         if isinstance(result, dict):
             return state.model_copy(update=result)
-        return result @ validate_node_output
+        return result
 
-    async def process_next_item_node(self, state: AgentState, **kwargs) -> AgentState:
+    async def process_next_item_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
         """Process the next item from the queue."""
         logger.info("Executing process_next_item_node")
 
@@ -141,7 +141,7 @@ class CVWorkflowGraph:
 
     @validate_node_output
     async def setup_generation_queue_node(
-        self, state: AgentState, **kwargs
+        self, state: AgentState, config: Optional[Dict] = None
     ) -> AgentState:
         """Set up the content generation queue with all items."""
         logger.info("--- Executing Node: setup_generation_queue_node ---")
@@ -165,7 +165,7 @@ class CVWorkflowGraph:
         return state.model_copy(update={"content_generation_queue": content_queue})
 
     @validate_node_output
-    async def pop_next_item_node(self, state: AgentState, **kwargs) -> AgentState:
+    async def pop_next_item_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
         """Pop the next item from the content generation queue."""
         logger.info("--- Executing Node: pop_next_item_node ---")
 
@@ -191,7 +191,7 @@ class CVWorkflowGraph:
 
     @validate_node_output
     async def prepare_regeneration_node(
-        self, state: AgentState, **kwargs
+        self, state: AgentState, config: Optional[Dict] = None
     ) -> AgentState:
         """Prepare for item regeneration based on user feedback."""
         logger.info("--- Executing Node: prepare_regeneration_node ---")
@@ -217,7 +217,7 @@ class CVWorkflowGraph:
         )
 
     @validate_node_output
-    async def generate_skills_node(self, state: AgentState, **kwargs) -> AgentState:
+    async def generate_skills_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
         """Generate skills using the content writer agent."""
         logger.info("--- Executing Node: generate_skills_node ---")
 

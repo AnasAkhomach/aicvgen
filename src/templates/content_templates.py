@@ -101,33 +101,31 @@ class ContentTemplateManager:
             return
 
         try:
-            name = metadata["name"]
-            category = TemplateCategory(metadata["category"])
-            content_type = ContentType(metadata["content_type"])
-            description = metadata.get(
-                "description", f"Template loaded from {file_path.name}"
-            )
+            # Prioritize frontmatter 'name', fall back to file stem
+            template_name = metadata.get("name", file_path.stem)
 
-            # Infer variables from template body
-            variables = re.findall(r"\{\{(\w+)\}\}", template_content)
+            category_str = metadata.get("category", "prompt").upper()
+            content_type_str = metadata.get("content_type", "UNDEFINED").upper()
 
             template = ContentTemplate(
-                name=name,
-                category=category,
-                content_type=content_type,
+                name=template_name,
+                category=TemplateCategory[category_str],
+                content_type=ContentType[content_type_str],
                 template=template_content.strip(),
-                variables=list(set(variables)),  # Use set to get unique variables
-                description=description,
+                variables=self._extract_variables(template_content),
+                description=metadata.get("description", "No description provided."),
+                version=metadata.get("version", "1.0"),
             )
-
-            self.register_template(template)
+            self.templates[template.name] = template
+            logger.info(
+                f"Successfully loaded template: '{template.name}' from {file_path.name}"
+            )
 
         except (KeyError, ValueError) as e:
             logger.error(
-                "Failed to create ContentTemplate from metadata",
-                file_path=str(file_path),
-                metadata=metadata,
+                f"Failed to create template from {file_path.name}",
                 error=str(e),
+                metadata=metadata,
             )
 
     def register_template(self, template: ContentTemplate):

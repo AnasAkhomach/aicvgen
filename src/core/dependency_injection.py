@@ -9,14 +9,14 @@ import time
 from datetime import datetime, timedelta
 
 # Removed specific service/agent imports to break circular dependencies.
-# Registration will now be handled in `application_startup.py`.
+# Registration will now be handled in `application_startup.py`
 from ..config.logging_config import get_structured_logger
-from ..utils.error_handling import (
-    ErrorHandler,
+from ..error_handling.models import (
     ErrorCategory,
     ErrorSeverity,
     ErrorContext,
 )
+from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
 
 
 logger = get_structured_logger(__name__)

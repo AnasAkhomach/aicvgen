@@ -15,9 +15,10 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import threading
 from contextlib import contextmanager
+import logging
 
 from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
+from ..config.settings import AppConfig, get_config
 from ..models.data_models import (
     WorkflowState,
     WorkflowStage,
@@ -106,29 +107,23 @@ class SessionInfo:
 class SessionManager:
     """Manager for user sessions and state persistence."""
 
-    def __init__(self, logger=None, settings=None, storage_path: Optional[Path] = None):
-        # Initialize logger
+    def __init__(
+        self,
+        logger: Optional[logging.Logger] = None,
+        settings: Optional[AppConfig] = None,
+    ):
+        """Initializes the SessionManager.
+
+        Args:
+            logger: Optional logger instance.
+            settings: Optional application configuration. If not provided, it's retrieved globally.
+        """
         self.logger = logger or get_structured_logger(__name__)
+        self.settings = settings or get_config()
 
-        # Initialize settings
-        if settings is None:
-            try:
-                from ..config.settings import get_config
-
-                self.settings = get_config()
-            except Exception as e:
-                self.logger.warning(f"Could not load settings, using defaults: {e}")
-                # Create a minimal settings object with required attributes
-                self.settings = type(
-                    "Settings", (), {"sessions_directory": Path("data/sessions")}
-                )()
-        else:
-            self.settings = settings
-
-        # Storage configuration
-        self.storage_path = storage_path or getattr(
-            self.settings, "sessions_directory", Path("data/sessions")
-        )
+        # Storage path is now determined by the application configuration.
+        self.storage_path = self.settings.sessions_directory
+        # The startup service ensures this directory exists, but we double-check.
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         # In-memory session tracking
@@ -138,10 +133,14 @@ class SessionManager:
         # Thread safety
         self._lock = threading.RLock()
 
-        # Session configuration
-        self.session_timeout = timedelta(hours=24)  # Default 24 hours
-        self.max_active_sessions = 100
-        self.cleanup_interval = timedelta(minutes=30)
+        # Session configuration from settings
+        self.session_timeout = timedelta(
+            seconds=self.settings.ui.session_timeout_seconds
+        )
+        self.max_active_sessions = 100  # TODO: Move to settings if needed
+        self.cleanup_interval = timedelta(
+            minutes=30
+        )  # TODO: Move to settings if needed
 
         # Background cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None

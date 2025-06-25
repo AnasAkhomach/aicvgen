@@ -38,9 +38,11 @@ WORKDIR /app
 # Copy application code
 COPY --chown=aicvgen:aicvgen . .
 
-# Create necessary directories with proper permissions
-RUN mkdir -p /app/data/sessions /app/data/output /app/logs && \
-    chown -R aicvgen:aicvgen /app
+# Create necessary directories for runtime data and grant permissions
+# /app/data is for source assets (e.g., prompts)
+# /app/instance is for runtime-generated data (logs, sessions, db)
+RUN mkdir -p /app/instance/sessions /app/instance/output /app/instance/logs /app/instance/vector_db && \
+    chown -R aicvgen:aicvgen /app/instance
 
 # Switch to non-root user
 USER aicvgen
@@ -55,8 +57,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Set environment variables for production
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV LOG_LEVEL=INFO
-ENV ENABLE_DEBUG_MODE=false
+ENV APP_ENV=production
+# Disable XSRF protection for better compatibility in containerized/proxied environments
+ENV STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
 
 # Default command to run the Streamlit app
-CMD ["python", "run_app.py"]
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

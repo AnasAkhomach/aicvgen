@@ -25,77 +25,98 @@ An intelligent, AI-powered CV tailoring application that creates personalized, j
 - **Comprehensive Testing**: Unit, integration, and E2E tests with 90%+ coverage
 - **Performance Optimized**: CV generation typically completes in under 30 seconds
 
+## Architecture Overview
+
+The application follows a modular, service-oriented architecture:
+
+- **`instance/`**: All runtime-generated data is stored here, including logs, user sessions, vector databases, and output files. This directory is created automatically and is essential for application state. It should be excluded from version control.
+- **`src/`**: Contains the core application logic, organized by feature:
+  - **`api/`**: External API integrations (e.g., Google Gemini).
+  - **`agents/`**: Specialized AI agents for content generation and analysis.
+  - **`core/`**: Application startup, dependency injection, and core orchestration logic.
+  - **`config/`**: Application settings, logging, and environment configuration.
+  - **`error_handling/`**: Centralized error classes and utilities.
+  - **`frontend/`**: Streamlit user interface components and callbacks.
+  - **`services/`**: Business logic for session management, vector storage, etc.
+  - **`utils/`**: Shared utility functions.
+- **`tests/`**: Contains all unit, integration, and end-to-end tests.
+- **`scripts/`**: Deployment and maintenance scripts.
+
 ## 🛠️ Getting Started
 
 ### Prerequisites
 
-- **Python 3.11+** (recommended for optimal performance)
-- **Google Gemini API Key** (required for AI functionality)
-- **Git** for cloning the repository
-- **Virtual environment** (recommended)
+- **Python 3.11+**
+- **Google Gemini API Key**
+- **Git**
 
 ### Quick Installation
 
 1. **Clone the repository:**
-```bash
-git clone <repository-url>
-cd aicvgen
-```
 
-2. **Create and activate virtual environment:**
-```bash
-# Windows
-python -m venv .vs_venv
-.vs_venv\Scripts\activate
+   ```bash
+   git clone <repository-url>
+   cd aicvgen
+   ```
 
-# macOS/Linux
-python3 -m venv .vs_venv
-source .vs_venv/bin/activate
-```
+2. **Create and activate a virtual environment:**
+
+   ```bash
+   # Windows
+   python -m venv venv
+   venv\Scripts\activate
+
+   # macOS/Linux
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
 
 3. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
+
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 4. **Configure environment:**
-```bash
-# Copy the example environment file
-cp .env.example .env
 
-# Edit .env and add your Google Gemini API key
-# GOOGLE_API_KEY=your_gemini_api_key_here
-```
+   Create a `.env` file in the project root and add your Google Gemini API key:
+
+   ```.env
+   GOOGLE_API_KEY="your_gemini_api_key_here"
+   ```
 
 5. **Run the application:**
-```bash
-# Using the launcher script (recommended)
-python run_app.py
 
-# Or directly with Streamlit
-streamlit run app.py
-```
+   ```bash
+   streamlit run app.py
+   ```
 
 6. **Access the application:**
-   - Open your browser to `http://localhost:8501`
-   - The application will automatically open in your default browser
+
+   Open your browser to `http://localhost:8501`.
 
 ### Docker Installation (Alternative)
 
-```bash
-# Build the Docker image
-docker build -t aicvgen .
+1. **Build the Docker image:**
 
-# Run the container
-docker run -p 8501:8501 --env-file .env aicvgen
-```
+   ```bash
+   docker build -t aicvgen .
+   ```
+
+2. **Run the container:**
+
+   The `instance` directory is mounted as a volume to persist application data across container restarts.
+
+   ```bash
+   docker run -p 8501:8501 --name aicvgen-app -v "%cd%/instance:/app/instance" --env-file .env aicvgen
+   ```
 
 ## 📖 Usage Guide
 
 ### Basic Workflow
 
 1. **Start a New Session**
-   - Launch the application and you'll see the main interface
+   - Launch the application. A new session is created automatically.
    - Each session is automatically tracked and can be resumed
 
 2. **Input Job Description**

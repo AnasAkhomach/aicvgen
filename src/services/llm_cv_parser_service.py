@@ -56,10 +56,12 @@ class LLMCVParserService:
             The parsed CV data.
         """
         content_template = self.template_manager.get_template(
-            name="cv_parser", content_type=ContentType.CV_PARSING
+            name="cv_parsing_prompt", content_type=ContentType.CV_PARSING
         )
         if not content_template:
-            raise ValueError("CV parsing prompt template 'cv_parser' not found.")
+            raise ValueError(
+                "CV parsing prompt template 'cv_parsing_prompt' not found."
+            )
 
         prompt = self.template_manager.format_template(
             content_template, {"raw_cv_text": cv_text}

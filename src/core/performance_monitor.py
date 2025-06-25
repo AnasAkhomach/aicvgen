@@ -15,7 +15,11 @@ from pathlib import Path
 from .dependency_injection import get_container
 from .agent_lifecycle_manager import get_agent_lifecycle_manager
 from ..config.logging_config import get_structured_logger
-from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
+from ..error_handling.models import (
+    ErrorCategory,
+    ErrorSeverity,
+)
+from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
 
 logger = get_structured_logger(__name__)
 

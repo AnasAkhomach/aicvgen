@@ -3,7 +3,16 @@ import streamlit as st
 from pathlib import Path
 from typing import Optional
 from ..orchestration.state import AgentState
-from .callbacks import handle_user_action, start_cv_generation
+from ..config.logging_config import get_logger
+from ..services.session_manager import SessionManager
+from .callbacks import (
+    handle_api_key_validation,
+    handle_user_action,
+    start_cv_generation,
+)
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 def display_sidebar():
@@ -45,10 +54,12 @@ def display_sidebar():
                     st.info("🔄 Click 'Validate' to test your API key")
 
             with col2:
-                if st.button(
-                    "🔍 Validate", key="validate_api_key", help="Test your API key"
-                ):
-                    handle_user_action("validate_api_key", "")
+                st.button(
+                    "🔍 Validate",
+                    key="validate_api_key",
+                    help="Test your API key",
+                    on_click=handle_api_key_validation,  # Use on_click for direct callback
+                )
 
         else:
             st.error("⚠️ Please enter your Gemini API key to use the application")

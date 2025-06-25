@@ -2,7 +2,7 @@ from typing import Any
 from tenacity import retry, stop_after_attempt, wait_exponential
 import asyncio
 
-from ..utils.error_classification import is_retryable_error
+from ..error_handling.classification import is_retryable_error
 
 
 class LLMRetryHandler:

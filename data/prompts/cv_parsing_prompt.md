@@ -1,5 +1,5 @@
 ---
-name: cv_parsing
+name: cv_parsing_prompt
 category: prompt
 content_type: cv_parsing
 description: "Parses raw CV text into a structured JSON object."

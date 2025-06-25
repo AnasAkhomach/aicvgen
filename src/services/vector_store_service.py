@@ -52,6 +52,17 @@ class VectorStoreService:
         self.client = self._connect()
         self.collection = self._get_or_create_collection()
 
+    def shutdown(self):
+        """Shutdown the vector store service and release resources."""
+        logger.info("Shutting down VectorStoreService.")
+        # ChromaDB's PersistentClient doesn't have an explicit close/shutdown method.
+        # It's designed to be resilient to sudden stops by persisting to disk.
+        # Setting the client and collection to None will help with garbage collection
+        # and prevent further use of a "closed" service.
+        self.client = None
+        self.collection = None
+        logger.info("VectorStoreService shutdown complete.")
+
     def _connect(self):
         try:
             logger.info(
@@ -250,3 +261,7 @@ class MockVectorStoreService:
     def get_client(self):
         """Mock get_client implementation."""
         return None
+
+    def shutdown(self):
+        """Mock shutdown implementation."""
+        logger.info("MockVectorStoreService shutdown.")

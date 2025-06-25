@@ -119,7 +119,7 @@ class VectorDBConfig:
     """Configuration for vector database settings."""
 
     # ChromaDB Configuration
-    persist_directory: str = "data/vector_db"
+    persist_directory: str = "instance/vector_db"
     collection_name: str = "cv_content"
 
     # Embedding Configuration
@@ -161,7 +161,7 @@ class OutputConfig:
 
     # PDF Configuration
     pdf_template_path: str = "src/templates/cv_template.md"
-    pdf_output_directory: str = "data/output"
+    pdf_output_directory: str = "instance/output"
 
     # Content Generation Constants
     max_skills_count: int = 10
@@ -178,7 +178,7 @@ class LoggingConfig:
     log_level: str = "INFO"
 
     # Log Files
-    log_directory: str = "logs"
+    log_directory: str = "instance/logs"
     main_log_file: str = "app.log"
     error_log_file: str = "error.log"
     llm_log_file: str = "llm_calls.log"
@@ -226,25 +226,27 @@ class AppConfig:
     )
     data_directory: Path = field(default_factory=lambda: Path("data"))
     prompts_directory: Path = field(default_factory=lambda: Path("data/prompts"))
-    sessions_directory: Path = field(default_factory=lambda: Path("data/sessions"))
+    sessions_directory: Path = field(default_factory=lambda: Path("instance/sessions"))
 
     def __post_init__(self):
         """Initialize paths and create directories if needed."""
-        # Ensure data directories exist
-        self.data_directory.mkdir(exist_ok=True)
-        self.sessions_directory.mkdir(parents=True, exist_ok=True)
+        # Define instance path and ensure it exists
+        instance_path = self.project_root / "instance"
+        instance_path.mkdir(exist_ok=True)
 
-        # Ensure log directory exists
-        log_dir = Path(self.logging.log_directory)
-        log_dir.mkdir(exist_ok=True)
+        # Create all runtime directories under instance path
+        (instance_path / "sessions").mkdir(parents=True, exist_ok=True)
+        (instance_path / "logs").mkdir(exist_ok=True)
+        (instance_path / "output").mkdir(parents=True, exist_ok=True)
+        (instance_path / "vector_db").mkdir(parents=True, exist_ok=True)
 
-        # Ensure output directory exists
-        output_dir = Path(self.output.pdf_output_directory)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure source data directories exist (relative to project root)
+        (self.project_root / self.data_directory).mkdir(exist_ok=True)
+        (self.project_root / self.prompts_directory).mkdir(parents=True, exist_ok=True)
 
     def get_prompt_path(self, prompt_name: str) -> Path:
         """Get the full path to a prompt file."""
-        return self.prompts_directory / f"{prompt_name}.md"
+        return self.project_root / self.prompts_directory / f"{prompt_name}.md"
 
     def get_prompt_path_by_key(self, prompt_key: str) -> str:
         """
@@ -254,18 +256,18 @@ class AppConfig:
         if not prompt_filename:
             raise ValueError(f"Prompt key '{prompt_key}' not found in settings.")
 
-        path = os.path.join(str(self.prompts_directory), prompt_filename)
-        if not os.path.exists(path):
+        path = self.project_root / self.prompts_directory / prompt_filename
+        if not path.exists():
             raise FileNotFoundError(f"Prompt file does not exist at path: {path}")
-        return path
+        return str(path)
 
     def get_session_path(self, session_id: str) -> Path:
         """Get the full path to a session directory."""
-        return self.sessions_directory / session_id
+        return self.project_root / self.sessions_directory / session_id
 
     def get_output_path(self, filename: str) -> Path:
         """Get the full path to an output file."""
-        return Path(self.output.pdf_output_directory) / filename
+        return self.project_root / self.output.pdf_output_directory / filename
 
 
 # For backward compatibility: export Settings as AppConfig

@@ -13,6 +13,7 @@ import logging
 import os
 from pathlib import Path
 from pythonjsonlogger import jsonlogger
+from .settings import get_config
 
 
 def setup_logging(log_level=logging.INFO):
@@ -25,30 +26,44 @@ def setup_logging(log_level=logging.INFO):
 
 
 def _setup_development_logging(log_level=logging.INFO):
-    """Sets up simple, text-based logging for development."""
-    logs_dir = Path("logs")
+    """Sets up simple, text-based logging for development in a robust, idempotent way."""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Clear any existing handlers to prevent duplication
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+
+    config = get_config()
+    logs_dir = Path(config.logging.log_directory)
+    error_logs_dir = logs_dir / "error"
     logs_dir.mkdir(exist_ok=True)
-    (logs_dir / "error").mkdir(exist_ok=True)
+    error_logs_dir.mkdir(exist_ok=True)
 
-    # Basic configuration
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(),  # To console
-            logging.FileHandler(logs_dir / "app.log"),
-        ],
+    # Create a standard formatter
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    # Specific handler for error logs
-    error_handler = logging.FileHandler(logs_dir / "error" / "error.log")
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-    logging.getLogger().addHandler(error_handler)
+    # Create and add console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
 
-    logging.info(
+    # Create and add main log file handler
+    main_log_path = logs_dir / config.logging.main_log_file
+    main_file_handler = logging.FileHandler(main_log_path)
+    main_file_handler.setFormatter(formatter)
+    root_logger.addHandler(main_file_handler)
+
+    # Create and add error log file handler
+    error_log_path = error_logs_dir / config.logging.error_log_file
+    error_file_handler = logging.FileHandler(error_log_path)
+    error_file_handler.setLevel(logging.ERROR)
+    error_file_handler.setFormatter(formatter)
+    root_logger.addHandler(error_file_handler)
+
+    root_logger.info(
         "Development logging initialized (log_level=%s)",
         logging.getLevelName(log_level),
     )

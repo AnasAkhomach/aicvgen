@@ -17,7 +17,11 @@ from .dependency_injection import (
 )
 from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext
 from ..config.logging_config import get_structured_logger
-from ..utils.error_handling import ErrorHandler, ErrorCategory, ErrorSeverity
+from ..error_handling.models import (
+    ErrorCategory,
+    ErrorSeverity,
+)
+from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
 from ..models.data_models import ContentType
 from ..services.session_manager import get_session_manager
 from ..services.error_recovery import ErrorRecoveryService

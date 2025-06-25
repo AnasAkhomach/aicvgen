@@ -14,6 +14,11 @@ import traceback
 import json
 
 from ..config.logging_config import get_structured_logger
+from ..error_handling.classification import (
+    is_rate_limit_error,
+    is_network_error,
+    is_timeout_error,
+)
 from ..models.data_models import ProcessingStatus, ContentType, Item
 from ..orchestration.state import AgentState
 from ..utils.exceptions import (
@@ -24,12 +29,6 @@ from ..utils.exceptions import (
     ConfigurationError,
     StateManagerError,
     ValidationError,
-)
-from ..utils.error_classification import (
-    is_rate_limit_error,
-    is_network_error,
-    is_timeout_error,
-    is_api_auth_error,
 )
 
 
@@ -229,8 +228,6 @@ class ErrorRecoveryService:
             return ErrorType.NETWORK_ERROR
         if is_timeout_error(exception):
             return ErrorType.TIMEOUT_ERROR
-        if is_api_auth_error(exception):
-            return ErrorType.API_ERROR
 
         # Default to system error for unknown exceptions
         return ErrorType.SYSTEM_ERROR

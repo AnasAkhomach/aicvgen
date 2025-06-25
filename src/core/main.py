@@ -1,6 +1,8 @@
 import sys
 import os
 from pathlib import Path
+import traceback
+import logging
 
 # Add project root to Python path for imports
 project_root = Path(__file__).parent.parent.parent
@@ -8,44 +10,53 @@ sys.path.insert(0, str(project_root))
 
 
 import streamlit as st
-
-# Page configuration - MUST be first Streamlit command when running directly
-# Only set page config if this file is being run directly (not imported)
-try:
-    from ..utils.streamlit_utils import configure_page
-
-    configure_page()
-except Exception:
-    # If we can't access the state or page config is already set, continue
-    pass
-
-# Now import everything else after set_page_config
-import streamlit as st
 import time
+import atexit
 
 # Project imports
-from ..core.application_startup import initialize_application, validate_application
-from ..config.logging_config import get_logger
+from ..core.application_startup import get_startup_manager
+from ..orchestration.state import AgentState
+from ..utils.exceptions import ConfigurationError, ServiceInitializationError
+from ..config.logging_config import get_logger, setup_logging
 from ..frontend.ui_components import (
     display_sidebar,
     display_input_form,
     display_review_and_edit_tab,
     display_export_tab,
 )
-from ..orchestration.state import AgentState
-from ..utils.exceptions import ConfigurationError, ServiceInitializationError
+from ..config.settings import get_config
 
 # Get logger (will be initialized by startup service)
 logger = get_logger(__name__)
 
-# Constants
-TEMPLATE_FILE_PATH = "src/templates/cv_template.md"
-SESSIONS_DIR = "data/sessions"
-OUTPUT_DIR = "data/output"
 
-# Ensure directories exist
-os.makedirs(SESSIONS_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# --- Global Exception Hook ---
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """Log any uncaught exceptions to the error log."""
+    # Ensure logging is configured before trying to log
+    # This is a fallback in case the exception occurs before normal startup
+    try:
+        # Check if a root logger has handlers, if not, configure it.
+        if not logging.getLogger().hasHandlers():
+            setup_logging()
+    except Exception as setup_exc:
+        # If logging setup fails, print to stderr as a last resort
+        print(f"FATAL: Logging setup failed: {setup_exc}", file=sys.stderr)
+        print(f"Original unhandled exception: {exc_value}", file=sys.stderr)
+        traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+
+    logger.critical(
+        "Unhandled exception caught by global handler",
+        exc_info=(exc_type, exc_value, exc_traceback),
+    )
+
+
+# It's important to set the hook as early as possible
+sys.excepthook = handle_exception
+# --- End Global Exception Hook ---
+
+
+# Constants are now managed by AppConfig, no need for them here.
 
 
 def main():
@@ -54,46 +65,65 @@ def main():
     Orchestrates the UI rendering and backend workflow invocations.
     """
     try:
-        # 1. Initialize Application Services
-        user_api_key = st.session_state.get("user_gemini_api_key", "")
-        startup_result = initialize_application(user_api_key=user_api_key)
+        # 1. Initialize Application Services using the singleton manager
+        startup_service = get_startup_manager()
 
-        if not startup_result.success:
-            st.error("**Application Startup Failed:**")
-            for error in startup_result.errors:
-                st.error(f"• {error}")
-            st.warning("Please check your configuration and restart the application.")
+        # Register the shutdown hook once.
+        if not startup_service._shutdown_hook_registered:
+            atexit.register(startup_service.shutdown_application)
+            startup_service._shutdown_hook_registered = True
 
-            # Show startup details in expander
-            with st.expander("🔍 Startup Details", expanded=False):
-                st.json(
-                    {
-                        "total_time": f"{startup_result.total_time:.2f}s",
-                        "services": {
-                            name: {
-                                "status": (
-                                    "✅ Success" if service.initialized else "❌ Failed"
-                                ),
-                                "time": f"{service.initialization_time:.3f}s",
-                                "error": service.error,
-                            }
-                            for name, service in startup_result.services.items()
-                        },
-                    }
+        # Initialize only if it hasn't been done already
+        if not startup_service.is_initialized:
+            # Before initializing, set up a basic logging config
+            # This ensures that errors during startup are logged.
+            setup_logging()
+
+            user_api_key = st.session_state.get("user_gemini_api_key", "")
+            startup_result = startup_service.initialize_application(
+                user_api_key=user_api_key
+            )
+
+            if not startup_result.success:
+                st.error("**Application Startup Failed:**")
+                for error in startup_result.errors:
+                    st.error(f"• {error}")
+                st.warning(
+                    "Please check your configuration and restart the application."
                 )
-            st.stop()
 
-        # Validate critical services
-        validation_errors = validate_application()
-        if validation_errors:
-            st.error("**Critical Service Validation Failed:**")
-            for error in validation_errors:
-                st.error(f"• {error}")
-            st.stop()
+                # Show startup details in expander
+                with st.expander("🔍 Startup Details", expanded=False):
+                    st.json(
+                        {
+                            "total_time": f"{startup_result.total_time:.2f}s",
+                            "services": {
+                                name: {
+                                    "status": (
+                                        "✅ Success"
+                                        if service.initialized
+                                        else "❌ Failed"
+                                    ),
+                                    "time": f"{service.initialization_time:.3f}s",
+                                    "error": service.error,
+                                }
+                                for name, service in startup_result.services.items()
+                            },
+                        }
+                    )
+                st.stop()
 
-        logger.info(
-            f"Application started successfully in {startup_result.total_time:.2f}s"
-        )
+            # Validate critical services
+            validation_errors = startup_service.validate_application()
+            if validation_errors:
+                st.error("**Critical Service Validation Failed:**")
+                for error in validation_errors:
+                    st.error(f"• {error}")
+                st.stop()
+
+            logger.info(
+                f"Application started successfully in {startup_result.total_time:.2f}s"
+            )
         # Session state initialization is now handled via create_initial_agent_state in utils.state_utils
         # Remove import of deleted state_helpers
         # from ..frontend.state_helpers import initialize_session_state

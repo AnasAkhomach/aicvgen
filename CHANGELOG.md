@@ -99,6 +99,36 @@
 - **Tests**: Added `tests/unit/test_data_models.py` to verify the behavior of `StructuredCV.create_empty()`. Updated `tests/unit/test_parser_agent.py` to reflect the change in the agent's behavior. All tests pass.
 - **Notes**: This refactoring improves model cohesion and adheres to the Single Responsibility Principle.
 
+#### Task A-02: Consolidate Application Architecture and Runtime Environment
+
+- **Status**: DONE
+- **Description**: Refactor the application to resolve import/module errors, ensure robust startup/shutdown, eliminate tight coupling, and align with architectural audit recommendations.
+- **Implementation**:
+  - **Error Handling**: Consolidated all error handling utilities into the `src/error_handling` package and updated all import statements across the codebase to reference the new canonical location.
+  - **Application Lifecycle**:
+    - Centralized application startup logic in `src/core/application_startup.py` using a singleton pattern (`get_startup_manager`).
+    - Implemented a graceful shutdown mechanism in `ApplicationStartup.shutdown_application()` and registered it with `atexit` in `src/core/main.py` to ensure all background services (e.g., `VectorStoreService`) are terminated cleanly.
+    - Daemonized background threads in `src/frontend/callbacks.py` to prevent them from blocking application exit.
+  - **Runtime Data Isolation**:
+    - Created a new `instance/` directory at the project root to store all runtime-generated data, including logs, sessions, output files, and the vector database.
+    - Updated `src/config/settings.py` (`AppConfig`) to dynamically generate absolute paths pointing to the `instance/` directory, ensuring all file I/O is correctly routed.
+    - Modified `src/config/logging_config.py` and `src/services/session_manager.py` to use `AppConfig` for all path configurations.
+  - **Deployment & Configuration**:
+    - Updated the `Dockerfile` to create and use the `/app/instance` directory for runtime data.
+    - Modified `scripts/deploy.sh` to correctly back up and restore the `instance/` directory.
+    - Updated `README.md` with a new "Architecture Overview" section, revised installation instructions, and an updated Docker command that mounts the `instance/` directory as a volume for data persistence.
+- **Tests**: All existing unit, integration, and E2E tests were updated and verified to pass after the architectural changes, ensuring no regressions were introduced.
+- **Notes**: This comprehensive refactoring effort has significantly improved the application's stability, maintainability, and adherence to best practices. The codebase is now more modular, and the runtime environment is properly isolated.
+
+## Final Steps
+
+- **Status**: DONE
+- **Description**: Complete the final audit and finalize all project documentation.
+- **Implementation**:
+  - Completed the update of `README.md` to document the new directory structure, runtime data handling, and updated run/build instructions.
+  - Performed a final audit for any remaining legacy paths or architectural violations in the codebase and documentation.
+  - Finalized and documented all changes in this `CHANGELOG.md` file.
+
 ---
 
 ## Implementation Notes

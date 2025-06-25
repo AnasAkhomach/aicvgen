@@ -86,6 +86,7 @@ class ApplicationStartup:
         self.startup_time = None
         self.is_initialized = False
         self.container = get_container()
+        self._shutdown_hook_registered = False
 
     def _register_dependencies(self):
         """Register all application dependencies with the container."""
@@ -319,6 +320,60 @@ class ApplicationStartup:
             raise ServiceInitializationError(
                 f"Failed to initialize service 'directories': {e}"
             )
+
+    def validate_application(self) -> List[str]:
+        """
+        Validates that critical services are initialized and ready.
+        Returns a list of validation errors, or an empty list if successful.
+        """
+        errors = []
+        if not self.is_initialized:
+            errors.append("Application initialization flag is not set.")
+
+        critical_services = [
+            "settings",
+            "llm_service",
+            "vector_store_service",
+            "session_manager",
+        ]
+
+        for service_name in critical_services:
+            try:
+                self.container.get_by_name(service_name)
+            except Exception as e:
+                error_msg = f"Critical service '{service_name}' failed validation: {e}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+        return errors
+
+    def shutdown_application(self):
+        """Gracefully shut down all registered services."""
+        logger.info("Starting application shutdown sequence.")
+
+        # List of services that are known to require a clean shutdown.
+        shutdown_order = ["vector_store_service"]
+
+        for service_name in shutdown_order:
+            try:
+                # This assumes the container will not re-create the service if it exists.
+                service_instance = self.container.get_by_name(service_name)
+                if hasattr(service_instance, "shutdown") and callable(
+                    service_instance.shutdown
+                ):
+                    logger.info(f"Shutting down service: {service_name}")
+                    service_instance.shutdown()
+            except ValueError:
+                # This can happen if the service was never initialized, which is fine.
+                logger.debug(
+                    f"Service '{service_name}' was not found in container, skipping shutdown."
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error shutting down service '{service_name}': {e}", exc_info=True
+                )
+
+        logger.info("Application shutdown sequence complete.")
 
 
 # Singleton instance of the startup manager

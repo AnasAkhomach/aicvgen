@@ -15,6 +15,10 @@ from ..models.data_models import UserAction
 # Import the workflow graph class
 from ..orchestration.cv_workflow_graph import CVWorkflowGraph
 from ..services.llm_service import EnhancedLLMService
+from ..config.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 def get_workflow_graph() -> CVWorkflowGraph:
@@ -24,10 +28,16 @@ def get_workflow_graph() -> CVWorkflowGraph:
         if not session_id:
             session_id = str(uuid.uuid4())
             st.session_state.session_id = session_id
-        # Ensure application is initialized before creating workflow
+
+        # Application should already be initialized by the time a callback is called.
+        # The call to initialize_application() is removed from here to avoid re-entrancy
+        # and to enforce the single, initial startup sequence in main.py.
         startup_manager = get_startup_manager()
         if not startup_manager.is_initialized:
-            startup_manager.initialize_application()
+            # This should ideally never happen if the app is started via main.py
+            st.error("FATAL: Workflow started before application was initialized.")
+            raise ConfigurationError("Application not initialized.")
+
         st.session_state.workflow_graph = CVWorkflowGraph(session_id=session_id)
     return st.session_state.workflow_graph
 
@@ -156,12 +166,12 @@ def handle_api_key_validation():
     Handle API key validation by calling the LLM service validate_api_key method.
     Updates session state with validation results.
     """
-    import logging
-
+    logger.info("Attempting to validate API key.")
     user_api_key = st.session_state.get("user_gemini_api_key", "")
 
     if not user_api_key:
         st.error("Please enter an API key first")
+        logger.warning("API key validation called without an API key.")
         return
 
     # Reset validation states
@@ -171,6 +181,7 @@ def handle_api_key_validation():
     try:
         # Show validation in progress
         with st.spinner("Validating API key..."):
+            logger.debug("Getting container and services for validation.")
             # Get container and update settings with the new key
             container = get_container()
             settings = container.get_by_name("settings")
@@ -180,7 +191,10 @@ def handle_api_key_validation():
             # settings changes, or it's re-initialized on next use internally.
             llm_service: EnhancedLLMService = container.get_by_name("llm_service")
 
+            logger.debug("Running async validation.")
             # Run validation asynchronously
+            # Using a new event loop can be problematic in some environments,
+            # but it's a common pattern for running async code from sync Streamlit callbacks.
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
@@ -191,18 +205,19 @@ def handle_api_key_validation():
             if is_valid:
                 st.session_state.api_key_validated = True
                 st.success("✅ API key is valid and ready to use!")
+                logger.info("API key validation successful.")
             else:
                 st.session_state.api_key_validation_failed = True
                 st.error("❌ API key validation failed. Please check your key.")
-                logging.error(
+                logger.error(
                     "Gemini API key validation failed: No exception, returned False."
                 )
 
     except ConfigurationError as e:
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Configuration error: {e}")
-        logging.error("Gemini API key configuration error: %s", e)
+        logger.error("Gemini API key configuration error: %s", e, exc_info=True)
     except Exception as e:  # noqa: BLE001
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Validation failed: {e}")
-        logging.error("Gemini API key validation exception: %s", e, exc_info=True)
+        logger.error("Gemini API key validation exception: %s", e, exc_info=True)

@@ -40,11 +40,10 @@ from .error_recovery import get_error_recovery_service
 from ..core.performance_optimizer import get_performance_optimizer
 from ..core.async_optimizer import get_async_optimizer
 from ..utils.exceptions import ConfigurationError, OperationTimeoutError
-from ..utils.error_classification import (
+from ..error_handling.classification import (
     is_rate_limit_error,
     is_network_error,
-    is_api_auth_error,
-    is_retryable_error,
+    is_timeout_error,
 )
 from .llm_client import LLMClient
 from .llm_retry_handler import LLMRetryHandler

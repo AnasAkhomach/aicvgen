@@ -144,7 +144,7 @@ cd "$PROJECT_ROOT"
 # Environment-specific configurations
 setup_environment() {
     log_info "Setting up $ENVIRONMENT environment"
-    
+
     # Create .env file if it doesn't exist
     if [[ ! -f ".env" ]]; then
         log_info "Creating .env file from template"
@@ -160,7 +160,7 @@ GRAFANA_PASSWORD=admin
 EOF
         }
     fi
-    
+
     # Environment-specific overrides
     case "$ENVIRONMENT" in
         development)
@@ -177,35 +177,36 @@ EOF
             export PROFILE=production
             ;;
     esac
-    
+
     # Create necessary directories
-    mkdir -p data/sessions data/output logs config
-    
+    # `data` is for read-only assets, `instance` is for runtime data.
+    mkdir -p data instance
+
     log_success "Environment setup complete"
 }
 
 # Pre-deployment checks
 check_prerequisites() {
     log_info "Checking prerequisites"
-    
+
     # Check Docker
     if ! command -v docker &> /dev/null; then
         log_error "Docker is not installed"
         exit 1
     fi
-    
+
     # Check Docker Compose
     if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
         log_error "Docker Compose is not installed"
         exit 1
     fi
-    
+
     # Check if Docker daemon is running
     if ! docker info &> /dev/null; then
         log_error "Docker daemon is not running"
         exit 1
     fi
-    
+
     # Check required files
     local required_files=("Dockerfile" "docker-compose.yml" "requirements.txt")
     for file in "${required_files[@]}"; do
@@ -214,44 +215,44 @@ check_prerequisites() {
             exit 1
         fi
     done
-    
+
     log_success "Prerequisites check passed"
 }
 
 # Build Docker images
 build_images() {
     log_info "Building Docker images"
-    
+
     local build_args=()
     if [[ "$ENVIRONMENT" == "production" ]]; then
         build_args+=("--target" "production")
     fi
-    
+
     docker-compose build "${build_args[@]}" aicvgen
-    
+
     log_success "Docker images built successfully"
 }
 
 # Deploy application
 deploy_application() {
     log_info "Deploying AI CV Generator ($ENVIRONMENT environment)"
-    
+
     setup_environment
     check_prerequisites
     build_images
-    
+
     # Set compose options
     local compose_opts=()
     if [[ "$DETACH" == "true" ]]; then
         compose_opts+=("--detach")
     fi
-    
+
     # Set profile
     export COMPOSE_PROFILES="$PROFILE"
-    
+
     # Deploy with docker-compose
     docker-compose up "${compose_opts[@]}"
-    
+
     if [[ "$DETACH" == "true" ]]; then
         log_success "Application deployed successfully in detached mode"
         log_info "Access the application at: http://localhost:$PORT"
@@ -261,51 +262,51 @@ deploy_application() {
 # Start application
 start_application() {
     log_info "Starting AI CV Generator"
-    
+
     export COMPOSE_PROFILES="$PROFILE"
-    
+
     local compose_opts=()
     if [[ "$DETACH" == "true" ]]; then
         compose_opts+=("--detach")
     fi
-    
+
     docker-compose up "${compose_opts[@]}"
-    
+
     log_success "Application started successfully"
 }
 
 # Stop application
 stop_application() {
     log_info "Stopping AI CV Generator"
-    
+
     docker-compose down
-    
+
     log_success "Application stopped successfully"
 }
 
 # Restart application
 restart_application() {
     log_info "Restarting AI CV Generator"
-    
+
     stop_application
     start_application
-    
+
     log_success "Application restarted successfully"
 }
 
 # Show logs
 show_logs() {
     log_info "Showing application logs"
-    
+
     docker-compose logs -f aicvgen
 }
 
 # Show status
 show_status() {
     log_info "Application status:"
-    
+
     docker-compose ps
-    
+
     echo
     log_info "Container health:"
     docker-compose exec aicvgen curl -f http://localhost:8501/_stcore/health 2>/dev/null && \
@@ -316,79 +317,85 @@ show_status() {
 # Cleanup Docker resources
 cleanup_resources() {
     log_info "Cleaning up Docker resources"
-    
+
     # Stop and remove containers
     docker-compose down --remove-orphans
-    
+
     # Remove unused images
     docker image prune -f
-    
+
     # Remove unused volumes (with confirmation)
     read -p "Remove unused volumes? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         docker volume prune -f
     fi
-    
+
     log_success "Cleanup completed"
 }
 
 # Backup application data
 backup_data() {
     log_info "Backing up application data"
-    
+
     local backup_dir="backups/$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$backup_dir"
-    
-    # Backup data directory
+
+    # Backup instance directory (runtime data)
+    if [[ -d "instance" ]]; then
+        cp -r instance "$backup_dir/"
+        log_success "Instance directory backed up"
+    fi
+
+    # Backup data directory (source assets)
     if [[ -d "data" ]]; then
         cp -r data "$backup_dir/"
         log_success "Data directory backed up"
     fi
-    
-    # Backup logs
+
+    # Backup logs (if they are outside instance for some reason)
     if [[ -d "logs" ]]; then
         cp -r logs "$backup_dir/"
         log_success "Logs backed up"
     fi
-    
+
     # Backup configuration
     if [[ -f ".env" ]]; then
         cp .env "$backup_dir/"
         log_success "Configuration backed up"
     fi
-    
+
     log_success "Backup completed: $backup_dir"
 }
 
 # Restore application data
 restore_data() {
     log_info "Available backups:"
-    
+
     if [[ ! -d "backups" ]]; then
         log_error "No backups directory found"
         exit 1
     fi
-    
+
     local backups=(backups/*/)
     if [[ ${#backups[@]} -eq 0 ]]; then
         log_error "No backups found"
         exit 1
     fi
-    
+
     for i in "${!backups[@]}"; do
         echo "$((i+1)). $(basename "${backups[$i]}")"
     done
-    
+
     read -p "Select backup to restore (1-${#backups[@]}): " -r backup_choice
-    
+
     if [[ ! "$backup_choice" =~ ^[0-9]+$ ]] || [[ "$backup_choice" -lt 1 ]] || [[ "$backup_choice" -gt ${#backups[@]} ]]; then
         log_error "Invalid selection"
         exit 1
     fi
-    
+
     local selected_backup="${backups[$((backup_choice-1))]}"
-    
+
     log_warning "This will overwrite current data. Continue? (y/N)"
     read -p "" -n 1 -r
     echo
@@ -396,33 +403,39 @@ restore_data() {
         log_info "Restore cancelled"
         exit 0
     fi
-    
+
     # Restore data
+    if [[ -d "${selected_backup}instance" ]]; then
+        rm -rf instance
+        cp -r "${selected_backup}instance" .
+        log_success "Instance data restored"
+    fi
+
     if [[ -d "${selected_backup}data" ]]; then
         rm -rf data
         cp -r "${selected_backup}data" .
-        log_success "Data restored"
+        log_success "Source data restored"
     fi
-    
+
     # Restore configuration
     if [[ -f "${selected_backup}.env" ]]; then
         cp "${selected_backup}.env" .
         log_success "Configuration restored"
     fi
-    
+
     log_success "Restore completed from: $(basename "$selected_backup")"
 }
 
 # Health check
 health_check() {
     log_info "Performing health check"
-    
+
     # Check if containers are running
     if ! docker-compose ps | grep -q "Up"; then
         log_error "No containers are running"
         exit 1
     fi
-    
+
     # Check application health endpoint
     if docker-compose exec aicvgen curl -f http://localhost:8501/_stcore/health &>/dev/null; then
         log_success "Application is healthy"
@@ -430,7 +443,7 @@ health_check() {
         log_error "Application health check failed"
         exit 1
     fi
-    
+
     # Check disk space
     local disk_usage=$(df . | tail -1 | awk '{print $5}' | sed 's/%//')
     if [[ "$disk_usage" -gt 90 ]]; then
@@ -438,7 +451,7 @@ health_check() {
     else
         log_success "Disk usage is normal: ${disk_usage}%"
     fi
-    
+
     # Check memory usage
     local memory_usage=$(docker stats --no-stream --format "table {{.Container}}\t{{.MemPerc}}" | grep aicvgen | awk '{print $2}' | sed 's/%//')
     if [[ -n "$memory_usage" ]] && [[ "${memory_usage%.*}" -gt 80 ]]; then
@@ -446,7 +459,7 @@ health_check() {
     else
         log_success "Memory usage is normal: ${memory_usage:-N/A}%"
     fi
-    
+
     log_success "Health check completed"
 }
 
