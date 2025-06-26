@@ -24,8 +24,9 @@ from ..services.llm_service import (
 from ..services.vector_store_service import get_vector_store_service, VectorStoreService
 from ..services.session_manager import get_session_manager, SessionManager
 from ..services.error_recovery import ErrorRecoveryService
-from ..utils.exceptions import ConfigurationError, ServiceInitializationError
-from ..core.dependency_injection import get_container, DependencyContainer
+from ..error_handling.exceptions import ConfigurationError, ServiceInitializationError
+from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from ..core.dependency_injection import get_container
 from ..agents.parser_agent import ParserAgent
 from ..agents.research_agent import ResearchAgent
 from ..agents.quality_assurance_agent import QualityAssuranceAgent
@@ -249,10 +250,12 @@ class ApplicationStartup:
             logger.info("Application initialization successful")
 
         except (ConfigurationError, ServiceInitializationError) as e:
-            logger.error(f"Application initialization failed: {e}", exc_info=True)
+            logger.error(
+                "Application initialization failed", error=str(e), exc_info=True
+            )
             errors.append(str(e))
             self.is_initialized = False
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             logger.error(
                 f"An unexpected error occurred during startup: {e}", exc_info=True
             )
@@ -270,7 +273,7 @@ class ApplicationStartup:
             timestamp=datetime.now(),
         )
 
-        logger.info(f"Application startup finished in {self.startup_time:.2f} seconds.")
+        logger.info("Application startup finished", startup_time=self.startup_time)
         return result
 
     def _ensure_directories(self):
@@ -293,7 +296,7 @@ class ApplicationStartup:
                     # Path objects can be used directly with os.makedirs
                     if not os.path.exists(directory):
                         os.makedirs(directory)
-                        logger.info(f"Created directory: {directory}")
+                        logger.info("Created directory: %s", directory)
                 except OSError as e:
                     raise ConfigurationError(
                         f"Failed to create directory {directory}: {e}"
@@ -306,7 +309,7 @@ class ApplicationStartup:
             )
             self.services["directories"] = status
             logger.info("Service 'directories' initialized successfully.")
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             logger.error(
                 f"Failed to initialize service 'directories': {e}", exc_info=True
             )
@@ -340,7 +343,7 @@ class ApplicationStartup:
         for service_name in critical_services:
             try:
                 self.container.get_by_name(service_name)
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 error_msg = f"Critical service '{service_name}' failed validation: {e}"
                 logger.error(error_msg)
                 errors.append(error_msg)
@@ -361,14 +364,14 @@ class ApplicationStartup:
                 if hasattr(service_instance, "shutdown") and callable(
                     service_instance.shutdown
                 ):
-                    logger.info(f"Shutting down service: {service_name}")
+                    logger.info("Shutting down service: %s", service_name)
                     service_instance.shutdown()
             except ValueError:
                 # This can happen if the service was never initialized, which is fine.
                 logger.debug(
                     f"Service '{service_name}' was not found in container, skipping shutdown."
                 )
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.error(
                     f"Error shutting down service '{service_name}': {e}", exc_info=True
                 )

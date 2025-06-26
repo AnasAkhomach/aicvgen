@@ -2,5 +2,8 @@
     "IDX.aI.enableInlineCompletion": true,
     "IDX.aI.enableCodebaseIndexing": true,
     "notebook.formatOnSave.enabled": true,
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "python.analysis.extraPaths": [
+        "./src"
+    ]
 }

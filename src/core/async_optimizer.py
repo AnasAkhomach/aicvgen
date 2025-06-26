@@ -22,6 +22,7 @@ import inspect
 import traceback
 
 from ..config.logging_config import get_structured_logger
+from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
 from ..utils.performance import get_performance_monitor
 
 logger = get_structured_logger("async_optimizer")
@@ -315,7 +316,7 @@ class AsyncContextPool:
                     context.close()
             elif hasattr(context, "__aexit__"):
                 await context.__aexit__(None, None, None)
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             logger.warning("Error cleaning up context", error=str(e))
 
     async def _warmup_pools(self):
@@ -331,7 +332,7 @@ class AsyncContextPool:
                 await self._cleanup_idle_contexts()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.error("Error in context cleanup loop", error=str(e))
 
     async def _cleanup_idle_contexts(self):
@@ -427,7 +428,7 @@ class DeadlockDetector:
                 await self._detect_deadlocks()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.error("Error in deadlock detection loop", error=str(e))
 
     async def _detect_deadlocks(self):
@@ -552,7 +553,7 @@ class AsyncOptimizer:
             operation_time = time.time() - start_time
             self._update_operation_stats(operation_type, operation_time, True)
 
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             # Error
             operation_time = time.time() - start_time
             self._update_operation_stats(operation_type, operation_time, False)

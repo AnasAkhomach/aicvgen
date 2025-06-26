@@ -16,7 +16,8 @@ import atexit
 # Project imports
 from ..core.application_startup import get_startup_manager
 from ..orchestration.state import AgentState
-from ..utils.exceptions import ConfigurationError, ServiceInitializationError
+from ..error_handling.exceptions import ConfigurationError, ServiceInitializationError
+from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
 from ..config.logging_config import get_logger, setup_logging
 from ..frontend.ui_components import (
     display_sidebar,
@@ -39,7 +40,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
         # Check if a root logger has handlers, if not, configure it.
         if not logging.getLogger().hasHandlers():
             setup_logging()
-    except Exception as setup_exc:
+    except CATCHABLE_EXCEPTIONS as setup_exc:
         # If logging setup fails, print to stderr as a last resort
         print(f"FATAL: Logging setup failed: {setup_exc}", file=sys.stderr)
         print(f"Original unhandled exception: {exc_value}", file=sys.stderr)
@@ -122,7 +123,7 @@ def main():
                 st.stop()
 
             logger.info(
-                f"Application started successfully in {startup_result.total_time:.2f}s"
+                "Application started successfully in %.2fs", startup_result.total_time
             )
         # Session state initialization is now handled via create_initial_agent_state in utils.state_utils
         # Remove import of deleted state_helpers
@@ -192,8 +193,9 @@ def main():
             "Please check your configuration (.env file, database paths, API keys) and restart."
         )
         st.stop()
-    except Exception as e:
+    except CATCHABLE_EXCEPTIONS as e:
         st.error(f"An unexpected error occurred: {e}")
+        logger.error("Main application error", error=str(e), exc_info=True)
 
         # Show error details in expander for debugging
         with st.expander("🔍 Error Details", expanded=False):

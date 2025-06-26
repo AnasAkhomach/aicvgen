@@ -27,19 +27,25 @@ An intelligent, AI-powered CV tailoring application that creates personalized, j
 
 ## Architecture Overview
 
-The application follows a modular, service-oriented architecture:
+The application follows a modular, service-oriented architecture with strict separation of concerns:
 
-- **`instance/`**: All runtime-generated data is stored here, including logs, user sessions, vector databases, and output files. This directory is created automatically and is essential for application state. It should be excluded from version control.
+- **`instance/`**: All runtime-generated data is stored here, including logs, user sessions, vector databases, and output files. This directory is created automatically and is essential for application state. It should be excluded from version control and properly mounted in Docker deployments.
 - **`src/`**: Contains the core application logic, organized by feature:
+  - **`agents/`**: Specialized AI agents for content generation, analysis, and quality assurance.
   - **`api/`**: External API integrations (e.g., Google Gemini).
-  - **`agents/`**: Specialized AI agents for content generation and analysis.
   - **`core/`**: Application startup, dependency injection, and core orchestration logic.
   - **`config/`**: Application settings, logging, and environment configuration.
-  - **`error_handling/`**: Centralized error classes and utilities.
+  - **`error_handling/`**: Centralized error classes, boundaries, and agent-specific error handlers.
   - **`frontend/`**: Streamlit user interface components and callbacks.
-  - **`services/`**: Business logic for session management, vector storage, etc.
-  - **`utils/`**: Shared utility functions.
-- **`tests/`**: Contains all unit, integration, and end-to-end tests.
+  - **`integration/`**: High-level facade layer that unifies backend services and workflows.
+  - **`models/`**: Pydantic data models with strict type validation and data contracts.
+  - **`orchestration/`**: LangGraph workflow definitions and state management.
+  - **`services/`**: Business logic for LLM interaction, session management, vector storage, etc.
+  - **`templates/`**: Jinja2 templates for content generation and PDF rendering.
+  - **`utils/`**: Shared utility functions including CV data manipulation factories.
+- **`data/`**: Static configuration data, prompt templates, and persistent vector storage.
+- **`tests/`**: Comprehensive testing suite with unit, integration, and end-to-end tests.
+- **`docs/`**: Developer and user documentation including deployment guides.
 - **`scripts/`**: Deployment and maintenance scripts.
 
 ## 🛠️ Getting Started
@@ -82,7 +88,7 @@ The application follows a modular, service-oriented architecture:
    Create a `.env` file in the project root and add your Google Gemini API key:
 
    ```.env
-   GOOGLE_API_KEY="your_gemini_api_key_here"
+   GEMINI_API_KEY="your_gemini_api_key_here"
    ```
 
 5. **Run the application:**
@@ -100,15 +106,13 @@ The application follows a modular, service-oriented architecture:
 1. **Build the Docker image:**
 
    ```bash
-   docker build -t aicvgen .
+   docker build -t aicvgen-app .
    ```
 
-2. **Run the container:**
-
-   The `instance` directory is mounted as a volume to persist application data across container restarts.
+2. **Run the Docker container:**
 
    ```bash
-   docker run -p 8501:8501 --name aicvgen-app -v "%cd%/instance:/app/instance" --env-file .env aicvgen
+   docker run -p 8501:8501 --env-file .env -v "%cd%/instance:/app/instance" aicvgen-app
    ```
 
 ## 📖 Usage Guide
@@ -165,70 +169,83 @@ The AI CV Generator follows a modern, modular architecture with clear separation
 
 ```
 aicvgen/
+├── instance/              # Runtime data (logs, sessions, DBs) - gitignored
+│   ├── logs/              # Application logs with structured format
+│   ├── sessions/          # User session state persistence
+│   ├── output/            # Generated CV files and documents
+│   └── vector_db/         # ChromaDB persistent storage
 ├── src/
-│   ├── agents/              # AI agent implementations
-│   │   ├── base_agent.py    # Base agent class with common functionality
-│   │   ├── content_writer.py # Content generation and tailoring
-│   │   ├── research_agent.py # Job analysis and skill extraction
-│   │   ├── qa_agent.py      # Quality assurance and validation
-│   │   └── formatter.py     # CV formatting and structure
-│   ├── core/                # Core business logic
-│   │   ├── orchestrator.py  # Main workflow orchestration
-│   │   ├── session_manager.py # Session state management
-│   │   ├── state_manager.py # Application state persistence
-│   │   └── workflow.py      # LangGraph workflow definitions
-│   ├── data/                # Data models and schemas
-│   │   ├── models.py        # Pydantic data models
-│   │   ├── schemas.py       # API and validation schemas
-│   │   └── enums.py         # Enumeration definitions
-│   ├── services/            # External service integrations
-│   │   ├── llm_service.py   # Google Gemini LLM integration
-│   │   ├── file_service.py  # File I/O operations
-│   │   └── export_service.py # CV export functionality
-│   ├── ui/                  # User interface components
-│   │   ├── components/      # Reusable UI components
-│   │   ├── pages/          # Streamlit page definitions
-│   │   └── utils.py        # UI utility functions
-│   └── utils/              # Utility functions
-│       ├── logging.py      # Secure logging utilities
-│       ├── validation.py   # Data validation helpers
-│       └── helpers.py      # General utility functions
-├── tests/
-│   ├── unit/               # Unit tests (90%+ coverage)
-│   │   ├── test_agents/    # Agent-specific tests
-│   │   ├── test_core/      # Core logic tests
-│   │   ├── test_services/  # Service integration tests
-│   │   └── test_utils/     # Utility function tests
-│   ├── integration/        # Integration tests
-│   │   ├── test_workflows/ # End-to-end workflow tests
-│   │   └── test_api/       # API integration tests
-│   ├── e2e/               # End-to-end tests
-│   │   ├── test_complete_cv_generation.py # Full workflow tests
-│   │   ├── test_individual_item_processing.py # Granular processing
-│   │   ├── test_error_recovery.py # Error handling and resilience
-│   │   ├── conftest.py     # Test configuration and fixtures
-│   │   └── test_data/      # Test data and mock responses
-│   └── conftest.py         # Global test configuration
-├── data/
-│   ├── input/              # Sample input files and templates
-│   ├── output/             # Generated CV outputs
-│   ├── sessions/           # Session state storage
-│   └── templates/          # CV templates and formats
-├── config/                 # Configuration files
-│   ├── logging.yaml        # Logging configuration
-│   └── app_config.yaml     # Application settings
-├── docs/
-│   ├── dev/               # Development documentation
-│   └── user/              # User documentation
-├── logs/                   # Application logs (auto-created)
-├── scripts/               # Utility and deployment scripts
-├── .vs_venv/              # Virtual environment (local)
-├── app.py                 # Main Streamlit application
-├── run_app.py             # Application launcher with environment setup
-├── requirements.txt       # Python dependencies
-├── Dockerfile             # Container deployment configuration
-├── .env.example           # Environment variables template
+│   ├── agents/            # AI agent implementations
+│   │   ├── agent_base.py      # Base agent class with common functionality
+│   │   ├── cleaning_agent.py  # Content cleaning and normalization
+│   │   ├── cv_analyzer_agent.py  # CV content analysis and optimization
+│   │   ├── enhanced_content_writer.py  # Advanced content generation
+│   │   ├── formatter_agent.py  # Document formatting and structure
+│   │   ├── parser_agent.py     # CV and job description parsing
+│   │   ├── quality_assurance_agent.py  # Content quality validation
+│   │   ├── research_agent.py   # Job market research and analysis
+│   │   └── specialized_agents.py  # Agent factory and specialized variants
+│   ├── api/               # External API integrations
+│   ├── config/            # Configuration management
+│   │   ├── environment.py     # Environment variable handling
+│   │   ├── logging_config.py  # Structured logging configuration
+│   │   └── settings.py        # Application settings and validation
+│   ├── core/              # Core application logic and orchestration
+│   │   ├── application_startup.py  # Application initialization sequence
+│   │   ├── dependency_injection.py  # DI container with lifecycle management
+│   │   └── main.py             # Core application entry point
+│   ├── error_handling/    # Centralized error management
+│   │   ├── agent_error_handler.py  # Agent-specific error handling
+│   │   ├── boundaries.py       # Error boundary definitions
+│   │   ├── classification.py   # Error classification and routing
+│   │   ├── exceptions.py       # Custom exception classes
+│   │   └── models.py          # Error metadata models
+│   ├── frontend/          # Streamlit UI components and callbacks
+│   │   ├── callbacks.py       # UI event handlers and callbacks
+│   │   └── ui_components.py   # Reusable UI components
+│   ├── integration/       # High-level integration layer
+│   │   └── enhanced_cv_system.py  # Unified CV generation facade
+│   ├── models/            # Pydantic data models and schemas
+│   │   ├── agent_models.py        # Agent execution models
+│   │   ├── agent_output_models.py # Standardized agent output schemas
+│   │   ├── data_models.py         # Core business data models
+│   │   └── llm_service_models.py  # LLM service specific models
+│   ├── orchestration/     # LangGraph workflow definitions
+│   │   ├── cv_workflow_graph.py   # Main CV generation workflow
+│   │   └── state.py              # Workflow state management
+│   ├── services/          # Business logic services
+│   │   ├── llm_service.py         # Enhanced LLM service with caching
+│   │   ├── llm_cv_parser_service.py  # LLM-based parsing service
+│   │   ├── session_manager.py     # User session management
+│   │   └── vector_store_service.py  # ChromaDB integration
+│   ├── templates/         # Jinja2 templates and content management
+│   │   ├── content_templates.py   # Template management system
+│   │   └── pdf_template.html      # PDF generation template
+│   └── utils/             # Shared utility functions
+│       ├── cv_data_factory.py     # CV data manipulation utilities
+│       └── decorators.py          # Common decorators and helpers
+├── data/                  # Static data and configurations
+│   ├── prompts/           # LLM prompt templates
+│   ├── templates/         # Document templates
+│   └── vector_db/         # Vector database storage
+├── tests/                 # Comprehensive testing suite
+│   ├── unit/              # Unit tests for individual components
+│   ├── integration/       # Integration tests for service interactions
+│   └── e2e/              # End-to-end workflow tests
+├── docs/                  # Documentation and development guides
+│   ├── dev/               # Developer documentation
+│   └── user/             # User guides and API reference
+├── scripts/              # Deployment and maintenance scripts
+│   ├── deploy.sh         # Production deployment script
+│   └── migrate_logs.py   # Log migration utilities
+├── logs/                 # Legacy log directory (deprecated)
+├── .env.example          # Environment variables template
 ├── .gitignore            # Git ignore patterns
+├── app.py                # Main Streamlit application entry point
+├── docker-compose.yml    # Docker Compose configuration
+├── Dockerfile            # Container deployment configuration
+├── requirements.txt      # Python dependencies
+├── pytest.ini           # Test configuration
 └── README.md             # This documentation
 ```
 

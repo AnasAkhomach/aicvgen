@@ -1,27 +1,21 @@
 """
-This module defines the FormatterAgent, responsible for formatting CVs.
+This module defines the FormatterAgent, responsible for formatting CVs into files.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape, TemplateError
-from pydantic import BaseModel
-
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import FormatterAgentOutput
 from ..config.logging_config import get_structured_logger
-from ..models.data_models import AgentIO, ContentData, StructuredCV
-from ..models.agent_output_models import FormatterAgentOutput
-from ..models.validation_schemas import validate_agent_input
-from ..orchestration.state import AgentState
-
-from ..services.llm_service import EnhancedLLMService
-from ..services.progress_tracker import ProgressTracker
+from ..error_handling.exceptions import (
+    AgentExecutionError,
+    DependencyError,
+    TemplateError,
+)
+from ..models.data_models import StructuredCV
 from ..templates.content_templates import ContentTemplateManager
-from ..utils.agent_error_handling import with_node_error_handling
-from ..utils.error_utils import handle_errors
-from ..utils.prompt_utils import format_prompt
-from ..utils.exceptions import AgentExecutionError
-from .agent_base import AgentResult, EnhancedAgentBase, AgentExecutionContext
+from .agent_base import AgentBase
 
 try:
     from weasyprint import HTML
@@ -30,288 +24,161 @@ try:
 except (ImportError, OSError) as e:
     HTML = None
     WEASYPRINT_AVAILABLE = False
-    logger = get_structured_logger(__name__)
-    logger.warning(
-        f"WeasyPrint not available: {e}. PDF generation will be disabled.", error=str(e)
+    # Log the error once at import time
+    _logger = get_structured_logger(__name__)
+    _logger.warning(
+        "WeasyPrint not found. PDF generation will be disabled.",
+        error=str(e),
+        exc_info=False,  # Don't need a full stack trace here
     )
+
 
 logger = get_structured_logger(__name__)
 
 
-class FormatterAgentOutput(BaseModel):
-    """Output model for the FormatterAgent."""
-
-    formatted_cv_text: str
-
-
-class FormatterAgent(EnhancedAgentBase):
+class FormatterAgent(AgentBase):
     """
-    Agent responsible for formatting the tailored CV content.
+    Agent responsible for formatting the tailored CV content into a file (PDF or HTML).
     """
 
-    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def __init__(
         self,
-        llm_service: EnhancedLLMService,
-        progress_tracker: ProgressTracker,
         template_manager: ContentTemplateManager,
-        name: str = "FormatterAgent",
-        description: str = "Formats CV content and generates files.",
+        settings: dict,
+        session_id: str,
     ):
         """Initialize the FormatterAgent with required dependencies."""
-        input_schema = AgentIO(
-            description="Reads structured CV from AgentState for formatting.",
-            required_fields=["structured_cv"],
-        )
-        output_schema = AgentIO(
-            description="Populates 'final_output_path' in AgentState.",
-            required_fields=["final_output_path"],
-        )
         super().__init__(
-            name=name,
-            description=description,
-            input_schema=input_schema,
-            output_schema=output_schema,
-            progress_tracker=progress_tracker,
+            name="FormatterAgent",
+            description="Formats the tailored CV content into a file.",
+            session_id=session_id,
         )
-        self.llm_service = llm_service
         self.template_manager = template_manager
-        self.jinja_env: Optional[Environment] = None
-        self._init_template_environment()
+        self.settings = settings
 
-    def _init_template_environment(self):
-        """Initialize the Jinja2 template environment."""
+    def run(self, **kwargs: Any) -> AgentResult[FormatterAgentOutput]:
+        """Formats a StructuredCV into a file and returns the path."""
+        structured_cv: Optional[StructuredCV] = kwargs.get("structured_cv")
+        format_type: str = kwargs.get("format_type", "pdf")
+        template_name: str = kwargs.get("template_name", "default_template.html")
+        output_path: Optional[str] = kwargs.get("output_path")
+
+        self.update_progress(0, "Starting formatting process")
+        format_type = format_type.lower()
+
         try:
-            template_dir = Path(__file__).parent.parent / "templates"
-            self.jinja_env = Environment(
-                loader=FileSystemLoader(template_dir),
-                autoescape=select_autoescape(["html", "xml"]),
-                trim_blocks=True,
-                lstrip_blocks=True,
-            )
-            logger.info(f"Jinja2 template environment initialized: {template_dir}")
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize Jinja2 template environment: {e}", error=str(e)
-            )
-            raise
-
-    @with_node_error_handling("formatter")
-    async def run_as_node(
-        self, state: AgentState, _config: Optional[dict] = None
-    ) -> Dict[str, Any]:
-        """Run formatter agent as a node, returning an update dictionary."""
-        logger.info("Starting CV formatting")
-        try:
-            validate_agent_input("formatter", state)
-
-            result = await self.run(state)
-            if result.error_message:
-                raise RuntimeError(result.error_message)
-            if result.final_output_path:
-                logger.info("CV formatting completed")
-                return {"final_output_path": result.final_output_path}
-            return {}
-        except Exception as e:
-            logger.error(f"FormatterAgent failed: {e}", exc_info=True)
-            from ..utils.exceptions import AgentExecutionError
-
-            raise AgentExecutionError(
-                agent_name="FormatterAgent", message=str(e)
-            ) from e
-
-    async def run_async(
-        self, input_data: Any, context: "AgentExecutionContext"
-    ) -> "AgentResult":
-        """Asynchronously formats content based on input data."""
-        try:
-            validated_input = validate_agent_input("formatter", input_data)
-            content_data = validated_input.content_data
-            if not content_data:
-                return AgentResult(
-                    success=False,
-                    output_data=FormatterAgentOutput(),
-                    error_message="Missing content data",
+            if not structured_cv or not isinstance(structured_cv, StructuredCV):
+                raise AgentExecutionError(
+                    agent_name=self.name,
+                    message="'structured_cv' of type StructuredCV is required.",
                 )
 
-            format_specs = validated_input.get("format_specs", {})
-            formatted_text = await self.format_content(content_data, format_specs)
-            result = FormatterAgentOutput(formatted_cv_text=formatted_text)
-            return AgentResult(success=True, output_data=result, confidence_score=1.0)
-        except (ValueError, TypeError) as e:
-            logger.error(f"Error in run_async: {e}")
-            return AgentResult(
-                success=False,
-                output_data=FormatterAgentOutput(),
-                error_message=f"Formatting failed: {e}",
-            )
-
-    async def format_content(
-        self, content_data: ContentData, specifications: Optional[dict] = None
-    ) -> str:
-        """Formats content using LLM or a template fallback."""
-        specifications = specifications or {}
-        try:
-            return await self._format_with_llm(content_data, specifications)
-        except AgentExecutionError as e:
-            logger.warning(f"LLM formatting failed, falling back to template: {e}")
-            return self._format_with_template(content_data)
-
-    @handle_errors(default_return="")
-    async def _format_with_llm(
-        self, content_data: ContentData, _specifications: dict
-    ) -> str:
-        """Use LLM to intelligently format the CV content."""
-        content_summary = self._prepare_content_for_llm(content_data)
-        prompt = self.template_manager.get_prompt("cv_formatting")
-        if not prompt:
-            raise ValueError("CV formatting prompt not found.")
-
-        formatted_prompt = format_prompt(prompt, content_summary=content_summary)
-        llm_response = await self.llm_service.generate_content(prompt=formatted_prompt)
-        response = llm_response.content.strip()
-        if not response:
-            raise ValueError("Empty response from LLM")
-        return response
-
-    def _prepare_content_for_llm(self, content_data: ContentData) -> str:
-        """Prepare content data for LLM formatting."""
-        content_parts = []
-
-        def add_part(label: str, value: Any):
-            if value:
-                content_parts.append(f"{label}: {value}")
-
-        add_part("Name", getattr(content_data, "name", None))
-        add_part("Email", getattr(content_data, "email", None))
-        add_part("Phone", getattr(content_data, "phone", None))
-        add_part("LinkedIn", getattr(content_data, "linkedin", None))
-        add_part("GitHub", getattr(content_data, "github", None))
-        add_part("Professional Summary", getattr(content_data, "summary", None))
-        add_part("Skills", getattr(content_data, "skills_section", None))
-
-        # Experience
-        if getattr(content_data, "experience_bullets", None):
-            exp_text = "Experience:\n"
-            for exp in content_data.experience_bullets:
-                if isinstance(exp, str):
-                    exp_text += f"- {exp}\n"
-                elif isinstance(exp, dict):
-                    if exp.get("position"):
-                        exp_text += f"Position: {exp['position']}\n"
-                    for bullet in exp.get("bullets", []):
-                        exp_text += f"- {bullet}\n"
-            content_parts.append(exp_text)
-
-        return "\n\n".join(content_parts)
-
-    def _format_with_template(self, content_data: ContentData) -> str:
-        """Fallback template-based formatting."""
-        if not self.jinja_env:
-            return "Error: Jinja2 environment not initialized."
-        try:
-            template = self.jinja_env.get_template("cv_template.md")
-            return template.render(cv=content_data)
-        except TemplateError as e:
-            logger.error(f"Error rendering template: {e}")
-            return "Error rendering CV from template."
-
-    async def run(self, state_or_content: Any) -> FormatterAgentOutput:
-        """Main run method for the formatter agent."""
-        try:
-            params = self._prepare_run_parameters(state_or_content)
-            if params.get("error_message"):
-                return FormatterAgentOutput(
-                    final_output_path=None,
-                    error_message=params["error_message"],
+            if format_type == "pdf" and not WEASYPRINT_AVAILABLE:
+                logger.warning("WeasyPrint not found. PDF generation is disabled.")
+                raise DependencyError(
+                    "PDF generation requires WeasyPrint, but it is not installed or failed to load."
                 )
 
-            structured_cv = params["structured_cv"]
-            format_type = params["format_type"]
-            template_name = params["template_name"]
-            output_path = params["output_path"]
+            self.update_progress(30, "Rendering CV from template")
+            html_content = self._format_html(structured_cv, template_name)
+
+            final_output_path = self._get_output_path(output_path, format_type)
+            final_output_path.parent.mkdir(parents=True, exist_ok=True)
 
             if format_type == "pdf":
-                final_path = self._generate_pdf(
-                    structured_cv, template_name, output_path
-                )
-            else:
-                final_path = self._generate_html_file(
-                    structured_cv, template_name, output_path
-                )
-            return FormatterAgentOutput(final_output_path=final_path)
-        except AgentExecutionError as e:
-            logger.error(f"FormatterAgent.run error: {e}", exc_info=True)
-            return FormatterAgentOutput(final_output_path=None, error_message=str(e))
+                self.update_progress(70, "Generating PDF file")
+                self._generate_pdf(html_content, final_output_path)
+            else:  # html
+                self.update_progress(70, "Generating HTML file")
+                self._generate_html(html_content, final_output_path)
 
-    def _prepare_run_parameters(self, state_or_content: Any) -> Dict[str, Any]:
-        """Extracts and validates run parameters from input."""
-        if isinstance(state_or_content, AgentState):
-            structured_cv = state_or_content.structured_cv
-            format_type = getattr(state_or_content, "format_type", "pdf")
-            template_name = getattr(state_or_content, "template_name", "professional")
-            output_path = getattr(state_or_content, "output_path", None)
-        elif isinstance(state_or_content, dict):
-            structured_cv = state_or_content.get("structured_cv")
-            format_type = state_or_content.get("format_type", "pdf")
-            template_name = state_or_content.get("template_name", "professional")
-            output_path = state_or_content.get("output_path")
-        else:
-            msg = f"Unsupported input type: {type(state_or_content)}"
-            logger.error(msg)
-            return {"error_message": msg}
+            output_data = FormatterAgentOutput(
+                output_path=str(final_output_path.resolve())
+            )
+            self.update_progress(100, "Formatting completed successfully")
+            return AgentResult(
+                status="success",
+                agent_name=self.name,
+                output_data=output_data,
+                message="CV formatting completed successfully.",
+            )
+        except AgentExecutionError:
+            # Re-raise without modification to preserve original error context
+            raise
+        except DependencyError:
+            # Re-raise without modification
+            raise
+        except Exception as e:
+            logger.error(
+                "An unexpected error occurred during formatting.",
+                error=str(e),
+                exc_info=True,
+            )
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message=f"An unexpected error occurred: {e}",
+            ) from e
 
-        if not structured_cv:
-            return {"error_message": "StructuredCV is missing."}
-
-        return {
-            "structured_cv": structured_cv,
-            "format_type": format_type,
-            "template_name": template_name,
-            "output_path": output_path,
-        }
-
-    def _generate_pdf(
-        self,
-        structured_cv: StructuredCV,
-        template_name: str,
-        output_path: Optional[str],
-    ) -> Optional[str]:
-        """Generates a PDF from the structured CV."""
-        if not WEASYPRINT_AVAILABLE or not self.jinja_env:
-            logger.error("PDF generation is not available.")
-            return None
+    def _format_html(self, structured_cv: StructuredCV, template_name: str) -> str:
+        """Renders the CV data into an HTML string using a template."""
         try:
-            html_template = self.jinja_env.get_template(f"{template_name}.html")
-            html_content = html_template.render(cv=structured_cv)
+            return self.template_manager.format_template(
+                template_name, structured_cv.model_dump()
+            )
+        except (TemplateError, KeyError) as e:
+            logger.error(
+                "Failed to render HTML template.",
+                template_name=template_name,
+                error=str(e),
+                exc_info=True,
+            )
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message=f"Failed to render HTML template '{template_name}'. Reason: {e}",
+            ) from e
 
-            final_path = output_path or "cv.pdf"
-            HTML(string=html_content).write_pdf(final_path)
-            logger.info(f"Successfully generated PDF: {final_path}")
-            return final_path
-        except (TemplateError, IOError) as e:
-            logger.error(f"Failed to generate PDF: {e}")
-            return None
+    def _get_output_path(
+        self, output_path_str: Optional[str], format_type: str
+    ) -> Path:
+        """Determines the output file path."""
+        if output_path_str:
+            return Path(output_path_str)
 
-    def _generate_html_file(
-        self,
-        structured_cv: StructuredCV,
-        template_name: str,
-        output_path: Optional[str],
-    ) -> Optional[str]:
-        """Generates an HTML file from the structured CV."""
-        if not self.jinja_env:
-            logger.error("HTML generation is not available.")
-            return None
+        # Fallback to a default path if none is provided
+        output_dir = Path(self.settings.get("output_dir", "instance/output"))
+        # Use the session_id to create a unique filename
+        filename = f"generated_cv_{self.session_id}.{format_type}"
+        return output_dir / filename
+
+    def _generate_pdf(self, html_content: str, output_path: Path):
+        """Generates a PDF file from HTML content."""
         try:
-            template = self.jinja_env.get_template(f"{template_name}.html")
-            html_content = template.render(cv=structured_cv)
+            if HTML is None:
+                # This check is redundant if the entry check works, but it's good practice
+                raise DependencyError("WeasyPrint is not available for PDF generation.")
+            HTML(string=html_content).write_pdf(output_path)
+        except Exception as e:
+            logger.error(
+                "Failed to generate PDF.",
+                output_path=str(output_path),
+                error=str(e),
+                exc_info=True,
+            )
+            raise AgentExecutionError(
+                agent_name=self.name, message=f"Failed to write PDF file: {e}"
+            ) from e
 
-            final_path = output_path or "cv.html"
-            with open(final_path, "w", encoding="utf-8") as f:
-                f.write(html_content)
-            logger.info(f"Successfully generated HTML file: {final_path}")
-            return final_path
-        except (TemplateError, IOError) as e:
-            logger.error(f"Failed to generate HTML file: {e}")
-            return None
+    def _generate_html(self, html_content: str, output_path: Path):
+        """Generates an HTML file from HTML content."""
+        try:
+            output_path.write_text(html_content, encoding="utf-8")
+        except IOError as e:
+            logger.error(
+                "Failed to generate HTML file.",
+                output_path=str(output_path),
+                error=str(e),
+                exc_info=True,
+            )
+            raise AgentExecutionError(
+                agent_name=self.name, message=f"Failed to write HTML file: {e}"
+            ) from e

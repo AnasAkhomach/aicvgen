@@ -1,6 +1,7 @@
 import os
 from typing import Any, Dict, Optional
 import logging
+from ..error_handling.exceptions import TemplateFormattingError
 
 logger = logging.getLogger("prompt_utils")
 
@@ -10,8 +11,8 @@ def load_prompt_template(path: str, fallback: Optional[str] = None) -> str:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
-    except Exception as e:
-        logger.warning(f"Failed to load prompt template from {path}: {e}")
+    except (IOError, FileNotFoundError) as e:
+        logger.warning("Failed to load prompt template from %s: %s", path, e)
         if fallback is not None:
             return fallback
         raise
@@ -21,9 +22,9 @@ def format_prompt(template: str, **kwargs) -> str:
     """Format a prompt template with provided keyword arguments."""
     try:
         return template.format(**kwargs)
-    except Exception as e:
-        logger.error(f"Prompt formatting failed: {e}")
-        raise
+    except (KeyError, IndexError) as e:
+        logger.error("Prompt formatting failed due to missing key: %s", e)
+        raise TemplateFormattingError(f"Missing key in prompt template: {e}") from e
 
 
 def ensure_company_name(job_desc_data):

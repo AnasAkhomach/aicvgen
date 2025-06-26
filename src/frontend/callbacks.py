@@ -6,14 +6,14 @@ import uuid
 from typing import Optional
 
 from ..orchestration.state import AgentState, UserFeedback
-from ..utils.exceptions import ConfigurationError
+from ..error_handling.exceptions import ConfigurationError, AgentExecutionError
 from ..core.dependency_injection import get_container
 from ..utils.state_utils import create_initial_agent_state
 from ..core.application_startup import get_startup_manager
-from ..models.data_models import UserAction
+from ..models.data_models import UserAction, WorkflowType
 
-# Import the workflow graph class
-from ..orchestration.cv_workflow_graph import CVWorkflowGraph
+# Import the integration layer instead of direct workflow graph
+from ..integration.enhanced_cv_system import get_enhanced_cv_integration
 from ..services.llm_service import EnhancedLLMService
 from ..config.logging_config import get_logger
 
@@ -21,67 +21,80 @@ from ..config.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def get_workflow_graph() -> CVWorkflowGraph:
-    """Get or create the workflow graph for the current session."""
-    if "workflow_graph" not in st.session_state:
+def get_enhanced_cv_integration_instance():
+    """Get or create the enhanced CV integration instance for the current session."""
+    if "cv_integration" not in st.session_state:
         session_id = st.session_state.get("session_id")
         if not session_id:
             session_id = str(uuid.uuid4())
             st.session_state.session_id = session_id
 
         # Application should already be initialized by the time a callback is called.
-        # The call to initialize_application() is removed from here to avoid re-entrancy
-        # and to enforce the single, initial startup sequence in main.py.
         startup_manager = get_startup_manager()
         if not startup_manager.is_initialized:
             # This should ideally never happen if the app is started via main.py
-            st.error("FATAL: Workflow started before application was initialized.")
+            st.error("FATAL: Integration started before application was initialized.")
             raise ConfigurationError("Application not initialized.")
 
-        st.session_state.workflow_graph = CVWorkflowGraph(session_id=session_id)
-    return st.session_state.workflow_graph
+        st.session_state.cv_integration = get_enhanced_cv_integration()
+    return st.session_state.cv_integration
 
 
 def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
     """
     The target function for the background thread.
-    Executes the LangGraph workflow, updating the agent_state directly upon completion.
+    Executes the CV workflow using the EnhancedCVIntegration layer.
     """
     from ..config.logging_config import setup_logging
     import logging
 
     setup_logging()
-    logger = logging.getLogger(__name__)
+    thread_logger = logging.getLogger(__name__)
     try:  # Each thread needs its own event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        logger.info(
-            "Starting LangGraph workflow in background thread",
+        thread_logger.info(
+            "Starting CV workflow in background thread",
             extra={
                 "trace_id": trace_id,
                 "session_id": st.session_state.get("session_id"),
             },
         )
 
-        # Get the session-specific workflow graph
-        workflow_graph = get_workflow_graph()
+        # Get the enhanced CV integration instance
+        cv_integration = get_enhanced_cv_integration_instance()
+        session_id = st.session_state.get("session_id")
 
-        # Run the async workflow
-        final_state = loop.run_until_complete(workflow_graph.invoke(state_to_run))
+        # Execute the workflow using the integration layer
+        # Determine workflow type based on the state content
+        workflow_type = WorkflowType.COMPREHENSIVE_CV  # Use comprehensive CV workflow
+
+        result = loop.run_until_complete(
+            cv_integration.execute_workflow(
+                workflow_type=workflow_type,
+                input_data=state_to_run,
+                session_id=session_id,
+            )
+        )
 
         # Update the session state with the final results
-        st.session_state.agent_state = final_state
+        # The result contains the final agent state and other metadata
+        if "final_state" in result:
+            st.session_state.agent_state = result["final_state"]
+        else:
+            # Fallback: use the result as the final state if it's an AgentState
+            st.session_state.agent_state = result
 
-        logger.info(
-            "LangGraph workflow completed successfully",
+        thread_logger.info(
+            "CV workflow completed successfully",
             extra={"trace_id": trace_id},
         )
 
-    except Exception as e:  # noqa: BLE001
-        logger.error(
-            "LangGraph workflow failed in background thread: %s",
-            str(e),
+    except (AgentExecutionError, ConfigurationError, RuntimeError) as e:
+        thread_logger.error(
+            "CV workflow failed in background thread: %s",
+            e,
             extra={"trace_id": trace_id, "error_type": type(e).__name__},
             exc_info=True,
         )
@@ -98,14 +111,14 @@ def _start_workflow_thread(state_to_run: AgentState):
     import logging
 
     setup_logging()
-    logger = logging.getLogger(__name__)
+    start_logger = logging.getLogger(__name__)
     trace_id = str(uuid.uuid4())
     state_to_run.trace_id = trace_id  # Set flags to indicate processing has started
     st.session_state.is_processing = True
     st.session_state.workflow_error = None  # Clear previous errors
     st.session_state.just_finished = False
 
-    logger.info(
+    start_logger.info(
         "Starting workflow thread",
         extra={"trace_id": trace_id, "session_id": st.session_state.get("session_id")},
     )
@@ -146,7 +159,7 @@ def handle_user_action(action: str, item_id: str):
         feedback_text = "User accepted the item."
         st.success("✅ Item accepted")
     elif action == "regenerate":
-        user_action = UserAction.REQUEST_REFINEMENT
+        user_action = UserAction.REGENERATE
         feedback_text = "User requested to regenerate the item."
         st.info("🔄 Regenerating item...")
     else:
@@ -217,7 +230,7 @@ def handle_api_key_validation():
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Configuration error: {e}")
         logger.error("Gemini API key configuration error: %s", e, exc_info=True)
-    except Exception as e:  # noqa: BLE001
+    except (AgentExecutionError, RuntimeError) as e:
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Validation failed: {e}")
         logger.error("Gemini API key validation exception: %s", e, exc_info=True)

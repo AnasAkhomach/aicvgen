@@ -163,8 +163,8 @@ class SessionManager:
                 self.cleanup_expired_sessions()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                self.logger.error(f"Error in periodic cleanup: {e}")
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
+                self.logger.error("Error in periodic cleanup: %s", e)
 
     def _initialize_session_state(
         self,
@@ -451,7 +451,13 @@ class SessionManager:
                 with open(state_path, "wb") as f:
                     pickle.dump(self.session_states[session_id], f)
 
-        except Exception as e:
+        except (
+            IOError,
+            OSError,
+            json.JSONDecodeError,
+            pickle.PicklingError,
+            TypeError,
+        ) as e:
             self.logger.error(
                 f"Failed to save session {session_id}: {e}", session_id=session_id
             )
@@ -478,7 +484,7 @@ class SessionManager:
 
             return session_info
 
-        except Exception as e:
+        except (IOError, OSError, json.JSONDecodeError, KeyError, TypeError) as e:
             self.logger.error(
                 f"Failed to load session {session_id}: {e}", session_id=session_id
             )
@@ -494,14 +500,15 @@ class SessionManager:
             with open(state_path, "rb") as f:
                 state = pickle.load(f)
 
-            # Add to in-memory cache
-            self.session_states[session_id] = state
-
+            # Add to in-memory states if not already there
+            with self._lock:
+                self.session_states[session_id] = state
             return state
 
-        except Exception as e:
+        except (IOError, OSError, pickle.UnpicklingError) as e:
             self.logger.error(
-                f"Failed to load session state {session_id}: {e}", session_id=session_id
+                f"Failed to load session state {session_id}: {e}",
+                session_id=session_id,
             )
             return None
 

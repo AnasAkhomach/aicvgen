@@ -6,7 +6,9 @@ logger = logging.getLogger("error_utils")
 
 
 def handle_errors(
-    default_return=None, exceptions=(Exception,), log_level=logging.ERROR
+    default_return=None,
+    exceptions=(ValueError, TypeError, IOError),
+    log_level=logging.ERROR,
 ) -> Callable:
     """Decorator to handle errors in a function, log, and optionally return a default value."""
 
@@ -16,7 +18,7 @@ def handle_errors(
             try:
                 return func(*args, **kwargs)
             except exceptions as e:
-                logger.log(log_level, f"Error in {func.__name__}: {e}")
+                logger.log(log_level, "Error in %s: %s", func.__name__, e)
                 return default_return
 
         return wrapper
@@ -28,6 +30,6 @@ def try_or_log(func: Callable, *args, **kwargs) -> Tuple[bool, any]:
     """Try to run a function, log on error, and return (success, result)."""
     try:
         return True, func(*args, **kwargs)
-    except Exception as e:
-        logger.error(f"Error in {func.__name__}: {e}")
+    except (ValueError, TypeError, IOError) as e:
+        logger.error("Error in %s: %s", func.__name__, e)
         return False, None

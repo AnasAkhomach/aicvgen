@@ -12,6 +12,8 @@ from src.models.validation_schemas import ValidationError
 from src.orchestration.state import AgentState
 from src.models.data_models import ErrorFallbackModel
 from src.config.logging_config import get_structured_logger
+from src.error_handling.models import ErrorCategory, ErrorSeverity, ErrorContext
+from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
 
 if TYPE_CHECKING:
     from src.agents.agent_base import AgentResult
@@ -21,6 +23,23 @@ logger = get_structured_logger(__name__)
 
 class AgentErrorHandler:
     """Centralized error handling for agents."""
+
+    @staticmethod
+    def handle_error(
+        message: str,
+        category: "ErrorCategory",
+        severity: "ErrorSeverity",
+        context: Optional["ErrorContext"] = None,
+    ):
+        """Handles a generic system error, distinct from agent-specific errors."""
+        log_extra = {
+            "error_category": category.value,
+            "error_severity": severity.value,
+        }
+        if context and context.additional_data:
+            log_extra.update(context.additional_data)
+
+        logger.error(message, extra=log_extra)
 
     @staticmethod
     def handle_validation_error(
@@ -173,7 +192,7 @@ def with_error_handling(agent_type: str, context: Optional[str] = None):
                 return AgentErrorHandler.handle_validation_error(
                     ve, agent_type, fallback_data
                 )
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 fallback_data = AgentErrorHandler.create_fallback_data(agent_type)
                 return AgentErrorHandler.handle_general_error(
                     e, agent_type, fallback_data, context
@@ -191,7 +210,7 @@ def with_error_handling(agent_type: str, context: Optional[str] = None):
                 return AgentErrorHandler.handle_validation_error(
                     ve, agent_type, fallback_data
                 )
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 fallback_data = AgentErrorHandler.create_fallback_data(agent_type)
                 return AgentErrorHandler.handle_general_error(
                     e, agent_type, fallback_data, context
@@ -211,7 +230,7 @@ def with_node_error_handling(agent_type: str, context: Optional[str] = None):
         async def async_wrapper(*args, **kwargs):
             try:
                 return await func(*args, **kwargs)
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 state = args[0] if args and isinstance(args[0], dict) else {}
                 return AgentErrorHandler.handle_node_error(
                     e, agent_type, state, context
@@ -224,7 +243,7 @@ def with_node_error_handling(agent_type: str, context: Optional[str] = None):
         def sync_wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 state = args[0] if args and isinstance(args[0], dict) else {}
                 return AgentErrorHandler.handle_node_error(
                     e, agent_type, state, context
@@ -243,7 +262,7 @@ class LLMErrorHandler:
         error: Exception, agent_type: str, fallback_content: Optional[str] = None
     ) -> Dict[str, Any]:
         """Handle LLM response parsing errors."""
-        logger.error(f"LLM response error in {agent_type}: {str(error)}")
+        logger.error("LLM response error in %s: %s", agent_type, str(error))
 
         return {
             "error": str(error),

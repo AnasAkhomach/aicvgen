@@ -3,33 +3,26 @@
 import re
 from typing import Any, Dict
 
-from ..config.logging_config import get_structured_logger
-from ..models.data_models import (
-    AgentIO,
-    Item,
-    JobDescriptionData,
-    Section,
-    StructuredCV,
-)
-from ..models.quality_assurance_agent_models import (
+from pydantic import ValidationError
+
+from src.config.logging_config import get_structured_logger
+from src.error_handling.exceptions import AgentExecutionError
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import (
     ItemQualityResultModel,
-    KeyTerms,
     OverallQualityCheckResultModel,
+    QualityAssuranceAgentOutput,
     SectionQualityResultModel,
 )
-from ..models.validation_schemas import validate_agent_input
-from ..orchestration.state import AgentState
-from ..services.llm_service import EnhancedLLMService
-from ..services.progress_tracker import ProgressTracker
-from ..templates.content_templates import ContentTemplateManager
-from .agent_base import AgentExecutionContext, AgentResult, EnhancedAgentBase
-from ..models.agent_output_models import QualityAssuranceAgentOutput
-
+from src.models.data_models import Item, Section, StructuredCV
+from src.services.llm_service import EnhancedLLMService
+from src.templates.content_templates import ContentTemplateManager
+from src.agents.agent_base import AgentBase
 
 logger = get_structured_logger(__name__)
 
 
-class QualityAssuranceAgent(EnhancedAgentBase):
+class QualityAssuranceAgent(AgentBase):
     """
     Agent responsible for quality assurance of generated CV content.
     This agent fulfills REQ-FUNC-QA-1 from the SRS.
@@ -38,104 +31,97 @@ class QualityAssuranceAgent(EnhancedAgentBase):
     def __init__(
         self,
         llm_service: EnhancedLLMService,
-        progress_tracker: ProgressTracker,
         template_manager: ContentTemplateManager,
+        settings: Dict[str, Any],
     ):
         """Initialize the QualityAssuranceAgent with required dependencies.
 
         Args:
             llm_service: LLM service instance for sophisticated quality checks.
-            error_recovery_service: Error recovery service dependency.
-            progress_tracker: Progress tracker service dependency.
             template_manager: The template manager for loading prompts.
+            settings: The application settings.
         """
         super().__init__(
             name="QualityAssuranceAgent",
             description="Agent responsible for quality assurance of CV content",
-            input_schema=AgentIO(
-                description=(
-                    "Reads structured CV and job description data "
-                    "from AgentState for quality analysis."
-                ),
-                required_fields=["structured_cv", "job_description_data"],
-            ),
-            output_schema=AgentIO(
-                description="Populates 'quality_check_results' in AgentState.",
-                required_fields=["quality_check_results"],
-            ),
-            progress_tracker=progress_tracker,
         )
         self.llm_service = llm_service
         self.template_manager = template_manager
+        self.settings = settings
 
-    async def run_async(
-        self, input_data: Any, context: "AgentExecutionContext"
-    ) -> "AgentResult":
-        """Async run method for consistency with the enhanced agent interface."""
+    async def run(self, **kwargs: Any) -> AgentResult:
+        """
+        Runs the quality assurance agent to evaluate generated CV content.
+
+        This method validates the input, performs a series of quality checks on the
+        structured CV data, and returns the results. It checks individual sections
+        and performs overall CV-level validation.
+
+        Args:
+            **kwargs: A dictionary containing 'structured_cv'.
+
+        Returns:
+            An AgentResult containing the QualityAssuranceAgentOutput.
+
+        Raises:
+            AgentExecutionError: If the input is invalid or an error occurs during processing.
+        """
+        logger.info("Quality Assurance Agent: Starting execution.")
+        self.update_progress(0, "Starting QA process.")
+        input_data = kwargs.get("input_data", {})
+
         try:
-            validated_input = validate_agent_input("quality_assurance", input_data)
-            input_data = validated_input
-            self.log_decision(
-                "Input validation passed for QualityAssuranceAgent",
-                context,
-                "validation",
-            )
-
-            structured_cv = input_data.get("structured_cv") or StructuredCV()
-            job_desc_data = input_data.get("job_description_data")
-            if not job_desc_data or isinstance(job_desc_data, dict):
-                job_desc_data = JobDescriptionData(
-                    raw_text=input_data.get("job_description", "")
+            if "structured_cv" not in input_data:
+                raise AgentExecutionError(
+                    message="Invalid input: 'structured_cv' is a required field."
                 )
 
-            agent_state = AgentState(
-                structured_cv=structured_cv, job_description_data=job_desc_data
+            structured_cv = input_data["structured_cv"]
+            if not isinstance(structured_cv, StructuredCV):
+                if isinstance(structured_cv, dict):
+                    structured_cv = StructuredCV(**structured_cv)
+                else:
+                    raise AgentExecutionError(
+                        message=f"Invalid type for 'structured_cv'. Expected StructuredCV or dict, got {type(structured_cv)}."
+                    )
+
+            self.update_progress(20, "Input validation passed.")
+
+            section_results = [
+                self._check_section(section) for section in structured_cv.sections
+            ]
+            self.update_progress(70, "Section checks completed.")
+
+            overall_checks = self._check_overall_cv()
+            self.update_progress(90, "Overall CV checks completed.")
+
+            qa_results = QualityAssuranceAgentOutput(
+                section_results=section_results, overall_checks=overall_checks
             )
 
-            node_result = await self.run_as_node(agent_state)
-            result = node_result.get("quality_check_results")
+            logger.info("Quality Assurance Agent: Execution completed successfully.")
+            self.update_progress(100, "QA checks completed.")
 
-            if not isinstance(result, QualityAssuranceAgentOutput):
-                result = QualityAssuranceAgentOutput(
-                    section_results=[], overall_checks=[]
-                )
+            return AgentResult(success=True, output_data=qa_results)
 
+        except (ValidationError, KeyError, TypeError, AgentExecutionError) as e:
+            error_message = f"{self.name} failed: {str(e)}"
+            logger.error(error_message, exc_info=True)
             return AgentResult(
-                success=True,
-                output_data=result,
-                confidence_score=1.0,
-                metadata={"agent_type": "quality_assurance"},
+                success=False,
+                error_message=error_message,
+                output_data=QualityAssuranceAgentOutput(),
             )
-
-        except Exception as e:
-            # Fail fast - let the orchestration layer handle recovery
-            from ..utils.exceptions import AgentExecutionError
-
-            raise AgentExecutionError(
-                agent_name="QualityAssuranceAgent", message=str(e)
-            ) from e
-
-    def _extract_key_terms(self, job_description_data: Any) -> KeyTerms:
-        """
-        Extracts key terms from job description data for matching checks.
-        """
-        if not job_description_data:
-            return KeyTerms()
-
-        if isinstance(job_description_data, dict):
-            return KeyTerms(
-                skills=job_description_data.get("skills", []),
-                responsibilities=job_description_data.get("responsibilities", []),
-                industry_terms=job_description_data.get("industry_terms", []),
-                company_values=job_description_data.get("company_values", []),
+        except (AttributeError, ValueError) as e:
+            error_message = (
+                f"An unexpected data error occurred in {self.name}: {str(e)}"
             )
-
-        return KeyTerms(
-            skills=getattr(job_description_data, "skills", []),
-            responsibilities=getattr(job_description_data, "responsibilities", []),
-            industry_terms=getattr(job_description_data, "industry_terms", []),
-            company_values=getattr(job_description_data, "company_values", []),
-        )
+            logger.error(error_message, exc_info=True)
+            return AgentResult(
+                success=False,
+                error_message=error_message,
+                output_data=QualityAssuranceAgentOutput(),
+            )
 
     def _check_section(self, section: Section) -> SectionQualityResultModel:
         """
@@ -157,16 +143,20 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 item.content for item in section.items if item.content
             )
             word_count = len(re.findall(r"\b\w+\b", summary_text))
-            if word_count < 30:
+            min_word_count = self.settings.get("qa", {}).get(
+                "executive_summary_min_words", 50
+            )
+            if word_count < min_word_count:
                 issues.append(
-                    f"Executive Summary is too short ({word_count} words, recommend 50-75)"
+                    f"Executive Summary is too short ({word_count} words, recommend "
+                    f"{min_word_count}-{min_word_count + 25})"
                 )
                 passed = False
         return SectionQualityResultModel(
             section_name=section.name,
             passed=passed,
             issues=issues,
-            item_checks=[ic.dict() for ic in item_checks],
+            item_checks=item_checks,
         )
 
     def _check_item_quality(self, item: Item) -> ItemQualityResultModel:
@@ -191,34 +181,3 @@ class QualityAssuranceAgent(EnhancedAgentBase):
                 check_name="word_count", passed=True, details="Word count OK"
             )
         ]
-
-    async def run_as_node(self, state: AgentState) -> Dict[str, Any]:
-        """
-        Run the agent as a LangGraph node. Fails fast on errors.
-        """
-        logger.info("Quality Assurance Agent: Starting node execution")
-
-        try:
-            validate_agent_input("qa", state)
-
-            structured_cv = state.structured_cv
-
-            section_results = [
-                self._check_section(section) for section in structured_cv.sections
-            ]
-            overall_checks = self._check_overall_cv()
-            qa_results = QualityAssuranceAgentOutput(
-                section_results=section_results,
-                overall_checks=overall_checks,
-            )
-
-            return {"quality_check_results": qa_results}
-
-        except Exception as e:
-            logger.error("QualityAssuranceAgent failed: %s", e)
-            # Fail fast - let the orchestration layer handle recovery
-            from ..utils.exceptions import AgentExecutionError
-
-            raise AgentExecutionError(
-                agent_name="QualityAssuranceAgent", message=str(e)
-            ) from e

@@ -38,7 +38,7 @@ class CVWorkflowGraph:
         self.workflow = self._build_graph()
         self.app = self.workflow.compile()
 
-        logger.info(f"CVWorkflowGraph initialized for session {self.session_id}")
+        logger.info("CVWorkflowGraph initialized for session %s", self.session_id)
 
     def _get_agent(self, agent_name: str) -> Any:
         """Retrieve an agent from the container for the current session."""
@@ -47,17 +47,19 @@ class CVWorkflowGraph:
         )  # Node wrapper functions for granular workflow
 
     @validate_node_output
-    async def parser_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
+    async def parser_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
         """Execute parser node to process CV and job description."""
         logger.info("Executing parser_node")
-        logger.info(f"Parser input state - trace_id: {state.trace_id}")
+        logger.info("Parser input state - trace_id: %s", state.trace_id)
         logger.info(
-            f"AgentState validation successful. Has structured_cv: "
-            f"{state.structured_cv is not None}"
+            "AgentState validation successful. Has structured_cv: %s",
+            state.structured_cv is not None,
         )
         logger.info(
-            f"AgentState validation successful. Has job_description_data: "
-            f"{state.job_description_data is not None}"
+            "AgentState validation successful. Has job_description_data: %s",
+            state.job_description_data is not None,
         )
 
         try:
@@ -67,7 +69,7 @@ class CVWorkflowGraph:
                 return state.model_copy(update=result)
             return result
         except (KeyError, AttributeError, RuntimeError) as exc:
-            logger.error(f"Parser node failed: {exc}")
+            logger.error("Parser node failed: %s", exc)
             # Add error to state for centralized handling
             error_msg = f"ParserAgent failed: {str(exc)}"
             return state.model_copy(
@@ -75,16 +77,18 @@ class CVWorkflowGraph:
             )
 
     @validate_node_output
-    async def content_writer_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
+    async def content_writer_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
         """Execute content writer node for current item."""
-        logger.info(f"Executing content_writer_node for item: {state.current_item_id}")
+        logger.info("Executing content_writer_node for item: %s", state.current_item_id)
 
         if not state.current_item_id:
             # Try to get the next item from queue if available
             if state.items_to_process_queue:
                 queue_copy = state.items_to_process_queue.copy()
                 next_item_id = queue_copy.pop(0)
-                logger.info(f"Auto-setting current_item_id to: {next_item_id}")
+                logger.info("Auto-setting current_item_id to: %s", next_item_id)
                 # Update state and continue
                 state = state.model_copy(
                     update={
@@ -110,16 +114,20 @@ class CVWorkflowGraph:
         return result
 
     @validate_node_output
-    async def qa_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
+    async def qa_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
         """Execute QA node for current item."""
-        logger.info(f"Executing qa_node for item: {state.current_item_id}")
+        logger.info("Executing qa_node for item: %s", state.current_item_id)
         qa_agent = self._get_agent("qa_agent")
         result = await qa_agent.run_as_node(state)
         if isinstance(result, dict):
             return state.model_copy(update=result)
         return result
 
-    async def process_next_item_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
+    async def process_next_item_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
         """Process the next item from the queue."""
         logger.info("Executing process_next_item_node")
 
@@ -131,7 +139,7 @@ class CVWorkflowGraph:
         queue_copy = state.items_to_process_queue.copy()
         next_item_id = queue_copy.pop(0)
 
-        logger.info(f"Processing next item: {next_item_id}")
+        logger.info("Processing next item: %s", next_item_id)
         return state.model_copy(
             update={
                 "current_item_id": next_item_id,
@@ -158,14 +166,17 @@ class CVWorkflowGraph:
                         content_queue.append(str(item.id))
 
         logger.info(
-            f"Setup content generation queue with {len(content_queue)} items: "
-            f"{content_queue}"
+            "Setup content generation queue with %s items: %s",
+            len(content_queue),
+            content_queue,
         )
 
         return state.model_copy(update={"content_generation_queue": content_queue})
 
     @validate_node_output
-    async def pop_next_item_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
+    async def pop_next_item_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
         """Pop the next item from the content generation queue."""
         logger.info("--- Executing Node: pop_next_item_node ---")
 
@@ -206,7 +217,7 @@ class CVWorkflowGraph:
             )
 
         item_id = str(state.user_feedback.item_id)
-        logger.info(f"Preparing regeneration for item: {item_id}")
+        logger.info("Preparing regeneration for item: %s", item_id)
 
         return state.model_copy(
             update={
@@ -217,7 +228,9 @@ class CVWorkflowGraph:
         )
 
     @validate_node_output
-    async def generate_skills_node(self, state: AgentState, config: Optional[Dict] = None) -> AgentState:
+    async def generate_skills_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
         """Generate skills using the content writer agent."""
         logger.info("--- Executing Node: generate_skills_node ---")
 
@@ -226,7 +239,10 @@ class CVWorkflowGraph:
         # Get the content writer agent and call the async method directly
         content_writer_agent = self._get_agent("writer_agent")
         result = await content_writer_agent.generate_big_10_skills(
-            state.job_description_data.raw_text, my_talents
+            job_data={
+                "job_description": state.job_description_data.raw_text,
+                "my_talents": my_talents,
+            }
         )
 
         if result["success"]:
@@ -324,7 +340,7 @@ class CVWorkflowGraph:
             return state
 
         last_error = state.error_messages[-1]
-        logger.error(f"Handling error: {last_error}")
+        logger.error("Handling error: %s", last_error)
 
         try:
             # Get error recovery service from container
@@ -355,11 +371,11 @@ class CVWorkflowGraph:
             )  # Apply recovery action
             updates = {}
             if recovery_action.strategy.value == "skip_item":
-                logger.info(f"Skipping failed item: {state.current_item_id}")
+                logger.info("Skipping failed item: %s", state.current_item_id)
                 updates["current_item_id"] = None
 
             elif recovery_action.strategy.value == "immediate_retry":
-                logger.info(f"Marking item for retry: {state.current_item_id}")
+                logger.info("Marking item for retry: %s", state.current_item_id)
                 # For now, we'll just clear the error and let the workflow retry
 
             elif recovery_action.strategy.value == "fallback_content":
@@ -372,7 +388,7 @@ class CVWorkflowGraph:
             return state.model_copy(update=updates)
 
         except (ImportError, KeyError, AttributeError, RuntimeError) as exc:
-            logger.error(f"Error handler itself failed: {exc}")
+            logger.error("Error handler itself failed: %s", exc)
             # Return state with additional error
             return state.model_copy(
                 update={

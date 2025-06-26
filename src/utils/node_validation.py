@@ -4,6 +4,7 @@ only return valid AgentState fields, preventing contract breaches.
 
 from functools import wraps
 from typing import Dict, Any, Set
+from pydantic import ValidationError
 from ..orchestration.state import AgentState
 from ..config.logging_config import get_structured_logger
 
@@ -39,8 +40,8 @@ def validate_node_output(node_func):
             state = kwargs.get("state")
 
         if not state or not isinstance(state, AgentState):
-            logger.critical(
-                f"Node '{node_func.__name__}' was called without a valid AgentState."
+            logger.error(
+                "Node '%s' was called without a valid AgentState.", node_func.__name__
             )
             raise TypeError(
                 f"Node '{node_func.__name__}' must be called with AgentState as an argument."
@@ -56,8 +57,10 @@ def validate_node_output(node_func):
         elif isinstance(output, dict):
             output_dict = output
         else:
-            logger.critical(
-                f"Node '{node_func.__name__}' returned unsupported type: {type(output)}."
+            logger.error(
+                "Node '%s' returned unsupported type: %s.",
+                node_func.__name__,
+                type(output),
             )
             raise TypeError(
                 f"Node '{node_func.__name__}' must return AgentState or dict, got {type(output)}"
@@ -70,9 +73,11 @@ def validate_node_output(node_func):
         # Find any invalid keys returned by the node
         invalid_keys = returned_keys - valid_keys
         if invalid_keys:
-            logger.critical(
-                f"Node '{node_func.__name__}' returned invalid keys: {invalid_keys}. "
-                f"Valid keys are: {valid_keys}"
+            logger.error(
+                "Node '%s' returned invalid keys: %s. Valid keys are: %s",
+                node_func.__name__,
+                invalid_keys,
+                valid_keys,
             )
             # In a strict production environment, you might want to raise an exception
             # For now, we will filter them out to prevent state corruption
@@ -86,19 +91,25 @@ def validate_node_output(node_func):
                 # Create a new state object from the validated dict
                 validated_output = AgentState(**output_dict)
                 return validated_output
-            except Exception as e:
-                logger.critical(
-                    f"Failed to create AgentState from validated output in '{node_func.__name__}': {e}"
+            except (ValidationError, TypeError) as e:
+                logger.error(
+                    "Failed to create AgentState from validated output in '%s': %s",
+                    node_func.__name__,
+                    e,
+                    exc_info=True,
                 )
                 try:
                     return state.model_copy(update=output_dict)
-                except Exception as copy_exc:
-                    logger.critical(
-                        f"Failed to even update state copy in '{node_func.__name__}': {copy_exc}"
+                except (ValidationError, TypeError) as copy_exc:
+                    logger.error(
+                        "Failed to even update state copy in '%s': %s",
+                        node_func.__name__,
+                        copy_exc,
+                        exc_info=True,
                     )
                     return state
         else:
-            # If the original output was a dictionary, return the filtered dictionary
+            # If the original was a dict, return the filtered dict
             return output_dict
 
     return wrapper

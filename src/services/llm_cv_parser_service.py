@@ -14,7 +14,7 @@ from src.models.data_models import (
 from src.templates.content_templates import ContentTemplateManager
 from src.services.llm_service import EnhancedLLMService
 from src.config.settings import Settings
-from src.utils.exceptions import LLMResponseParsingError
+from src.error_handling.exceptions import LLMResponseParsingError, TemplateError
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class LLMCVParserService:
             name="cv_parsing_prompt", content_type=ContentType.CV_PARSING
         )
         if not content_template:
-            raise ValueError(
+            raise TemplateError(
                 "CV parsing prompt template 'cv_parsing_prompt' not found."
             )
 
@@ -96,7 +96,7 @@ class LLMCVParserService:
             name="job_description_parser", content_type=ContentType.JOB_ANALYSIS
         )
         if not content_template:
-            raise ValueError(
+            raise TemplateError(
                 "Job description parsing prompt template 'job_description_parser' not found."
             )
 
@@ -117,8 +117,9 @@ class LLMCVParserService:
         self, prompt: str, session_id: Optional[str], trace_id: Optional[str]
     ) -> Any:
         """Generates content and robustly parses the JSON output."""
-        llm_response = await self.llm_service.generate(
+        llm_response = await self.llm_service.generate_content(
             prompt=prompt,
+            content_type=ContentType.JSON,  # Assuming JSON output
             session_id=session_id,
             trace_id=trace_id,
         )
@@ -128,29 +129,66 @@ class LLMCVParserService:
             raise LLMResponseParsingError(
                 "Received empty or non-string response from LLM.",
                 raw_response=str(raw_text),
+                trace_id=trace_id,
             )
 
-        # Use regex to find JSON within ```json ... ``` code blocks
-        json_match = re.search(r"""```json\s*(\{.*?\})\s*```""", raw_text, re.DOTALL)
+        # Regex to find JSON within ```json ... ``` code blocks
+        json_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL)
         if json_match:
             json_str = json_match.group(1)
+            logger.debug(
+                "Extracted JSON from markdown block.", extra={"trace_id": trace_id}
+            )
         else:
             # Fallback for raw JSON or JSON embedded in text
-            start_index = raw_text.find("{")
-            if start_index == -1:
+            logger.debug(
+                "No markdown block found, attempting to find raw JSON.",
+                extra={"trace_id": trace_id},
+            )
+            # Look for the start of a JSON object or array
+            start_index = -1
+            first_brace = raw_text.find("{")
+            first_bracket = raw_text.find("[")
+
+            if first_brace != -1 and first_bracket != -1:
+                start_index = min(first_brace, first_bracket)
+            elif first_brace != -1:
+                start_index = first_brace
+            else:
+                start_index = first_bracket
+
+            if start_index != -1:
+                # Find the corresponding closing bracket/brace to be more robust
+                if raw_text[start_index] == "{":
+                    end_index = raw_text.rfind("}") + 1
+                else:
+                    end_index = raw_text.rfind("]") + 1
+                if end_index != 0:
+                    json_str = raw_text[start_index:end_index]
+                else:
+                    json_str = raw_text  # Assume the whole response is JSON
+            else:
+                # If no JSON structure is found, raise an error.
                 raise LLMResponseParsingError(
                     "No valid JSON object found in the LLM response.",
                     raw_response=raw_text,
+                    trace_id=trace_id,
                 )
-            json_str = raw_text[start_index:]
-            # Always try to parse, let json.loads raise if malformed
 
         try:
             return json.loads(json_str)
         except json.JSONDecodeError as e:
-            logger.error("Failed to decode JSON from LLM response: %s", e)
-            logger.debug("Malformed JSON string: %s", json_str)
+            logger.error(
+                "Failed to decode JSON from LLM response: %s",
+                e,
+                extra={"trace_id": trace_id},
+            )
+            logger.debug(
+                "Malformed JSON string: %s", json_str, extra={"trace_id": trace_id}
+            )
             raise LLMResponseParsingError(
                 f"Could not parse JSON from LLM response. Error: {e}",
                 raw_response=raw_text,
+                malformed_json=json_str,
+                trace_id=trace_id,
             ) from e

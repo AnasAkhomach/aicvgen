@@ -1,300 +1,167 @@
-"""CV Analyzer Agent for processing and analyzing CV data."""
+"""CV Analyzer Agent"""
 
-import json
-from typing import Any, Dict, Optional, TYPE_CHECKING
-from pydantic import ValidationError
+from datetime import datetime
+from typing import List
+from pydantic import BaseModel, ValidationError
 
-from .agent_base import EnhancedAgentBase, AgentResult
+from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from ..models.data_models import StructuredCV, JobDescriptionData
+from ..models.agent_output_models import CVAnalysisResult, CVAnalyzerAgentOutput
 from ..config.logging_config import get_structured_logger
-from ..models.data_models import AgentIO, AgentDecisionLog
-from ..models.cv_analyzer_models import BasicCVInfo
-from ..models.cv_analysis_result import CVAnalysisResult
-from ..models.agent_output_models import CVAnalyzerAgentOutput
-from ..utils.exceptions import LLMResponseParsingError, AgentExecutionError
+from ..config.settings import get_config
+from ..services.llm_service import EnhancedLLMService
+from ..error_handling.agent_error_handler import AgentErrorHandler
+from ..error_handling.exceptions import (
+    AgentExecutionError,
+    LLMResponseParsingError,
+    DataConversionError,
+)
 
-logger = get_structured_logger(__name__)
-
-if TYPE_CHECKING:
-    from .agent_base import AgentExecutionContext
+logger = get_structured_logger("cv_analyzer_agent")
 
 
 class CVAnalyzerAgent(EnhancedAgentBase):
-    """
-    Agent responsible for analyzing the user's CV and extracting relevant information.
-    """
+    """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
 
-    def __init__(
-        self,
-        config: Dict[str, Any],
-    ):
-        """Initialize the CVAnalyzerAgent with required dependencies.
-
-        Args:
-            config: Dictionary containing llm_service, settings, progress_tracker, template_manager, name, and description.
-        """
+    def __init__(self, llm_service: EnhancedLLMService):
         super().__init__(
-            name=config.get("name", "CVAnalyzerAgent"),
-            description=config.get(
-                "description",
-                "Agent responsible for analyzing the user's CV and extracting relevant information",
-            ),
-            input_schema=AgentIO(
-                description="User CV data and optional job description for analysis.",
-                required_fields=["user_cv", "job_description", "template_cv_path"],
-            ),
-            output_schema=AgentIO(
-                description="Extracted information from the CV.",
-                required_fields=["analysis_results", "extracted_data"],
-            ),
-            progress_tracker=config["progress_tracker"],
+            name="CVAnalyzerAgent",
+            description="Analyzes CV content and job requirements to provide optimization recommendations",
+            input_schema={
+                "cv_data": StructuredCV,
+                "job_description": JobDescriptionData,
+            },
+            output_schema={
+                "analysis_results": CVAnalysisResult,
+            },
+            error_recovery_service=None,  # TODO: Inject actual service if needed
+            progress_tracker=None,  # TODO: Inject actual tracker if needed
         )
-        self.llm_service = config["llm_service"]
-        self.settings = config["settings"]
-        self.template_manager = config["template_manager"]
-        self.timeout = 30  # Maximum wait time in seconds
-
-    def extract_basic_info(self, cv_text: str) -> "BasicCVInfo":
-        """
-        Extract basic information from CV text without using LLM for a fallback.
-
-        Args:
-            cv_text: Raw CV text
-
-        Returns:
-            BasicCVInfo: Pydantic model with basic extracted information
-        """
-        lines = cv_text.split("\n")
-        result = {
-            "summary": "",
-            "experiences": [],
-            "skills": [],
-            "education": [],
-            "projects": [],
-        }
-
-        current_section = None
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            # Try to identify sections
-            lower_line = line.lower()
-            if "experience" in lower_line and (line.endswith(":") or line.isupper()):
-                current_section = "experiences"
-                continue
-            elif "skill" in lower_line and (line.endswith(":") or line.isupper()):
-                current_section = "skills"
-                continue
-            elif "education" in lower_line and (line.endswith(":") or line.isupper()):
-                current_section = "education"
-                continue
-            elif "project" in lower_line and (
-                line.endswith(":") or line.isupper() or line.startswith("#")
-            ):
-                current_section = "projects"
-                continue
-            elif "summary" in lower_line and (line.endswith(":") or line.isupper()):
-                current_section = "summary"
-                continue
-
-            # Add content to current section
-            if current_section:
-                if line.startswith("-") or line.startswith("•"):
-                    if current_section == "summary":
-                        result[current_section] += f" {line[1:].strip()}"
-                    else:
-                        result[current_section].append(line[1:].strip())
-                elif current_section == "summary":
-                    result[current_section] += f" {line}"
-                else:
-                    result[current_section].append(line)
-
-        # If we couldn't identify any summary, use the first line as name
-        if not result["summary"] and lines:
-            result["summary"] = f"CV for {lines[0].strip()}"
-
-        # Instead of returning dict, return BasicCVInfo model
-        return BasicCVInfo(**result)
-
-    async def analyze_cv(
-        self, input_data: Dict[str, Any], context: "AgentExecutionContext" = None
-    ) -> CVAnalyzerAgentOutput:
-        """Process and analyze the user CV data.
-
-        Args:
-            input_data: Dictionary containing user_cv (CVData object or raw text)
-                        and job_description.
-            context: Optional execution context for logging.
-
-        Returns:
-            CVAnalyzerAgentOutput: The structured output of the analysis.
-
-        Raises:
-            LLMResponseParsingError: If the LLM output cannot be parsed or validated.
-            ValueError: If the input CV text is empty.
-            AgentExecutionError: For other unexpected errors during agent execution.
-        """
-        logger.info("Executing CVAnalyzerAgent.analyze_cv", extra={"context": context})
-
-        user_cv = input_data.get("user_cv", {})
-        raw_cv_text = user_cv.get("raw_text", "")
-
-        if not raw_cv_text:
-            logger.warning(
-                "Empty CV text provided to CVAnalyzerAgent.", extra={"context": context}
-            )
-            raise ValueError("Input CV text cannot be empty.")
-
-        logger.debug(
-            f"Analyzing CV... Raw Text (first 200 chars): {raw_cv_text[:200]}...",
-            extra={"context": context},
-        )
-
-        fallback_extraction = self.extract_basic_info(raw_cv_text)
-
-        try:
-            prompt_template = self.template_manager.get_template("cv_analysis_prompt")
-            self.log_decision(
-                message="Successfully loaded CV analysis prompt template",
-                context=context,
-                decision_type="template_loading",
-                confidence_score=1.0,
-            )
-        except Exception as e:
-            logger.error(
-                f"Error loading CV analysis prompt template: {e}",
-                extra={"context": context},
-                exc_info=True,
-            )
-            raise AgentExecutionError(
-                self.name, f"Could not load required prompt template: {e}"
-            ) from e
-
-        prompt = prompt_template.format(cv_text=raw_cv_text)
-
-        llm_response_content = ""
-        try:
-            llm_response = await self.llm_service.invoke_async(prompt, context=context)
-            llm_response_content = llm_response.content if llm_response else ""
-
-            cleaned_json_str = self._extract_json_from_llm_response(
-                llm_response_content
-            )
-            # Use cleaned_json_str directly in subsequent logic
-            if not cleaned_json_str:
-                raise LLMResponseParsingError(
-                    "No JSON found in LLM response.", raw_response=llm_response_content
-                )
-            parsed_json = json.loads(cleaned_json_str)
-            analysis_result = CVAnalysisResult.model_validate(parsed_json)
-
-            self.log_decision(
-                message="Successfully parsed and validated LLM response.",
-                context=context,
-                decision_type="llm_response_parsing",
-                confidence_score=0.95,
-            )
-
-            return CVAnalyzerAgentOutput(
-                analysis_results=analysis_result,
-                extracted_data=fallback_extraction,
-            )
-
-        except (json.JSONDecodeError, ValidationError) as e:
-            logger.error(
-                "Failed to parse or validate LLM response for CV analysis.",
-                extra={
-                    "context": context,
-                    "error_message": str(e),
-                    "raw_response": llm_response_content,
-                },
-                exc_info=True,
-            )
-            raise LLMResponseParsingError(
-                message=f"Failed to parse or validate LLM response. Error: {e}",
-                raw_response=llm_response_content,
-            ) from e
-        except LLMResponseParsingError:
-            raise
-        except Exception as e:
-            logger.error(
-                f"An unexpected error occurred during CV analysis: {e}",
-                extra={"context": context},
-                exc_info=True,
-            )
-            raise AgentExecutionError(
-                self.name, f"An unexpected error occurred: {e}"
-            ) from e
+        self.llm_service = llm_service
+        self.settings = get_config()
 
     async def run_async(
-        self, input_data: Dict[str, Any], context: "AgentExecutionContext"
+        self, input_data: dict, context: AgentExecutionContext
     ) -> AgentResult:
-        """
-        Executes the CV analysis workflow, strictly enforcing return contracts.
-        On error, propagates exceptions instead of returning a failed AgentResult.
-        This method implements the contract required by the orchestration layer.
-        """
-        analysis_output = await self.analyze_cv(input_data, context)
-        return AgentResult(
-            success=True,
-            output_data=analysis_output,
-            confidence_score=0.9,
-        )
+        """Analyze CV content against job requirements using Pydantic models."""
+        from ..models.validation_schemas import validate_agent_input
+
+        try:
+            # Validate input data
+            if not isinstance(input_data, dict):
+                self.logger.error(
+                    "Input validation failed for CVAnalyzerAgent: input_data must be a dict"
+                )
+                return AgentResult(
+                    success=False,
+                    output_data=CVAnalysisResult(
+                        skill_matches=[],
+                        experience_relevance=0.0,
+                        gaps_identified=[
+                            "Input validation failed: expected dictionary input"
+                        ],
+                        strengths=[],
+                        recommendations=[],
+                        match_score=0.0,
+                        analysis_timestamp=None,
+                    ),
+                    confidence_score=0.0,
+                    error_message="Input validation failed: expected dictionary input",
+                    metadata={
+                        "agent_type": "cv_analysis",
+                    },
+                )
+            cv_data = input_data.get("cv_data")
+            job_description = input_data.get("job_description")
+            if not isinstance(cv_data, StructuredCV):
+                cv_data = StructuredCV.model_validate(cv_data)
+            if not isinstance(job_description, JobDescriptionData):
+                job_description = JobDescriptionData.model_validate(job_description)
+            analysis = await self._analyze_cv_job_match(
+                cv_data, job_description, context
+            )
+            recommendations = await self._generate_recommendations(analysis, context)
+            match_score = self._calculate_match_score(analysis)
+            analysis_result = CVAnalysisResult(
+                skill_matches=analysis.skill_matches,
+                experience_relevance=analysis.experience_relevance,
+                gaps_identified=analysis.gaps_identified,
+                strengths=analysis.strengths,
+                recommendations=recommendations,
+                match_score=match_score,
+                analysis_timestamp=datetime.now().isoformat(),
+            )
+            output_data = CVAnalyzerAgentOutput(
+                analysis_results=analysis_result,
+                recommendations=recommendations,
+                compatibility_score=match_score,
+            )
+            return AgentResult(
+                success=True,
+                output_data=output_data,
+                confidence_score=0.85,
+                metadata={
+                    "analysis_type": "cv_job_match",
+                    "items_analyzed": (
+                        len(cv_data.sections)
+                        if hasattr(cv_data, "sections") and cv_data.sections
+                        else 0
+                    ),
+                },
+            )
+        except (ValidationError, KeyError, TypeError, AttributeError) as e:
+            fallback_data = AgentErrorHandler.create_fallback_data("cv_analysis")
+            return AgentErrorHandler.handle_general_error(
+                e, "cv_analysis", fallback_data, "run_async"
+            )
+
+    class _AnalysisResult(BaseModel):
+        skill_matches: List[str] = []
+        experience_relevance: float = 0.0
+        gaps_identified: List[str] = []
+        strengths: List[str] = []
+
+    async def _analyze_cv_job_match(
+        self,
+        cv_data: StructuredCV,
+        job_description: JobDescriptionData,
+        context: AgentExecutionContext,
+    ) -> "CVAnalyzerAgent._AnalysisResult":
+        """Analyze match between CV and job requirements using Pydantic models."""
+        analysis = self._AnalysisResult()
+        cv_skills = getattr(cv_data, "big_10_skills", [])
+        job_requirements = getattr(job_description, "skills", [])
+        if cv_skills and job_requirements:
+            for skill in cv_skills:
+                for req in job_requirements:
+                    if skill.lower() in req.lower():
+                        analysis.skill_matches.append(skill)
+        return analysis
+
+    async def _generate_recommendations(
+        self,
+        analysis: "CVAnalyzerAgent._AnalysisResult",
+        context: AgentExecutionContext,
+    ) -> List[str]:
+        recommendations = []
+        if len(analysis.skill_matches) < 3:
+            recommendations.append(
+                "Consider highlighting more relevant technical skills"
+            )
+        if analysis.experience_relevance < 0.7:
+            recommendations.append(
+                "Emphasize experience that directly relates to the job requirements"
+            )
+        return recommendations
+
+    def _calculate_match_score(
+        self, analysis: "CVAnalyzerAgent._AnalysisResult"
+    ) -> float:
+        skill_score = min(len(analysis.skill_matches) * 0.2, 1.0)
+        experience_score = analysis.experience_relevance
+        gap_penalty = len(analysis.gaps_identified) * 0.1
+        return max(0.0, (skill_score + experience_score) / 2 - gap_penalty)
 
     async def run_as_node(self, state):
-        """Stub implementation to satisfy abstract base class for testing."""
-        raise NotImplementedError(
-            "run_as_node is not implemented for CVAnalyzerAgent in this context."
-        )
-
-    def _extract_json_from_llm_response(self, response_text: str) -> Optional[str]:
-        """Extracts a JSON object from a string, even if it's embedded in other text."""
-        # Example implementation (replace with actual logic):
-        import re
-
-        match = re.search(r"\{.*\}", response_text, re.DOTALL)
-        if match:
-            return match.group(0)
-        return None
-
-    def log_decision(
-        self,
-        message: str,
-        context: Optional["AgentExecutionContext"] = None,
-        decision_type: str = "processing",
-        confidence_score: Optional[float] = None,
-    ):
-        """
-        Logs a decision or action taken by the agent with structured logging.
-        """
-        from datetime import datetime
-
-        decision_log = AgentDecisionLog(
-            timestamp=datetime.now().isoformat(),
-            agent_name=self.name,
-            session_id=(
-                getattr(context, "trace_id", "unknown") if context else "unknown"
-            ),
-            item_id=getattr(context, "current_item_id", None) if context else None,
-            decision_type=decision_type,
-            decision_details=message,
-            confidence_score=confidence_score,
-            metadata={
-                "content_type": (
-                    getattr(context, "content_type", None).value
-                    if context and getattr(context, "content_type", None) is not None
-                    else None
-                ),
-                "retry_count": getattr(context, "retry_count", 0) if context else 0,
-                "execution_count": getattr(self, "execution_count", 0),
-                "success_rate": getattr(self, "success_count", 0)
-                / max(getattr(self, "execution_count", 1), 1),
-            },
-        )
-        # Only log if logger has log_agent_decision
-        if hasattr(self.logger, "log_agent_decision"):
-            self.logger.log_agent_decision(decision_log)
-        else:
-            self.logger.info(f"Decision: {decision_log}")
+        """Stub for LangGraph node execution (not used in CVAnalyzerAgent)."""
+        raise NotImplementedError("CVAnalyzerAgent does not implement run_as_node.")

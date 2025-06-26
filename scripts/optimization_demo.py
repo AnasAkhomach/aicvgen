@@ -62,8 +62,8 @@ class OptimizationDemo:
             # Generate final report
             await self._generate_final_report()
 
-        except Exception as e:
-            logger.error(f"Demo failed: {e}")
+        except (OSError, RuntimeError, ValueError) as e:
+            logger.error("Demo failed: %s", e)
             print(f"\n❌ Demo failed: {e}")
         finally:
             self.monitor.stop_monitoring()
@@ -413,7 +413,7 @@ class OptimizationDemo:
 
             self.monitor.export_metrics(str(export_path))
             print(f"\n💾 Performance data exported to: {export_path}")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             print(f"\n⚠️  Failed to export performance data: {e}")
 
         print("\n🎉 OPTIMIZATION DEMO COMPLETED SUCCESSFULLY!")
@@ -432,7 +432,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n\n⏹️  Demo interrupted by user")
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         print(f"\n\n❌ Demo failed with error: {e}")
         import traceback
 

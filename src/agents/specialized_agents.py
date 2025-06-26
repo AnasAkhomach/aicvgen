@@ -1,165 +1,39 @@
-#!/usr/bin/env python3
+"""
+This module defines specialized agents that build upon the base agent functionalities.
 
-import asyncio
-from typing import Dict, Any, List
-from datetime import datetime
-import json
+It includes:
+- The `EnhancedParserAgent`, which acts as an adapter for the `ParserAgent`.
+  It wraps the core parsing logic within a standardized `run` interface,
+  making it compatible with the enhanced agent execution framework. This allows the
+  `ParserAgent`, originally designed for a different workflow (like LangGraph),
+  to be seamlessly integrated into the broader multi-agent system.
 
-from pydantic import BaseModel
+- Helper functions, such as `_check_item_quality_basic`, which provide common,
+  reusable logic for tasks like content quality assessment. This avoids code duplication
+  and ensures consistent quality checks across different agents.
 
-from .enhanced_content_writer import EnhancedContentWriterAgent, create_content_writer
-from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
-from .parser_agent import ParserAgent
-from ..models.data_models import StructuredCV, JobDescriptionData
-from ..models.cv_analysis_result import CVAnalysisResult
-from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
-from ..services.llm_service import EnhancedLLMService
-from ..utils.agent_error_handling import AgentErrorHandler
-from .quality_assurance_agent import QualityAssuranceAgent
+The primary goal of this module is to orchestrate and enhance the functionality of core agents,
+making them easier to use, test, and integrate into complex workflows.
+"""
+
+from typing import Any, Dict, Optional
+
+from pydantic import ValidationError
+
+from src.agents.agent_base import AgentBase
+from src.agents.parser_agent import ParserAgent
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import ParserAgentOutput
+from src.models.data_models import JobDescriptionData, StructuredCV
+from src.config.logging_config import get_structured_logger
+from src.error_handling.exceptions import (
+    AgentExecutionError,
+    DataConversionError,
+    LLMResponseParsingError,
+)
+from src.core.dependency_injection import get_container
 
 logger = get_structured_logger("specialized_agents")
-
-
-class CVAnalysisAgent(EnhancedAgentBase):
-    """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
-
-    def __init__(self, llm_service, settings):
-        super().__init__(
-            name="CVAnalysisAgent",
-            description="Analyzes CV content and job requirements to provide optimization recommendations",
-            input_schema={
-                "cv_data": StructuredCV,
-                "job_description": JobDescriptionData,
-            },
-            output_schema={
-                "analysis_results": CVAnalysisResult,
-            },
-            error_recovery_service=None,  # TODO: Inject actual service if needed
-            progress_tracker=None,  # TODO: Inject actual tracker if needed
-        )
-        self.llm_service = llm_service
-        self.settings = settings
-
-    async def run_async(
-        self, input_data: dict, context: AgentExecutionContext
-    ) -> AgentResult:
-        """Analyze CV content against job requirements using Pydantic models."""
-        from ..models.validation_schemas import validate_agent_input
-        from ..models.cv_analysis_result import CVAnalysisResult
-
-        try:
-            # Validate input data
-            if not isinstance(input_data, dict):
-                self.logger.error(
-                    "Input validation failed for CVAnalysisAgent: input_data must be a dict"
-                )
-                return AgentResult(
-                    success=False,
-                    output_data=CVAnalysisResult(
-                        skill_matches=[],
-                        experience_relevance=0.0,
-                        gaps_identified=[
-                            "Input validation failed: expected dictionary input"
-                        ],
-                        strengths=[],
-                        recommendations=[],
-                        match_score=0.0,
-                        analysis_timestamp=None,
-                    ),
-                    confidence_score=0.0,
-                    error_message="Input validation failed: expected dictionary input",
-                    metadata={
-                        "agent_type": "cv_analysis",
-                    },
-                )
-            cv_data = input_data.get("cv_data")
-            job_description = input_data.get("job_description")
-            if not isinstance(cv_data, StructuredCV):
-                cv_data = StructuredCV.model_validate(cv_data)
-            if not isinstance(job_description, JobDescriptionData):
-                job_description = JobDescriptionData.model_validate(job_description)
-            analysis = await self._analyze_cv_job_match(
-                cv_data, job_description, context
-            )
-            recommendations = await self._generate_recommendations(analysis, context)
-            match_score = self._calculate_match_score(analysis)
-            result_data = CVAnalysisResult(
-                skill_matches=analysis.skill_matches,
-                experience_relevance=analysis.experience_relevance,
-                gaps_identified=analysis.gaps_identified,
-                strengths=analysis.strengths,
-                recommendations=recommendations,
-                match_score=match_score,
-                analysis_timestamp=datetime.now().isoformat(),
-            )
-            return AgentResult(
-                success=True,
-                output_data=result_data,
-                confidence_score=0.85,
-                metadata={
-                    "analysis_type": "cv_job_match",
-                    "items_analyzed": len(cv_data.sections),
-                },
-            )
-        except Exception as e:
-            fallback_data = AgentErrorHandler.create_fallback_data("cv_analysis")
-            return AgentErrorHandler.handle_general_error(
-                e, "cv_analysis", fallback_data, "run_async"
-            )
-
-    class _AnalysisResult(BaseModel):
-        skill_matches: List[str] = []
-        experience_relevance: float = 0.0
-        gaps_identified: List[str] = []
-        strengths: List[str] = []
-
-    async def _analyze_cv_job_match(
-        self,
-        cv_data: StructuredCV,
-        job_description: JobDescriptionData,
-        context: AgentExecutionContext,
-    ) -> "CVAnalysisAgent._AnalysisResult":
-        """Analyze match between CV and job requirements using Pydantic models."""
-        analysis = self._AnalysisResult()
-        cv_skills = getattr(cv_data, "big_10_skills", [])
-        job_requirements = getattr(job_description, "skills", [])
-        for skill in cv_skills:
-            for req in job_requirements:
-                if skill.lower() in req.lower():
-                    analysis.skill_matches.append(skill)
-        return analysis
-
-    async def _generate_recommendations(
-        self,
-        analysis: "CVAnalysisAgent._AnalysisResult",
-        context: AgentExecutionContext,
-    ) -> List[str]:
-        recommendations = []
-        if len(analysis.skill_matches) < 3:
-            recommendations.append(
-                "Consider highlighting more relevant technical skills"
-            )
-        if analysis.experience_relevance < 0.7:
-            recommendations.append(
-                "Emphasize experience that directly relates to the job requirements"
-            )
-        return recommendations
-
-    def _calculate_match_score(
-        self, analysis: "CVAnalysisAgent._AnalysisResult"
-    ) -> float:
-        skill_score = min(len(analysis.skill_matches) * 0.2, 1.0)
-        experience_score = analysis.experience_relevance
-        gap_penalty = len(analysis.gaps_identified) * 0.1
-        return max(0.0, (skill_score + experience_score) / 2 - gap_penalty)
-
-    async def run_as_node(self, state):
-        """Stub for LangGraph node execution (not used in CVAnalysisAgent)."""
-        raise NotImplementedError("CVAnalysisAgent does not implement run_as_node.")
-
-
-# ContentOptimizationAgent and related logic have been removed as part of the architectural refactor. All content writing is now managed explicitly in the workflow graph.
 
 
 # Helper function for quality checks (used by other agents)
@@ -213,134 +87,107 @@ def _check_item_quality_basic(item: dict, quality_criteria: dict) -> dict:
     }
 
 
-# Factory functions for creating specialized agents
-def create_cv_analysis_agent(llm_service, settings) -> CVAnalysisAgent:
-    """Create a CV analysis agent."""
-    return CVAnalysisAgent(llm_service=llm_service, settings=settings)
+class EnhancedParserAgent(AgentBase):
+    """Enhanced wrapper for the original ParserAgent.
 
+    This agent acts as an adapter, providing a standard `run` interface
+    for the `ParserAgent`.
+    """
 
-def create_quality_assurance_agent(
-    llm_service, error_recovery_service, progress_tracker
-) -> "QualityAssuranceAgent":
-    """Create a quality assurance agent from the dedicated module."""
-    from .quality_assurance_agent import QualityAssuranceAgent
-
-    return QualityAssuranceAgent(
-        name="QualityAssuranceAgent",
-        description="Agent responsible for quality assurance of generated CV content",
-        llm_service=llm_service,
-        error_recovery_service=error_recovery_service,
-        progress_tracker=progress_tracker,
-    )
-
-
-def create_enhanced_parser_agent(
-    llm_service,
-    vector_store_service,
-    error_recovery_service,
-    progress_tracker,
-    settings,
-) -> EnhancedAgentBase:
-    """Create an enhanced parser agent that wraps the original ParserAgent."""
-    return EnhancedParserAgent(
-        llm_service=llm_service,
-        vector_store_service=vector_store_service,
-        error_recovery_service=error_recovery_service,
-        progress_tracker=progress_tracker,
-        settings=settings,
-    )
-
-
-class EnhancedParserAgent(EnhancedAgentBase):
-    """Enhanced wrapper for the original ParserAgent."""
-
-    def __init__(
-        self,
-        llm_service=None,
-        vector_store_service=None,
-        error_recovery_service=None,
-        progress_tracker=None,
-        settings=None,
-    ):
+    def __init__(self, parser_agent: ParserAgent, session_id: str):
+        """Initializes the EnhancedParserAgent."""
         super().__init__(
             name="EnhancedParserAgent",
             description="Enhanced parser agent for CV and job description parsing",
-            input_schema={"cv_text": str, "job_description": str},
-            output_schema={
-                "structured_cv": StructuredCV,
-                "job_data": JobDescriptionData,
-            },
-            error_recovery_service=error_recovery_service,
-            progress_tracker=progress_tracker,
+            session_id=session_id,
         )
-        self.llm_service = llm_service
-        self.vector_store_service = vector_store_service
-        self.error_recovery_service = error_recovery_service
-        self.progress_tracker = progress_tracker
-        self.settings = settings
-        self.parser_agent = ParserAgent(
-            name="ParserAgent",
-            description="Parses CV and JD.",
-            llm_service=llm_service,
-            vector_store_service=vector_store_service,
-            error_recovery_service=error_recovery_service,
-            progress_tracker=progress_tracker,
-            settings=settings,
-        )
+        self.parser_agent = parser_agent
 
-    class EnhancedParserAgentOutput(BaseModel):
-        structured_cv: StructuredCV
-        job_data: JobDescriptionData
+    async def run(
+        self, cv_text: str, job_description_text: Optional[str] = None
+    ) -> AgentResult[ParserAgentOutput]:
+        """
+        Executes the underlying ParserAgent's logic and returns the result.
+        """
+        self.update_progress(0, "Starting enhanced parsing process.")
 
-    async def run_async(
-        self, input_data: dict, context: AgentExecutionContext
-    ) -> AgentResult:
         try:
-            # Accept both dict and AgentState (Pydantic model)
-            if hasattr(input_data, "model_dump"):
-                # Convert AgentState to dict for downstream compatibility
-                input_dict = input_data.model_dump()
-            else:
-                input_dict = input_data
-            result = await self.parser_agent.run_as_node(input_data)
-            # Support both dict and Pydantic model for result
-            if isinstance(result, dict):
-                structured_cv = result.get("structured_cv")
-                job_data = result.get("job_description_data") or result.get("job_data")
-            else:
-                # Pydantic model: use attribute access
-                structured_cv = getattr(result, "structured_cv", None)
-                job_data = getattr(result, "job_description_data", None) or getattr(
-                    result, "job_data", None
+            # The underlying parser agent now has a standard run method
+            parser_result = await self.parser_agent.run(
+                cv_text=cv_text, job_description_text=job_description_text
+            )
+
+            if parser_result.is_error():
+                logger.warning(
+                    "Underlying ParserAgent execution failed.",
+                    error=parser_result.error.message,
                 )
-            from ..models.data_models import StructuredCV, JobDescriptionData
+            else:
+                self.update_progress(100, "Enhanced parsing completed successfully.")
 
-            if not isinstance(structured_cv, StructuredCV):
-                structured_cv = StructuredCV.model_validate(structured_cv)
-            if not isinstance(job_data, JobDescriptionData):
-                job_data = JobDescriptionData.model_validate(job_data)
-            output = self.EnhancedParserAgentOutput(
-                structured_cv=structured_cv,
-                job_data=job_data,
-            )
-            return AgentResult(
-                success=True,
-                output_data=output,
-                confidence_score=0.9,
-                metadata={"parser_type": "enhanced"},
-            )
+            # Propagate the result (success or error) from the inner agent
+            return parser_result
+
         except Exception as e:
-            self.logger.error(f"Enhanced parser failed: {str(e)}")
-            from ..models.data_models import StructuredCV, JobDescriptionData
-
-            output = self.EnhancedParserAgentOutput(
-                structured_cv=StructuredCV(),
-                job_data=JobDescriptionData(raw_text=""),
+            logger.error(
+                "An unexpected error occurred in EnhancedParserAgent wrapper",
+                error=str(e),
+                exc_info=True,
             )
-            return AgentErrorHandler.handle_general_error(
-                e, "enhanced_parser", output, "run_async"
+            err = AgentExecutionError(
+                agent_name=self.name,
+                message=f"An unexpected wrapper error occurred in EnhancedParserAgent: {e}",
+                details={"original_exception": str(e)},
             )
+            self.update_progress(
+                100, f"Enhanced parser failed with unexpected wrapper error: {e}"
+            )
+            return AgentResult.error(agent_name=self.name, error=err)
 
-    async def run_as_node(self, state):
-        """Stub for LangGraph node execution (not used in EnhancedParserAgent)."""
-        raise NotImplementedError("EnhancedParserAgent does not implement run_as_node.")
+    async def run_as_node(self, state: Any) -> Dict[str, Any]:
+        """The EnhancedParserAgent is an adapter and should not be used as a graph node directly."""
+        raise NotImplementedError(
+            "EnhancedParserAgent is an adapter and does not implement run_as_node itself."
+        )
+
+
+def create_cv_analysis_agent(session_id: str) -> Any:
+    """Factory for CV Analysis Agent via DI container."""
+    container = get_container()
+    return container.get_by_name("cv_analysis_agent", session_id=session_id)
+
+
+def create_quality_assurance_agent(session_id: str) -> Any:
+    """Factory for Quality Assurance Agent via DI container."""
+    container = get_container()
+    return container.get_by_name("qa_agent", session_id=session_id)
+
+
+def create_enhanced_parser_agent(session_id: str) -> Any:
+    """Factory for Enhanced Parser Agent via DI container."""
+    container = get_container()
+    return container.get_by_name("enhanced_parser_agent", session_id=session_id)
+
+
+def create_formatter_agent(session_id: str) -> Any:
+    """Factory for Formatter Agent via DI container."""
+    container = get_container()
+    return container.get_by_name("formatter_agent", session_id=session_id)
+
+
+def create_cleaning_agent(session_id: str) -> Any:
+    """Factory for Cleaning Agent via DI container."""
+    container = get_container()
+    return container.get_by_name("cleaning_agent", session_id=session_id)
+
+
+def create_enhanced_content_writer_agent(session_id: str) -> Any:
+    """Factory for Enhanced Content Writer Agent via DI container."""
+    container = get_container()
+    return container.get_by_name("enhanced_content_writer_agent", session_id=session_id)
+
+
+def create_research_agent(session_id: str) -> Any:
+    """Factory for Research Agent via DI container."""
+    container = get_container()
+    return container.get_by_name("research_agent", session_id=session_id)

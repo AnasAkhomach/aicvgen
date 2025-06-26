@@ -65,7 +65,7 @@ class StartupOptimizer:
         start_time = time.time()
         memory_before = self._get_memory_usage()
 
-        logger.info(f"Starting application optimization with strategy: {strategy}")
+        logger.info("Starting application optimization with strategy: %s", strategy)
 
         try:
             # Reset systems for clean startup
@@ -113,12 +113,19 @@ class StartupOptimizer:
 
             return metrics
 
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             self.error_handler.handle_error(
                 f"Startup optimization failed: {str(e)}",
                 ErrorCategory.CONFIGURATION,
                 ErrorSeverity.HIGH,
-                context={"strategy": strategy},
+            )
+            raise
+        # If truly unexpected, catch-all for logging only
+        except Exception as e:
+            self.error_handler.handle_error(
+                f"Startup optimization failed (unexpected): {str(e)}",
+                ErrorCategory.CONFIGURATION,
+                ErrorSeverity.CRITICAL,
             )
             raise
 
@@ -282,8 +289,8 @@ class StartupOptimizer:
                         ),
                     )
                     agents_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to register agent {agent_type}: {e}")
+                except (TypeError, ValueError, RuntimeError) as e:
+                    logger.warning("Failed to register agent %s: %s", agent_type, e)
 
             # Warm up eager agents
             lifecycle_manager.warmup_pools()
@@ -411,8 +418,8 @@ class StartupOptimizer:
                         ),
                     )
                     return 1
-                except Exception as e:
-                    logger.warning(f"Failed to register agent {agent_type}: {e}")
+                except (TypeError, ValueError, RuntimeError) as e:
+                    logger.warning("Failed to register agent %s: %s", agent_type, e)
                     return 0
 
             # Register agents in parallel
@@ -514,7 +521,7 @@ class StartupOptimizer:
         try:
             process = psutil.Process(os.getpid())
             return process.memory_info().rss / 1024 / 1024  # Convert to MB
-        except Exception:
+        except (OSError, AttributeError, ImportError) as e:
             return 0.0
 
     def get_optimization_report(self) -> Dict[str, Any]:

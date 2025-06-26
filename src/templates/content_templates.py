@@ -8,8 +8,9 @@ from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
 
-from ..models.data_models import ContentType
-from ..config.logging_config import get_structured_logger
+from src.models.data_models import ContentType
+from src.config.logging_config import get_structured_logger
+from src.error_handling.exceptions import TemplateError
 
 logger = get_structured_logger("content_templates")
 
@@ -69,11 +70,12 @@ class ContentTemplateManager:
             if file_path.is_file():
                 try:
                     self._load_template_file(file_path)
-                except Exception as e:
+                except (IOError, OSError) as e:
                     logger.error(
-                        "Failed to load template file",
-                        file_path=str(file_path),
-                        error=str(e),
+                        "Failed to load template file %s: %s",
+                        file_path,
+                        e,
+                        exc_info=True,
                     )
 
     def _parse_frontmatter(self, content: str) -> tuple[Dict[str, Any], str]:
@@ -91,13 +93,19 @@ class ContentTemplateManager:
                     frontmatter[key.strip()] = value.strip()
         return frontmatter, body
 
+    def _extract_variables(self, content: str) -> List[str]:
+        """Extracts variable names from a template string (e.g., {variable})."""
+        return re.findall(r"\{(\w+)\}", content)
+
     def _load_template_file(self, file_path: Path):
         """Load a single template file and add it to the cache."""
         content = file_path.read_text(encoding="utf-8")
         metadata, template_content = self._parse_frontmatter(content)
 
         if not metadata:
-            logger.warning(f"No frontmatter found in {file_path.name}. Skipping.")
+            logger.warning(
+                "No frontmatter found in %s. Skipping.", extra={"file": file_path.name}
+            )
             return
 
         try:
@@ -123,9 +131,10 @@ class ContentTemplateManager:
 
         except (KeyError, ValueError) as e:
             logger.error(
-                f"Failed to create template from {file_path.name}",
-                error=str(e),
-                metadata=metadata,
+                "Failed to create template from %s",
+                file_path.name,
+                exc_info=True,
+                extra={"metadata": metadata},
             )
 
     def register_template(self, template: ContentTemplate):
@@ -184,18 +193,23 @@ class ContentTemplateManager:
             formatted_content = template.template.format(**variables)
 
             logger.debug(
-                "Template formatted successfully",
-                template_name=template.name,
-                content_length=len(formatted_content),
+                "Template formatted successfully: %s",
+                template.name,
+                extra={"content_length": len(formatted_content)},
             )
 
             return formatted_content
 
-        except Exception as e:
+        except (KeyError, IndexError) as e:
             logger.error(
-                "Template formatting failed", template_name=template.name, error=str(e)
+                "Template formatting failed for %s due to missing key: %s",
+                template.name,
+                e,
+                exc_info=True,
             )
-            return template.template  # Return unformatted template as fallback
+            raise TemplateError(
+                f"Formatting failed for template '{template.name}' due to missing key: {e}"
+            ) from e
 
     def get_fallback_content(self, content_type: ContentType) -> str:
         """Get fallback content for a content type."""
@@ -222,24 +236,12 @@ class ContentTemplateManager:
         return template_list
 
 
-# Global template manager instance
-_template_manager = None
-
-
-def get_template_manager() -> ContentTemplateManager:
-    """Get the global template manager instance."""
-    global _template_manager
-    if _template_manager is None:
-        _template_manager = ContentTemplateManager()
-    return _template_manager
-
-
 # Convenience functions
 def get_prompt_template(
     content_type: ContentType, template_name: str = "basic"
 ) -> Optional[ContentTemplate]:
     """Get a prompt template for a content type."""
-    manager = get_template_manager()
+    manager = ContentTemplateManager()
     return manager.get_template(
         f"{content_type.value}_{template_name}", content_type, TemplateCategory.PROMPT
     )
@@ -249,7 +251,7 @@ def format_content_prompt(
     content_type: ContentType, template_name: str, variables: Dict[str, Any]
 ) -> str:
     """Format a content prompt with variables."""
-    manager = get_template_manager()
+    manager = ContentTemplateManager()
     template = manager.get_template(
         f"{content_type.value}_{template_name}", content_type, TemplateCategory.PROMPT
     )
@@ -270,5 +272,5 @@ def format_content_prompt(
 
 def get_fallback_content(content_type: ContentType) -> str:
     """Get fallback content for a content type."""
-    manager = get_template_manager()
+    manager = ContentTemplateManager()
     return manager.get_fallback_content(content_type)

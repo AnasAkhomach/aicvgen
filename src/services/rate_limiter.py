@@ -9,7 +9,7 @@ import time
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Callable, Any, Awaitable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import defaultdict
 
 # Tenacity imports for retry logic
@@ -22,9 +22,8 @@ from tenacity import (
 )
 
 from ..config.logging_config import get_structured_logger
-from ..config.settings import LLMConfig
 from ..models.data_models import RateLimitState, RateLimitLog
-from ..utils.exceptions import RateLimitError, NetworkError
+from ..error_handling.exceptions import RateLimitError, NetworkError
 
 
 @dataclass
@@ -192,7 +191,7 @@ class RateLimiter:
                 self.record_request(model, actual_tokens, success=True)
                 return result
 
-            except Exception as e:
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
                 # Record failed request
                 self.record_request(model, estimated_tokens, success=False)
 
@@ -207,7 +206,7 @@ class RateLimiter:
 
     def _is_rate_limit_error(self, error: Exception) -> bool:
         """Check if an error is a rate limit error using centralized utility."""
-        from ..utils.error_classification import is_rate_limit_error
+        from ..error_handling.classification import is_rate_limit_error
 
         return is_rate_limit_error(error)
 

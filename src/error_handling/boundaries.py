@@ -15,10 +15,29 @@ import streamlit as st
 from datetime import datetime
 
 from src.config.logging_config import get_logger, log_error_with_context
-from src.utils.exceptions import OperationTimeoutError
+from src.error_handling.exceptions import (
+    AicvgenError,
+    NetworkError,
+    OperationTimeoutError,
+)
 from src.error_handling.models import ErrorSeverity
 
 logger = get_logger(__name__)
+
+# A tuple of common, catchable exceptions to avoid capturing system-level exceptions.
+CATCHABLE_EXCEPTIONS = (
+    AicvgenError,
+    ValueError,
+    TypeError,
+    KeyError,
+    IOError,
+    IndexError,
+    AttributeError,
+    ConnectionError,
+)
+
+# A tuple of exceptions that are considered transient and worth retrying.
+RETRYABLE_EXCEPTIONS = (OperationTimeoutError, NetworkError, IOError, ConnectionError)
 
 
 class StreamlitErrorBoundary:
@@ -45,7 +64,7 @@ class StreamlitErrorBoundary:
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 self._handle_error(e, func.__name__, args, kwargs)
                 return None
 
@@ -111,7 +130,7 @@ def error_boundary(
     """Context manager for error boundaries."""
     try:
         yield
-    except Exception as e:
+    except CATCHABLE_EXCEPTIONS as e:
         boundary = StreamlitErrorBoundary(
             component_name=component_name,
             show_error_details=show_details,
@@ -147,17 +166,15 @@ def handle_api_errors(func: Callable) -> Callable:
             st.error(
                 "🌐 Connection Error: Unable to connect to the service. Please check your internet connection."
             )
-            logger.error(f"Connection error in {func.__name__}: {str(e)}")
+            logger.error("Connection error in %s: %s", func.__name__, str(e))
         except OperationTimeoutError as e:
             st.error("⏱️ Timeout Error: The request took too long. Please try again.")
-            logger.error(f"Timeout error in {func.__name__}: {str(e)}")
-        except ValueError as e:
-            st.error("📝 Input Error: Please check your input and try again.")
-            logger.error(f"Value error in {func.__name__}: {str(e)}")
-        except Exception as e:
-            st.error(
-                "❌ An unexpected error occurred. Please try again or contact support."
-            )
+            logger.error("Timeout error in %s: %s", func.__name__, str(e))
+        except (ValueError, TypeError) as e:
+            st.error(f"📝 Input Error: Invalid data provided. {e}")
+            logger.error("Data validation error in %s: %s", func.__name__, str(e))
+        except AicvgenError as e:
+            st.error(f"❌ An application error occurred: {e}")
             log_error_with_context(
                 "error_boundaries", e, {"function": func.__name__, "type": "api_error"}
             )
@@ -174,22 +191,22 @@ def handle_file_operations(func: Callable) -> Callable:
         try:
             return func(*args, **kwargs)
         except FileNotFoundError as e:
-            st.error("📁 File Not Found: The requested file could not be found.")
-            logger.error(f"File not found in {func.__name__}: {str(e)}")
+            st.error(f"📁 File Not Found: The file could not be found. {e}")
+            logger.error("File not found in %s: %s", func.__name__, str(e))
         except PermissionError as e:
+            st.error(f"🔒 Permission Error: Unable to access the file. {e}")
+            logger.error("Permission error in %s: %s", func.__name__, str(e))
+        except (OSError, IOError) as e:
             st.error(
-                "🔒 Permission Error: Unable to access the file. Please check permissions."
+                f"💾 File System Error: A problem occurred with the file system. {e}"
             )
-            logger.error(f"Permission error in {func.__name__}: {str(e)}")
-        except OSError as e:
-            st.error("💾 File System Error: There was a problem with the file system.")
-            logger.error(f"OS error in {func.__name__}: {str(e)}")
-        except Exception as e:
-            st.error(
-                "❌ File Operation Error: An unexpected error occurred while handling files."
-            )
+            logger.error("OS/IO error in %s: %s", func.__name__, str(e))
+        except AicvgenError as e:
+            st.error(f"❌ File Operation Error: An unexpected error occurred. {e}")
             log_error_with_context(
-                "error_boundaries", e, {"function": func.__name__, "type": "file_error"}
+                "error_boundaries",
+                e,
+                {"function": func.__name__, "type": "file_error"},
             )
         return None
 
@@ -203,21 +220,20 @@ def handle_data_processing(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except KeyError as e:
-            st.error("🔑 Data Error: Required data field is missing.")
-            logger.error(f"Key error in {func.__name__}: {str(e)}")
-        except TypeError as e:
-            st.error("🔧 Type Error: Data format is incorrect.")
-            logger.error(f"Type error in {func.__name__}: {str(e)}")
-        except ValueError as e:
-            st.error("📊 Value Error: Invalid data value encountered.")
-            logger.error(f"Value error in {func.__name__}: {str(e)}")
-        except Exception as e:
+        except (KeyError, IndexError) as e:
             st.error(
-                "❌ Data Processing Error: An error occurred while processing data."
+                f"🔑 Data Error: Required data field is missing or out of bounds. {e}"
             )
+            logger.error("Key/Index error in %s: %s", func.__name__, str(e))
+        except (TypeError, ValueError) as e:
+            st.error(f"🔧 Type/Value Error: Data format is incorrect or invalid. {e}")
+            logger.error("Type/Value error in %s: %s", func.__name__, str(e))
+        except AicvgenError as e:
+            st.error(f"❌ Data Processing Error: An application error occurred. {e}")
             log_error_with_context(
-                "error_boundaries", e, {"function": func.__name__, "type": "data_error"}
+                "error_boundaries",
+                e,
+                {"function": func.__name__, "type": "data_error"},
             )
         return None
 
@@ -231,20 +247,22 @@ class ErrorRecovery:
     def retry_with_backoff(
         func: Callable, max_retries: int = 3, backoff_factor: float = 1.0
     ):
-        """Retry a function with exponential backoff."""
+        """Retry a function with exponential backoff for transient errors."""
         import time
 
         for attempt in range(max_retries):
             try:
                 return func()
-            except Exception as e:
+            except RETRYABLE_EXCEPTIONS as e:
                 if attempt == max_retries - 1:
+                    logger.error("Final attempt failed for %s.", func.__name__)
                     raise e
 
                 wait_time = backoff_factor * (2**attempt)
                 logger.warning(
-                    "Attempt %d failed, retrying in %ss: %s",
+                    "Attempt %d failed for %s, retrying in %.2fs: %s",
                     attempt + 1,
+                    func.__name__,
                     wait_time,
                     str(e),
                 )
@@ -258,7 +276,7 @@ class ErrorRecovery:
         for func in funcs:
             try:
                 return func()
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 last_error = e
                 logger.warning(
                     "Function %s failed, trying next: %s", func.__name__, str(e)
@@ -266,6 +284,7 @@ class ErrorRecovery:
                 continue
 
         if last_error:
+            logger.error("Fallback chain exhausted. All functions failed.")
             raise last_error
 
 

@@ -18,8 +18,11 @@ import json
 from contextlib import asynccontextmanager, contextmanager
 
 from ..config.logging_config import get_structured_logger
+from ..error_handling.exceptions import AicvgenError
 
-logger = get_structured_logger("performance")
+logger = get_structured_logger(__name__)
+
+# Global registry for performance monitors
 
 
 @dataclass
@@ -86,9 +89,25 @@ class PerformanceMonitor:
 
         try:
             yield
-        except Exception as e:
+        except (AicvgenError, psutil.Error) as e:
             success = False
             error_message = str(e)
+            logger.error(
+                "Operation %s failed with known error: %s",
+                operation_name,
+                e,
+                exc_info=True,
+            )
+            raise
+        except (TypeError, ValueError, KeyError, AttributeError) as e:
+            success = False
+            error_message = str(e)
+            logger.error(
+                "Operation %s failed with unexpected error: %s",
+                operation_name,
+                e,
+                exc_info=True,
+            )
             raise
         finally:
             end_time = time.time()
@@ -123,9 +142,25 @@ class PerformanceMonitor:
 
         try:
             yield
-        except Exception as e:
+        except (AicvgenError, psutil.Error, asyncio.CancelledError) as e:
             success = False
             error_message = str(e)
+            logger.error(
+                "Async operation %s failed with known error: %s",
+                operation_name,
+                e,
+                exc_info=True,
+            )
+            raise
+        except (TypeError, ValueError, KeyError, AttributeError) as e:
+            success = False
+            error_message = str(e)
+            logger.error(
+                "Async operation %s failed with unexpected error: %s",
+                operation_name,
+                e,
+                exc_info=True,
+            )
             raise
         finally:
             end_time = time.time()
@@ -160,28 +195,39 @@ class PerformanceMonitor:
             )
             if metrics.duration > threshold:
                 logger.warning(
-                    "Performance threshold exceeded",
-                    operation=metrics.operation_name,
-                    duration=metrics.duration,
-                    threshold=threshold,
-                    memory_delta=metrics.memory_delta,
+                    "Performance threshold exceeded for %s: duration %s > threshold %s",
+                    metrics.operation_name,
+                    metrics.duration,
+                    threshold,
+                    extra={
+                        "operation": metrics.operation_name,
+                        "duration": metrics.duration,
+                        "threshold": threshold,
+                        "memory_delta": metrics.memory_delta,
+                    },
                 )
 
             # Log successful operations at debug level
             if metrics.success:
                 logger.debug(
-                    "Operation completed",
-                    operation=metrics.operation_name,
-                    duration_ms=metrics.duration_ms,
-                    memory_delta_mb=round(metrics.memory_delta, 2),
-                    cpu_percent=metrics.cpu_percent,
+                    "Operation %s completed successfully",
+                    metrics.operation_name,
+                    extra={
+                        "operation": metrics.operation_name,
+                        "duration_ms": metrics.duration_ms,
+                        "memory_delta_mb": round(metrics.memory_delta, 2),
+                        "cpu_percent": metrics.cpu_percent,
+                    },
                 )
             else:
                 logger.error(
-                    "Operation failed",
-                    operation=metrics.operation_name,
-                    duration_ms=metrics.duration_ms,
-                    error=metrics.error_message,
+                    "Operation %s failed",
+                    metrics.operation_name,
+                    extra={
+                        "operation": metrics.operation_name,
+                        "duration_ms": metrics.duration_ms,
+                        "error": metrics.error_message,
+                    },
                 )
 
     def get_operation_stats(self, operation_name: str) -> Dict[str, Any]:
@@ -268,7 +314,7 @@ class PerformanceMonitor:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
-            logger.info("Performance metrics exported", filepath=filepath)
+            logger.info("Performance metrics exported to %s", filepath)
 
     def clear_metrics(self):
         """Clear all stored metrics."""
@@ -335,9 +381,12 @@ class MemoryOptimizer:
         }
 
         logger.info(
-            "Memory optimization completed",
-            objects_collected=collected,
-            memory_freed_mb=round(memory_freed, 2),
+            "Memory optimization completed, freed %s MB",
+            round(memory_freed, 2),
+            extra={
+                "objects_collected": collected,
+                "memory_freed_mb": round(memory_freed, 2),
+            },
         )
 
         return result
@@ -358,9 +407,9 @@ class BatchProcessor:
         self.semaphore = asyncio.Semaphore(max_concurrent)
 
         logger.info(
-            "Batch processor initialized",
-            batch_size=batch_size,
-            max_concurrent=max_concurrent,
+            "Batch processor initialized with batch_size=%s, max_concurrent=%s",
+            batch_size,
+            max_concurrent,
         )
 
     async def process_batch_async(
@@ -380,10 +429,9 @@ class BatchProcessor:
         ]
 
         logger.info(
-            "Starting batch processing",
-            total_items=total_items,
-            num_batches=len(batches),
-            batch_size=self.batch_size,
+            "Starting batch processing for %s items in %s batches",
+            total_items,
+            len(batches),
         )
 
         for batch_idx, batch in enumerate(batches):
@@ -399,16 +447,16 @@ class BatchProcessor:
                     await progress_callback(progress, batch_idx + 1, len(batches))
 
                 logger.debug(
-                    "Batch completed",
-                    batch_index=batch_idx + 1,
-                    total_batches=len(batches),
-                    batch_size=len(batch),
+                    "Batch %s/%s completed (size: %s)",
+                    batch_idx + 1,
+                    len(batches),
+                    len(batch),
                 )
 
         logger.info(
-            "Batch processing completed",
-            total_items=total_items,
-            results_count=len(results),
+            "Batch processing completed for %s items, %s results produced",
+            total_items,
+            len(results),
         )
 
         return results
@@ -416,24 +464,24 @@ class BatchProcessor:
 
 class _SingletonManager:
     """Manages singleton instances to avoid global statements."""
-    
+
     def __init__(self):
         self._performance_monitor = None
         self._memory_optimizer = None
         self._batch_processor = None
-    
+
     def get_performance_monitor(self) -> PerformanceMonitor:
         """Get performance monitor instance."""
         if self._performance_monitor is None:
             self._performance_monitor = PerformanceMonitor()
         return self._performance_monitor
-    
+
     def get_memory_optimizer(self) -> MemoryOptimizer:
         """Get memory optimizer instance."""
         if self._memory_optimizer is None:
             self._memory_optimizer = MemoryOptimizer()
         return self._memory_optimizer
-    
+
     def get_batch_processor(self) -> BatchProcessor:
         """Get batch processor instance."""
         if self._batch_processor is None:

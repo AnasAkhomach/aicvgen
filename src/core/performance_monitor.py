@@ -116,7 +116,7 @@ class PerformanceMonitor:
                 "No running event loop found, performance monitoring disabled"
             )
 
-        logger.info(f"Performance monitoring started with {interval}s interval")
+        logger.info("Performance monitoring started with %ss interval", interval)
 
     def stop_monitoring(self) -> None:
         """Stop performance monitoring."""
@@ -171,7 +171,7 @@ class PerformanceMonitor:
             self.record_metric("active_threads", snapshot.active_threads, "count")
 
         except Exception as e:
-            logger.warning(f"Failed to collect system snapshot: {e}")
+            logger.warning("Failed to collect system snapshot: %s", e)
 
     async def _collect_agent_stats(self) -> None:
         """Collect agent performance statistics."""
@@ -223,7 +223,7 @@ class PerformanceMonitor:
                 )
 
         except Exception as e:
-            logger.warning(f"Failed to collect agent stats: {e}")
+            logger.warning("Failed to collect agent stats: %s", e)
 
     async def _check_thresholds(self) -> None:
         """Check performance thresholds and generate alerts."""
@@ -267,10 +267,10 @@ class PerformanceMonitor:
 
             # Log alerts
             for alert in alerts:
-                logger.warning(f"Performance alert: {alert}")
+                logger.warning("Performance alert: %s", alert)
 
         except Exception as e:
-            logger.warning(f"Failed to check thresholds: {e}")
+            logger.warning("Failed to check thresholds: %s", e)
 
     def record_metric(
         self,
@@ -514,7 +514,7 @@ class PerformanceMonitor:
             else:
                 raise ValueError(f"Unsupported export format: {format}")
 
-            logger.info(f"Metrics exported to {file_path}")
+            logger.info("Metrics exported to %s", file_path)
 
         except Exception as e:
             self.error_handler.handle_error(
@@ -526,7 +526,7 @@ class PerformanceMonitor:
     def set_baseline(self, metric_name: str, value: float) -> None:
         """Set performance baseline for comparison."""
         self.baselines[metric_name] = value
-        logger.info(f"Baseline set for {metric_name}: {value}")
+        logger.info("Baseline set for %s: %s", metric_name, value)
 
     def compare_to_baseline(self, metric_name: str) -> Optional[Dict[str, Any]]:
         """Compare current performance to baseline."""

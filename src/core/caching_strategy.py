@@ -13,19 +13,20 @@ import time
 import hashlib
 import json
 import pickle
+import re
+import threading
 from typing import Dict, Any, Optional, List, Callable, Union, Tuple, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from collections import defaultdict, deque
-import threading
-from contextlib import asynccontextmanager
-from functools import wraps
-import os
 import weakref
+from functools import wraps
 from enum import Enum
 
 from ..config.logging_config import get_structured_logger
+from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
 from ..utils.performance import get_performance_monitor
+from ..utils.decorators import create_async_sync_decorator
 
 logger = get_structured_logger("caching_strategy")
 
@@ -298,7 +299,7 @@ class CacheCoherenceManager:
                 for callback in callbacks:
                     try:
                         callback(key)
-                    except Exception as e:
+                    except CATCHABLE_EXCEPTIONS as e:
                         logger.warning(
                             "Error in invalidation callback",
                             pattern=pattern,
@@ -438,7 +439,7 @@ class IntelligentCacheManager:
             # Calculate value size
             try:
                 size_bytes = len(pickle.dumps(value))
-            except Exception:
+            except CATCHABLE_EXCEPTIONS:
                 size_bytes = 1024  # Default estimate
 
             # Determine optimal cache level
@@ -638,7 +639,7 @@ class IntelligentCacheManager:
                 await self._run_maintenance()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.error("Error in cache maintenance loop", error=str(e))
 
     async def _warming_loop(self):
@@ -649,7 +650,7 @@ class IntelligentCacheManager:
                 await self._run_cache_warming()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.error("Error in cache warming loop", error=str(e))
 
     async def _run_maintenance(self):
@@ -766,7 +767,7 @@ def intelligent_cache(
     pattern: CachePattern = CachePattern.MIXED,
 ):
     """Decorator for intelligent caching of function results."""
-    from ..utils.decorators import create_async_sync_decorator
+
 
     def _generate_cache_key(func, args, kwargs):
         """Generate cache key for function call."""
@@ -799,6 +800,7 @@ def intelligent_cache(
                 pattern=pattern,
             )
             return result
+
         return async_wrapper
 
     def create_sync_wrapper(func):
@@ -815,7 +817,7 @@ def intelligent_cache(
             # Execute function
             result = func(*args, **kwargs)
 
-            # Cache result
+            # Cache and return result
             cache_manager.set(
                 cache_key,
                 result,
@@ -825,6 +827,7 @@ def intelligent_cache(
                 pattern=pattern,
             )
             return result
+
         return sync_wrapper
 
     return create_async_sync_decorator(create_async_wrapper, create_sync_wrapper)

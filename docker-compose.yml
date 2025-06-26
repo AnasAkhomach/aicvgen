@@ -12,14 +12,12 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ENABLE_DEBUG_MODE=${ENABLE_DEBUG_MODE:-false}
-      - SESSION_TIMEOUT=${SESSION_TIMEOUT:-3600}
+      - SESSION_TIMEOUT_SECONDS=${SESSION_TIMEOUT_SECONDS:-3600}
       - MAX_CONCURRENT_REQUESTS=${MAX_CONCURRENT_REQUESTS:-10}
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./config:/app/config
+      - ./instance:/app/instance
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]

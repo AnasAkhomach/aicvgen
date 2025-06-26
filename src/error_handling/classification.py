@@ -1,7 +1,11 @@
 """Centralized error classification utilities."""
 
 from src.error_handling.models import ErrorCategory
-from src.utils.exceptions import RateLimitError, NetworkError, OperationTimeoutError
+from src.error_handling.exceptions import (
+    RateLimitError,
+    NetworkError,
+    OperationTimeoutError,
+)
 
 
 def is_retryable_error(exception: Exception) -> tuple[bool, str]:

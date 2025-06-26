@@ -15,17 +15,18 @@ from .dependency_injection import (
     LifecycleScope,
     DependencyMetadata,
 )
-from ..agents.agent_base import EnhancedAgentBase, AgentExecutionContext
+from ..agents.agent_base import EnhancedAgentBase
 from ..config.logging_config import get_structured_logger
+from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
 from ..error_handling.models import (
     ErrorCategory,
     ErrorSeverity,
 )
-from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
+from ..models.agent_models import AgentExecutionContext
 from ..models.data_models import ContentType
-from ..services.session_manager import get_session_manager
 from ..services.error_recovery import ErrorRecoveryService
 from ..services.progress_tracker import ProgressTracker
+from ..services.session_manager import get_session_manager
 
 logger = get_structured_logger(__name__)
 
@@ -200,40 +201,18 @@ class AgentLifecycleManager:
     def register_agent_type(
         self,
         agent_type: str,
-        factory: Callable[[], EnhancedAgentBase] = None,
+        agent_class: type[EnhancedAgentBase],
+        factory: Callable[[], EnhancedAgentBase],
         config: Optional[AgentPoolConfig] = None,
     ):
         """Register an agent type with the lifecycle manager."""
         with self._lock:
-            # Use DI container to resolve dependencies for each agent type
-            if agent_type == "cv_analyzer":
+            if agent_type in self._pool_configs:
+                logger.warning(
+                    "Agent type %s already registered. Skipping.", agent_type
+                )
+                return
 
-                def factory():
-                    llm_service = self.container.get(
-                        type(self.container.get("llm_service")), "llm_service"
-                    )
-                    settings = self.container.get(
-                        type(self.container.get("settings")), "settings"
-                    )
-                    logger = self.container.get(
-                        type(self.container.get("logger")), "logger"
-                    )
-                    error_recovery = self.container.get(
-                        type(self.container.get("error_recovery")), "error_recovery"
-                    )
-                    progress_tracker = self.container.get(
-                        type(self.container.get("progress_tracker")), "progress_tracker"
-                    )
-                    session_manager = self.container.get(
-                        type(self.container.get("session_manager")), "session_manager"
-                    )
-
-                    # Use dependency container for consistent agent creation
-                    from ..agents.cv_analyzer_agent import CVAnalyzerAgent
-
-                    return self.container.get(CVAnalyzerAgent, "CVAnalyzerAgent")
-
-            # ...repeat for other agent types, using the correct constructor signature and dependencies...
             self._agent_registry[agent_type] = factory
 
             if config is None:
@@ -252,7 +231,7 @@ class AgentLifecycleManager:
             self.container.register(
                 DependencyMetadata(
                     name=f"agent_{agent_type}",
-                    dependency_type=EnhancedAgentBase,
+                    dependency_type=agent_class,
                     scope=scope,
                     factory=factory,
                     lazy=not config.warmup_on_startup,
@@ -276,7 +255,7 @@ class AgentLifecycleManager:
         """Get an agent instance from the pool or create a new one."""
         with self._lock:
             if agent_type not in self._pool_configs:
-                logger.error(f"Unknown agent type: {agent_type}")
+                logger.error("Unknown agent type: %s", agent_type)
                 return None
 
             config = self._pool_configs[agent_type]
@@ -374,7 +353,7 @@ class AgentLifecycleManager:
 
             return managed_agent
 
-        except Exception as e:
+        except (TypeError, ValueError, KeyError, AttributeError) as e:
             error_msg = f"Failed to create agent {config.agent_type}: {str(e)}"
             self._error_handler.handle_error(
                 error_msg,
@@ -388,7 +367,7 @@ class AgentLifecycleManager:
         """Return an agent to the pool after use."""
         with self._lock:
             agent.mark_idle()
-            logger.debug(f"Agent returned to pool: {agent.config.agent_type}")
+            logger.debug("Agent returned to pool: %s", agent.config.agent_type)
 
     def dispose_agent(self, agent: ManagedAgent):
         """Dispose of an agent instance."""
@@ -409,11 +388,11 @@ class AgentLifecycleManager:
             try:
                 if hasattr(agent.instance, "dispose"):
                     agent.instance.dispose()
-            except Exception as e:
-                logger.error(f"Error disposing agent: {e}")
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.error("Error disposing agent: %s", e)
 
             self._global_metrics["total_agents_disposed"] += 1
-            logger.debug(f"Agent disposed: {agent.config.agent_type}")
+            logger.debug("Agent disposed: %s", agent.config.agent_type)
 
     def dispose_session_agents(self, session_id: str):
         """Dispose all agents associated with a session."""
@@ -476,8 +455,8 @@ class AgentLifecycleManager:
             try:
                 await asyncio.sleep(60)  # Run every minute
                 self._cleanup_idle_agents()
-            except Exception as e:
-                logger.error(f"Error in cleanup worker: {e}")
+            except (asyncio.CancelledError, TypeError, ValueError) as e:
+                logger.error("Error in cleanup worker: %s", e)
 
     async def _monitoring_worker(self):
         """Background task for monitoring agent performance."""
@@ -485,8 +464,8 @@ class AgentLifecycleManager:
             try:
                 await asyncio.sleep(300)  # Run every 5 minutes
                 self._update_performance_metrics()
-            except Exception as e:
-                logger.error(f"Error in monitoring worker: {e}")
+            except (asyncio.CancelledError, TypeError, ValueError) as e:
+                logger.error("Error in monitoring worker: %s", e)
 
     def _cleanup_idle_agents(self):
         """Clean up agents that have exceeded their idle timeout."""
@@ -509,7 +488,7 @@ class AgentLifecycleManager:
                     disposed_count += 1
 
             if disposed_count > 0:
-                logger.info(f"Idle agents cleaned up: {disposed_count}")
+                logger.info("Idle agents cleaned up: %s", disposed_count)
 
     def _update_performance_metrics(self):
         """Update global performance metrics."""

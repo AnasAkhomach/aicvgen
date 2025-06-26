@@ -8,10 +8,10 @@ parsing and generation to state management and API serialization.
 
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
 from dataclasses import dataclass
 from enum import Enum
 from uuid import UUID, uuid4
+from pydantic import BaseModel, Field
 
 
 class ItemStatus(str, Enum):
@@ -96,6 +96,7 @@ class ContentType(str, Enum):
     CV_PARSING = "cv_parsing"
     ACHIEVEMENTS = "achievements"
     JOB_ANALYSIS = "job_analysis"
+    JSON = "json"
 
 
 class UserAction(str, Enum):
@@ -197,28 +198,28 @@ class QualificationItem(ContentItem):
 class ExperienceItem(ContentItem):
     """Represents a work experience item for processing."""
 
-    content_type: str = Field(default="experience_item")
-    company: str = ""
-    position: str = ""
-    duration: str = ""
-    responsibilities: List[str] = Field(default_factory=list)
-    achievements: List[str] = Field(default_factory=list)
-    technologies: List[str] = Field(default_factory=list)
+    content_type: str = Field(default="experience")
+    company: Optional[str] = None
+    role: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 
-class ProjectItem(ContentItem):
-    """Represents a project item for processing."""
+class ContentWriterJobData(BaseModel):
+    """Job data for the content writer agent."""
 
-    content_type: str = Field(default="project_item")
-    name: str = ""
-    description: str = ""
-    technologies: List[str] = Field(default_factory=list)
-    achievements: List[str] = Field(default_factory=list)
-    url: Optional[str] = None
+    title: Optional[str] = None
+    raw_text: Optional[str] = None
+    description: Optional[str] = None
+    company: Optional[str] = None
+    skills: Optional[List[str]] = Field(default_factory=list)
+    responsibilities: Optional[List[str]] = Field(default_factory=list)
+    industry_terms: Optional[List[str]] = Field(default_factory=list)
+    company_values: Optional[List[str]] = Field(default_factory=list)
 
 
 class Subsection(BaseModel):
-    """A subsection within a section (e.g., a specific job role)."""
+    """A subsection within a main section of the CV (e.g., a specific job)."""
 
     id: UUID = Field(default_factory=uuid4)
     name: str  # e.g., "Senior Software Engineer @ TechCorp Inc."
@@ -343,125 +344,18 @@ class StructuredCV(BaseModel):
         return items
 
     @staticmethod
-    def create_empty(job_data: Optional["JobDescriptionData"] = None) -> "StructuredCV":
+    def create_empty(
+        job_data: Optional["JobDescriptionData"] = None, cv_text: str = ""
+    ) -> "StructuredCV":
         """
-        Creates an empty CV structure for the "Start from Scratch" option.
+        Creates an empty CV structure, optionally with job data.
         """
         structured_cv = StructuredCV()
-        # Add metadata - handle both dict and JobDescriptionData object types
         if job_data:
-            if hasattr(job_data, "to_dict"):
-                structured_cv.metadata.extra["job_description"] = job_data.to_dict()
-            elif hasattr(job_data, "model_dump"):
-                structured_cv.metadata.extra["job_description"] = job_data.model_dump()
-            elif isinstance(job_data, dict):
-                structured_cv.metadata.extra["job_description"] = job_data
-            else:
-                structured_cv.metadata.extra["job_description"] = {}
+            structured_cv.metadata.extra["job_description"] = job_data.model_dump()
         else:
             structured_cv.metadata.extra["job_description"] = {}
-        structured_cv.metadata.extra["start_from_scratch"] = True
-
-        # Create standard CV sections with proper order
-        sections = [
-            {"name": "Executive Summary", "type": "DYNAMIC", "order": 0},
-            {"name": "Key Qualifications", "type": "DYNAMIC", "order": 1},
-            {"name": "Professional Experience", "type": "DYNAMIC", "order": 2},
-            {"name": "Project Experience", "type": "DYNAMIC", "order": 3},
-            {"name": "Education", "type": "STATIC", "order": 4},
-            {"name": "Certifications", "type": "STATIC", "order": 5},
-            {"name": "Languages", "type": "STATIC", "order": 6},
-        ]
-
-        for section_info in sections:
-            section = Section(
-                name=section_info["name"],
-                content_type=section_info["type"],
-                order=section_info["order"],
-                items=[],
-                subsections=[],
-            )
-            # Ensure section.items and section.subsections are lists
-            if not isinstance(section.items, list):
-                section.items = list(section.items) if section.items else []
-            if not isinstance(section.subsections, list):
-                section.subsections = (
-                    list(section.subsections) if section.subsections else []
-                )
-            if section.name == "Executive Summary":
-                section.items.append(
-                    Item(
-                        content="",
-                        status=ItemStatus.TO_REGENERATE,
-                        item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
-                    )
-                )
-            if section.name == "Key Qualifications":
-                skills = None
-                if job_data:
-                    if hasattr(job_data, "skills"):
-                        skills = job_data.skills
-                    elif isinstance(job_data, dict) and "skills" in job_data:
-                        skills = job_data["skills"]
-                if skills:
-                    for skill in skills[:8]:
-                        section.items.append(
-                            Item(
-                                content=skill,
-                                status=ItemStatus.TO_REGENERATE,
-                                item_type=ItemType.KEY_QUALIFICATION,
-                            )
-                        )
-                else:
-                    for i in range(6):
-                        section.items.append(
-                            Item(
-                                content=f"Key qualification {i+1}",
-                                status=ItemStatus.TO_REGENERATE,
-                                item_type=ItemType.KEY_QUALIFICATION,
-                            )
-                        )
-            if section.name == "Professional Experience":
-                subsection = Subsection(name="Position Title at Company Name", items=[])
-                if not isinstance(subsection.items, list):
-                    subsection.items = (
-                        list(subsection.items) if subsection.items else []
-                    )
-                for _ in range(3):
-                    subsection.items.append(
-                        Item(
-                            content="",
-                            status=ItemStatus.TO_REGENERATE,
-                            item_type=ItemType.BULLET_POINT,
-                        )
-                    )
-                section.subsections.append(subsection)
-            if section.name == "Project Experience":
-                subsection = Subsection(name="Project Name", items=[])
-                if not isinstance(subsection.items, list):
-                    subsection.items = (
-                        list(subsection.items) if subsection.items else []
-                    )
-                for _ in range(2):
-                    subsection.items.append(
-                        Item(
-                            content="",
-                            status=ItemStatus.TO_REGENERATE,
-                            item_type=ItemType.BULLET_POINT,
-                        )
-                    )
-                # Final check before append
-                if not isinstance(section.subsections, list):
-                    section.subsections = (
-                        list(section.subsections) if section.subsections else []
-                    )
-                section.subsections.append(subsection)
-            # Ensure structured_cv.sections is a list before appending
-            if not isinstance(structured_cv.sections, list):
-                structured_cv.sections = (
-                    list(structured_cv.sections) if structured_cv.sections else []
-                )
-            structured_cv.sections.append(section)
+        structured_cv.metadata.extra["original_cv_text"] = cv_text
         return structured_cv
 
     def to_content_data(self) -> Dict[str, Any]:
@@ -546,8 +440,7 @@ class StructuredCV(BaseModel):
                         self.sections.append(section)  # pylint: disable=no-member
 
             return True
-        except Exception as e:
-            # Optionally log e
+        except (TypeError, KeyError, AttributeError) as e:
             return False
 
 
@@ -787,6 +680,16 @@ class Language(BaseModel):
     native: bool = False
 
 
+class BasicCVInfo(BaseModel):
+    """Basic CV information extracted as a fallback."""
+
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    summary: Optional[str] = None
+
+
 @dataclass
 class RateLimitState:
     """State tracking for rate limiting per model."""
@@ -942,3 +845,12 @@ class RateLimitLog:
     window_end: str
     limit_exceeded: bool
     wait_time_seconds: Optional[float] = None
+
+
+class KeyTerms(BaseModel):
+    """Model for key terms extracted from a job description."""
+
+    skills: List[str] = Field(default_factory=list)
+    responsibilities: List[str] = Field(default_factory=list)
+    industry_terms: List[str] = Field(default_factory=list)
+    company_values: List[str] = Field(default_factory=list)

@@ -21,7 +21,7 @@ from ..error_handling.classification import (
 )
 from ..models.data_models import ProcessingStatus, ContentType, Item
 from ..orchestration.state import AgentState
-from ..utils.exceptions import (
+from ..error_handling.exceptions import (
     AicvgenError,
     WorkflowPreconditionError,
     LLMResponseParsingError,
@@ -29,6 +29,9 @@ from ..utils.exceptions import (
     ConfigurationError,
     StateManagerError,
     ValidationError,
+    RateLimitError,
+    NetworkError,
+    OperationTimeoutError,
 )
 
 

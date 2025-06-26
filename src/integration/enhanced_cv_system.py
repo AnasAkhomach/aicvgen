@@ -23,15 +23,25 @@ from ..core.caching_strategy import get_intelligent_cache_manager, CachePattern
 import hashlib
 
 # Enhanced CV system imports
-from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
-from ..agents.specialized_agents import CVAnalysisAgent, create_cv_analysis_agent
-from ..agents.quality_assurance_agent import QualityAssuranceAgent
-from ..templates.content_templates import get_template_manager, ContentTemplateManager
+from ..agents.specialized_agents import (
+    create_cv_analysis_agent,
+    create_quality_assurance_agent,
+    create_enhanced_parser_agent,
+    create_formatter_agent,
+    create_cleaning_agent,
+    create_enhanced_content_writer_agent,
+)
+from ..templates.content_templates import ContentTemplateManager
 from ..services.vector_store_service import get_vector_store_service
-from ..core.enhanced_orchestrator import EnhancedOrchestrator
-from ..core.state_manager import StateManager
-from ..models.data_models import WorkflowType
+from ..orchestration.cv_workflow_graph import CVWorkflowGraph
 from ..orchestration.state import AgentState
+from ..models.data_models import WorkflowType
+from ..error_handling.exceptions import (
+    TemplateError,
+    VectorStoreError,
+    WorkflowError,
+    AgentExecutionError,
+)
 
 
 class IntegrationMode(Enum):
@@ -94,17 +104,22 @@ class EnhancedCVConfig:
 class EnhancedCVIntegration:
     """Main integration class for enhanced CV system components."""
 
-    def __init__(self, config: Optional[EnhancedCVConfig] = None):
+    def __init__(
+        self,
+        config: Optional[EnhancedCVConfig] = None,
+        session_id: Optional[str] = None,
+    ):
         self.config = config or EnhancedCVConfig(mode=IntegrationMode.PRODUCTION)
         self.logger = get_structured_logger(__name__)
         self.settings = get_config()
         self.error_recovery = ErrorRecoveryService()
+        self._session_id = session_id or "default"
 
         # Component instances
         self._template_manager: Optional[ContentTemplateManager] = None
         self._vector_db = None
-        self._orchestrator: Optional[EnhancedOrchestrator] = None
-        self._state_manager: Optional[StateManager] = None
+        self._orchestrator: Optional[CVWorkflowGraph] = None
+        self._state_manager: Optional[AgentState] = None
         self._agents: Dict[str, Any] = {}
 
         # Performance optimization components
@@ -136,7 +151,7 @@ class EnhancedCVIntegration:
 
             # Initialize template manager
             if self.config.enable_templates:
-                self._template_manager = get_template_manager()
+                self._template_manager = ContentTemplateManager()
                 self.logger.info("Template manager initialized")
 
             # Initialize vector database
@@ -146,13 +161,12 @@ class EnhancedCVIntegration:
 
             # Initialize orchestrator
             if self.config.enable_orchestration:
-                self._state_manager = StateManager()
-                self._orchestrator = EnhancedOrchestrator(self._state_manager)
+                self._orchestrator = CVWorkflowGraph()
                 self.logger.info("Enhanced orchestration components initialized")
 
             # Initialize specialized agents
             if self.config.enable_specialized_agents:
-                self._initialize_agents()
+                self._initialize_agents(self._session_id)
                 self.logger.info("Specialized agents initialized")
 
             # Initialize performance optimization components
@@ -164,7 +178,7 @@ class EnhancedCVIntegration:
 
             self.logger.info("Enhanced CV system integration initialized successfully")
 
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError, ValueError) as e:
             self.logger.error(
                 "Failed to initialize enhanced CV system components",
                 extra={
@@ -180,26 +194,19 @@ class EnhancedCVIntegration:
                 )
             raise
 
-    def _initialize_agents(self):
-        """Initialize all specialized agents."""
+    def _initialize_agents(self, session_id: str):
+        """Initialize all specialized agents using DI container and session_id."""
         try:
-            # Initialize dependency container and get agents
-            from ..core.dependency_injection import get_container
-
-            container = get_container()
-            container.register_agents()
-
-            # Get agents from dependency container
-            self._agents["enhanced_content_writer"] = container.get(
-                EnhancedContentWriterAgent, "EnhancedContentWriterAgent"
+            self._agents["cv_analysis"] = create_cv_analysis_agent(session_id)
+            self._agents["quality_assurance"] = create_quality_assurance_agent(
+                session_id
             )
-            self._agents["quality_assurance"] = container.get(
-                QualityAssuranceAgent, "QualityAssuranceAgent"
+            self._agents["enhanced_parser"] = create_enhanced_parser_agent(session_id)
+            self._agents["formatter"] = create_formatter_agent(session_id)
+            self._agents["cleaning"] = create_cleaning_agent(session_id)
+            self._agents["enhanced_content_writer"] = (
+                create_enhanced_content_writer_agent(session_id)
             )
-
-            # Specialized agents
-            self._agents["cv_analysis"] = create_cv_analysis_agent()
-
             self.logger.info(
                 "Agents initialized",
                 extra={
@@ -207,8 +214,7 @@ class EnhancedCVIntegration:
                     "agent_types": list(self._agents.keys()),
                 },
             )
-
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError, ValueError) as e:
             self.logger.error("Failed to initialize agents", extra={"error": str(e)})
             raise
 
@@ -222,7 +228,7 @@ class EnhancedCVIntegration:
 
         try:
             return self._template_manager.get_template(template_id, category)
-        except Exception as e:
+        except (TemplateError, KeyError, ValueError, IOError) as e:
             self.logger.error(
                 "Failed to get template",
                 extra={
@@ -244,7 +250,7 @@ class EnhancedCVIntegration:
             return self._template_manager.format_template(
                 template_id, variables, category
             )
-        except Exception as e:
+        except (TemplateError, KeyError, ValueError, IOError) as e:
             self.logger.error(
                 "Failed to format template",
                 extra={
@@ -262,7 +268,7 @@ class EnhancedCVIntegration:
 
         try:
             return self._template_manager.list_templates(category)
-        except Exception as e:
+        except (TemplateError, IOError) as e:
             self.logger.error(
                 "Failed to list templates",
                 extra={"category": category, "error": str(e)},
@@ -288,7 +294,7 @@ class EnhancedCVIntegration:
                 metadata={"content_type": content_type.value, **(metadata or {})},
             )
             return item_id
-        except Exception as e:
+        except (VectorStoreError, TypeError, ValueError) as e:
             self.logger.error(
                 "Failed to store content",
                 extra={"content_type": content_type.value, "error": str(e)},
@@ -310,7 +316,7 @@ class EnhancedCVIntegration:
                 where={"content_type": content_type.value} if content_type else None,
             )
             return results
-        except Exception as e:
+        except (VectorStoreError, TypeError, ValueError) as e:
             self.logger.error(
                 "Failed to search content",
                 extra={
@@ -336,7 +342,7 @@ class EnhancedCVIntegration:
                 where={"content_type": content_type.value} if content_type else None,
             )
             return results
-        except Exception as e:
+        except (VectorStoreError, TypeError, ValueError) as e:
             self.logger.error(
                 "Failed to find similar content",
                 extra={
@@ -503,7 +509,7 @@ class EnhancedCVIntegration:
                         success = not bool(
                             result_state.error_messages if result_state else True
                         )  # Assume success if no result_state
-                        self.logger.info(f"Workflow success: {success}")
+                        self.logger.info("Workflow success: %s", success)
 
                     else:
                         self.logger.warning(
@@ -567,7 +573,14 @@ class EnhancedCVIntegration:
                     "errors": final_errors,
                 }
 
-        except Exception as e:
+        except (
+            WorkflowError,
+            AgentExecutionError,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            KeyError,
+        ) as e:
             processing_time = (datetime.now() - start_time).total_seconds()
             self._performance_stats["errors_encountered"] += 1
 
@@ -709,7 +722,8 @@ class EnhancedCVIntegration:
             try:
                 vector_stats = self._vector_db.get_enhanced_stats()
                 stats["vector_db"] = vector_stats
-            except Exception:
+            except (AttributeError, VectorStoreError) as e:
+                self.logger.warning("Could not retrieve vector DB stats", error=str(e))
                 pass
 
         if self._orchestrator:
@@ -720,7 +734,10 @@ class EnhancedCVIntegration:
                     "type": "enhanced_orchestrator",
                     "status": "active",
                 }
-            except Exception:
+            except (AttributeError, WorkflowError) as e:
+                self.logger.warning(
+                    "Could not retrieve orchestrator stats", error=str(e)
+                )
                 pass
 
         return stats
@@ -762,7 +779,7 @@ class EnhancedCVIntegration:
                         "status": "healthy",
                         "document_count": vector_stats.get("total_documents", 0),
                     }
-                except Exception as e:
+                except (AttributeError, VectorStoreError) as e:
                     health["components"]["vector_db"] = {
                         "status": "unhealthy",
                         "error": str(e),
@@ -777,7 +794,7 @@ class EnhancedCVIntegration:
                         "status": "healthy",
                         "type": "enhanced_orchestrator",
                     }
-                except Exception as e:
+                except (AttributeError, WorkflowError) as e:
                     health["components"]["orchestrator"] = {
                         "status": "unhealthy",
                         "error": str(e),
@@ -791,8 +808,11 @@ class EnhancedCVIntegration:
                     # Simple health check - try to access agent properties
                     _ = agent.name if hasattr(agent, "name") else agent_type
                     healthy_agents += 1
-                except Exception:
+                except (AttributeError, TypeError) as e:
                     health["status"] = "degraded"
+                    self.logger.warning(
+                        f"Health check failed for agent {agent_type}", error=str(e)
+                    )
 
             health["components"]["agents"] = {
                 "status": (
@@ -802,7 +822,7 @@ class EnhancedCVIntegration:
                 "total_count": len(self._agents),
             }
 
-        except Exception as e:
+        except (TypeError, ValueError, KeyError) as e:
             health["status"] = "unhealthy"
             health["error"] = str(e)
 

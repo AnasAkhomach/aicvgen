@@ -11,21 +11,21 @@ This module provides comprehensive performance optimizations including:
 import asyncio
 import time
 import threading
-import gc
-from typing import Dict, Any, Optional, List, Callable, Union, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, List, Callable, Tuple
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from collections import defaultdict, OrderedDict
-import concurrent.futures
 from contextlib import asynccontextmanager
 import hashlib
-import json
 import pickle
 import os
-from functools import wraps, lru_cache
+from functools import wraps
 
 from ..config.logging_config import get_structured_logger
-from ..utils.performance import get_performance_monitor, get_memory_optimizer
+from ..utils.performance import get_memory_optimizer, get_performance_monitor
+from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from ..utils.decorators import create_async_sync_decorator
+
 
 logger = get_structured_logger("performance_optimizer")
 
@@ -166,7 +166,7 @@ class AdvancedConnectionPool:
             connection = {"created_at": time.time(), "id": id(object())}
             self._stats["connections_created"] += 1
             return connection
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             self._stats["connections_failed"] += 1
             logger.error("Failed to create connection", error=str(e))
             raise
@@ -176,8 +176,8 @@ class AdvancedConnectionPool:
         try:
             # Placeholder for actual connection cleanup
             pass
-        except Exception as e:
-            logger.warning("Error closing connection", error=str(e))
+        except CATCHABLE_EXCEPTIONS as _:  # Catch all for close errors
+            logger.warning("Error closing connection", error=str(_))
 
     async def _is_connection_healthy(self, connection) -> bool:
         """Check if a connection is healthy."""
@@ -185,7 +185,7 @@ class AdvancedConnectionPool:
             # Placeholder for actual health check
             created_at = connection.get("created_at", 0)
             return time.time() - created_at < self.config.idle_timeout
-        except Exception:
+        except CATCHABLE_EXCEPTIONS as _:  # Catch all for health check errors
             return False
 
     async def _initialize_min_connections(self):
@@ -194,7 +194,7 @@ class AdvancedConnectionPool:
             try:
                 connection = await self._create_connection()
                 self._pool.append(connection)
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.warning("Failed to create initial connection", error=str(e))
 
     async def _health_check_loop(self):
@@ -203,9 +203,9 @@ class AdvancedConnectionPool:
             try:
                 await asyncio.sleep(60)  # Check every minute
                 await self._cleanup_unhealthy_connections()
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, RuntimeError) as _:
                 break
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:  # Top-level catch for health check loop
                 logger.error("Error in health check loop", error=str(e))
 
     async def _cleanup_unhealthy_connections(self):
@@ -290,7 +290,7 @@ class IntelligentBatchProcessor:
                     await self._process_batch_now(request_key, processor_func)
         except asyncio.CancelledError:
             pass
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             logger.error("Error in batch timer", request_key=request_key, error=str(e))
 
     async def _process_batch_now(self, request_key: str, processor_func: Callable):
@@ -342,12 +342,11 @@ class IntelligentBatchProcessor:
                 self._stats["requests_coalesced"] += len(batch) - 1
                 self._update_average_batch_size(len(batch))
 
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 # Set exception for all futures
                 for _, future in batch:
                     if not future.done():
                         future.set_exception(e)
-
                 logger.error(
                     "Error processing batch", batch_size=len(batch), error=str(e)
                 )
@@ -442,7 +441,7 @@ class MultiLevelCache:
                     self._set_l1(key, value, compressed_value["expiry"])
                     self.l2_cache.move_to_end(key)
                     return value
-                except Exception as e:
+                except CATCHABLE_EXCEPTIONS as e:
                     logger.warning(
                         "Failed to decompress L2 cache entry", key=key, error=str(e)
                     )
@@ -458,7 +457,7 @@ class MultiLevelCache:
                     # Promote to L1
                     self._set_l1(key, value["data"], value["expiry"])
                     return value["data"]
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.warning("Failed to read L3 cache entry", key=key, error=str(e))
 
             self._stats["l3_misses"] += 1
@@ -479,7 +478,7 @@ class MultiLevelCache:
                     compressed_value = self._compress(value)
                     self._set_l2(key, compressed_value, expiry)
                     self._stats["compressions"] += 1
-                except Exception as e:
+                except CATCHABLE_EXCEPTIONS as e:
                     logger.warning(
                         "Failed to compress value for L2 cache", key=key, error=str(e)
                     )
@@ -518,13 +517,13 @@ class MultiLevelCache:
                     return cached_data
                 else:
                     os.remove(cache_file)
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.warning(
                     "Failed to read L3 cache file", file=cache_file, error=str(e)
                 )
                 try:
                     os.remove(cache_file)
-                except Exception:
+                except OSError:
                     pass
 
         return None
@@ -539,7 +538,7 @@ class MultiLevelCache:
             cached_data = {"data": value, "expiry": expiry}
             with open(cache_file, "wb") as f:
                 pickle.dump(cached_data, f)
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             logger.warning(
                 "Failed to write L3 cache file", file=cache_file, error=str(e)
             )
@@ -566,7 +565,7 @@ class MultiLevelCache:
                 await self._persist_to_l3()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.error("Error in persistence loop", error=str(e))
 
     async def _persist_to_l3(self):
@@ -583,7 +582,7 @@ class MultiLevelCache:
                     try:
                         value = self._decompress(entry["data"])
                         self._set_l3(key, value, entry["expiry"])
-                    except Exception as e:
+                    except CATCHABLE_EXCEPTIONS as e:
                         logger.warning(
                             "Failed to persist L2 entry to L3", key=key, error=str(e)
                         )
@@ -697,7 +696,7 @@ class PerformanceOptimizer:
                 await self._run_optimizations()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except CATCHABLE_EXCEPTIONS as e:
                 logger.error("Error in optimization loop", error=str(e))
 
     async def _run_optimizations(self):
@@ -742,7 +741,7 @@ class PerformanceOptimizer:
 
             logger.debug("Cache cleanup completed")
 
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             logger.warning("Error during cache cleanup", error=str(e))
 
     def get_comprehensive_stats(self) -> Dict[str, Any]:
@@ -756,11 +755,11 @@ class PerformanceOptimizer:
         }
 
 
-# Global optimizer instance
-_global_optimizer: Optional[PerformanceOptimizer] = None
+# Global optimizer instance and accessors (placed immediately after PerformanceOptimizer)
+_global_optimizer = None
 
 
-def get_performance_optimizer() -> PerformanceOptimizer:
+def get_performance_optimizer():
     """Get the global performance optimizer instance."""
     global _global_optimizer
     if _global_optimizer is None:
@@ -771,16 +770,12 @@ def get_performance_optimizer() -> PerformanceOptimizer:
 def reset_performance_optimizer():
     """Reset the global performance optimizer."""
     global _global_optimizer
-    if _global_optimizer:
-        # Note: In a real implementation, you'd want to properly stop the optimizer
-        pass
     _global_optimizer = None
 
 
 # Decorator for automatic performance optimization
 def optimize_performance(operation_name: str = None, **metadata):
     """Decorator for automatic performance optimization."""
-    from ..utils.decorators import create_async_sync_decorator
 
     def create_async_wrapper(func):
         @wraps(func)
@@ -790,6 +785,7 @@ def optimize_performance(operation_name: str = None, **metadata):
 
             async with optimizer.optimized_execution(name, **metadata):
                 return await func(*args, **kwargs)
+
         return async_wrapper
 
     def create_sync_wrapper(func):
@@ -799,6 +795,7 @@ def optimize_performance(operation_name: str = None, **metadata):
             monitor = get_performance_monitor()
             with monitor.measure_sync(operation_name or func.__name__, **metadata):
                 return func(*args, **kwargs)
+
         return sync_wrapper
 
     return create_async_sync_decorator(create_async_wrapper, create_sync_wrapper)

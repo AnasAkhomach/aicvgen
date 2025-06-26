@@ -33,6 +33,8 @@ class LLMSettings(BaseModel):
     default_model: str = "gemini-2.0-flash"
     default_temperature: float = 0.7
     max_tokens: int = 4096
+    temperature_analysis: float = 0.5
+    max_tokens_analysis: int = 2048
 
 
 class PromptSettings(BaseModel):

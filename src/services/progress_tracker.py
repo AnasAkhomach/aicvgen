@@ -422,7 +422,7 @@ class ProgressTracker:  # pylint: disable=too-many-instance-attributes
                     asyncio.create_task(callback(event))
                 else:
                     callback(event)
-            except Exception as e:
+            except (TypeError, ValueError, AttributeError) as e:
                 self.logger.error(
                     f"Error in progress subscriber callback: {e}", session_id=session_id
                 )

@@ -1,3 +1,0 @@
-# This directory contains application logs
-# .gitkeep file ensures the logs directory is tracked in Git
-# while actual log files are ignored via .gitignore

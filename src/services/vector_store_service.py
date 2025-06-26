@@ -1,5 +1,9 @@
 import chromadb
-from ..utils.exceptions import VectorStoreError, ConfigurationError
+from ..error_handling.exceptions import (
+    VectorStoreError,
+    ConfigurationError,
+    OperationTimeoutError,
+)
 from ..config.settings import get_config
 from typing import List, Dict, Any, Optional
 import logging
@@ -9,12 +13,6 @@ import time
 from ..models.vector_store_and_session_models import VectorStoreSearchResult
 
 logger = logging.getLogger("vector_store_service")
-
-
-class TimeoutError(Exception):
-    """Custom timeout error for ChromaDB operations."""
-
-    pass
 
 
 def run_with_timeout(func, args=(), kwargs=None, timeout=30):
@@ -28,7 +26,7 @@ def run_with_timeout(func, args=(), kwargs=None, timeout=30):
     def target():
         try:
             result[0] = func(*args, **kwargs)
-        except Exception as e:
+        except BaseException as e:
             exception[0] = e
 
     thread = threading.Thread(target=target)
@@ -38,7 +36,7 @@ def run_with_timeout(func, args=(), kwargs=None, timeout=30):
 
     if thread.is_alive():
         # Thread is still running, timeout occurred
-        raise TimeoutError(f"Operation timed out after {timeout} seconds")
+        raise OperationTimeoutError(f"Operation timed out after {timeout} seconds")
 
     if exception[0]:
         raise exception[0]
@@ -55,10 +53,6 @@ class VectorStoreService:
     def shutdown(self):
         """Shutdown the vector store service and release resources."""
         logger.info("Shutting down VectorStoreService.")
-        # ChromaDB's PersistentClient doesn't have an explicit close/shutdown method.
-        # It's designed to be resilient to sudden stops by persisting to disk.
-        # Setting the client and collection to None will help with garbage collection
-        # and prevent further use of a "closed" service.
         self.client = None
         self.collection = None
         logger.info("VectorStoreService shutdown complete.")
@@ -66,7 +60,7 @@ class VectorStoreService:
     def _connect(self):
         try:
             logger.info(
-                f"Initializing ChromaDB at {self.settings.vector_db.persist_directory}"
+                "Initializing ChromaDB at %s", self.settings.vector_db.persist_directory
             )
 
             # Create directory if it doesn't exist
@@ -89,7 +83,7 @@ class VectorStoreService:
 
             try:
                 client = run_with_timeout(create_client, timeout=30)
-            except TimeoutError:
+            except OperationTimeoutError as e:
                 raise ConfigurationError(
                     f"ChromaDB initialization timed out after 30 seconds. "
                     f"This might be due to:\n"
@@ -98,14 +92,15 @@ class VectorStoreService:
                     f"3. File system permission problems\n"
                     f"4. Another process using the database\n\n"
                     f"Try restarting the application or clearing the vector_db directory."
-                )
+                ) from e
 
             logger.info(
-                f"Successfully connected to ChromaDB at {self.settings.vector_db.persist_directory}"
+                "Successfully connected to ChromaDB at %s",
+                self.settings.vector_db.persist_directory,
             )
             return client
 
-        except Exception as e:
+        except (chromadb.errors.ChromaError, IOError) as e:
             error_msg = (
                 f"CRITICAL: Failed to connect to Vector Store (ChromaDB) at path "
                 f"'{self.settings.vector_db.persist_directory}'. "
@@ -127,8 +122,10 @@ class VectorStoreService:
                 metadata={"description": "CV content and job description data"},
             )
             return collection
-        except Exception as e:
-            logger.error(f"Failed to get or create collection '{collection_name}': {e}")
+        except (chromadb.errors.ChromaError, OperationTimeoutError) as e:
+            logger.error(
+                "Failed to get or create collection '%s': %s", collection_name, e
+            )
             raise ConfigurationError(f"Failed to initialize collection: {e}") from e
 
     def get_client(self):
@@ -137,24 +134,11 @@ class VectorStoreService:
     def add_item(
         self, item: Any, content: str, metadata: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Add an item to the vector store.
-
-        Args:
-            item: The item object (for compatibility with existing code)
-            content: The text content to store
-            metadata: Optional metadata dictionary
-
-        Returns:
-            str: The ID of the stored item
-        """
+        """Add an item to the vector store."""
         try:
-            # Generate a unique ID for the item
             item_id = self._generate_id(content)
-
-            # Prepare metadata
             meta = metadata or {}
             if hasattr(item, "__dict__"):
-                # Add item attributes to metadata if it's an object
                 meta.update(
                     {
                         k: str(v)
@@ -162,27 +146,15 @@ class VectorStoreService:
                         if isinstance(v, (str, int, float, bool))
                     }
                 )
-
-            # Add to ChromaDB collection
             self.collection.add(documents=[content], metadatas=[meta], ids=[item_id])
-
-            logger.debug(f"Added item to vector store with ID: {item_id}")
+            logger.debug("Added item to vector store with ID: %s", item_id)
             return item_id
-
-        except Exception as e:
-            logger.error(f"Failed to add item to vector store: {e}")
-            raise
+        except (chromadb.errors.ChromaError, TypeError) as e:
+            logger.error("Failed to add item to vector store: %s", e)
+            raise VectorStoreError("Failed to add item to vector store") from e
 
     def search(self, query: str, k: int = 5) -> list[VectorStoreSearchResult]:
-        """Search for similar content in the vector store.
-
-        Args:
-            query: The search query
-            k: Number of results to return
-
-        Returns:
-            List[VectorStoreSearchResult]: List of search results with content and metadata
-        """
+        """Search for similar content in the vector store."""
         try:
             results = self.collection.query(query_texts=[query], n_results=k)
             formatted_results = []
@@ -207,14 +179,14 @@ class VectorStoreService:
                         ),
                     )
                     formatted_results.append(result)
-
             logger.debug(
-                f"Search returned {len(formatted_results)} results for query: {query[:50]}..."
+                "Search returned %d results for query: %s...",
+                len(formatted_results),
+                query[:50],
             )
             return formatted_results
-
-        except Exception as e:
-            logger.error(f"Failed to search vector store: {e}")
+        except (chromadb.errors.ChromaError, TypeError) as e:
+            logger.error("Failed to search vector store: %s", e)
             return []
 
     def _generate_id(self, content: str) -> str:
@@ -223,22 +195,24 @@ class VectorStoreService:
 
 
 _vector_store_instance = None
+_vector_store_lock = threading.Lock()
 
 
 def get_vector_store_service():
     """Get the global VectorStoreService instance (singleton)."""
     global _vector_store_instance
     if _vector_store_instance is None:
-        # Check for development mode to skip vector store initialization
-        import os
+        with _vector_store_lock:
+            if _vector_store_instance is None:
+                import os
 
-        if os.getenv("SKIP_VECTOR_STORE", "false").lower() == "true":
-            logger.warning(
-                "Skipping vector store initialization (SKIP_VECTOR_STORE=true)"
-            )
-            return MockVectorStoreService()
-
-        _vector_store_instance = VectorStoreService(get_config())
+                if os.getenv("SKIP_VECTOR_STORE", "false").lower() == "true":
+                    logger.warning(
+                        "Skipping vector store initialization (SKIP_VECTOR_STORE=true)"
+                    )
+                    _vector_store_instance = MockVectorStoreService()
+                else:
+                    _vector_store_instance = VectorStoreService(get_config())
     return _vector_store_instance
 
 

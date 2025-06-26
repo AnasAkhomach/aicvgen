@@ -9,10 +9,10 @@ import logging
 
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
-    from ..orchestration.state import AgentState
+    from src.orchestration.state import AgentState
 
-from ..models.data_models import StructuredCV, JobDescriptionData
-from ..models.research_models import ResearchFindings
+from src.models.data_models import StructuredCV, JobDescriptionData
+from src.models.agent_output_models import ResearchFindings
 
 logger = logging.getLogger(__name__)
 

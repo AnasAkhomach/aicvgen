@@ -10,13 +10,14 @@ from datetime import datetime, timedelta
 
 # Removed specific service/agent imports to break circular dependencies.
 # Registration will now be handled in `application_startup.py`
-from ..config.logging_config import get_structured_logger
-from ..error_handling.models import (
+from src.config.logging_config import get_structured_logger
+from src.error_handling.models import (
     ErrorCategory,
     ErrorSeverity,
     ErrorContext,
 )
-from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
+from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from src.error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
 
 
 logger = get_structured_logger(__name__)
@@ -132,7 +133,7 @@ class DependencyContainer:
 
         self._creating.add(name)
         try:
-            logger.debug(f"Creating dependency instance: {name}")
+            logger.debug("Creating dependency instance: %s", name)
 
             resolved_deps = {}
             for dep_name in metadata.dependencies:
@@ -151,7 +152,7 @@ class DependencyContainer:
                 f"Dependency created successfully: {name}", scope=metadata.scope.value
             )
             return instance
-        except Exception as e:
+        except CATCHABLE_EXCEPTIONS as e:
             error_msg = f"Failed to create dependency '{name}': {str(e)}"
             self._error_handler.handle_error(
                 error_msg,
@@ -231,7 +232,7 @@ class DependencyContainer:
         with self._lock:
             if session_id in self._session_instances:
                 del self._session_instances[session_id]
-                logger.info(f"Disposed instances for session {session_id}")
+                logger.info("Disposed instances for session %s", session_id)
 
 
 # --- Singleton Implementation ---

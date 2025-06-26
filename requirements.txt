@@ -44,6 +44,8 @@ reportlab
 # Testing
 pytest
 pytest-asyncio
+pytest-playwright
+playwright
 
 # Observability and Monitoring
 python-json-logger
@@ -53,3 +55,13 @@ prometheus-client
 pathlib2
 dataclasses-json
 protobuf
+
+# Additional dependencies
+dependency-injector
+beautifulsoup4
+docker
+flake8
+pylint
+black
+psutil
+tiktoken

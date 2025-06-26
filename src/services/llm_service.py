@@ -1,52 +1,41 @@
-print("DEBUG: llm_service.py module is being loaded")
-
 import os
 import time
 import asyncio
 import hashlib
 import json
 import pickle
-import traceback
 import threading
-from typing import Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
+import logging
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from collections import OrderedDict
 
 try:
-    import google.generativeai as genai
+    from google.api_core import exceptions as google_exceptions
 except ImportError:
-    genai = None
+    google_exceptions = None
 
-# Import tenacity for retry logic with exponential backoff
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
-
-from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
-from ..models.data_models import ContentType, LLMResponse
-from ..models.llm_service_models import (
+from src.config.logging_config import get_structured_logger
+from src.config.settings import get_config
+from src.models.data_models import ContentType, LLMResponse
+from src.models.llm_service_models import (
     LLMCacheEntry,
     LLMApiKeyInfo,
     LLMServiceStats,
     LLMPerformanceOptimizationResult,
 )
-from .rate_limiter import RateLimiter
-from .error_recovery import get_error_recovery_service
-from ..core.performance_optimizer import get_performance_optimizer
-from ..core.async_optimizer import get_async_optimizer
-from ..utils.exceptions import ConfigurationError, OperationTimeoutError
-from ..error_handling.classification import (
-    is_rate_limit_error,
-    is_network_error,
-    is_timeout_error,
+from src.services.rate_limiter import RateLimiter
+from src.error_handling.exceptions import (
+    ConfigurationError,
+    OperationTimeoutError,
+    RateLimitError,
+    NetworkError,
 )
-from .llm_client import LLMClient
-from .llm_retry_handler import LLMRetryHandler
+from src.error_handling.classification import (
+    is_rate_limit_error,
+)
+from src.services.llm_client import LLMClient
+from src.services.llm_retry_handler import LLMRetryHandler
 
 # is_transient_error function removed - using _should_retry_exception instead
 
@@ -59,8 +48,8 @@ RETRYABLE_EXCEPTIONS = (
     ConnectionError,
     OperationTimeoutError,
     OSError,  # Covers network-related OS errors
-    # HTTP and API errors that are typically transient
-    Exception,  # Temporary catch-all until we identify specific google.generativeai exceptions
+    # Google API specific transient errors
+    google_exceptions.GoogleAPICallError if google_exceptions else (),
 )
 
 # Non-retryable exceptions that indicate permanent failures
@@ -85,21 +74,25 @@ class AdvancedCache:
         self.default_ttl_hours = default_ttl_hours
         self.persist_file = persist_file
         self._cache: OrderedDict = OrderedDict()
-        self._lock = threading.RLock()
+        self._lock = asyncio.Lock()  # Use asyncio.Lock for async code
         self._hits = 0
         self._misses = 0
         self._evictions = 0
-
-        # Load persisted cache if available
-        if persist_file:
-            self._load_cache()
+        self._initialized = False
 
         logger.info(
-            "Advanced cache initialized",
+            "Advanced cache instance created (not yet initialized)",
             max_size=max_size,
             default_ttl_hours=default_ttl_hours,
             persist_file=persist_file,
         )
+
+    async def initialize(self):
+        """Asynchronously load persisted cache from file."""
+        if self.persist_file and not self._initialized:
+            await self._load_cache()
+            self._initialized = True
+            logger.info("Advanced cache initialized.")
 
     def _generate_cache_key(
         self, prompt: str, model: str, temperature: float = 0.7, **kwargs
@@ -133,10 +126,10 @@ class AdvancedCache:
             self._cache.popitem(last=False)  # Remove oldest (LRU)
             self._evictions += 1
 
-    def get(self, prompt: str, model: str, **kwargs) -> Optional[Dict[str, Any]]:
+    async def get(self, prompt: str, model: str, **kwargs) -> Optional[Dict[str, Any]]:
         """Get cached response."""
         cache_key = self._generate_cache_key(prompt, model, **kwargs)
-        with self._lock:
+        async with self._lock:
             self._evict_expired()
             if cache_key in self._cache:
                 entry = self._cache[cache_key]
@@ -150,7 +143,7 @@ class AdvancedCache:
             self._misses += 1
             return None
 
-    def set(
+    async def set(
         self,
         prompt: str,
         model: str,
@@ -161,7 +154,7 @@ class AdvancedCache:
         """Cache response with TTL."""
         cache_key = self._generate_cache_key(prompt, model, **kwargs)
         ttl = ttl_hours or self.default_ttl_hours
-        with self._lock:
+        async with self._lock:
             self._evict_expired()
             self._evict_lru()
             entry = LLMCacheEntry(
@@ -173,11 +166,11 @@ class AdvancedCache:
             )
             self._cache[cache_key] = entry
             if self.persist_file:
-                self._save_cache()
+                await self._save_cache()
 
-    def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
-        with self._lock:
+        async with self._lock:
             total_requests = self._hits + self._misses
             hit_rate = (self._hits / total_requests * 100) if total_requests > 0 else 0
 
@@ -196,81 +189,98 @@ class AdvancedCache:
         try:
             # Rough estimation based on cache size
             return len(self._cache) * 0.1  # Assume ~100KB per entry
-        except Exception:
+        except (TypeError, ValueError):
             return 0.0
 
-    def clear(self):
+    async def clear(self):
         """Clear all cache entries."""
-        with self._lock:
+        async with self._lock:
             self._cache.clear()
             self._hits = 0
             self._misses = 0
             self._evictions = 0
 
             if self.persist_file:
-                self._save_cache()
+                await self._save_cache()
 
-    def _save_cache(self):
-        """Persist cache to file."""
+    async def _save_cache(self):
+        """Persist cache to file asynchronously."""
+        if not self.persist_file:
+            return
         try:
-            if self.persist_file:
-                cache_data = {
-                    "cache": dict(self._cache),
-                    "stats": {
-                        "hits": self._hits,
-                        "misses": self._misses,
-                        "evictions": self._evictions,
-                    },
-                    "saved_at": datetime.now().isoformat(),
-                }
+            cache_data = {
+                "cache": dict(self._cache),
+                "stats": {
+                    "hits": self._hits,
+                    "misses": self._misses,
+                    "evictions": self._evictions,
+                },
+                "saved_at": datetime.now().isoformat(),
+            }
 
+            def _dump():
                 with open(self.persist_file, "wb") as f:
                     pickle.dump(cache_data, f)
-        except Exception as e:
+
+            await asyncio.to_thread(_dump)
+        except (IOError, pickle.PickleError) as e:
             logger.warning("Failed to save cache", error=str(e))
 
-    def _load_cache(self):
-        """Load persisted cache from file."""
+    async def _load_cache(self):
+        """Load persisted cache from file asynchronously."""
+        if not self.persist_file or not os.path.exists(self.persist_file):
+            return
         try:
-            if self.persist_file and os.path.exists(self.persist_file):
+
+            def _load():
                 with open(self.persist_file, "rb") as f:
-                    cache_data = pickle.load(f)
+                    return pickle.load(f)
 
-                # Restore cache entries that haven't expired
-                for key, entry in cache_data.get("cache", {}).items():
-                    if not self._is_expired(entry):
-                        self._cache[key] = entry
+            cache_data = await asyncio.to_thread(_load)
 
-                # Restore stats
-                stats = cache_data.get("stats", {})
-                self._hits = stats.get("hits", 0)
-                self._misses = stats.get("misses", 0)
-                self._evictions = stats.get("evictions", 0)
+            # Restore cache entries that haven't expired
+            for key, entry in cache_data.get("cache", {}).items():
+                if not self._is_expired(entry):
+                    self._cache[key] = entry
 
-                logger.info(
-                    "Cache loaded from persistence",
-                    entries_loaded=len(self._cache),
-                    file=self.persist_file,
-                )
-        except Exception as e:
+            # Restore stats
+            stats = cache_data.get("stats", {})
+            self._hits = stats.get("hits", 0)
+            self._misses = stats.get("misses", 0)
+            self._evictions = stats.get("evictions", 0)
+
+            logger.info(
+                "Cache loaded from persistence",
+                entries_loaded=len(self._cache),
+                file=self.persist_file,
+            )
+        except (IOError, pickle.PickleError) as e:
             logger.warning("Failed to load persisted cache", error=str(e))
+
+    async def evict_expired_entries(self):
+        """Public method to manually trigger eviction of expired entries."""
+        async with self._lock:
+            self._evict_expired()
 
 
 # Global advanced cache instance
-_ADVANCED_CACHE = None
+_advanced_cache_lock = threading.Lock()
+_ADVANCED_CACHE: Optional[AdvancedCache] = None
 
 
 def get_advanced_cache() -> AdvancedCache:
     """Get global advanced cache instance."""
-    global _ADVANCED_CACHE
+    global _ADVANCED_CACHE  # pylint: disable=global-statement
     if _ADVANCED_CACHE is None:
-        settings = get_config()
-        cache_file = (
-            os.path.join(settings.data_dir, "llm_cache.pkl")
-            if hasattr(settings, "data_dir")
-            else None
-        )
-        _ADVANCED_CACHE = AdvancedCache(persist_file=cache_file)
+        with _advanced_cache_lock:
+            if _ADVANCED_CACHE is None:
+                settings = get_config()
+                cache_file = (
+                    os.path.join(settings.data_dir, "llm_cache.pkl")
+                    if hasattr(settings, "data_dir")
+                    else None
+                )
+                _ADVANCED_CACHE = AdvancedCache(persist_file=cache_file)
     return _ADVANCED_CACHE
 
 
@@ -278,11 +288,7 @@ def get_advanced_cache() -> AdvancedCache:
 # Use LRU (Least Recently Used) cache for LLM responses.
 # maxsize=128 means it will store up to 128 recent unique LLM calls.
 # This is highly effective for regeneration requests where the prompt is identical.
-def create_cache_key(prompt: str, model_name: str, content_type: str = "") -> str:
-    """Creates a consistent hashable key for caching based on the prompt."""
-    # Use a hash of the prompt to keep the key length manageable
-    prompt_hash = hashlib.md5(prompt.encode()).hexdigest()
-    return f"{model_name}:{content_type}:{prompt_hash}"
+# This function is now deprecated as AdvancedCache handles key generation internally.
 
 
 class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
@@ -290,6 +296,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
     Enhanced LLM service with Phase 2 infrastructure integration.
     Now composes LLMClient and LLMRetryHandler for SRP and testability.
     Strict DI: all dependencies must be injected.
+    Fully asynchronous implementation.
     """
 
     def __init__(
@@ -297,8 +304,8 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         settings,
         llm_client: LLMClient,
         llm_retry_handler: LLMRetryHandler,
-        cache,
-        timeout: int = 30,
+        cache: AdvancedCache,
+        timeout: int = 60,  # Increased timeout
         rate_limiter: Optional[RateLimiter] = None,
         error_recovery=None,
         performance_optimizer=None,
@@ -312,7 +319,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             settings: Injected settings/config dependency
             llm_client: Injected LLMClient instance
             llm_retry_handler: Injected LLMRetryHandler instance
-            cache: Injected cache instance
+            cache: Injected AdvancedCache instance
             timeout: Maximum time in seconds to wait for LLM response
             rate_limiter: Optional rate limiter instance
             error_recovery: Optional error recovery service
@@ -325,6 +332,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         self.llm_client = llm_client
         self.llm_retry_handler = llm_retry_handler
         self.cache = cache
+        self._cache_initialized = False
         self.rate_limiter = rate_limiter
         self.error_recovery = error_recovery
         self.performance_optimizer = performance_optimizer
@@ -347,12 +355,19 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         logger.info(
             "Enhanced LLM service initialized",
             model=self.model_name,
-            timeout=timeout,
+            timeout=self.timeout,
             using_user_key=self.using_user_key,
             using_fallback_key=self.using_fallback,
             has_fallback_key=bool(self.fallback_api_key),
             cache_enabled=True,
         )
+
+    async def _ensure_cache_initialized(self):
+        """Initializes the cache if it hasn't been already."""
+        if not self._cache_initialized:
+            if self.cache and hasattr(self.cache, "initialize"):
+                await self.cache.initialize()
+            self._cache_initialized = True
 
     async def ensure_api_key_valid(self):
         """
@@ -400,15 +415,10 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         Returns:
             bool: True if the API key is valid, False otherwise.
         """
-        import logging
-
         try:
-            # Use the current event loop to run the synchronous API call
-            loop = asyncio.get_event_loop()
-
             # Make a lightweight API call to validate the key
             # genai.list_models() is a simple call that requires authentication
-            models = await loop.run_in_executor(None, lambda: list(genai.list_models()))
+            models = await self.llm_client.list_models()
 
             # If we get here without exception, the key is valid
             logger.info(
@@ -420,7 +430,10 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
                 },
             )
             return True
-        except Exception as e:
+        except (
+            google_exceptions.GoogleAPICallError if google_exceptions else (),
+            ConfigurationError,
+        ) as e:
             # Log the validation failure with full details
             logger.warning(
                 "API key validation failed",
@@ -431,10 +444,10 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
                     "using_fallback": self.using_fallback,
                 },
             )
-            logging.error(f"Gemini API key validation exception: {e}", exc_info=True)
+            logging.error("Gemini API key validation exception: %s", e, exc_info=True)
             return False
 
-    def _switch_to_fallback_key(self) -> bool:
+    async def _switch_to_fallback_key(self) -> bool:
         """
         Switch to fallback API key when rate limits are encountered.
 
@@ -449,13 +462,16 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             )
 
             try:
-                # Reconfigure with fallback key
-                genai.configure(api_key=self.fallback_api_key)
+                # Reconfigure the client with the fallback key. This is more robust
+                # than global `genai.configure` and fixes a bug where the client
+                # was not being updated with the new key.
+                # Run sync code in a thread to avoid blocking the event loop.
+                await asyncio.to_thread(
+                    self.llm_client.reconfigure, api_key=self.fallback_api_key
+                )
                 self.active_api_key = self.fallback_api_key
                 self.using_fallback = True
 
-                # Reinitialize the model with new key
-                self.llm = genai.GenerativeModel(self.model_name)
             except (ValueError, ConnectionError) as e:
                 logger.error(
                     "Failed to switch to fallback API key",
@@ -488,34 +504,31 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             key_source=(
                 "user"
                 if self.using_user_key
-                else ("fallback" if self.using_fallback else "none")
+                else ("fallback" if self.using_fallback else "primary")
             ),
         )
 
-    async def _call_llm_with_retry(
-        self, prompt: str, session_id: str, trace_id: str
-    ) -> Any:
-        """Call LLM with retry logic using the composed retry handler."""
-        self.call_count += 1
-        logger.info(
-            "Starting LLM generation",
-            extra={
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "prompt_length": len(prompt),
-            },
-        )
-        # Directly await the retry handler
-        return await self.llm_retry_handler.generate_content(prompt)
+    async def _call_llm_with_retry(self, prompt: str, **kwargs) -> Any:
+        """Correctly awaits the async retry handler with a timeout."""
+        logger.info("Calling LLM via retry handler.", extra=kwargs)
+        try:
+            # Enforce timeout on the entire retry operation
+            return await asyncio.wait_for(
+                self.llm_retry_handler.generate_content(prompt, **kwargs),
+                timeout=self.timeout,
+            )
+        except asyncio.TimeoutError as e:
+            logger.error(
+                "LLM call timed out after %s seconds",
+                self.timeout,
+                extra={"prompt": prompt, **kwargs},
+            )
+            raise OperationTimeoutError(
+                f"LLM operation timed out after {self.timeout} seconds"
+            ) from e
 
     async def generate_content(
-        self,
-        prompt: str,
-        content_type: ContentType = ContentType.QUALIFICATION,
-        session_id: str = None,
-        item_id: str = None,
-        max_retries: int = 5,
-        trace_id: Optional[str] = None,
+        self, prompt: str, content_type: ContentType, **kwargs
     ) -> LLMResponse:
         """
         Generate content using the Gemini model with enhanced error handling and caching.
@@ -525,20 +538,18 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         Args:
             prompt: Text prompt to send to the model
             content_type: Type of content being generated
-            session_id: Session ID for tracking
-            item_id: Item ID for tracking
-            max_retries: Maximum number of retries
-            trace_id: Optional trace ID for tracking
+            **kwargs: Additional arguments including session_id, item_id, trace_id
 
         Returns:
             LLMResponse with generated content and metadata
         """
         start_time = time.time()
 
+        # 0. Ensure cache is initialized
+        await self._ensure_cache_initialized()
+
         # 1. Check cache
-        cached_response = self._check_cache(
-            prompt, content_type, session_id, item_id, trace_id
-        )
+        cached_response = await self._check_cache(prompt, content_type, **kwargs)
         if cached_response:
             return cached_response
 
@@ -549,56 +560,69 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         try:
             # Await the retry handler with timeout
             response = await asyncio.wait_for(
-                self._call_llm_with_retry(prompt, session_id, trace_id),
+                self._call_llm_with_retry(prompt=prompt, **kwargs),
                 timeout=self.timeout,
             )
             processing_time = time.time() - start_time
 
             # 4. Cache result and return
             llm_response = self._create_llm_response(
-                response, processing_time, content_type, session_id, item_id
+                response, processing_time, content_type, **kwargs
             )
-            self._cache_response(prompt, content_type, llm_response)
+            await self._cache_response(prompt, content_type, llm_response, **kwargs)
 
             return llm_response
 
         except ConfigurationError:
             # Do not retry on fatal config errors. Re-raise immediately.
             raise
-        except asyncio.TimeoutError:
+        except (RateLimitError, NetworkError) as e:
+            logger.warning(
+                "A transient error occurred",
+                error=str(e),
+                trace_id=kwargs.get("trace_id"),
+            )
+            # Re-raise to be handled by tenacity if applicable
+            raise e
+        except asyncio.TimeoutError as e:
             logger.error(
-                "LLM request timed out",
+                "LLM request timed out after %s seconds",
+                self.timeout,
                 extra={
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "timeout": self.timeout,
+                    "trace_id": kwargs.get("trace_id"),
+                    "session_id": kwargs.get("session_id"),
                     "prompt_length": len(prompt),
                 },
             )
             raise OperationTimeoutError(
                 f"LLM request timed out after {self.timeout} seconds"
-            )
-        except Exception as e:
+            ) from e
+        except google_exceptions.GoogleAPICallError as e:
             # Handle errors and try fallback content
             return await self._handle_error_with_fallback(
-                e, content_type, session_id, item_id, start_time
+                e, content_type, **kwargs, start_time=start_time, prompt=prompt
             )
 
-    def _check_cache(
+    async def _check_cache(
         self,
         prompt: str,
         content_type: ContentType,
-        session_id: str,
-        item_id: str,
-        trace_id: str,
+        **kwargs,
     ) -> Optional[LLMResponse]:
         """Check cache for existing response."""
-        cache_key = create_cache_key(prompt, self.model_name, content_type.value)
-        cached_response = (
-            self.cache.get(cache_key, self.model_name) if self.cache else None
+        if not self.cache:
+            return None
+
+        # Pass all relevant kwargs to the cache to generate a comprehensive key
+        cached_response = await self.cache.get(
+            prompt, self.model_name, content_type=content_type.value, **kwargs
         )
+
         if cached_response:
             self.cache_hits += 1
+            session_id = kwargs.get("session_id")
+            item_id = kwargs.get("item_id")
+            trace_id = kwargs.get("trace_id")
             logger.info(
                 "Cache hit for LLM request",
                 extra={
@@ -606,7 +630,6 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
                     "session_id": session_id,
                     "item_id": item_id,
                     "content_type": content_type.value,
-                    "cache_key": cache_key[:20] + "...",
                 },
             )
             cached_response["metadata"]["cache_hit"] = True
@@ -614,13 +637,14 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             cached_response["metadata"]["item_id"] = item_id
             cached_response["processing_time"] = 0.001
             return LLMResponse(**cached_response)
+
         self.cache_misses += 1
         logger.debug(
             "Cache miss for LLM request",
             extra={
-                "trace_id": trace_id,
-                "session_id": session_id,
-                "item_id": item_id,
+                "trace_id": kwargs.get("trace_id"),
+                "session_id": kwargs.get("session_id"),
+                "item_id": kwargs.get("item_id"),
                 "content_type": content_type.value,
             },
         )
@@ -633,24 +657,39 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
     def _create_llm_response(
         self,
-        response: Any,
-        processing_time: float,
-        content_type: ContentType,
-        session_id: str,
-        item_id: str,
+        response,
+        processing_time,
+        content_type,
+        **kwargs,
     ) -> LLMResponse:
-        """Create structured LLM response from API response."""
-        self.total_processing_time += processing_time
+        """Create a structured LLMResponse object."""
+        session_id = kwargs.get("session_id")
+        item_id = kwargs.get("item_id")
+        # Safely get token usage
+        tokens_used = getattr(response, "tokens", 0) or getattr(
+            response, "usage", {}
+        ).get("total_tokens", 0)
 
-        if not hasattr(response, "text") or response.text is None:
-            raise ValueError("LLM returned an empty or invalid response")
-
-        # Estimate token usage (rough approximation)
-        if hasattr(response, "text") and isinstance(response.text, str):
-            tokens_used = len(response.text.split())
-        else:
+        # Defensive check for negative or excessively high token usage
+        if tokens_used < 0:
+            logger.warning(
+                "Negative token usage detected, defaulting to 0",
+                response=response,
+                processing_time=processing_time,
+            )
             tokens_used = 0
-        self.total_tokens += tokens_used
+        elif tokens_used > 10000:
+            logger.warning(
+                "Excessive token usage detected, capping at 10000",
+                response=response,
+                processing_time=processing_time,
+                tokens_used=tokens_used,
+            )
+            tokens_used = 10000
+
+        # Estimate processing time based on response length (defensive)
+        if processing_time is None or processing_time <= 0:
+            processing_time = max(0.001, tokens_used / 1000)  # Default to 1ms per token
 
         # Create structured response with defensive metadata
         safe_metadata = {
@@ -680,8 +719,12 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
         return llm_response
 
-    def _cache_response(
-        self, prompt: str, content_type: ContentType, llm_response: LLMResponse
+    async def _cache_response(
+        self,
+        prompt: str,
+        content_type: ContentType,
+        llm_response: LLMResponse,
+        **kwargs,
     ) -> None:
         """Cache the successful response."""
         cache_data = {
@@ -698,40 +741,34 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
             },
         }
         if self.cache:
-            self.cache.set(prompt, self.model_name, cache_data, ttl_hours=2)
+            await self.cache.set(
+                prompt,
+                self.model_name,
+                cache_data,
+                ttl_hours=2,
+                content_type=content_type.value,
+                **kwargs,
+            )
 
     async def _handle_error_with_fallback(
-        self,
-        error: Exception,
-        content_type: ContentType,
-        session_id: str,
-        item_id: str,
-        start_time: float,
+        self, error: Exception, content_type: ContentType, start_time: float, **kwargs
     ) -> LLMResponse:
         """Handle errors and attempt fallback content."""
         processing_time = time.time() - start_time
+        session_id = kwargs.get("session_id")
+        item_id = kwargs.get("item_id")
 
         # Check if this is a rate limit error and try fallback key
-        error_str = str(error).lower()
-        is_rate_limit_error = any(
-            keyword in error_str
-            for keyword in [
-                "rate limit",
-                "quota",
-                "429",
-                "too many requests",
-                "resource_exhausted",
-            ]
-        )
-
-        if is_rate_limit_error and not self.using_fallback:
+        if is_rate_limit_error(error) and not self.using_fallback:
             logger.warning(
                 "Rate limit detected, attempting to switch to fallback API key",
                 error=str(error),
             )
 
-            if self._switch_to_fallback_key():
-                # Re-raise to let tenacity handle the retry
+            if await self._switch_to_fallback_key():
+                # After switching key, retry the operation by re-raising
+                # The tenacity decorator on the calling method will catch this
+                logger.info("Re-raising error to trigger retry with new key.")
                 raise error
 
         # Use error recovery service if available
@@ -760,7 +797,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
                             "fallback_used": True,
                         },
                     )
-            except Exception as recovery_error:
+            except (ValueError, TypeError, KeyError) as recovery_error:
                 logger.warning(
                     "Error recovery service failed",
                     error=str(recovery_error),
@@ -775,13 +812,15 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         )
         raise error
 
-    def get_service_stats(self) -> LLMServiceStats:
+    async def get_service_stats(self) -> LLMServiceStats:
         """Get service performance statistics including cache metrics."""
+        await self._ensure_cache_initialized()
         total_requests = self.cache_hits + self.cache_misses
-        cache_hit_rate = (
-            self.cache_hits / max(total_requests, 1)
-        ) * 100  # Get advanced cache stats
-        cache_stats = self.cache.get_stats() if self.cache else {}
+        cache_hit_rate = 0.0
+        if total_requests > 0:
+            cache_hit_rate = (self.cache_hits / total_requests) * 100
+        # Get advanced cache stats
+        cache_stats = await self.cache.get_stats() if self.cache else {}
 
         # Get optimizer stats
         optimizer_stats = (
@@ -807,7 +846,7 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
                 if hasattr(self.rate_limiter, "get_status")
                 else None
             ),
-            cache_stats=cache_stats,
+            cache_stats={**cache_stats, "hit_rate_percent": cache_hit_rate},
             optimizer_stats=optimizer_stats,
             async_stats=async_stats,
         )
@@ -822,21 +861,23 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
         logger.info("LLM service statistics reset")
 
-    def clear_cache(self):
+    async def clear_cache(self):
         """Clear the LLM response cache."""
+        await self._ensure_cache_initialized()
         if self.cache:
-            self.cache.clear()
+            await self.cache.clear()
         self.cache_hits = 0
         self.cache_misses = 0
         logger.info("LLM service cache cleared")
 
-    def optimize_performance(self) -> LLMPerformanceOptimizationResult:
+    async def optimize_performance(self) -> LLMPerformanceOptimizationResult:
         """Run performance optimization."""
+        await self._ensure_cache_initialized()
         # Clear expired cache entries (if cache is available)
-        cache_stats_before = self.cache.get_stats() if self.cache else {"size": 0}
-        if self.cache and hasattr(self.cache, "_evict_expired"):
-            self.cache._evict_expired()
-        cache_stats_after = self.cache.get_stats() if self.cache else {"size": 0}
+        cache_stats_before = await self.cache.get_stats() if self.cache else {"size": 0}
+        if self.cache and hasattr(self.cache, "evict_expired_entries"):
+            await self.cache.evict_expired_entries()
+        cache_stats_after = await self.cache.get_stats() if self.cache else {"size": 0}
 
         result = LLMPerformanceOptimizationResult(
             cache_optimization={
@@ -850,14 +891,6 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
         logger.info("Performance optimization completed", result=result.dict())
         return result
-
-    def __del__(self):
-        """Cleanup resources on destruction."""
-        try:
-            if hasattr(self, "executor"):
-                self.executor.shutdown(wait=False)
-        except Exception:
-            pass  # Ignore cleanup errors
 
     async def generate(self, *args, **kwargs):
         """

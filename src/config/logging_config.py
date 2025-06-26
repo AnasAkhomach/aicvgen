@@ -135,6 +135,6 @@ def get_structured_logger(name: str) -> "StructuredLogger":
 def log_error_with_context(logger, message, error=None):
     """Logs an error with additional context, including exception info."""
     if error:
-        logger.error(f"{message}: {error}", exc_info=True)
+        logger.error("%s: %s", message, error, exc_info=True)
     else:
         logger.error(message, exc_info=True)
