@@ -53,7 +53,9 @@ class ApplicationStartup:
         self.container = get_container()
         self._shutdown_hook_registered = False
 
-    def initialize_services(self, session_id: Optional[str] = None) -> StartupResult:
+    def initialize_application(
+        self, user_api_key: str = "", session_id: Optional[str] = None
+    ) -> StartupResult:
         """
         Ensures all core services are wired and ready.
         With the new DI container, initialization is mostly declarative.
@@ -142,6 +144,34 @@ class ApplicationStartup:
         self.is_initialized = False
         logger.info("Application shutdown complete.")
 
+    def validate_application(self) -> List[str]:
+        """
+        Validate that all critical services are properly initialized and configured.
+        Returns a list of validation errors, empty if all validations pass.
+        """
+        errors = []
+
+        if not self.is_initialized:
+            errors.append("Application not initialized")
+            return errors
+
+        try:
+            # Validate that critical services are accessible
+            self.container.config()
+            self.container.llm_service()
+            self.container.vector_store_service()
+
+            logger.info("Application validation completed successfully")
+        except Exception as e:
+            logger.error("Application validation failed", error=str(e))
+            errors.append(f"Service validation failed: {str(e)}")
+
+        return errors
+
+    def shutdown_application(self):
+        """Alias for shutdown() method to match main.py expectations."""
+        self.shutdown()
+
 
 _startup_lock = threading.Lock()
 _startup_instance: Optional[ApplicationStartup] = None
@@ -155,3 +185,8 @@ def get_application_startup() -> ApplicationStartup:
             if _startup_instance is None:
                 _startup_instance = ApplicationStartup()
     return _startup_instance
+
+
+def get_startup_manager() -> ApplicationStartup:
+    """Alias for get_application_startup() to match main.py expectations."""
+    return get_application_startup()

@@ -1,0 +1,18 @@
+[MASTER]
+# A comma-separated list of package or module names from where C extensions may
+# be loaded. Extensions are loading into the active Python interpreter and may
+# run arbitrary code
+extension-pkg-allow-list=dependency-injector
+
+[MESSAGES CONTROL]
+# Disable specific messages
+disable=
+    global-statement,
+    c-extension-no-member,
+    missing-docstring,
+    too-few-public-methods,
+    too-many-arguments
+
+[FORMAT]
+# Maximum number of characters on a single line.
+max-line-length=100

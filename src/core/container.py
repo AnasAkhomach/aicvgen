@@ -1,8 +1,13 @@
 """Module for the dependency injection container."""
 
-from dependency_injector import containers, providers
-import google.generativeai as genai
 import threading
+from typing import Optional
+
+from dependency_injector import (
+    containers,
+    providers,
+)  # pylint: disable=c-extension-no-member
+import google.generativeai as genai
 
 from ..config.settings import get_config
 from ..services.llm_service import EnhancedLLMService, get_advanced_cache
@@ -20,39 +25,48 @@ from ..services.progress_tracker import ProgressTracker
 from ..templates.content_templates import ContentTemplateManager
 
 
-class Container(containers.DeclarativeContainer):
+def create_configured_llm_model(api_key: str, model_name: str) -> genai.GenerativeModel:
+    """Create a GenerativeModel with proper API key configuration."""
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel(model_name=model_name)
+
+
+class Container(
+    containers.DeclarativeContainer
+):  # pylint: disable=c-extension-no-member
     """Dependency injection container for the application."""
 
-    config = providers.Singleton(get_config)
+    config = providers.Singleton(get_config)  # pylint: disable=c-extension-no-member
 
-    # Configure Google Generative AI
-    # This is a one-time setup
-    genai.configure(api_key=config.provided.llm.gemini_api_key_primary)
-
-    template_manager = providers.Singleton(
+    template_manager = providers.Singleton(  # pylint: disable=c-extension-no-member
         ContentTemplateManager,
-        prompt_directory=providers.Callable(str, config.provided.prompts_directory),
+        prompt_directory=providers.Callable(
+            str, config.provided.prompts_directory
+        ),  # pylint: disable=c-extension-no-member
     )
 
     # LLM Service Stack
-    llm_model = providers.Singleton(
-        genai.GenerativeModel,
+    llm_model = providers.Singleton(  # pylint: disable=c-extension-no-member
+        create_configured_llm_model,
+        api_key=config.provided.llm.gemini_api_key_primary,
         model_name=config.provided.llm_settings.default_model,
     )
 
-    llm_client = providers.Singleton(
+    llm_client = providers.Singleton(  # pylint: disable=c-extension-no-member
         LLMClient,
         llm_model=llm_model,
     )
 
-    llm_retry_handler = providers.Singleton(
+    llm_retry_handler = providers.Singleton(  # pylint: disable=c-extension-no-member
         LLMRetryHandler,
         llm_client=llm_client,
     )
 
-    advanced_cache = providers.Singleton(get_advanced_cache)
+    advanced_cache = providers.Singleton(
+        get_advanced_cache
+    )  # pylint: disable=c-extension-no-member
 
-    llm_service = providers.Singleton(
+    llm_service = providers.Singleton(  # pylint: disable=c-extension-no-member
         EnhancedLLMService,
         settings=config,
         llm_client=llm_client,
@@ -61,11 +75,11 @@ class Container(containers.DeclarativeContainer):
         timeout=config.provided.llm.request_timeout,
     )
 
-    vector_store_service = providers.Singleton(
+    vector_store_service = providers.Singleton(  # pylint: disable=c-extension-no-member
         VectorStoreService, settings=config.provided
     )
 
-    progress_tracker = providers.Factory(
+    progress_tracker = providers.Factory(  # pylint: disable=c-extension-no-member
         ProgressTracker,
         enabled=config.provided.progress_tracker.enabled,
         log_interval=config.provided.progress_tracker.log_interval,
@@ -73,71 +87,92 @@ class Container(containers.DeclarativeContainer):
     )
 
     # Agent Providers
-    parser_agent = providers.Factory(
+    parser_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         ParserAgent,
         llm_service=llm_service,
         vector_store_service=vector_store_service,
         template_manager=template_manager,
-        settings=providers.Object({}),
-        session_id=providers.Object("default"),
+        settings=providers.Object({}),  # pylint: disable=c-extension-no-member
+        session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
-    cv_analyzer_agent = providers.Factory(
+    cv_analyzer_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         CVAnalyzerAgent,
         llm_service=llm_service,
-        session_id=providers.Object("default"),
+        session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
-    enhanced_content_writer_agent = providers.Factory(
-        EnhancedContentWriterAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
-        settings=providers.Object({}),
-        session_id=providers.Object("default"),
+    enhanced_content_writer_agent = (
+        providers.Factory(  # pylint: disable=c-extension-no-member
+            EnhancedContentWriterAgent,
+            llm_service=llm_service,
+            template_manager=template_manager,
+            settings=providers.Object({}),  # pylint: disable=c-extension-no-member
+            session_id=providers.Object(
+                "default"
+            ),  # pylint: disable=c-extension-no-member
+        )
     )
 
-    cleaning_agent = providers.Factory(
+    cleaning_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         CleaningAgent,
         llm_service=llm_service,
         template_manager=template_manager,
-        settings=providers.Object({}),
-        session_id=providers.Object("default"),
+        settings=providers.Object({}),  # pylint: disable=c-extension-no-member
+        session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
-    quality_assurance_agent = providers.Factory(
-        QualityAssuranceAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
-        settings=providers.Object({}),
-        session_id=providers.Object("default"),
+    quality_assurance_agent = (
+        providers.Factory(  
+            QualityAssuranceAgent,
+            llm_service=llm_service,
+            template_manager=template_manager,
+            settings=providers.Object({}),  # pylint: disable=c-extension-no-member
+            session_id=providers.Object(
+                "default"
+            ),  # pylint: disable=c-extension-no-member
+        )
     )
 
-    formatter_agent = providers.Factory(
+    formatter_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         FormatterAgent,
         template_manager=template_manager,
-        settings=providers.Object({}),
-        session_id=providers.Object("default"),
+        settings=providers.Object({}),  # pylint: disable=c-extension-no-member
+        session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
-    research_agent = providers.Factory(
+    research_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         ResearchAgent,
         llm_service=llm_service,
         vector_store_service=vector_store_service,
-        settings=providers.Object({}),
+        settings=providers.Object({}),  # pylint: disable=c-extension-no-member
         template_manager=template_manager,
-        session_id=providers.Object("default"),
+        session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
 
-_container: Container | None = None
-_lock = threading.Lock()
+class ContainerSingleton:
+    """Thread-safe singleton for the DI container."""
+
+    _instance: Optional["Container"] = None
+    _lock = threading.Lock()
+
+    @classmethod
+    def get_instance(cls) -> "Container":
+        """Get the singleton instance of the container."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = Container()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance (mainly for testing)."""
+        with cls._lock:
+            cls._instance = None
 
 
 def get_container() -> Container:
     """Returns the singleton instance of the DI container."""
-    global _container
-    if _container is None:
-        with _lock:
-            if _container is None:
-                _container = Container()
-    return _container
+    return ContainerSingleton.get_instance()

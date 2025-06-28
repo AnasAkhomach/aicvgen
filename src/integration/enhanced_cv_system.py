@@ -13,7 +13,12 @@ from enum import Enum
 import hashlib
 from contextlib import nullcontext
 
-from src.models.data_models import ContentType, WorkflowType, StructuredCV, JobDescriptionData
+from src.models.data_models import (
+    ContentType,
+    WorkflowType,
+    StructuredCV,
+    JobDescriptionData,
+)
 from src.config.logging_config import get_structured_logger
 from src.config.settings import get_config
 from src.services.error_recovery import ErrorRecoveryService, RecoveryStrategy
@@ -191,52 +196,43 @@ class EnhancedCVIntegration:
         try:
             container = get_container()
 
-            # Note: Some agent names may need to be mapped to what's actually registered
-            # in the DI container. Using the container directly ensures consistency.
+            # Use the actual agent names from the container with attribute access
             try:
-                self._agents["cv_analysis"] = container.get_by_name(
-                    "cv_analyzer_agent", session_id=session_id
-                )
-            except ValueError:
-                # Fallback if the agent name doesn't exist in the container
+                self._agents["cv_analysis"] = container.cv_analyzer_agent()
+            except Exception as e:
                 self.logger.warning(
-                    "cv_analyzer_agent not found in container, skipping"
+                    f"cv_analyzer_agent not available in container: {e}"
                 )
-
-            self._agents["quality_assurance"] = container.get_by_name(
-                "qa_agent", session_id=session_id
-            )
 
             try:
-                self._agents["enhanced_parser"] = container.get_by_name(
-                    "enhanced_parser_agent", session_id=session_id
-                )
-            except ValueError:
+                self._agents["quality_assurance"] = container.quality_assurance_agent()
+            except Exception as e:
                 self.logger.warning(
-                    "enhanced_parser_agent not found in container, skipping"
+                    f"quality_assurance_agent not available in container: {e}"
                 )
 
             try:
-                self._agents["formatter"] = container.get_by_name(
-                    "formatter_agent", session_id=session_id
-                )
-            except ValueError:
-                self.logger.warning("formatter_agent not found in container, skipping")
+                self._agents["enhanced_parser"] = container.parser_agent()
+            except Exception as e:
+                self.logger.warning(f"parser_agent not available in container: {e}")
 
             try:
-                self._agents["cleaning"] = container.get_by_name(
-                    "cleaning_agent", session_id=session_id
-                )
-            except ValueError:
-                self.logger.warning("cleaning_agent not found in container, skipping")
+                self._agents["formatter"] = container.formatter_agent()
+            except Exception as e:
+                self.logger.warning(f"formatter_agent not available in container: {e}")
 
             try:
-                self._agents["enhanced_content_writer"] = container.get_by_name(
-                    "enhanced_content_writer_agent", session_id=session_id
+                self._agents["cleaning"] = container.cleaning_agent()
+            except Exception as e:
+                self.logger.warning(f"cleaning_agent not available in container: {e}")
+
+            try:
+                self._agents["enhanced_content_writer"] = (
+                    container.enhanced_content_writer_agent()
                 )
-            except ValueError:
+            except Exception as e:
                 self.logger.warning(
-                    "enhanced_content_writer_agent not found in container, skipping"
+                    f"enhanced_content_writer_agent not available in container: {e}"
                 )
 
             self.logger.info(
@@ -420,7 +416,6 @@ class EnhancedCVIntegration:
             )
         else:
             # Return a no-op context manager if performance optimizer is not available
-            
 
             return nullcontext()
 
@@ -432,7 +427,6 @@ class EnhancedCVIntegration:
             )
         else:
             # Return a no-op context manager if async optimizer is not available
-
 
             return nullcontext()
 
@@ -711,7 +705,6 @@ class EnhancedCVIntegration:
         """Generate a basic CV."""
         # Create AgentState from the provided data
 
-
         structured_cv = StructuredCV.create_empty()
         # You might want to populate structured_cv with personal_info, experience, education here
 
@@ -752,7 +745,6 @@ class EnhancedCVIntegration:
 
         # Create AgentState from the provided data
 
-
         structured_cv = StructuredCV.create_empty()
 
         # Create job description data
@@ -786,7 +778,6 @@ class EnhancedCVIntegration:
         """Optimize an existing CV."""
         # Create AgentState from existing CV data
 
-
         # Try to convert existing_cv to StructuredCV if it's not already
         if isinstance(existing_cv, dict):
             structured_cv = StructuredCV.model_validate(existing_cv)
@@ -809,7 +800,6 @@ class EnhancedCVIntegration:
     ) -> Dict[str, Any]:
         """Perform quality assurance on CV content."""
         # Create AgentState from CV content
-
 
         # Try to convert cv_content to StructuredCV if it's not already
         if isinstance(cv_content, dict):

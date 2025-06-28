@@ -197,12 +197,12 @@ def handle_api_key_validation():
             logger.debug("Getting container and services for validation.")
             # Get container and update settings with the new key
             container = get_container()
-            settings = container.get_by_name("settings")
+            settings = container.config()
             settings.gemini_api_key = user_api_key
 
             # The LLM service is a singleton. We assume it's designed to handle
             # settings changes, or it's re-initialized on next use internally.
-            llm_service: EnhancedLLMService = container.get_by_name("llm_service")
+            llm_service: EnhancedLLMService = container.llm_service()
 
             logger.debug("Running async validation.")
             # Run validation asynchronously

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 import google.generativeai as genai
 
 
@@ -13,3 +13,18 @@ class LLMClient:
         if self.llm is None:
             raise ValueError("LLM model is not initialized.")
         return await self.llm.generate_content_async(prompt)
+
+    async def list_models(self) -> List[Any]:
+        """List available models for API key validation."""
+        # Use the genai module directly to list models
+        # This is a lightweight call that requires authentication
+        models = []
+        for model in genai.list_models():
+            models.append(model)
+        return models
+
+    def reconfigure(self, api_key: str) -> None:
+        """Reconfigure the client with a new API key."""
+        genai.configure(api_key=api_key)
+        # Note: The llm_model itself doesn't need to be recreated
+        # as it will use the newly configured API key

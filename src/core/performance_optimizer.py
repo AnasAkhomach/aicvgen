@@ -9,6 +9,7 @@ This module provides comprehensive performance optimizations including:
 """
 
 import asyncio
+import gc
 import time
 import threading
 from typing import Dict, Any, Optional, List, Callable, Tuple
