@@ -70,7 +70,7 @@ def _setup_development_logging(log_level=logging.INFO):
 
 
 def _setup_production_logging(log_level=logging.INFO):
-    """Sets up structured JSON logging for production."""
+    """Sets up structured JSON logging for production with persistent file handlers."""
     logger = logging.getLogger()
     logger.setLevel(log_level)
 
@@ -78,15 +78,56 @@ def _setup_production_logging(log_level=logging.INFO):
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    # Create a handler for structured JSON logging to stdout
-    log_handler = logging.StreamHandler()
-    formatter = jsonlogger.JsonFormatter(
-        "%(asctime)s %(name)s %(levelname)s %(message)s %(filename)s %(lineno)d"
-    )
-    log_handler.setFormatter(formatter)
-    logger.addHandler(log_handler)
+    try:
+        # Get configuration and ensure log directories exist
+        config = get_config()
+        logs_dir = Path(config.logging.log_directory)
+        error_logs_dir = logs_dir / "error"
+        logs_dir.mkdir(exist_ok=True, parents=True)
+        error_logs_dir.mkdir(exist_ok=True, parents=True)
 
-    logging.info("Production (JSON) logging initialized.")
+        # Create a handler for structured JSON logging to stdout
+        console_handler = logging.StreamHandler()
+        json_formatter = jsonlogger.JsonFormatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s %(filename)s %(lineno)d"
+        )
+        console_handler.setFormatter(json_formatter)
+        logger.addHandler(console_handler)
+
+        # Create standard formatter for file logs (human-readable)
+        file_formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+
+        # Create and add main log file handler
+        main_log_path = logs_dir / config.logging.main_log_file
+        main_file_handler = logging.FileHandler(main_log_path)
+        main_file_handler.setFormatter(file_formatter)
+        logger.addHandler(main_file_handler)
+
+        # Create and add error log file handler
+        error_log_path = error_logs_dir / config.logging.error_log_file
+        error_file_handler = logging.FileHandler(error_log_path)
+        error_file_handler.setLevel(logging.ERROR)
+        error_file_handler.setFormatter(file_formatter)
+        logger.addHandler(error_file_handler)
+
+        logging.info("Production logging initialized with file persistence.")
+
+    except (IOError, PermissionError) as e:
+        # Graceful fallback to console-only logging
+        console_handler = logging.StreamHandler()
+        json_formatter = jsonlogger.JsonFormatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s %(filename)s %(lineno)d"
+        )
+        console_handler.setFormatter(json_formatter)
+        logger.addHandler(console_handler)
+
+        logging.warning(
+            "Failed to setup file logging (permissions or IO error): %s. "
+            "Falling back to console-only logging.",
+            str(e),
+        )
 
 
 def get_logger(name: str) -> logging.Logger:

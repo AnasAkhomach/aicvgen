@@ -19,11 +19,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.startup_optimizer import get_startup_optimizer
 from core.performance_monitor import get_performance_monitor, time_operation
-from core.dependency_injection import get_container, reset_container
-from core.agent_lifecycle_manager import (
-    get_agent_lifecycle_manager,
-    reset_agent_lifecycle_manager,
-)
+from core.container import get_container
+from core.agent_lifecycle_manager import get_agent_lifecycle_manager
+from config.logging_config import get_structured_logger
 from config.logging_config import get_structured_logger
 
 logger = get_structured_logger(__name__)
@@ -79,8 +77,8 @@ class OptimizationDemo:
             print(f"\n📊 Testing {strategy.upper()} strategy...")
 
             # Reset systems for clean test
-            reset_container()
-            reset_agent_lifecycle_manager()
+            # Reset functionality removed - using simplified DI system
+            logger.info("Reset functionality simplified with new DI system")
 
             # Run optimization
             with time_operation(f"startup_{strategy}"):
@@ -147,7 +145,8 @@ class OptimizationDemo:
                 print(f"   📨 RequestService created: {self.request_id}")
 
         # Register services
-        from core.dependency_injection import LifecycleScope
+        # Lifecycle scope functionality removed with simplified DI system
+        logger.info("Simplified dependency injection demonstration")
 
         container.register_singleton("config", ConfigService, factory=ConfigService)
         container.register_session(

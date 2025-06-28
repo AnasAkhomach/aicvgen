@@ -7,9 +7,9 @@ from typing import Optional
 
 from ..orchestration.state import AgentState, UserFeedback
 from ..error_handling.exceptions import ConfigurationError, AgentExecutionError
-from ..core.dependency_injection import get_container
+from ..core.container import get_container
 from ..utils.state_utils import create_initial_agent_state
-from ..core.application_startup import get_startup_manager
+from ..core.application_startup import get_application_startup
 from ..models.data_models import UserAction, WorkflowType
 
 # Import the integration layer instead of direct workflow graph
@@ -30,7 +30,7 @@ def get_enhanced_cv_integration_instance():
             st.session_state.session_id = session_id
 
         # Application should already be initialized by the time a callback is called.
-        startup_manager = get_startup_manager()
+        startup_manager = get_application_startup()
         if not startup_manager.is_initialized:
             # This should ideally never happen if the app is started via main.py
             st.error("FATAL: Integration started before application was initialized.")

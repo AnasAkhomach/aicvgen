@@ -12,7 +12,7 @@ import os
 import json
 from pathlib import Path
 
-from .dependency_injection import get_container
+from .container import get_container
 from .agent_lifecycle_manager import get_agent_lifecycle_manager
 from ..config.logging_config import get_structured_logger
 from ..error_handling.models import (

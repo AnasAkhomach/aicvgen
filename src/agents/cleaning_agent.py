@@ -2,13 +2,13 @@
 
 from typing import Any, List, Tuple
 
-from src.config.logging_config import get_structured_logger
-from src.error_handling.exceptions import AgentExecutionError
-from src.models.agent_models import AgentResult
-from src.models.agent_output_models import CleaningAgentOutput
-from src.services.llm_service import EnhancedLLMService
-from src.templates.content_templates import ContentTemplateManager
-from src.agents.agent_base import AgentBase
+from ..config.logging_config import get_structured_logger
+from ..error_handling.exceptions import AgentExecutionError
+from ..models.agent_models import AgentResult
+from ..models.agent_output_models import CleaningAgentOutput
+from ..services.llm_service import EnhancedLLMService
+from ..templates.content_templates import ContentTemplateManager
+from .agent_base import AgentBase
 
 
 logger = get_structured_logger(__name__)
@@ -22,11 +22,13 @@ class CleaningAgent(AgentBase):
         llm_service: EnhancedLLMService,
         template_manager: ContentTemplateManager,
         settings: dict,
+        session_id: str = "default",
     ):
         """Initialize the CleaningAgent with required dependencies."""
         super().__init__(
             name="CleaningAgent",
             description="Cleans and structures raw text or LLM outputs.",
+            session_id=session_id,
         )
         self.llm_service = llm_service
         self.template_manager = template_manager

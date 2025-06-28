@@ -5,7 +5,7 @@ This module defines the FormatterAgent, responsible for formatting CVs into file
 from pathlib import Path
 from typing import Any, Optional
 
-from src.models.agent_models import AgentResult
+from ..models.agent_models import AgentResult
 from src.models.agent_output_models import FormatterAgentOutput
 from ..config.logging_config import get_structured_logger
 from ..error_handling.exceptions import (
@@ -56,7 +56,7 @@ class FormatterAgent(AgentBase):
         self.template_manager = template_manager
         self.settings = settings
 
-    def run(self, **kwargs: Any) -> AgentResult[FormatterAgentOutput]:
+    async def run(self, **kwargs: Any) -> AgentResult[FormatterAgentOutput]:
         """Formats a StructuredCV into a file and returns the path."""
         structured_cv: Optional[StructuredCV] = kwargs.get("structured_cv")
         format_type: str = kwargs.get("format_type", "pdf")

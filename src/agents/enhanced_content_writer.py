@@ -2,18 +2,18 @@
 This module defines the EnhancedContentWriterAgent, responsible for generating tailored CV content.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from src.models.agent_models import AgentResult
-from src.models.agent_output_models import EnhancedContentWriterOutput
-from src.models.data_models import (
+from ..models.agent_models import AgentResult
+from ..models.agent_output_models import EnhancedContentWriterOutput
+from ..models.data_models import (
     ContentType,
     JobDescriptionData,
     StructuredCV,
 )
-from src.services.llm_service import EnhancedLLMService
-from src.templates.content_templates import ContentTemplateManager
-from src.utils.cv_data_factory import get_item_by_id, update_item_by_id
+from ..services.llm_service import EnhancedLLMService
+from ..templates.content_templates import ContentTemplateManager
+from ..utils.cv_data_factory import get_item_by_id, update_item_by_id
 
 from ..config.logging_config import get_structured_logger
 from ..error_handling.exceptions import AgentExecutionError
@@ -42,14 +42,20 @@ class EnhancedContentWriterAgent(AgentBase):
         self.template_manager = template_manager
         self.settings = settings
 
-    async def run(
-        self,
-        structured_cv: StructuredCV,
-        job_description_data: JobDescriptionData,
-        item_id: str,
-        research_findings: Optional[Dict[str, Any]] = None,
-    ) -> AgentResult[EnhancedContentWriterOutput]:
+    async def run(self, **kwargs: Any) -> AgentResult[EnhancedContentWriterOutput]:
         """Generate enhanced content for a specific item in the CV."""
+        # Extract parameters from kwargs
+        structured_cv = kwargs.get("structured_cv")
+        job_description_data = kwargs.get("job_description_data")
+        item_id = kwargs.get("item_id")
+        research_findings = kwargs.get("research_findings")
+
+        if not structured_cv or not job_description_data or not item_id:
+            return AgentResult.failure(
+                agent_name=self.name,
+                error_message="Missing required parameters: structured_cv, job_description_data, or item_id",
+            )
+
         self.update_progress(0, "Starting content generation")
 
         try:
@@ -102,15 +108,9 @@ class EnhancedContentWriterAgent(AgentBase):
                 error=str(e),
                 exc_info=True,
             )
-            err = AgentExecutionError(
+            return AgentResult.failure(
                 agent_name=self.name,
-                message=f"An unexpected error occurred while generating content for item '{item_id}'",
-                original_exception=e,
-            )
-            return AgentResult(
-                success=False,
-                error_message=str(err),
-                metadata={"agent_name": self.name},
+                error_message=f"An unexpected error occurred while generating content for item '{item_id}': {str(e)}",
             )
 
     async def _generate_enhanced_content(

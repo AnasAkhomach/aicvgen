@@ -253,10 +253,10 @@ class StructuredCV(BaseModel):
         default_factory=list,
         description="Top 10 most relevant skills extracted from CV and job description",
     )
-    big_10_skills_raw_output: Optional[str] = Field(
-        default=None,
-        description="Raw LLM output for Big 10 skills generation for transparency",
-    )
+    # big_10_skills_raw_output: Optional[str] = Field(
+    #     default=None,
+    #     description="Raw LLM output for Big 10 skills generation for transparency",
+    # )
 
     def find_item_by_id(
         self, item_id: str
@@ -345,7 +345,7 @@ class StructuredCV(BaseModel):
 
     @staticmethod
     def create_empty(
-        job_data: Optional["JobDescriptionData"] = None, cv_text: str = ""
+        cv_text: str = "", job_data: Optional["JobDescriptionData"] = None
     ) -> "StructuredCV":
         """
         Creates an empty CV structure, optionally with job data.
@@ -357,91 +357,6 @@ class StructuredCV(BaseModel):
             structured_cv.metadata.extra["job_description"] = {}
         structured_cv.metadata.extra["original_cv_text"] = cv_text
         return structured_cv
-
-    def to_content_data(self) -> Dict[str, Any]:
-        """Convert StructuredCV to ContentData format for backward compatibility."""
-        # Ensure self.metadata is a MetadataModel instance
-        meta = (
-            self.metadata
-            if isinstance(self.metadata, MetadataModel)
-            else MetadataModel()
-        )
-        content_data = {
-            "personal_info": getattr(meta, "extra", {}).get("personal_info", {}),
-            "executive_summary": [],
-            "professional_experience": [],
-            "key_qualifications": [],
-            "projects": [],
-            "education": [],
-        }
-
-        for section in self.sections:
-            section_name = section.name.lower().replace(" ", "_")
-
-            if "executive" in section_name or "summary" in section_name:
-                content_data["executive_summary"] = [
-                    item.content for item in section.items
-                ]
-            elif "experience" in section_name or "employment" in section_name:
-                content_data["professional_experience"] = [
-                    item.content for item in section.items
-                ]
-            elif "qualification" in section_name or "skill" in section_name:
-                content_data["key_qualifications"] = [
-                    item.content for item in section.items
-                ]
-            elif "project" in section_name:
-                content_data["projects"] = [item.content for item in section.items]
-            elif "education" in section_name:
-                content_data["education"] = [item.content for item in section.items]
-
-        return content_data
-
-    def update_from_content(self, content_data: Dict[str, Any]) -> bool:
-        """Update StructuredCV from ContentData format."""
-        try:
-            # Validate input is a dictionary
-            if not isinstance(content_data, dict):
-                return False
-
-            # Update personal info in metadata.extra
-            if "personal_info" in content_data:
-                meta = (
-                    self.metadata
-                    if isinstance(self.metadata, MetadataModel)
-                    else MetadataModel()
-                )
-                meta.extra["personal_info"] = content_data["personal_info"]
-                self.metadata = meta
-
-            # Clear existing sections
-            self.sections.clear()  # pylint: disable=no-member
-
-            # Recreate sections from content_data
-            section_mappings = {
-                "executive_summary": "Executive Summary",
-                "professional_experience": "Professional Experience",
-                "key_qualifications": "Key Qualifications",
-                "projects": "Projects",
-                "education": "Education",
-            }
-
-            for content_key, section_name in section_mappings.items():
-                if content_key in content_data and content_data[content_key]:
-                    section = Section(
-                        name=section_name,
-                        items=[
-                            Item(content=content, status=ItemStatus.INITIAL)
-                            for content in content_data[content_key]
-                            if content  # Skip empty content
-                        ],
-                    )
-                    if section.items:  # Only add section if it has items
-                        self.sections.append(section)  # pylint: disable=no-member
-
-            return True
-        except (TypeError, KeyError, AttributeError) as e:
-            return False
 
 
 class JobDescriptionData(BaseModel):
@@ -457,37 +372,6 @@ class JobDescriptionData(BaseModel):
     industry_terms: List[str] = Field(default_factory=list)
     company_values: List[str] = Field(default_factory=list)
     error: Optional[str] = None
-
-
-# Missing models that are imported by state_manager.py
-class ContentData(BaseModel):
-    """Data model for CV content used in template rendering and state management."""
-
-    summary: Optional[str] = None
-    experience_bullets: Optional[List[str]] = Field(default_factory=list)
-    skills_section: Optional[str] = None
-    projects: Optional[List[str]] = Field(default_factory=list)
-    other_content: Optional[str] = None
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    linkedin: Optional[str] = None
-    github: Optional[str] = None
-    education: Optional[List[str]] = Field(default_factory=list)
-    certifications: Optional[List[str]] = Field(default_factory=list)
-    languages: Optional[List[str]] = Field(default_factory=list)
-
-
-class CVData(BaseModel):
-    """Data model for CV data used in analysis and processing."""
-
-    raw_text: str
-    parsed_sections: Dict[str, Any] = Field(default_factory=dict)
-    skills: List[str] = Field(default_factory=list)
-    experience: List[str] = Field(default_factory=list)
-    education: List[str] = Field(default_factory=list)
-    projects: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SkillEntry(BaseModel):

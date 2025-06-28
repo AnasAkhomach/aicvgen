@@ -4,27 +4,27 @@ This module defines the ParserAgent, responsible for parsing CVs and job descrip
 
 from typing import Any
 
-from src.config.logging_config import get_structured_logger
-from src.error_handling.exceptions import (
+from ..config.logging_config import get_structured_logger
+from ..error_handling.exceptions import (
     AgentExecutionError,
     DataConversionError,
     LLMResponseParsingError,
     VectorStoreError,
 )
-from src.models.agent_models import AgentResult
-from src.models.agent_output_models import ParserAgentOutput
-from src.models.data_models import (
+from ..models.agent_models import AgentResult
+from ..models.agent_output_models import ParserAgentOutput
+from ..models.data_models import (
     JobDescriptionData,
     StructuredCV,
 )
-from src.services.llm_cv_parser_service import LLMCVParserService
-from src.services.llm_service import EnhancedLLMService
-from src.services.vector_store_service import VectorStoreService
-from src.templates.content_templates import ContentTemplateManager
-from src.utils.cv_data_factory import (
+from ..services.llm_cv_parser_service import LLMCVParserService
+from ..services.llm_service import EnhancedLLMService
+from ..services.vector_store_service import VectorStoreService
+from ..templates.content_templates import ContentTemplateManager
+from ..utils.cv_data_factory import (
     convert_parser_output_to_structured_cv,
 )
-from src.agents.agent_base import AgentBase
+from .agent_base import AgentBase
 
 logger = get_structured_logger(__name__)
 

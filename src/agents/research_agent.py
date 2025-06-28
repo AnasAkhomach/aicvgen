@@ -2,11 +2,10 @@
 This module defines the ResearchAgent, responsible for conducting research on job descriptions and CVs.
 """
 
-import asyncio
-from typing import Any, Optional
+from typing import Any
 
-from src.models.agent_models import AgentResult
-from src.models.agent_output_models import (
+from ..models.agent_models import AgentResult
+from ..models.agent_output_models import (
     CompanyInsight,
     IndustryInsight,
     ResearchAgentOutput,
@@ -14,10 +13,10 @@ from src.models.agent_output_models import (
     ResearchStatus,
     RoleInsight,
 )
-from src.models.data_models import JobDescriptionData, StructuredCV
-from src.services.llm_service import EnhancedLLMService
-from src.services.vector_store_service import VectorStoreService
-from src.templates.content_templates import ContentTemplateManager
+from ..models.data_models import JobDescriptionData, StructuredCV
+from ..services.llm_service import EnhancedLLMService
+from ..services.vector_store_service import VectorStoreService
+from ..templates.content_templates import ContentTemplateManager
 
 from ..config.logging_config import get_structured_logger
 from ..config.settings import AgentSettings
@@ -50,12 +49,20 @@ class ResearchAgent(AgentBase):
         self.settings = settings
         self.template_manager = template_manager
 
-    async def run(
-        self, job_description_data: JobDescriptionData, structured_cv: StructuredCV
-    ) -> AgentResult[ResearchAgentOutput]:
+    async def run(self, **kwargs: Any) -> AgentResult[ResearchAgentOutput]:
         """
         Executes the research agent asynchronously.
         """
+        # Extract parameters from kwargs
+        job_description_data = kwargs.get("job_description_data")
+        structured_cv = kwargs.get("structured_cv")
+
+        if not job_description_data or not structured_cv:
+            return AgentResult.failure(
+                agent_name=self.name,
+                error_message="Missing required parameters: job_description_data or structured_cv",
+            )
+
         self.update_progress(0, "Starting research analysis")
 
         try:
@@ -89,18 +96,16 @@ class ResearchAgent(AgentBase):
             )
 
         except (AgentExecutionError, LLMResponseParsingError) as e:
-            logger.error("A known error occurred in ResearchAgent: %s", e.message)
-            return AgentResult.error(agent_name=self.name, error=e)
+            logger.error("A known error occurred in ResearchAgent: %s", str(e))
+            return AgentResult.failure(agent_name=self.name, error_message=str(e))
         except Exception as e:
             logger.error(
                 "Unhandled exception in ResearchAgent", error=str(e), exc_info=True
             )
-            err = AgentExecutionError(
+            return AgentResult.failure(
                 agent_name=self.name,
-                message=f"An unexpected error occurred during research: {e}",
-                details={"original_exception": str(e)},
+                error_message=f"An unexpected error occurred during research: {e}",
             )
-            return AgentResult.error(agent_name=self.name, error=err)
 
     async def _perform_research_analysis(
         self, structured_cv: StructuredCV, job_desc_data: JobDescriptionData
@@ -125,12 +130,10 @@ class ResearchAgent(AgentBase):
             return parsed_findings
 
         except LLMResponseParsingError as e:
-            logger.error(
-                "Failed to parse LLM response in research agent", error=e.message
-            )
+            logger.error("Failed to parse LLM response in research agent", error=str(e))
             return ResearchFindings(
                 status=ResearchStatus.FAILED,
-                error_message=f"Failed to parse LLM response: {e.message}",
+                error_message=f"Failed to parse LLM response: {str(e)}",
             )
         except Exception as e:
             logger.error(

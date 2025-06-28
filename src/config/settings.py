@@ -38,19 +38,20 @@ class LLMSettings(BaseModel):
 
 
 class PromptSettings(BaseModel):
-    """Configuration for prompt templates, mapping a key to a filename."""
+    """Manages paths and names for prompt templates."""
 
+    directory: str = "data/prompts"
+    cv_parser: str = "cv_parsing_prompt_v2.md"
+    cv_assessment: str = "cv_assessment_prompt.md"
     job_description_parser: str = "job_description_parsing_prompt.md"
     resume_role_writer: str = "resume_role_prompt.md"
     project_writer: str = "side_project_prompt.md"
     key_qualifications_writer: str = "key_qualifications_prompt.md"
     executive_summary_writer: str = "executive_summary_prompt.md"
     cv_analysis: str = "cv_analysis_prompt.md"
-    cv_assessment: str = "cv_assessment_prompt.md"
     clean_big_6: str = "clean_big_6_prompt.md"
     clean_json_output: str = "clean_json_output_prompt.md"
     job_research_analysis: str = "job_research_analysis_prompt.md"
-    cv_parser: str = "cv_parsing_prompt.md"
 
 
 class AgentSettings(BaseModel):

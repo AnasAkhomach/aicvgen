@@ -1,114 +1,116 @@
 """Content Aggregator for CV Generation System
 
 This module provides the ContentAggregator class that collects individual content pieces
-from different agents and assembles them into a complete ContentData structure.
+from different agents and assembles them into a complete StructuredCV structure.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
+from uuid import uuid4
 from ..config.logging_config import get_structured_logger
 from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from ..models.data_models import StructuredCV, Section, Item, MetadataModel, ItemStatus
 
 logger = get_structured_logger(__name__)
 
 
 class ContentAggregator:
-    """Aggregates individual content pieces from agents into a complete CV structure."""
+    """Aggregates individual content pieces from agents into a complete StructuredCV structure."""
 
     def __init__(self):
         """Initialize the content aggregator with content type mappings."""
-        # Map content types to ContentData fields
-        self.content_map = {
-            "qualification": "summary",
-            "executive_summary": "summary",
-            "experience": "experience_bullets",
-            "skills": "skills_section",
-            "project": "projects",
-            "education": "education",
-            "certification": "certifications",
-            "language": "languages",
-        }
-
-        # Initialize empty ContentData structure
-        self.base_structure = {
-            "summary": "",
-            "key_qualifications": "",  # Big 10 skills formatted for display
-            "big_10_skills": [],  # Raw Big 10 skills list
-            "big_10_skills_raw_output": "",  # Raw LLM output for transparency
-            "experience_bullets": [],
-            "skills_section": "",
-            "projects": [],
-            "education": [],
-            "certifications": [],
-            "languages": [],
-            "contact_info": {},
+        # Map content types to StructuredCV section names
+        self.section_map = {
+            "qualification": "Key Qualifications",
+            "executive_summary": "Executive Summary",
+            "experience": "Professional Experience",
+            "skills": "Technical Skills",
+            "project": "Projects",
+            "education": "Education",
+            "certification": "Certifications",
+            "language": "Languages",
         }
 
     def aggregate_results(
         self, task_results: List[Dict[str, Any]], state_manager=None
-    ) -> Dict[str, Any]:
-        """Aggregate task results into a complete ContentData structure.
+    ) -> StructuredCV:
+        """Aggregate task results into a complete StructuredCV structure.
 
         Args:
             task_results: List of task results from various agents
-            state_manager: Optional state manager to get Big 10 skills data
+            state_manager: Optional state manager to get existing StructuredCV data
 
         Returns:
-            Dictionary containing aggregated CV content in ContentData format
+            StructuredCV object containing aggregated CV content
         """
         logger.info(
             f"Starting content aggregation for {len(task_results)} task results"
         )
 
-        # Start with base structure
-        content_data = self.base_structure.copy()
+        # Start with existing StructuredCV from state manager if available
+        if state_manager:
+            structured_cv = state_manager.get_structured_cv()
+            if structured_cv:
+                logger.info("Using existing StructuredCV from state manager")
+            else:
+                structured_cv = StructuredCV()
+                logger.info("Created new StructuredCV structure")
+        else:
+            structured_cv = StructuredCV()
+            logger.info("Created new StructuredCV structure")
+
         content_found = False
 
         for i, result in enumerate(task_results):
             try:
                 agent_type = result.get("agent_type", "unknown")
-                logger.info("Processing result %s from agent: %s", i, agent_type)
+                logger.info(
+                    "Processing result %s from agent: %s",
+                    extra={"result_index": i, "agent_type": agent_type},
+                )
 
                 # Handle content_writer agent results
                 if agent_type == "content_writer":
                     content_found = (
-                        self._process_content_writer_result(result, content_data)
+                        self._process_content_writer_result(result, structured_cv)
                         or content_found
                     )
-
-                # Handle other agent types (content_optimization removed as it was never implemented)
 
                 # Handle generic content structure
                 else:
                     content_found = (
-                        self._process_generic_result(result, content_data)
+                        self._process_generic_result(result, structured_cv)
                         or content_found
                     )
 
             except CATCHABLE_EXCEPTIONS as e:
-                logger.error("Error processing result %s: %s", i, e)
+                logger.error(
+                    "Error processing result %s: %s",
+                    extra={"result_index": i, "error": str(e)},
+                )
                 continue
 
         # Populate Big 10 skills from state manager if available
         if state_manager:
-            self._populate_big_10_skills(content_data, state_manager)
+            self._populate_big_10_skills(structured_cv, state_manager)
 
         if content_found:
+            section_names = [section.name for section in structured_cv.sections]
             logger.info(
-                f"Content aggregation successful. Fields populated: {[k for k, v in content_data.items() if v]}"
+                f"Content aggregation successful. Sections populated: {section_names}"
             )
         else:
             logger.warning("No valid content found during aggregation")
 
-        return content_data
+        return structured_cv
 
     def _process_content_writer_result(
-        self, result: Dict[str, Any], content_data: Dict[str, Any]
+        self, result: Dict[str, Any], structured_cv: StructuredCV
     ) -> bool:
         """Process content writer agent results.
 
         Args:
             result: Task result from content writer agent
-            content_data: Content data structure to populate
+            structured_cv: StructuredCV structure to populate
 
         Returns:
             True if content was successfully processed, False otherwise
@@ -126,28 +128,27 @@ class ContentAggregator:
                     f"Found content writer content: type={content_type}, content_length={len(str(actual_content))}"
                 )
 
-                # Map content type to appropriate field
-                if content_type in self.content_map:
-                    field = self.content_map[content_type]
-
-                    # Handle list fields vs string fields
-                    if isinstance(content_data[field], list):
-                        if isinstance(actual_content, list):
-                            content_data[field].extend(actual_content)
-                        else:
-                            content_data[field].append(actual_content)
-                    else:
-                        content_data[field] = actual_content
-
-                    logger.info("Mapped %s content to %s", content_type, field)
+                # Map content type to appropriate section
+                if content_type in self.section_map:
+                    section_name = self.section_map[content_type]
+                    self._add_content_to_section(
+                        structured_cv, section_name, actual_content
+                    )
+                    logger.info(
+                        "Mapped %s content to %s section",
+                        extra={
+                            "content_type": content_type,
+                            "section_name": section_name,
+                        },
+                    )
                     return True
                 else:
                     # Try to infer content type from content
-                    return self._infer_and_assign_content(actual_content, content_data)
+                    return self._infer_and_assign_content(actual_content, structured_cv)
 
             # Handle direct string content (fallback)
             elif isinstance(agent_content, str):
-                return self._infer_and_assign_content(agent_content, content_data)
+                return self._infer_and_assign_content(agent_content, structured_cv)
 
         except CATCHABLE_EXCEPTIONS as e:
             logger.error("Error processing content writer result: %s", e)
@@ -157,13 +158,13 @@ class ContentAggregator:
     # _process_optimization_result method removed - ContentOptimizationAgent was never implemented
 
     def _process_generic_result(
-        self, result: Dict[str, Any], content_data: Dict[str, Any]
+        self, result: Dict[str, Any], structured_cv: StructuredCV
     ) -> bool:
         """Process generic agent results.
 
         Args:
             result: Generic task result
-            content_data: Content data structure to populate
+            structured_cv: StructuredCV structure to populate
 
         Returns:
             True if content was successfully processed, False otherwise
@@ -180,28 +181,108 @@ class ContentAggregator:
 
             if content:
                 if isinstance(content, dict):
-                    # Try to merge structured content
-                    for field in self.base_structure.keys():
-                        if field in content and content[field]:
-                            content_data[field] = content[field]
+                    # Try to merge structured content into sections
+                    for content_type, section_name in self.section_map.items():
+                        if content_type in content and content[content_type]:
+                            self._add_content_to_section(
+                                structured_cv, section_name, content[content_type]
+                            )
                     return True
                 elif isinstance(content, str):
                     # Try to infer content type
-                    return self._infer_and_assign_content(content, content_data)
+                    return self._infer_and_assign_content(content, structured_cv)
 
         except CATCHABLE_EXCEPTIONS as e:
             logger.error("Error processing generic result: %s", e)
 
         return False
 
-    def _infer_and_assign_content(
-        self, content: str, content_data: Dict[str, Any]
+    def _add_content_to_section(
+        self, structured_cv: StructuredCV, section_name: str, content: Any
     ) -> bool:
-        """Infer content type and assign to appropriate field.
+        """Add content to a specific section in the StructuredCV.
+
+        Args:
+            structured_cv: The StructuredCV to modify
+            section_name: Name of the section to add content to
+            content: Content to add (string, list, or dict)
+
+        Returns:
+            True if content was successfully added, False otherwise
+        """
+        try:
+            # Find existing section or create new one
+            section = self._find_or_create_section(structured_cv, section_name)
+
+            # Handle different content types
+            if isinstance(content, str):
+                # Add as a single item
+                item = Item(id=uuid4(), content=content, metadata=MetadataModel())
+                section.items.append(item)
+            elif isinstance(content, list):
+                # Add each item in the list
+                for item_content in content:
+                    if isinstance(item_content, str):
+                        item = Item(
+                            id=uuid4(), content=item_content, metadata=MetadataModel()
+                        )
+                        section.items.append(item)
+            elif isinstance(content, dict):
+                # Handle structured content (could be subsections)
+                for key, value in content.items():
+                    if isinstance(value, str):
+                        item = Item(
+                            id=uuid4(),
+                            content=value,
+                            metadata=MetadataModel(extra={"key": key}),
+                        )
+                        section.items.append(item)
+
+            return True
+        except CATCHABLE_EXCEPTIONS as e:
+            logger.error(
+                "Error adding content to section %s: %s",
+                extra={"section_name": section_name, "error": str(e)},
+            )
+            return False
+
+    def _find_or_create_section(
+        self, structured_cv: StructuredCV, section_name: str
+    ) -> Section:
+        """Find an existing section or create a new one.
+
+        Args:
+            structured_cv: The StructuredCV to search/modify
+            section_name: Name of the section to find or create
+
+        Returns:
+            The found or newly created Section object
+        """
+        # Look for existing section
+        for section in structured_cv.sections:
+            if section.name.lower() == section_name.lower():
+                return section
+
+        # Create new section if not found
+        new_section = Section(
+            id=uuid4(),
+            name=section_name,
+            content_type="DYNAMIC",
+            order=len(structured_cv.sections),
+            status=ItemStatus.GENERATED,
+        )
+        structured_cv.sections.append(new_section)
+        logger.info("Created new section: %s", extra={"section_name": section_name})
+        return new_section
+
+    def _infer_and_assign_content(
+        self, content: str, structured_cv: StructuredCV
+    ) -> bool:
+        """Infer content type and assign to appropriate section.
 
         Args:
             content: String content to analyze and assign
-            content_data: Content data structure to populate
+            structured_cv: StructuredCV structure to populate
 
         Returns:
             True if content was successfully assigned, False otherwise
@@ -209,52 +290,80 @@ class ContentAggregator:
         try:
             content_lower = content.lower()
 
-            # Simple heuristics to determine content type
+            # Check for skills first (more specific keywords)
             if any(
                 keyword in content_lower
-                for keyword in ["summary", "profile", "objective", "about"]
+                for keyword in [
+                    "proficient in",
+                    "skilled in",
+                    "technologies",
+                    "programming languages",
+                    "technical skills",
+                ]
+            ) or content_lower.startswith(
+                ("python", "java", "javascript", "react", "node", "aws", "docker")
             ):
-                if not content_data["summary"]:
-                    content_data["summary"] = content
-                    logger.info("Inferred content as summary")
-                    return True
+                self._add_content_to_section(structured_cv, "Technical Skills", content)
+                logger.info("Inferred content as skills")
+                return True
 
+            # Check for work experience (specific employment terms)
             elif any(
                 keyword in content_lower
-                for keyword in ["experience", "work", "employment", "position"]
+                for keyword in [
+                    "worked as",
+                    "employed at",
+                    "position at",
+                    "role at",
+                    "engineer at",
+                    "developer at",
+                ]
             ):
-                content_data["experience_bullets"].append(content)
+                self._add_content_to_section(
+                    structured_cv, "Professional Experience", content
+                )
                 logger.info("Inferred content as experience")
                 return True
 
+            # Check for projects
             elif any(
                 keyword in content_lower
-                for keyword in ["skill", "technology", "competency", "expertise"]
+                for keyword in [
+                    "developed project",
+                    "built project",
+                    "project portfolio",
+                    "github project",
+                ]
             ):
-                if not content_data["skills_section"]:
-                    content_data["skills_section"] = content
-                    logger.info("Inferred content as skills")
-                    return True
-
-            elif any(
-                keyword in content_lower
-                for keyword in ["project", "portfolio", "development"]
-            ):
-                content_data["projects"].append(content)
+                self._add_content_to_section(structured_cv, "Projects", content)
                 logger.info("Inferred content as project")
                 return True
 
+            # Check for summary/profile content (broader terms)
+            elif any(
+                keyword in content_lower
+                for keyword in [
+                    "professional with",
+                    "experienced professional",
+                    "summary",
+                    "profile",
+                    "objective",
+                    "about me",
+                ]
+            ):
+                self._add_content_to_section(
+                    structured_cv, "Executive Summary", content
+                )
+                logger.info("Inferred content as executive summary")
+                return True
+
             else:
-                # Default to summary if no specific type detected
-                if not content_data["summary"]:
-                    content_data["summary"] = content
-                    logger.info("Assigned content to summary as default")
-                    return True
-                else:
-                    # Add to experience if summary is already filled
-                    content_data["experience_bullets"].append(content)
-                    logger.info("Assigned content to experience as fallback")
-                    return True
+                # Default to executive summary if no specific type detected
+                self._add_content_to_section(
+                    structured_cv, "Executive Summary", content
+                )
+                logger.info("Assigned content to executive summary as default")
+                return True
 
         except CATCHABLE_EXCEPTIONS as e:
             logger.error("Error inferring content type: %s", e)
@@ -262,33 +371,44 @@ class ContentAggregator:
         return False
 
     def _populate_big_10_skills(
-        self, content_data: Dict[str, Any], state_manager
+        self, structured_cv: StructuredCV, state_manager
     ) -> None:
         """Populate Big 10 skills data from the state manager.
 
         Args:
-            content_data: Content data structure to populate
+            structured_cv: StructuredCV structure to populate
             state_manager: State manager containing Big 10 skills data
         """
         try:
             # Get the structured CV from state manager using public method
-            structured_cv = state_manager.get_structured_cv()
+            state_cv = state_manager.get_structured_cv()
 
-            if structured_cv and hasattr(structured_cv, "big_10_skills"):
-                # Populate raw skills list
-                content_data["big_10_skills"] = structured_cv.big_10_skills or []
+            if state_cv and hasattr(state_cv, "big_10_skills"):
+                # Copy Big 10 skills data
+                structured_cv.big_10_skills = state_cv.big_10_skills or []
 
-                # Populate raw LLM output
-                content_data["big_10_skills_raw_output"] = (
-                    structured_cv.big_10_skills_raw_output or ""
-                )
-
-                # Format skills for display
+                # Create or update Key Qualifications section with Big 10 skills
                 if structured_cv.big_10_skills:
-                    formatted_skills = "\n".join(
-                        [f"• {skill}" for skill in structured_cv.big_10_skills]
+                    qualifications_section = self._find_or_create_section(
+                        structured_cv, "Key Qualifications"
                     )
-                    content_data["key_qualifications"] = formatted_skills
+
+                    # Clear existing skills items to avoid duplicates
+                    qualifications_section.items = [
+                        item
+                        for item in qualifications_section.items
+                        if not item.metadata.extra.get("is_big_10_skill", False)
+                    ]
+
+                    # Add each Big 10 skill as an item
+                    for skill in structured_cv.big_10_skills:
+                        item = Item(
+                            id=uuid4(),
+                            content=f"• {skill}",
+                            metadata=MetadataModel(extra={"is_big_10_skill": True}),
+                        )
+                        qualifications_section.items.append(item)
+
                     logger.info(
                         f"Populated {len(structured_cv.big_10_skills)} Big 10 skills"
                     )
@@ -302,35 +422,34 @@ class ContentAggregator:
         except CATCHABLE_EXCEPTIONS as e:
             logger.error("Error populating Big 10 skills: %s", e)
 
-    def validate_content_data(self, content_data: Dict[str, Any]) -> bool:
-        """Validate that the content data has meaningful content.
+    def validate_structured_cv(self, structured_cv: StructuredCV) -> bool:
+        """Validate that the StructuredCV has meaningful content.
 
         Args:
-            content_data: Content data to validate
+            structured_cv: StructuredCV to validate
 
         Returns:
-            True if content data is valid, False otherwise
+            True if StructuredCV is valid, False otherwise
         """
         try:
-            # Check if at least one major field has content
-            major_fields = ["summary", "experience_bullets", "skills_section"]
+            # Check if at least one section has content
+            if not structured_cv.sections:
+                logger.warning("StructuredCV validation failed: no sections found")
+                return False
 
-            for field in major_fields:
-                if field in content_data and content_data[field]:
-                    if (
-                        isinstance(content_data[field], list)
-                        and len(content_data[field]) > 0
-                    ):
-                        return True
-                    elif (
-                        isinstance(content_data[field], str)
-                        and content_data[field].strip()
-                    ):
-                        return True
+            # Check if at least one section has items
+            for section in structured_cv.sections:
+                if section.items:
+                    # Check if at least one item has meaningful content
+                    for item in section.items:
+                        if item.content and item.content.strip():
+                            return True
 
-            logger.warning("Content validation failed: no major fields populated")
+            logger.warning(
+                "StructuredCV validation failed: no sections with content items"
+            )
             return False
 
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error validating content data: %s", e)
+            logger.error("Error validating StructuredCV: %s", e)
             return False

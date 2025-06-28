@@ -184,7 +184,7 @@ aicvgen/
 │   │   ├── parser_agent.py     # CV and job description parsing
 │   │   ├── quality_assurance_agent.py  # Content quality validation
 │   │   ├── research_agent.py   # Job market research and analysis
-│   │   └── specialized_agents.py  # Agent factory and specialized variants
+│   │   └── [DEPRECATED] specialized_agents.py removed - agent creation now handled by DI container
 │   ├── api/               # External API integrations
 │   ├── config/            # Configuration management
 │   │   ├── environment.py     # Environment variable handling
@@ -192,7 +192,10 @@ aicvgen/
 │   │   └── settings.py        # Application settings and validation
 │   ├── core/              # Core application logic and orchestration
 │   │   ├── application_startup.py  # Application initialization sequence
-│   │   ├── dependency_injection.py  # DI container with lifecycle management
+│   │   ├── container.py           # Centralized DI container using dependency-injector
+│   │   ├── agent_lifecycle_manager.py  # Simplified agent lifecycle management
+│   │   ├── startup_optimizer.py   # Simplified startup optimization
+│   │   ├── performance_monitor.py # Performance monitoring and analysis
 │   │   └── main.py             # Core application entry point
 │   ├── error_handling/    # Centralized error management
 │   │   ├── agent_error_handler.py  # Agent-specific error handling

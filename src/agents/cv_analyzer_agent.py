@@ -1,50 +1,40 @@
 """CV Analyzer Agent"""
 
 from datetime import datetime
-from typing import List
+from typing import Any, List
 from pydantic import BaseModel, ValidationError
 
-from .agent_base import EnhancedAgentBase, AgentExecutionContext, AgentResult
+from .agent_base import AgentBase
+from ..models.agent_models import AgentResult, AgentExecutionContext
 from ..models.data_models import StructuredCV, JobDescriptionData
 from ..models.agent_output_models import CVAnalysisResult, CVAnalyzerAgentOutput
 from ..config.logging_config import get_structured_logger
 from ..config.settings import get_config
 from ..services.llm_service import EnhancedLLMService
 from ..error_handling.agent_error_handler import AgentErrorHandler
-from ..error_handling.exceptions import (
-    AgentExecutionError,
-    LLMResponseParsingError,
-    DataConversionError,
-)
 
 logger = get_structured_logger("cv_analyzer_agent")
 
 
-class CVAnalyzerAgent(EnhancedAgentBase):
+class CVAnalyzerAgent(AgentBase):
     """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
 
-    def __init__(self, llm_service: EnhancedLLMService):
+    def __init__(self, llm_service: EnhancedLLMService, session_id: str = "default"):
         super().__init__(
             name="CVAnalyzerAgent",
             description="Analyzes CV content and job requirements to provide optimization recommendations",
-            input_schema={
-                "cv_data": StructuredCV,
-                "job_description": JobDescriptionData,
-            },
-            output_schema={
-                "analysis_results": CVAnalysisResult,
-            },
-            error_recovery_service=None,  # TODO: Inject actual service if needed
-            progress_tracker=None,  # TODO: Inject actual tracker if needed
+            session_id=session_id,
         )
         self.llm_service = llm_service
         self.settings = get_config()
 
-    async def run_async(
-        self, input_data: dict, context: AgentExecutionContext
-    ) -> AgentResult:
+    async def run(self, **kwargs: Any) -> AgentResult:
         """Analyze CV content against job requirements using Pydantic models."""
-        from ..models.validation_schemas import validate_agent_input
+
+        input_data = kwargs.get("input_data")
+        context = kwargs.get(
+            "context", AgentExecutionContext(session_id=self.session_id)
+        )
 
         try:
             # Validate input data

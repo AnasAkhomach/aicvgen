@@ -12,7 +12,7 @@ from ..orchestration.state import AgentState
 from ..models.data_models import UserAction
 from ..config.logging_config import get_structured_logger
 from ..utils.node_validation import validate_node_output
-from ..core.dependency_injection import get_container, DependencyContainer
+from ..core.container import get_container
 from ..services.session_manager import SessionManager
 
 logger = get_structured_logger(__name__)
@@ -31,7 +31,7 @@ class CVWorkflowGraph:
 
     def __init__(self, session_id: Optional[str] = None):
         self.session_id = session_id or str(uuid.uuid4())
-        self.container: DependencyContainer = get_container()
+        self.container = get_container()
         self.session_manager: SessionManager = self.container.get_by_name(
             "session_manager"
         )

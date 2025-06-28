@@ -57,6 +57,7 @@ class AgentResult(BaseModel, Generic[T_Model]):
         return values
 
     @classmethod
+    @classmethod
     def success(
         cls,
         agent_name: str,

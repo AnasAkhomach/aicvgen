@@ -6,37 +6,29 @@ vector database, and workflows.
 """
 
 import asyncio
-import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable, Union
+from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, asdict
 from enum import Enum
-
-from ..models.data_models import ContentType, ProcessingStatus
-from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
-from ..services.error_recovery import ErrorRecoveryService, RecoveryStrategy
-from ..utils.security_utils import redact_sensitive_data
-from ..core.performance_optimizer import PerformanceOptimizer
-from ..core.async_optimizer import AsyncOptimizer
-from ..core.caching_strategy import get_intelligent_cache_manager, CachePattern
 import hashlib
+from contextlib import nullcontext
+
+from src.models.data_models import ContentType, WorkflowType, StructuredCV, JobDescriptionData
+from src.config.logging_config import get_structured_logger
+from src.config.settings import get_config
+from src.services.error_recovery import ErrorRecoveryService, RecoveryStrategy
+from src.utils.security_utils import redact_sensitive_data
+from src.core.performance_optimizer import PerformanceOptimizer
+from src.core.async_optimizer import AsyncOptimizer
+from src.core.caching_strategy import get_intelligent_cache_manager, CachePattern
 
 # Enhanced CV system imports
-from ..agents.specialized_agents import (
-    create_cv_analysis_agent,
-    create_quality_assurance_agent,
-    create_enhanced_parser_agent,
-    create_formatter_agent,
-    create_cleaning_agent,
-    create_enhanced_content_writer_agent,
-)
-from ..templates.content_templates import ContentTemplateManager
-from ..services.vector_store_service import get_vector_store_service
-from ..orchestration.cv_workflow_graph import CVWorkflowGraph
-from ..orchestration.state import AgentState
-from ..models.data_models import WorkflowType
-from ..error_handling.exceptions import (
+from src.core.container import get_container
+from src.templates.content_templates import ContentTemplateManager
+from src.services.vector_store_service import get_vector_store_service
+from src.orchestration.cv_workflow_graph import CVWorkflowGraph
+from src.orchestration.state import AgentState
+from src.error_handling.exceptions import (
     TemplateError,
     VectorStoreError,
     WorkflowError,
@@ -197,16 +189,56 @@ class EnhancedCVIntegration:
     def _initialize_agents(self, session_id: str):
         """Initialize all specialized agents using DI container and session_id."""
         try:
-            self._agents["cv_analysis"] = create_cv_analysis_agent(session_id)
-            self._agents["quality_assurance"] = create_quality_assurance_agent(
-                session_id
+            container = get_container()
+
+            # Note: Some agent names may need to be mapped to what's actually registered
+            # in the DI container. Using the container directly ensures consistency.
+            try:
+                self._agents["cv_analysis"] = container.get_by_name(
+                    "cv_analyzer_agent", session_id=session_id
+                )
+            except ValueError:
+                # Fallback if the agent name doesn't exist in the container
+                self.logger.warning(
+                    "cv_analyzer_agent not found in container, skipping"
+                )
+
+            self._agents["quality_assurance"] = container.get_by_name(
+                "qa_agent", session_id=session_id
             )
-            self._agents["enhanced_parser"] = create_enhanced_parser_agent(session_id)
-            self._agents["formatter"] = create_formatter_agent(session_id)
-            self._agents["cleaning"] = create_cleaning_agent(session_id)
-            self._agents["enhanced_content_writer"] = (
-                create_enhanced_content_writer_agent(session_id)
-            )
+
+            try:
+                self._agents["enhanced_parser"] = container.get_by_name(
+                    "enhanced_parser_agent", session_id=session_id
+                )
+            except ValueError:
+                self.logger.warning(
+                    "enhanced_parser_agent not found in container, skipping"
+                )
+
+            try:
+                self._agents["formatter"] = container.get_by_name(
+                    "formatter_agent", session_id=session_id
+                )
+            except ValueError:
+                self.logger.warning("formatter_agent not found in container, skipping")
+
+            try:
+                self._agents["cleaning"] = container.get_by_name(
+                    "cleaning_agent", session_id=session_id
+                )
+            except ValueError:
+                self.logger.warning("cleaning_agent not found in container, skipping")
+
+            try:
+                self._agents["enhanced_content_writer"] = container.get_by_name(
+                    "enhanced_content_writer_agent", session_id=session_id
+                )
+            except ValueError:
+                self.logger.warning(
+                    "enhanced_content_writer_agent not found in container, skipping"
+                )
+
             self.logger.info(
                 "Agents initialized",
                 extra={
@@ -247,9 +279,11 @@ class EnhancedCVIntegration:
             return None
 
         try:
-            return self._template_manager.format_template(
-                template_id, variables, category
-            )
+            # Get the template first, then format it
+            template = self._template_manager.get_template(template_id, category)
+            if template:
+                return self._template_manager.format_template(template, variables)
+            return None
         except (TemplateError, KeyError, ValueError, IOError) as e:
             self.logger.error(
                 "Failed to format template",
@@ -267,7 +301,21 @@ class EnhancedCVIntegration:
             return []
 
         try:
-            return self._template_manager.list_templates(category)
+            # Get all templates and filter by category if specified
+            all_templates = self._template_manager.list_templates()
+            if category is None:
+                # Return all template names
+                result = []
+                for template_list in all_templates.values():
+                    result.extend(template_list)
+                return result
+            else:
+                # Filter by category
+                result = []
+                for key, template_list in all_templates.items():
+                    if category in key:
+                        result.extend(template_list)
+                return result
         except (TemplateError, IOError) as e:
             self.logger.error(
                 "Failed to list templates",
@@ -310,11 +358,7 @@ class EnhancedCVIntegration:
 
         try:
             # Use vector store service to search content
-            results = self._vector_db.search(
-                query=query,
-                n_results=limit,
-                where={"content_type": content_type.value} if content_type else None,
-            )
+            results = self._vector_db.search(query=query, k=limit)
             return results
         except (VectorStoreError, TypeError, ValueError) as e:
             self.logger.error(
@@ -336,11 +380,7 @@ class EnhancedCVIntegration:
 
         try:
             # Use vector store service to find similar content
-            results = self._vector_db.search(
-                query=content,
-                n_results=limit,
-                where={"content_type": content_type.value} if content_type else None,
-            )
+            results = self._vector_db.search(query=content, k=limit)
             return results
         except (VectorStoreError, TypeError, ValueError) as e:
             self.logger.error(
@@ -374,24 +414,25 @@ class EnhancedCVIntegration:
         """Get performance optimization context."""
         if self._performance_optimizer:
             return self._performance_optimizer.optimized_execution(
-                operation_type="workflow_execution", expected_duration=30.0
+                operation_name="workflow_execution",
+                operation_type="workflow_execution",
+                expected_duration=30.0,
             )
         else:
             # Return a no-op context manager if performance optimizer is not available
-            from contextlib import nullcontext
+            
 
             return nullcontext()
 
     def _get_async_context(self):
         """Get async optimization context."""
         if self._async_optimizer:
-            return self._async_optimizer.optimized_context(
-                max_concurrent=self.config.max_concurrent_agents,
-                timeout=self.config.orchestration_timeout.total_seconds(),
+            return self._async_optimizer.optimized_execution(
+                operation_type="workflow_execution", operation_name="cv_workflow"
             )
         else:
             # Return a no-op context manager if async optimizer is not available
-            from contextlib import nullcontext
+
 
             return nullcontext()
 
@@ -414,7 +455,6 @@ class EnhancedCVIntegration:
         Returns:
             A dictionary containing the results of the workflow execution.
         """
-        """Execute a predefined workflow."""
         if not self._orchestrator:
             raise RuntimeError("Orchestration not enabled")
 
@@ -469,54 +509,84 @@ class EnhancedCVIntegration:
                     WorkflowType.BASIC_CV_GENERATION,
                     WorkflowType.JOB_TAILORED_CV,
                 ]:
-                    # Populate state manager with AgentState components
+                    # Populate input data for the workflow
                     if initial_agent_state.structured_cv:
-                        self._orchestrator.state_manager.set_structured_cv(
-                            initial_agent_state.structured_cv
-                        )
-                        self.logger.info("Structured CV data set in state manager")
-                        # Set job description data directly on StructuredCV.metadata if present
+                        self.logger.info("Using StructuredCV data for workflow")
+
+                        # Prepare workflow inputs based on AgentState
+                        workflow_inputs = {
+                            "structured_cv": initial_agent_state.structured_cv,
+                            "session_id": session_id or self._session_id,
+                            "workflow_type": workflow_type.value,
+                        }
+
+                        # Add job description if available
                         if initial_agent_state.job_description_data:
-                            if hasattr(
-                                self._orchestrator.state_manager.get_structured_cv(),
-                                "metadata",
-                            ):
-                                self._orchestrator.state_manager.get_structured_cv().metadata.extra[
-                                    "job_description"
-                                ] = (
-                                    initial_agent_state.job_description_data.model_dump()
-                                )
-                                self.logger.info(
-                                    "Job description data set in StructuredCV.metadata.extra"
-                                )
+                            workflow_inputs["job_description_data"] = (
+                                initial_agent_state.job_description_data
+                            )
+                            self.logger.info(
+                                "Job description data added to workflow inputs"
+                            )
                         else:
                             self.logger.warning(
                                 "Job description data missing in AgentState"
                             )
-                        self.logger.info("State manager populated from AgentState")
 
-                        # No fallback needed - AgentState is the only supported input type
+                        self.logger.info("Workflow inputs prepared")
 
-                        # Initialize workflow after setting up the data
-                        await self._orchestrator.initialize_workflow()
-
-                        # Execute the full workflow with async optimization
+                        # Execute the workflow using the invoke method
                         async with self._get_async_context():
-                            result_state = (
-                                await self._orchestrator.execute_full_workflow()
+                            workflow_result = await self._orchestrator.invoke(
+                                workflow_inputs
                             )
+
+                        # Extract result state from workflow result
+                        if (
+                            isinstance(workflow_result, dict)
+                            and "structured_cv" in workflow_result
+                        ):
+                            # Create a new AgentState from the workflow result
+                            result_state = AgentState(
+                                structured_cv=workflow_result.get("structured_cv"),
+                                job_description_data=workflow_result.get(
+                                    "job_description_data"
+                                ),
+                                error_messages=workflow_result.get(
+                                    "error_messages", []
+                                ),
+                                user_action=workflow_result.get("user_action"),
+                                session_metadata=workflow_result.get(
+                                    "session_metadata", {}
+                                ),
+                            )
+                        else:
+                            result_state = initial_agent_state
+                            result_state.error_messages = [
+                                "Workflow execution did not return expected results"
+                            ]
 
                         success = not bool(
                             result_state.error_messages if result_state else True
                         )  # Assume success if no result_state
-                        self.logger.info("Workflow success: %s", success)
+                        self.logger.info("Workflow success", extra={"success": success})
 
                     else:
                         self.logger.warning(
-                            f"Workflow type {workflow_type.value} not fully implemented for AgentState input or not recognized."
+                            f"Workflow type {workflow_type.value} requires StructuredCV data in AgentState"
                         )
                         success = False
-                        result_state = None
+                        result_state = initial_agent_state
+                        result_state.error_messages = [
+                            "Missing StructuredCV data in input"
+                        ]
+
+                else:
+                    self.logger.warning(
+                        f"Workflow type {workflow_type.value} not fully implemented for AgentState input or not recognized."
+                    )
+                    success = False
+                    result_state = None
 
                     # Update performance stats
                     processing_time = (datetime.now() - start_time).total_seconds()
@@ -556,8 +626,8 @@ class EnhancedCVIntegration:
                             pattern=CachePattern.READ_HEAVY,
                         )
 
-                    # Debug logging for final return structure
-                    final_errors = result_state.error_messages if result_state else []
+                # Debug logging for final return structure
+                final_errors = result_state.error_messages if result_state else []
                 self.logger.info(
                     f"Final return structure - success: {success}, errors: {final_errors}"
                 )
@@ -639,14 +709,25 @@ class EnhancedCVIntegration:
         **kwargs,
     ) -> Dict[str, Any]:
         """Generate a basic CV."""
-        return await self.execute_workflow(
-            WorkflowType.BASIC_CV_GENERATION,
-            {
+        # Create AgentState from the provided data
+
+
+        structured_cv = StructuredCV.create_empty()
+        # You might want to populate structured_cv with personal_info, experience, education here
+
+        agent_state = AgentState(
+            structured_cv=structured_cv,
+            session_metadata={
                 "personal_info": personal_info,
                 "experience": experience,
                 "education": education,
                 **kwargs,
             },
+        )
+
+        return await self.execute_workflow(
+            WorkflowType.BASIC_CV_GENERATION,
+            agent_state,
             session_id,
         )
 
@@ -669,14 +750,33 @@ class EnhancedCVIntegration:
         else:
             job_desc_dict = job_description
 
-        return await self.execute_workflow(
-            WorkflowType.JOB_TAILORED_CV,
-            {
+        # Create AgentState from the provided data
+
+
+        structured_cv = StructuredCV.create_empty()
+
+        # Create job description data
+        job_description_data = JobDescriptionData(
+            raw_text=job_desc_dict.get("raw_text", ""),
+            description=job_desc_dict.get("description", ""),
+            requirements=job_desc_dict.get("requirements", []),
+            skills=job_desc_dict.get("skills", []),
+            company_info=job_desc_dict.get("company_info", {}),
+        )
+
+        agent_state = AgentState(
+            structured_cv=structured_cv,
+            job_description_data=job_description_data,
+            session_metadata={
                 "personal_info": personal_info,
                 "experience": experience,
-                "job_description": job_desc_dict,
                 **kwargs,
             },
+        )
+
+        return await self.execute_workflow(
+            WorkflowType.JOB_TAILORED_CV,
+            agent_state,
             session_id,
         )
 
@@ -684,9 +784,23 @@ class EnhancedCVIntegration:
         self, existing_cv: Dict[str, Any], session_id: Optional[str] = None, **kwargs
     ) -> Dict[str, Any]:
         """Optimize an existing CV."""
+        # Create AgentState from existing CV data
+
+
+        # Try to convert existing_cv to StructuredCV if it's not already
+        if isinstance(existing_cv, dict):
+            structured_cv = StructuredCV.model_validate(existing_cv)
+        else:
+            structured_cv = existing_cv
+
+        agent_state = AgentState(
+            structured_cv=structured_cv,
+            session_metadata={"optimization_request": True, **kwargs},
+        )
+
         return await self.execute_workflow(
             WorkflowType.CV_OPTIMIZATION,
-            {"existing_cv": existing_cv, **kwargs},
+            agent_state,
             session_id,
         )
 
@@ -694,9 +808,23 @@ class EnhancedCVIntegration:
         self, cv_content: Dict[str, Any], session_id: Optional[str] = None, **kwargs
     ) -> Dict[str, Any]:
         """Perform quality assurance on CV content."""
+        # Create AgentState from CV content
+
+
+        # Try to convert cv_content to StructuredCV if it's not already
+        if isinstance(cv_content, dict):
+            structured_cv = StructuredCV.model_validate(cv_content)
+        else:
+            structured_cv = cv_content
+
+        agent_state = AgentState(
+            structured_cv=structured_cv,
+            session_metadata={"quality_check_request": True, **kwargs},
+        )
+
         return await self.execute_workflow(
             WorkflowType.QUALITY_ASSURANCE,
-            {"cv_content": cv_content, **kwargs},
+            agent_state,
             session_id,
         )
 
@@ -724,7 +852,6 @@ class EnhancedCVIntegration:
                 stats["vector_db"] = vector_stats
             except (AttributeError, VectorStoreError) as e:
                 self.logger.warning("Could not retrieve vector DB stats", error=str(e))
-                pass
 
         if self._orchestrator:
             try:
@@ -738,7 +865,6 @@ class EnhancedCVIntegration:
                 self.logger.warning(
                     "Could not retrieve orchestrator stats", error=str(e)
                 )
-                pass
 
         return stats
 
@@ -829,36 +955,62 @@ class EnhancedCVIntegration:
         return health
 
 
-# Global integration instance
-_enhanced_cv_integration = None
+class EnhancedCVIntegrationSingleton:
+    """Singleton for managing EnhancedCVIntegration instance."""
+
+    _instance = None
+
+    @classmethod
+    def get_instance(
+        cls, config: Optional[EnhancedCVConfig] = None
+    ) -> EnhancedCVIntegration:
+        """Get enhanced CV system integration instance."""
+        if cls._instance is None:
+            cls._instance = EnhancedCVIntegration(config)
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls):
+        """Reset the enhanced CV system integration instance."""
+        cls._instance = None
 
 
 def get_enhanced_cv_integration(
     config: Optional[EnhancedCVConfig] = None,
 ) -> EnhancedCVIntegration:
     """Get enhanced CV system integration instance."""
-    global _enhanced_cv_integration
-    if _enhanced_cv_integration is None:
-        _enhanced_cv_integration = EnhancedCVIntegration(config)
-    return _enhanced_cv_integration
+    return EnhancedCVIntegrationSingleton.get_instance(config)
 
 
 def reset_enhanced_cv_integration():
     """Reset the global enhanced CV system integration instance."""
-    global _enhanced_cv_integration
-    _enhanced_cv_integration = None
+    EnhancedCVIntegrationSingleton.reset_instance()
 
 
 # Convenience functions
 async def generate_cv(
     workflow_type: Union[WorkflowType, str],
-    input_data: Dict[str, Any],
+    input_data: Union[AgentState, Dict[str, Any]],
     session_id: Optional[str] = None,
     config: Optional[EnhancedCVConfig] = None,
 ) -> Dict[str, Any]:
     """Generate a CV using the specified workflow."""
     integration = get_enhanced_cv_integration(config)
-    return await integration.execute_workflow(workflow_type, input_data, session_id)
+
+    # Convert dict input to AgentState if needed
+    if isinstance(input_data, dict):
+        # Create AgentState from dictionary
+        agent_state = AgentState(
+            structured_cv=input_data.get("structured_cv"),
+            job_description_data=input_data.get("job_description_data"),
+            error_messages=input_data.get("error_messages", []),
+            user_action=input_data.get("user_action"),
+            session_metadata=input_data.get("session_metadata", {}),
+        )
+    else:
+        agent_state = input_data
+
+    return await integration.execute_workflow(workflow_type, agent_state, session_id)
 
 
 def get_cv_templates(category: str = None) -> List[str]:

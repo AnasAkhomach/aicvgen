@@ -3,9 +3,9 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from src.config.logging_config import get_structured_logger
-from src.models.agent_models import AgentResult
-from src.services.progress_tracker import ProgressTracker
+from ..config.logging_config import get_structured_logger
+from ..models.agent_models import AgentResult
+from ..services.progress_tracker import ProgressTracker
 
 
 class AgentBase(ABC):
@@ -19,9 +19,7 @@ class AgentBase(ABC):
         self.logger = get_structured_logger(f"{name}:{session_id}")
         self.progress_tracker: ProgressTracker | None = None
         self.logger.info(
-            "Agent '%s' initialized for session '%s'.",
-            self.name,
-            self.session_id,
+            f"Agent '{self.name}' initialized for session '{self.session_id}'."
         )
 
     def set_progress_tracker(self, progress_tracker: ProgressTracker):
@@ -32,15 +30,10 @@ class AgentBase(ABC):
         """Updates the progress of the agent's task."""
         if self.progress_tracker:
             self.progress_tracker.update_progress(self.name, progress, message)
-        self.logger.info(
-            "Progress for %s: %d%% - %s",
-            self.name,
-            progress,
-            message,
-        )
+        self.logger.info(f"Progress for {self.name}: {progress}% - {message}")
 
     @abstractmethod
-    def run(self, **kwargs: Any) -> AgentResult:
+    async def run(self, **kwargs: Any) -> AgentResult:
         """
         Runs the agent's task.
 

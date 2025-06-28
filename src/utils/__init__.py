@@ -1,7 +1,6 @@
 """Utilities module for the aicvgen application."""
 
 from ..error_handling.boundaries import StreamlitErrorBoundary as ErrorBoundary
-from ..error_handling.decorators import handle_errors as handle_error
 from ..error_handling.exceptions import (
     AicvgenError,
     ConfigurationError,
@@ -18,7 +17,6 @@ from .state_utils import create_initial_agent_state
 
 __all__ = [
     "ErrorBoundary",
-    "handle_error",
     "AicvgenError",
     "ConfigurationError",
     "StateManagerError",
