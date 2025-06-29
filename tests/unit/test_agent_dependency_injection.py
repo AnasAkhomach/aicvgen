@@ -7,8 +7,8 @@ import unittest.mock as mock
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from core.container import get_container
-from agents.parser_agent import ParserAgent
+from src.core.container import get_container
+from src.agents.parser_agent import ParserAgent
 
 
 def test_parser_agent_dependency_injection():
@@ -36,9 +36,8 @@ def test_parser_agent_dependency_injection():
         assert isinstance(agent, ParserAgent)
 
         # Verify dependencies were injected
-        assert agent.llm_service is not None
+        assert agent.llm_cv_parser_service is not None
         assert agent.vector_store_service is not None
-        assert agent.template_manager is not None
 
 
 def test_container_agent_factory_behavior():

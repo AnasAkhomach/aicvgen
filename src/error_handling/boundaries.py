@@ -10,31 +10,21 @@ user-friendly error messages.
 import functools
 import traceback
 from typing import Any, Callable, Optional, Dict
+from datetime import datetime
+
 from contextlib import contextmanager
 import streamlit as st
-from datetime import datetime
 
 from src.config.logging_config import get_logger, log_error_with_context
 from src.error_handling.exceptions import (
     AicvgenError,
     NetworkError,
     OperationTimeoutError,
+    CATCHABLE_EXCEPTIONS,
 )
 from src.error_handling.models import ErrorSeverity
 
 logger = get_logger(__name__)
-
-# A tuple of common, catchable exceptions to avoid capturing system-level exceptions.
-CATCHABLE_EXCEPTIONS = (
-    AicvgenError,
-    ValueError,
-    TypeError,
-    KeyError,
-    IOError,
-    IndexError,
-    AttributeError,
-    ConnectionError,
-)
 
 # A tuple of exceptions that are considered transient and worth retrying.
 RETRYABLE_EXCEPTIONS = (OperationTimeoutError, NetworkError, IOError, ConnectionError)

@@ -3,6 +3,7 @@ This module defines the ParserAgent, responsible for parsing CVs and job descrip
 """
 
 from typing import Any
+from uuid import uuid4
 
 from ..config.logging_config import get_structured_logger
 from ..error_handling.exceptions import (
@@ -22,9 +23,13 @@ from ..services.llm_service import EnhancedLLMService
 from ..services.vector_store_service import VectorStoreService
 from ..templates.content_templates import ContentTemplateManager
 from ..utils.cv_data_factory import (
-    convert_parser_output_to_structured_cv,
+    determine_section_content_type,
+    determine_item_type,
 )
 from .agent_base import AgentBase
+
+from ..models.data_models import Section, Subsection, Item, ItemStatus
+
 
 logger = get_structured_logger(__name__)
 
@@ -51,57 +56,37 @@ class ParserAgent(AgentBase):
             llm_service, settings, template_manager
         )
 
-    async def run(self, **kwargs: Any) -> AgentResult:
-        """Parses a raw document (CV or job description) into a structured format."""
-        self.update_progress(0, "Starting parsing process")
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Validate inputs for parser agent."""
+        if not input_data.get("raw_text") or not input_data.get("type"):
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message="'raw_text' and 'type' are required fields.",
+            )
+
+    async def _execute(self, **kwargs: Any) -> AgentResult:
+        """Execute the core parsing logic."""
         input_data = kwargs.get("input_data", {})
+        raw_text = input_data.get("raw_text")
+        doc_type = input_data.get("type")
 
-        try:
-            raw_text = input_data.get("raw_text")
-            doc_type = input_data.get("type")
-
-            if raw_text is None or doc_type is None:
-                raise AgentExecutionError(
-                    agent_name=self.name,
-                    message="'raw_text' and 'type' are required fields.",
-                )
-
-            output = ParserAgentOutput()
-            if doc_type == "cv":
-                self.update_progress(20, "Parsing CV")
-                parsed_data = await self.parse_cv(raw_text)
-                output.structured_cv = parsed_data
-            elif doc_type == "job":
-                self.update_progress(20, "Parsing job description")
-                parsed_data = await self.parse_job_description(raw_text)
-                output.job_description_data = parsed_data
-            else:
-                raise AgentExecutionError(
-                    agent_name=self.name,
-                    message=f"Unsupported document type: {doc_type}",
-                )
-
-            self.update_progress(100, "Parsing completed")
-            return AgentResult(success=True, output_data=output)
-
-        except AgentExecutionError as e:
-            logger.error(
-                "Agent execution error in ParserAgent: %s", str(e), exc_info=True
+        output = ParserAgentOutput()
+        if doc_type == "cv":
+            self.update_progress(40, "Parsing CV")
+            parsed_data = await self.parse_cv(raw_text)
+            output.structured_cv = parsed_data
+        elif doc_type == "job":
+            self.update_progress(40, "Parsing job description")
+            parsed_data = await self.parse_job_description(raw_text)
+            output.job_description_data = parsed_data
+        else:
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message=f"Unsupported document type: {doc_type}",
             )
-            return AgentResult(
-                success=False,
-                error_message=str(e),
-                output_data=ParserAgentOutput(),
-            )
-        except (AttributeError, TypeError, ValueError) as e:
-            logger.error(
-                "Unhandled exception in ParserAgent: %s", str(e), exc_info=True
-            )
-            return AgentResult(
-                success=False,
-                error_message=f"An unexpected error occurred in ParserAgent: {e}",
-                output_data=ParserAgentOutput(),
-            )
+
+        self.update_progress(100, "Parsing completed")
+        return AgentResult(success=True, output_data=output)
 
     async def parse_job_description(self, raw_text: str) -> JobDescriptionData:
         """Parses a raw job description using an LLM."""
@@ -128,7 +113,10 @@ class ParserAgent(AgentBase):
             llm_output = await self.llm_cv_parser_service.parse_cv_with_llm(raw_text)
 
             self.update_progress(70, "Converting LLM output to structured format")
-            structured_cv = convert_parser_output_to_structured_cv(llm_output)
+            # Create a StructuredCV directly from CVParsingResult
+            structured_cv = self._convert_cv_parsing_result_to_structured_cv(
+                llm_output, raw_text
+            )
 
             self.update_progress(90, "Storing CV vectors")
             await self._store_cv_vectors(structured_cv)
@@ -138,6 +126,68 @@ class ParserAgent(AgentBase):
             raise AgentExecutionError(
                 agent_name=self.name, message=f"Failed during CV parsing process: {e}"
             ) from e
+
+    def _convert_cv_parsing_result_to_structured_cv(
+        self, parsing_result, cv_text: str
+    ) -> StructuredCV:
+        """Convert CVParsingResult to StructuredCV."""
+
+        # Create base structure
+        structured_cv = StructuredCV.create_empty(cv_text=cv_text)
+
+        # Convert sections
+        sections = []
+        for section_data in parsing_result.sections:
+            section = Section(
+                id=uuid4(),
+                title=section_data.name,
+                content_type=determine_section_content_type(section_data.name),
+                status=ItemStatus.GENERATED,
+                subsections=[],
+            )
+
+            # Add direct items to section if any
+            if section_data.items:
+                subsection = Subsection(
+                    id=uuid4(),
+                    title="Main",
+                    status=ItemStatus.GENERATED,
+                    items=[],
+                )
+
+                for item_content in section_data.items:
+                    item = Item(
+                        id=uuid4(),
+                        content=item_content,
+                        item_type=determine_item_type(section_data.name),
+                        status=ItemStatus.GENERATED,
+                    )
+                    subsection.items.append(item)
+                section.subsections.append(subsection)
+
+            # Add subsections
+            for subsection_data in section_data.subsections:
+                subsection = Subsection(
+                    id=uuid4(),
+                    title=subsection_data.name,
+                    status=ItemStatus.GENERATED,
+                    items=[],
+                )
+
+                for item_content in subsection_data.items:
+                    item = Item(
+                        id=uuid4(),
+                        content=item_content,
+                        item_type=determine_item_type(section_data.name),
+                        status=ItemStatus.GENERATED,
+                    )
+                    subsection.items.append(item)
+                section.subsections.append(subsection)
+
+            sections.append(section)
+
+        structured_cv.sections = sections
+        return structured_cv
 
     async def _store_cv_vectors(self, structured_cv: StructuredCV):
         """Stores the vectors for the parsed CV content."""

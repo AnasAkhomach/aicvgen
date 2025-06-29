@@ -7,7 +7,7 @@ from different agents and assembles them into a complete StructuredCV structure.
 from typing import Dict, List, Any
 from uuid import uuid4
 from ..config.logging_config import get_structured_logger
-from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from ..error_handling.exceptions import CATCHABLE_EXCEPTIONS
 from ..models.data_models import StructuredCV, Section, Item, MetadataModel, ItemStatus
 
 logger = get_structured_logger(__name__)

@@ -34,69 +34,61 @@ class CleaningAgent(AgentBase):
         self.template_manager = template_manager
         self.settings = settings
 
-    async def run(self, **kwargs: Any) -> AgentResult:
-        """Process and clean raw LLM output, a list of strings, or a dictionary."""
-        self.update_progress(0, "Starting cleaning process")
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Validate inputs for cleaning agent."""
+        if input_data is None:
+            raise AgentExecutionError(
+                agent_name=self.name, message="Input data cannot be None."
+            )
+
+        if isinstance(input_data, dict) and input_data.get("raw_output") is None:
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message="Dictionary input must contain a 'raw_output' key.",
+            )
+
+        if not isinstance(input_data, (dict, list, str)):
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message=f"Unsupported input type for CleaningAgent: {type(input_data)}",
+            )
+
+    async def _execute(self, **kwargs: Any) -> AgentResult:
+        """Execute the core cleaning logic."""
         input_data = kwargs.get("input_data")
 
-        try:
-            if input_data is None:
-                raise AgentExecutionError(message="Input data cannot be None.")
+        raw_output_for_model = None
+        output_type_for_model = None
+        modifications = []
+        cleaned_data = None
 
-            raw_output_for_model = None
-            output_type_for_model = None
-            modifications = []
+        if isinstance(input_data, dict):
+            raw_content = input_data.get("raw_output")
+            output_type = input_data.get("output_type")
+            cleaned_data, mods = self._clean_generic_output(raw_content)
+            raw_output_for_model = raw_content
+            output_type_for_model = output_type
+            modifications.extend(mods)
+        elif isinstance(input_data, list):
+            cleaned_data, mods = self._clean_skills_list(input_data)
+            raw_output_for_model = str(input_data)
+            output_type_for_model = "skills_list"
+            modifications.extend(mods)
+        elif isinstance(input_data, str):
+            cleaned_data, mods = self._clean_generic_output(input_data)
+            raw_output_for_model = input_data
+            output_type_for_model = "string"
+            modifications.extend(mods)
 
-            if isinstance(input_data, dict):
-                raw_content = input_data.get("raw_output")
-                output_type = input_data.get("output_type")
-                if raw_content is None:
-                    raise AgentExecutionError(
-                        message="Dictionary input must contain a 'raw_output' key."
-                    )
-                cleaned_data, mods = self._clean_generic_output(raw_content)
-                raw_output_for_model = raw_content
-                output_type_for_model = output_type
-                modifications.extend(mods)
-            elif isinstance(input_data, list):
-                cleaned_data, mods = self._clean_skills_list(input_data)
-                raw_output_for_model = str(input_data)
-                output_type_for_model = "skills_list"
-                modifications.extend(mods)
-            elif isinstance(input_data, str):
-                cleaned_data, mods = self._clean_generic_output(input_data)
-                raw_output_for_model = input_data
-                output_type_for_model = "string"
-                modifications.extend(mods)
-            else:
-                raise AgentExecutionError(
-                    message=f"Unsupported input type for CleaningAgent: {type(input_data)}"
-                )
+        output = CleaningAgentOutput(
+            cleaned_data=cleaned_data,
+            raw_output=raw_output_for_model,
+            output_type=output_type_for_model,
+            modifications_made=modifications,
+        )
 
-            output = CleaningAgentOutput(
-                cleaned_data=cleaned_data,
-                raw_output=raw_output_for_model,
-                output_type=output_type_for_model,
-                modifications_made=modifications,
-            )
-
-            self.update_progress(100, "Cleaning process completed")
-            return AgentResult(success=True, output_data=output)
-
-        except AgentExecutionError as e:
-            logger.error("Agent execution error in CleaningAgent: %s", e, exc_info=True)
-            return AgentResult(
-                success=False,
-                error_message=str(e),
-                output_data=CleaningAgentOutput(cleaned_data=input_data or None),
-            )
-        except Exception as e:
-            logger.error("Unhandled exception in CleaningAgent: %s", e, exc_info=True)
-            return AgentResult(
-                success=False,
-                error_message=f"An unexpected error occurred in CleaningAgent: {e}",
-                output_data=CleaningAgentOutput(cleaned_data=input_data or None),
-            )
+        self.update_progress(100, "Cleaning process completed")
+        return AgentResult(success=True, output_data=output)
 
     def _clean_generic_output(self, raw_output: str) -> Tuple[str, List[str]]:
         """Cleans generic text output by removing unnecessary formatting."""

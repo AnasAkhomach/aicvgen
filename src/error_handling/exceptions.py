@@ -86,3 +86,18 @@ class DependencyError(AicvgenError):
 
 class WorkflowError(AicvgenError):
     """Raised when there are issues with workflow execution or management."""
+
+
+# Centralized tuple of common, catchable exceptions to avoid capturing system-level exceptions.
+# This provides a single source of truth for the set of exceptions that should be caught
+# and handled gracefully throughout the application.
+CATCHABLE_EXCEPTIONS = (
+    AicvgenError,
+    ValueError,
+    TypeError,
+    KeyError,
+    IOError,
+    IndexError,
+    AttributeError,
+    ConnectionError,
+)

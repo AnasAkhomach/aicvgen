@@ -11,7 +11,8 @@ disable=
     c-extension-no-member,
     missing-docstring,
     too-few-public-methods,
-    too-many-arguments
+    too-many-arguments,
+    wrong-import-position
 
 [FORMAT]
 # Maximum number of characters on a single line.

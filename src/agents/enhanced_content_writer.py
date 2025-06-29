@@ -42,8 +42,19 @@ class EnhancedContentWriterAgent(AgentBase):
         self.template_manager = template_manager
         self.settings = settings
 
-    async def run(self, **kwargs: Any) -> AgentResult[EnhancedContentWriterOutput]:
-        """Generate enhanced content for a specific item in the CV."""
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Validate inputs for enhanced content writer agent.
+
+        Note: This agent accepts parameters directly via kwargs rather than through input_data.
+        This method is implemented to satisfy the base class contract but actual validation
+        is performed in _execute method.
+        """
+        # The enhanced content writer agent receives its inputs via direct kwargs
+        # rather than through input_data, so this method is intentionally minimal
+        return
+
+    async def _execute(self, **kwargs: Any) -> AgentResult:
+        """Execute the core content generation logic."""
         # Extract parameters from kwargs
         structured_cv = kwargs.get("structured_cv")
         job_description_data = kwargs.get("job_description_data")
@@ -51,71 +62,49 @@ class EnhancedContentWriterAgent(AgentBase):
         research_findings = kwargs.get("research_findings")
 
         if not structured_cv or not job_description_data or not item_id:
-            return AgentResult.failure(
+            raise AgentExecutionError(
                 agent_name=self.name,
-                error_message="Missing required parameters: structured_cv, job_description_data, or item_id",
+                message="Missing required parameters: structured_cv, job_description_data, or item_id",
             )
 
-        self.update_progress(0, "Starting content generation")
-
-        try:
-            content_item = get_item_by_id(structured_cv, item_id)
-            if not content_item:
-                raise AgentExecutionError(
-                    agent_name=self.name,
-                    message=f"Item with ID '{item_id}' not found in structured_cv.",
-                )
-
-            self.update_progress(20, f"Generating content for item {item_id}")
-            enhanced_content = await self._generate_enhanced_content(
-                structured_cv, job_description_data, content_item, research_findings
-            )
-
-            self.update_progress(
-                80, f"Updating CV with enhanced content for item {item_id}"
-            )
-            updated_cv = update_item_by_id(
-                structured_cv, item_id, {"enhanced_content": enhanced_content}
-            )
-
-            output_data = EnhancedContentWriterOutput(
-                updated_structured_cv=updated_cv,
-                item_id=item_id,
-                generated_content=enhanced_content,
-            )
-            self.update_progress(100, "Content generation completed successfully")
-            return AgentResult(
-                success=True,
-                output_data=output_data,
-                metadata={
-                    "agent_name": self.name,
-                    "message": f"Successfully generated content for item '{item_id}'.",
-                },
-            )
-
-        except AgentExecutionError as e:
-            logger.error(
-                f"A known error occurred in EnhancedContentWriterAgent: {str(e)}"
-            )
-            return AgentResult(
-                success=False,
-                error_message=str(e),
-                metadata={"agent_name": self.name},
-            )
-        except Exception as e:
-            logger.error(
-                "Unhandled exception in EnhancedContentWriterAgent",
-                error=str(e),
-                exc_info=True,
-            )
-            return AgentResult.failure(
+        content_item = get_item_by_id(structured_cv, item_id)
+        if not content_item:
+            raise AgentExecutionError(
                 agent_name=self.name,
-                error_message=f"An unexpected error occurred while generating content for item '{item_id}': {str(e)}",
+                message=f"Item with ID '{item_id}' not found in structured_cv.",
             )
+
+        self.update_progress(40, f"Generating content for item {item_id}")
+        enhanced_content = await self._generate_enhanced_content(
+            structured_cv, job_description_data, content_item, research_findings
+        )
+
+        self.update_progress(
+            80, f"Updating CV with enhanced content for item {item_id}"
+        )
+        updated_cv = update_item_by_id(
+            structured_cv, item_id, {"enhanced_content": enhanced_content}
+        )
+
+        output_data = EnhancedContentWriterOutput(
+            updated_structured_cv=updated_cv,
+            item_id=item_id,
+            generated_content=enhanced_content,
+        )
+
+        self.update_progress(100, "Content generation completed successfully")
+        return AgentResult(
+            success=True,
+            output_data=output_data,
+            metadata={
+                "agent_name": self.name,
+                "message": f"Successfully generated content for item '{item_id}'.",
+            },
+        )
 
     async def _generate_enhanced_content(
         self,
-        cv_data: StructuredCV,
+        _cv_data: StructuredCV,  # Currently unused but kept for interface consistency
         job_data: JobDescriptionData,
         content_item: Dict[str, Any],
         research_findings: Dict[str, Any] | None,
