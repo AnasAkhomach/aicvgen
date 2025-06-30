@@ -108,7 +108,7 @@ class AppConfig:
         # Environment-specific adjustments
         if self.environment == Environment.DEVELOPMENT:
             self.logging.performance_logging = True
-            self.ui.show_debug_info = True
+            self.ui.show_debug_information = True
             self.performance.enable_profiling = True
         elif self.environment == Environment.TESTING:
             self.logging.log_to_console = False

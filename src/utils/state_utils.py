@@ -6,7 +6,7 @@ session state to be usable in any context (e.g., testing, background workers).
 """
 
 from ..orchestration.state import AgentState
-from ..models.data_models import JobDescriptionData, StructuredCV, MetadataModel
+from ..models.cv_models import JobDescriptionData, StructuredCV, MetadataModel
 
 
 def create_initial_agent_state(

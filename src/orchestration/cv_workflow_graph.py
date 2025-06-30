@@ -9,12 +9,13 @@ from langgraph.graph import StateGraph, END
 import uuid
 
 from ..orchestration.state import AgentState
-from ..models.data_models import UserAction
+from ..models.workflow_models import UserAction
 from ..config.logging_config import get_structured_logger
 from ..utils.node_validation import validate_node_output
 from ..core.container import get_container
 from ..services.error_recovery import ErrorRecoveryService
-from ..models.data_models import Item, ItemStatus, ItemType, ContentType
+from ..models.cv_models import Item, ItemStatus, ItemType
+from ..models.workflow_models import ContentType
 
 logger = get_structured_logger(__name__)
 
@@ -38,9 +39,7 @@ class CVWorkflowGraph:
         self.workflow = self._build_graph()
         self.app = self.workflow.compile()
 
-        logger.info(
-            "CVWorkflowGraph initialized for session %s", self.session_id
-        )  # pylint: disable=E1121
+        logger.info(f"CVWorkflowGraph initialized for session {self.session_id}")
 
     def _get_agent(self, agent_name: str) -> Any:
         """Retrieve an agent from the container for the current session."""
@@ -57,18 +56,7 @@ class CVWorkflowGraph:
         self, state: AgentState, config: Optional[Dict] = None
     ) -> AgentState:
         """Execute parser node to process CV and job description."""
-        logger.info("Executing parser_node")
-        logger.info(
-            "Parser input state - trace_id: %s", state.trace_id
-        )  # pylint: disable=E1121
-        logger.info(
-            "AgentState validation successful. Has structured_cv: %s",
-            state.structured_cv is not None,
-        )  # pylint: disable=E1121
-        logger.info(
-            "AgentState validation successful. Has job_description_data: %s",
-            state.job_description_data is not None,
-        )  # pylint: disable=E1121
+        logger.info(f"Executing parser_node") # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args
 
         try:
             parser_agent = self._get_agent("parser_agent")
@@ -89,18 +77,14 @@ class CVWorkflowGraph:
         self, state: AgentState, config: Optional[Dict] = None
     ) -> AgentState:
         """Execute content writer node for current item."""
-        logger.info(
-            "Executing content_writer_node for item: %s", state.current_item_id
-        )  # pylint: disable=E1121
+        logger.info(f"Executing content_writer_node for item: {state.current_item_id}")
 
         if not state.current_item_id:
             # Try to get the next item from queue if available
             if state.items_to_process_queue:
                 queue_copy = state.items_to_process_queue.copy()
                 next_item_id = queue_copy.pop(0)
-                logger.info(
-                    "Auto-setting current_item_id to: %s", next_item_id
-                )  # pylint: disable=E1121
+                logger.info(f"Auto-setting current_item_id to: {next_item_id}") # pylint: disable=too-many-function-args
                 # Update state and continue
                 state = state.model_copy(
                     update={
@@ -130,9 +114,7 @@ class CVWorkflowGraph:
         self, state: AgentState, config: Optional[Dict] = None
     ) -> AgentState:
         """Execute QA node for current item."""
-        logger.info(
-            "Executing qa_node for item: %s", state.current_item_id
-        )  # pylint: disable=E1121
+        logger.info(f"Executing qa_node for item: {state.current_item_id}") # pylint: disable=too-many-function-args
         qa_agent = self._get_agent("qa_agent")
         result = await qa_agent.run_as_node(state)
         if isinstance(result, dict):
@@ -153,7 +135,7 @@ class CVWorkflowGraph:
         queue_copy = state.items_to_process_queue.copy()
         next_item_id = queue_copy.pop(0)
 
-        logger.info("Processing next item: %s", next_item_id)  # pylint: disable=E1121
+        logger.info(f"Processing next item: {next_item_id}") # pylint: disable=too-many-function-args
         return state.model_copy(
             update={
                 "current_item_id": next_item_id,
@@ -180,10 +162,8 @@ class CVWorkflowGraph:
                         content_queue.append(str(item.id))
 
         logger.info(
-            "Setup content generation queue with %s items: %s",
-            len(content_queue),
-            content_queue,
-        )  # pylint: disable=E1121
+            f"Setup content generation queue with {len(content_queue)} items: {content_queue}"
+        )
 
         return state.model_copy(update={"content_generation_queue": content_queue})
 
@@ -231,9 +211,7 @@ class CVWorkflowGraph:
             )
 
         item_id = str(state.user_feedback.item_id)
-        logger.info(
-            "Preparing regeneration for item: %s", item_id
-        )  # pylint: disable=E1121
+        logger.info(f"Preparing regeneration for item: {item_id}")
 
         return state.model_copy(
             update={
@@ -382,15 +360,11 @@ class CVWorkflowGraph:
             )  # Apply recovery action
             updates = {}
             if recovery_action.strategy.value == "skip_item":
-                logger.info(
-                    "Skipping failed item: %s", state.current_item_id
-                )  # pylint: disable=E1121
+                logger.info(f"Skipping failed item: {state.current_item_id}")
                 updates["current_item_id"] = None
 
             elif recovery_action.strategy.value == "immediate_retry":
-                logger.info(
-                    "Marking item for retry: %s", state.current_item_id
-                )  # pylint: disable=E1121
+                logger.info(f"Marking item for retry: {state.current_item_id}") # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args
                 # For now, we'll just clear the error and let the workflow retry
 
             elif recovery_action.strategy.value == "fallback_content":
@@ -476,7 +450,7 @@ class CVWorkflowGraph:
             agent_state.user_feedback
             and agent_state.user_feedback.action == UserAction.REGENERATE
         ):
-            logger.info("User requested regeneration, routing to prepare_regeneration")
+            logger.info(f"User requested regeneration, routing to prepare_regeneration")
             return "regenerate"
 
         # Priority 2: Check for errors if no explicit user action

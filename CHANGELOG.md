@@ -1,5 +1,17 @@
 # aicvgen MVP Changelog
 
+## Task CB-001: Fix Duplicate Decorator Placement in cv_analyzer_node
+
+- **Status:** COMPLETED ✅
+- **Implementation:**
+  - **Fixed Duplicate @validate_node_output Decorators:**
+    - Removed duplicate `@validate_node_output` decorator from `cv_analyzer_node` function in `src/orchestration/cv_workflow_graph.py`
+    - Function was incorrectly decorated with two identical `@validate_node_output` decorators on consecutive lines (415-416)
+    - Kept single `@validate_node_output` decorator in correct position before function definition
+    - Verified syntax validation passes after fix
+- **Tests:** Python AST syntax validation confirms file parses correctly without syntax errors
+- **Notes:** This was a critical syntax issue that would have caused runtime errors. The duplicate decorator was likely introduced during a merge or copy-paste operation.
+
 ## Task A-003: Decompose EnhancedLLMService into Focused Services
 
 - **Status:** COMPLETED ✅

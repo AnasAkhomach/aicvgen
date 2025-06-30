@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, Optional, TypeVar, Union
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, Field
 
 T_Model = TypeVar("T_Model", bound=Union[BaseModel, Dict[str, BaseModel]])
 
@@ -29,7 +29,7 @@ class AgentResult(BaseModel, Generic[T_Model]):
     confidence_score: float = 1.0
     processing_time: float = 0.0
     error_message: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod

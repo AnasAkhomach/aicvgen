@@ -151,7 +151,20 @@ class UIConfig:
 
     # Display Configuration
     show_raw_llm_output: bool = True
+    show_debug_information: bool = False
     items_per_page: int = 5
+
+
+@dataclass
+class SessionSettings(BaseModel):
+    """Configuration for session management."""
+
+    max_active_sessions: int = Field(
+        default_factory=lambda: int(os.getenv("MAX_ACTIVE_SESSIONS", "100"))
+    )
+    cleanup_interval_minutes: int = Field(
+        default_factory=lambda: int(os.getenv("SESSION_CLEANUP_INTERVAL_MINUTES", "30"))
+    )
 
 
 @dataclass
@@ -205,6 +218,7 @@ class AppConfig:
     ui: UIConfig = field(default_factory=UIConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    session: SessionSettings = field(default_factory=SessionSettings)
 
     # NEW: Add structured configuration sections
     llm_settings: LLMSettings = field(default_factory=LLMSettings)

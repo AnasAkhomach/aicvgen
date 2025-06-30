@@ -2,7 +2,8 @@ from typing import Optional
 from datetime import datetime
 
 from src.config.logging_config import get_structured_logger
-from src.models.data_models import ContentType, LLMResponse
+from src.models.workflow_models import ContentType
+from src.models.llm_data_models import LLMResponse
 from src.models.llm_service_models import (
     LLMApiKeyInfo,
     LLMServiceStats,

@@ -11,7 +11,7 @@ import logging
 if TYPE_CHECKING:
     from src.orchestration.state import AgentState
 
-from src.models.data_models import StructuredCV, JobDescriptionData
+from src.models.cv_models import StructuredCV, JobDescriptionData
 from src.models.agent_output_models import ResearchFindings
 
 logger = logging.getLogger(__name__)

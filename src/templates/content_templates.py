@@ -8,7 +8,7 @@ from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
 
-from src.models.data_models import ContentType
+from src.models.workflow_models import ContentType
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import TemplateError
 

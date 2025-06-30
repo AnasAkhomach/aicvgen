@@ -19,12 +19,7 @@ import logging
 
 from ..config.logging_config import get_structured_logger
 from ..config.settings import AppConfig, get_config
-from ..models.data_models import (
-    WorkflowState,
-    WorkflowStage,
-    ProcessingStatus,
-    ContentType,
-)
+from ..models.workflow_models import WorkflowState, WorkflowStage, ContentType
 from ..models.vector_store_and_session_models import SessionInfoModel
 
 
@@ -137,10 +132,10 @@ class SessionManager:
         self.session_timeout = timedelta(
             seconds=self.settings.ui.session_timeout_seconds
         )
-        self.max_active_sessions = 100  # TODO: Move to settings if needed
+        self.max_active_sessions = self.settings.session.max_active_sessions
         self.cleanup_interval = timedelta(
-            minutes=30
-        )  # TODO: Move to settings if needed
+            minutes=self.settings.session.cleanup_interval_minutes
+        )
 
         # Background cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None

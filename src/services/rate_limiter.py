@@ -77,7 +77,7 @@ class RateLimiter:
             # Check if we're at the limit
             if (
                 state.requests_per_minute >= self.config.requests_per_minute
-                or state.tokens_per_minute >= self.config.tokens_per_minute
+                or state.tokens_made >= self.config.llm.max_tokens_per_minute
             ):
                 return 60 - window_elapsed
 
@@ -98,8 +98,8 @@ class RateLimiter:
             rate_log = RateLimitLog(
                 timestamp=datetime.now().isoformat(),
                 model=model,
-                requests_in_window=state.requests_per_minute,
-                tokens_in_window=state.tokens_per_minute,
+                requests_in_window=state.requests_made,
+                tokens_in_window=state.tokens_made,
                 window_start=state.window_start.isoformat(),
                 window_end=(state.window_start + timedelta(minutes=1)).isoformat(),
                 limit_exceeded=True,
@@ -124,8 +124,8 @@ class RateLimiter:
             rate_log = RateLimitLog(
                 timestamp=datetime.now().isoformat(),
                 model=model,
-                requests_in_window=state.requests_per_minute,
-                tokens_in_window=state.tokens_per_minute,
+                requests_in_window=state.requests_made,
+                tokens_in_window=state.tokens_made,
                 window_start=state.window_start.isoformat(),
                 window_end=(state.window_start + timedelta(minutes=1)).isoformat(),
                 limit_exceeded=True,
@@ -144,8 +144,8 @@ class RateLimiter:
         rate_log = RateLimitLog(
             timestamp=datetime.now().isoformat(),
             model=model,
-            requests_in_window=state.requests_per_minute,
-            tokens_in_window=state.tokens_per_minute,
+            requests_in_window=state.requests_made,
+            tokens_in_window=state.tokens_made,
             window_start=state.window_start.isoformat(),
             window_end=(state.window_start + timedelta(minutes=1)).isoformat(),
             limit_exceeded=False,
@@ -348,8 +348,8 @@ def get_rate_limit_status(model: str) -> Dict[str, Any]:
 
     return {
         "model": model,
-        "requests_in_window": state.requests_per_minute,
-        "tokens_in_window": state.tokens_per_minute,
+        "requests_in_window": state.requests_made,
+        "tokens_in_window": state.tokens_made,
         "window_elapsed_seconds": window_elapsed,
         "can_make_request": state.can_make_request(),
         "wait_time_seconds": rate_limiter.get_wait_time(model),

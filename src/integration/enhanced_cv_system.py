@@ -13,12 +13,8 @@ from enum import Enum
 import hashlib
 from contextlib import nullcontext
 
-from src.models.data_models import (
-    ContentType,
-    WorkflowType,
-    StructuredCV,
-    JobDescriptionData,
-)
+from src.models.workflow_models import ContentType, WorkflowType
+from src.models.cv_models import StructuredCV, JobDescriptionData
 from src.config.logging_config import get_structured_logger
 from src.config.settings import get_config
 from src.services.error_recovery import ErrorRecoveryService, RecoveryStrategy

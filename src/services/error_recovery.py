@@ -19,7 +19,7 @@ from ..error_handling.classification import (
     is_network_error,
     is_timeout_error,
 )
-from ..models.data_models import ProcessingStatus, ContentType, Item
+from ..models.data_models import ItemStatus, ContentType, Item
 from ..orchestration.state import AgentState
 from ..error_handling.exceptions import (
     AicvgenError,
@@ -36,20 +36,7 @@ from ..error_handling.exceptions import (
 
 
 # Additional exception types for comprehensive error handling
-class RateLimitError(AicvgenError):
-    """Raised when rate limits are exceeded."""
 
-    pass
-
-
-class NetworkError(AicvgenError):
-    """Raised when network-related errors occur."""
-
-    pass
-
-
-class OperationTimeoutError(AicvgenError):
-    """Raised when operations timeout."""
 
 
 class ErrorType(Enum):
@@ -234,56 +221,6 @@ class ErrorRecoveryService:
 
         # Default to system error for unknown exceptions
         return ErrorType.SYSTEM_ERROR
-
-        # Timeout errors
-        if any(
-            keyword in error_message
-            for keyword in ["timeout", "timed out", "deadline exceeded"]
-        ):
-            return ErrorType.TIMEOUT_ERROR
-
-        # Validation errors
-        if any(
-            keyword in error_message
-            for keyword in [
-                "validation",
-                "invalid input",
-                "bad request",
-                "400",
-                "data is missing",
-                "cannot initialize workflow",
-                "required to initialize",
-            ]
-        ):
-            return ErrorType.VALIDATION_ERROR
-
-        # Parsing errors
-        if any(
-            keyword in error_message
-            for keyword in ["json", "parse", "decode", "format", "syntax"]
-        ):
-            return ErrorType.PARSING_ERROR
-
-        # Content errors
-        if any(
-            keyword in error_message
-            for keyword in [
-                "content",
-                "empty response",
-                "no content",
-                "invalid content",
-            ]
-        ):
-            return ErrorType.CONTENT_ERROR
-
-        # System errors
-        if any(
-            keyword in error_message
-            for keyword in ["system", "internal server error", "500", "503"]
-        ):
-            return ErrorType.SYSTEM_ERROR
-
-        return ErrorType.UNKNOWN_ERROR
 
     async def handle_error(
         self,
@@ -578,7 +515,7 @@ class ErrorRecoveryService:
         if action.strategy == RecoveryStrategy.FALLBACK_CONTENT:
             if action.fallback_content:
                 item.content = action.fallback_content
-                item.metadata.status = ProcessingStatus.COMPLETED
+                item.metadata.status = ItemStatus.COMPLETED
                 item.metadata.completed_at = datetime.now()
 
                 self.logger.info(
@@ -587,7 +524,7 @@ class ErrorRecoveryService:
                 return True
 
         elif action.strategy == RecoveryStrategy.SKIP_ITEM:
-            item.metadata.status = ProcessingStatus.SKIPPED
+            item.metadata.status = ItemStatus.SKIPPED
             item.metadata.completed_at = datetime.now()
 
             self.logger.info(

@@ -38,8 +38,10 @@ def run_with_timeout(func, args=(), kwargs=None, timeout=30):
         # Thread is still running, timeout occurred
         raise OperationTimeoutError(f"Operation timed out after {timeout} seconds")
 
-    if exception[0]:
+    if exception[0] is not None:
         raise exception[0]
+    else:
+        raise Exception("An unknown error occurred in the timed operation.")
 
     return result[0]
 

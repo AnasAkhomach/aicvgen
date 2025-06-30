@@ -10,7 +10,8 @@ from dependency_injector import (
 import google.generativeai as genai
 
 from ..config.settings import get_config
-from ..services.llm_service import EnhancedLLMService, get_advanced_cache
+from ..services.llm_service import EnhancedLLMService
+from ..services.llm_caching_service import get_llm_caching_service
 from ..services.llm_client import LLMClient
 from ..services.llm_retry_handler import LLMRetryHandler
 from ..agents.parser_agent import ParserAgent
@@ -63,8 +64,8 @@ class Container(
     )
 
     advanced_cache = providers.Singleton(
-        get_advanced_cache
-    )  # pylint: disable=c-extension-no-member
+        get_llm_caching_service
+    )
 
     llm_service = providers.Singleton(  # pylint: disable=c-extension-no-member
         EnhancedLLMService,

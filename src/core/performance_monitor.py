@@ -1,25 +1,19 @@
 """Performance monitoring and analysis for the CV generation system."""
 
 import asyncio
-import time
+import json
+import os
 import threading
-from typing import Dict, List, Optional, Any, Callable
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from collections import defaultdict, deque
-import psutil
-import os
-import json
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from .container import get_container
-from .agent_lifecycle_manager import get_agent_lifecycle_manager
+import psutil
+
 from ..config.logging_config import get_structured_logger
-from ..error_handling.models import (
-    ErrorCategory,
-    ErrorSeverity,
-)
-from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
+from .agent_lifecycle_manager import get_agent_lifecycle_manager
 
 logger = get_structured_logger(__name__)
 
@@ -67,8 +61,30 @@ class AgentPerformanceStats:
 class PerformanceMonitor:
     """Monitors and analyzes system performance."""
 
-    def __init__(self, max_history_size: int = 1000):
-        self.error_handler = ErrorHandler()
+    # Constants
+    DEFAULT_MAX_HISTORY_SIZE = 1000
+    DEFAULT_MONITORING_INTERVAL_SECONDS = 30
+    MEMORY_CONVERSION_FACTOR = 1024 * 1024
+    OPERATION_TIMES_MAX_SIZE = 100
+    MILLISECONDS_PER_SECOND = 1000
+
+    # Thresholds
+    CPU_THRESHOLD_PERCENT = 80.0
+    MEMORY_THRESHOLD_PERCENT = 85.0
+    RESPONSE_TIME_THRESHOLD_MS = 5000.0
+    ERROR_RATE_THRESHOLD_PERCENT = 5.0
+    POOL_UTILIZATION_THRESHOLD_PERCENT = 90.0
+
+    # Recommendation Thresholds
+    RECOMMENDATION_CPU_THRESHOLD = 70
+    RECOMMENDATION_MEMORY_THRESHOLD = 75
+    RECOMMENDATION_AGENT_RESPONSE_TIME_MS = 3000
+    RECOMMENDATION_POOL_UTILIZATION = 80
+    RECOMMENDATION_ERROR_RATE = 3
+    RECOMMENDATION_OPERATION_AVG_TIME_MS = 2000
+    RECOMMENDATION_RECENT_SAMPLES_MINUTES = 10
+
+    def __init__(self, max_history_size: int = DEFAULT_MAX_HISTORY_SIZE):
         self.max_history_size = max_history_size
 
         # Metrics storage
@@ -82,22 +98,22 @@ class PerformanceMonitor:
 
         # Monitoring state
         self.monitoring_active = False
-        self.monitoring_interval = 30  # seconds
+        self.monitoring_interval = self.DEFAULT_MONITORING_INTERVAL_SECONDS
         self.monitoring_task: Optional[asyncio.Task] = None
 
         # Thresholds for alerts
         self.thresholds = {
-            "cpu_percent": 80.0,
-            "memory_percent": 85.0,
-            "response_time_ms": 5000.0,
-            "error_rate_percent": 5.0,
-            "pool_utilization_percent": 90.0,
+            "cpu_percent": self.CPU_THRESHOLD_PERCENT,
+            "memory_percent": self.MEMORY_THRESHOLD_PERCENT,
+            "response_time_ms": self.RESPONSE_TIME_THRESHOLD_MS,
+            "error_rate_percent": self.ERROR_RATE_THRESHOLD_PERCENT,
+            "pool_utilization_percent": self.POOL_UTILIZATION_THRESHOLD_PERCENT,
         }
 
         # Performance baselines
         self.baselines: Dict[str, float] = {}
 
-    def start_monitoring(self, interval: int = 30) -> None:
+    def start_monitoring(self, interval: int = DEFAULT_MONITORING_INTERVAL_SECONDS) -> None:
         """Start continuous performance monitoring."""
         if self.monitoring_active:
             logger.warning("Performance monitoring is already active")
@@ -112,11 +128,9 @@ class PerformanceMonitor:
             self.monitoring_task = loop.create_task(self._monitoring_loop())
         except RuntimeError:
             # No event loop running, monitoring will be manual
-            logger.warning(
-                "No running event loop found, performance monitoring disabled"
-            )
+            logger.warning("No running event loop found, performance monitoring disabled")
 
-        logger.info("Performance monitoring started with %ss interval", interval)
+        logger.info(f"Performance monitoring started with {interval}s interval")
 
     def stop_monitoring(self) -> None:
         """Stop performance monitoring."""
@@ -140,11 +154,7 @@ class PerformanceMonitor:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.error_handler.handle_error(
-                    f"Error in monitoring loop: {str(e)}",
-                    ErrorCategory.CONFIGURATION,
-                    ErrorSeverity.MEDIUM,
-                )
+                logger.error("Error in monitoring loop", exc_info=e)
                 await asyncio.sleep(self.monitoring_interval)
 
     async def _collect_system_snapshot(self) -> None:
@@ -155,7 +165,7 @@ class PerformanceMonitor:
             snapshot = SystemSnapshot(
                 timestamp=datetime.now(),
                 cpu_percent=psutil.cpu_percent(interval=1),
-                memory_mb=process.memory_info().rss / 1024 / 1024,
+                memory_mb=process.memory_info().rss / self.MEMORY_CONVERSION_FACTOR,
                 memory_percent=process.memory_percent(),
                 active_threads=process.num_threads(),
                 open_files=len(process.open_files()),
@@ -170,33 +180,27 @@ class PerformanceMonitor:
             self.record_metric("memory_percent", snapshot.memory_percent, "%")
             self.record_metric("active_threads", snapshot.active_threads, "count")
 
-        except Exception as e:
-            logger.warning("Failed to collect system snapshot: %s", e)
+        except OSError as e:
+            logger.warning("Failed to collect system snapshot", extra={'exc_info': e})
 
     async def _collect_agent_stats(self) -> None:
         """Collect agent performance statistics."""
         try:
             lifecycle_manager = get_agent_lifecycle_manager()
-            stats = lifecycle_manager.get_statistics()
+            stats = lifecycle_manager.get_metrics()
 
-            for agent_type, agent_stats in stats.get("agent_pools", {}).items():
-                # Calculate performance metrics
-                total_requests = agent_stats.get("total_requests", 0)
-                successful_requests = agent_stats.get("successful_requests", 0)
-                failed_requests = total_requests - successful_requests
+            for agent_id, agent_metrics in stats.get("agent_metrics", {}).items():
+                agent_type = agent_id.split('_')[0] # Extract agent type from agent_id
+                total_requests = agent_metrics.get("usage_count", 0)
+                successful_requests = total_requests  # Assuming all are successful for now
+                failed_requests = 0
 
-                response_times = self.operation_times.get(f"agent_{agent_type}", [])
-                avg_response_time = (
-                    sum(response_times) / len(response_times) if response_times else 0
-                )
-                min_response_time = min(response_times) if response_times else 0
-                max_response_time = max(response_times) if response_times else 0
-
-                active_instances = agent_stats.get("active_instances", 0)
-                max_instances = agent_stats.get("max_instances", 1)
-                pool_utilization = (
-                    (active_instances / max_instances) * 100 if max_instances > 0 else 0
-                )
+                # These metrics are not directly available from AgentMetrics
+                avg_response_time = 0.0
+                min_response_time = 0.0
+                max_response_time = 0.0
+                active_instances = 0  # Not tracked by AgentMetrics
+                pool_utilization = 0.0  # Not tracked by AgentMetrics
 
                 self.agent_stats[agent_type] = AgentPerformanceStats(
                     agent_type=agent_type,
@@ -208,22 +212,17 @@ class PerformanceMonitor:
                     max_response_time=max_response_time,
                     active_instances=active_instances,
                     pool_utilization=pool_utilization,
-                    last_activity=datetime.now(),
+                    last_activity=agent_metrics.get("last_used", datetime.now()),
                 )
 
                 # Record as metrics
                 self.record_metric(
-                    f"agent_{agent_type}_response_time", avg_response_time, "ms"
+                    f"agent_{agent_type}_total_requests", total_requests, "count"
                 )
-                self.record_metric(
-                    f"agent_{agent_type}_pool_utilization", pool_utilization, "%"
-                )
-                self.record_metric(
-                    f"agent_{agent_type}_active_instances", active_instances, "count"
-                )
+                # Other metrics are not available from AgentMetrics currently
 
         except Exception as e:
-            logger.warning("Failed to collect agent stats: %s", e)
+            logger.warning("Failed to collect agent stats", extra={'exc_info': e})
 
     async def _check_thresholds(self) -> None:
         """Check performance thresholds and generate alerts."""
@@ -236,7 +235,9 @@ class PerformanceMonitor:
 
             # Check system thresholds
             if latest_snapshot.cpu_percent > self.thresholds["cpu_percent"]:
-                alerts.append(f"High CPU usage: {latest_snapshot.cpu_percent:.1f}%")
+                alerts.append(
+                    f"High CPU usage: {latest_snapshot.cpu_percent:.1f}%"
+                )
 
             if latest_snapshot.memory_percent > self.thresholds["memory_percent"]:
                 alerts.append(
@@ -247,7 +248,8 @@ class PerformanceMonitor:
             for agent_type, stats in self.agent_stats.items():
                 if stats.average_response_time > self.thresholds["response_time_ms"]:
                     alerts.append(
-                        f"Slow response time for {agent_type}: {stats.average_response_time:.1f}ms"
+                        f"Slow response time for {agent_type}: "
+                        f"{stats.average_response_time:.1f}ms"
                     )
 
                 error_rate = (
@@ -262,15 +264,16 @@ class PerformanceMonitor:
 
                 if stats.pool_utilization > self.thresholds["pool_utilization_percent"]:
                     alerts.append(
-                        f"High pool utilization for {agent_type}: {stats.pool_utilization:.1f}%"
+                        f"High pool utilization for {agent_type}: "
+                        f"{stats.pool_utilization:.1f}%"
                     )
 
             # Log alerts
             for alert in alerts:
-                logger.warning("Performance alert: %s", alert)
+                logger.warning(f"Performance alert: {alert}")
 
         except Exception as e:
-            logger.warning("Failed to check thresholds: %s", e)
+            logger.warning("Failed to check thresholds", extra={'exc_info': e})
 
     def record_metric(
         self,
@@ -295,8 +298,10 @@ class PerformanceMonitor:
         self.operation_times[operation].append(duration)
 
         # Keep only recent measurements
-        if len(self.operation_times[operation]) > 100:
-            self.operation_times[operation] = self.operation_times[operation][-100:]
+        if len(self.operation_times[operation]) > self.OPERATION_TIMES_MAX_SIZE:
+            self.operation_times[operation] = self.operation_times[operation][
+                -self.OPERATION_TIMES_MAX_SIZE:
+            ]
 
         self.record_metric(f"operation_{operation}_time", duration, "ms")
 
@@ -414,28 +419,32 @@ class PerformanceMonitor:
 
         # Check recent system performance
         if self.system_snapshots:
-            latest = self.system_snapshots[-1]
+            latest_snapshot = self.system_snapshots[-1]
 
-            if latest.cpu_percent > 70:
+            if latest_snapshot.cpu_percent > self.RECOMMENDATION_CPU_THRESHOLD:
                 recommendations.append(
-                    "High CPU usage detected. Consider optimizing agent algorithms or reducing concurrent operations."
+                    "High CPU usage detected. Consider optimizing agent algorithms "
+                    "or reducing concurrent operations."
                 )
 
-            if latest.memory_percent > 75:
+            if latest_snapshot.memory_percent > self.RECOMMENDATION_MEMORY_THRESHOLD:
                 recommendations.append(
-                    "High memory usage detected. Consider implementing more aggressive cleanup or reducing agent pool sizes."
+                    "High memory usage detected. Consider implementing more "
+                    "aggressive cleanup or reducing agent pool sizes."
                 )
 
         # Check agent performance
         for agent_type, stats in self.agent_stats.items():
-            if stats.average_response_time > 3000:  # 3 seconds
+            if stats.average_response_time > self.RECOMMENDATION_AGENT_RESPONSE_TIME_MS:
                 recommendations.append(
-                    f"Agent {agent_type} has slow response times. Consider optimization or scaling."
+                    f"Agent {agent_type} has slow response times. "
+                    "Consider optimization or scaling."
                 )
 
-            if stats.pool_utilization > 80:
+            if stats.pool_utilization > self.RECOMMENDATION_POOL_UTILIZATION:
                 recommendations.append(
-                    f"Agent {agent_type} pool is highly utilized. Consider increasing pool size."
+                    f"Agent {agent_type} pool is highly utilized. "
+                    "Consider increasing pool size."
                 )
 
             error_rate = (
@@ -443,16 +452,17 @@ class PerformanceMonitor:
                 if stats.total_requests > 0
                 else 0
             )
-            if error_rate > 3:
+            if error_rate > self.RECOMMENDATION_ERROR_RATE:
                 recommendations.append(
-                    f"Agent {agent_type} has high error rate ({error_rate:.1f}%). Investigate error causes."
+                    f"Agent {agent_type} has high error rate ({error_rate:.1f}%). "
+                    "Investigate error causes."
                 )
 
         # Check operation performance
         for operation, times in self.operation_times.items():
             if times and len(times) > 10:
                 avg_time = sum(times) / len(times)
-                if avg_time > 2000:  # 2 seconds
+                if avg_time > self.RECOMMENDATION_OPERATION_AVG_TIME_MS:  # 2 seconds
                     recommendations.append(
                         f"Operation {operation} is slow (avg: {avg_time:.1f}ms). Consider optimization."
                     )
@@ -464,7 +474,7 @@ class PerformanceMonitor:
 
         return recommendations
 
-    def export_metrics(self, file_path: str, format: str = "json") -> None:
+    def export_metrics(self, file_path: str, export_format: str = "json") -> None:
         """Export metrics to file."""
         try:
             data = {
@@ -508,25 +518,23 @@ class PerformanceMonitor:
                 },
             }
 
-            if format.lower() == "json":
-                with open(file_path, "w") as f:
+            if export_format.lower() == "json":
+                with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
             else:
-                raise ValueError(f"Unsupported export format: {format}")
+                raise ValueError(
+                    f"Unsupported export format: {export_format}"
+                )
 
-            logger.info("Metrics exported to %s", file_path)
+            logger.info(f"Metrics exported to {file_path}")
 
         except Exception as e:
-            self.error_handler.handle_error(
-                f"Failed to export metrics: {str(e)}",
-                ErrorCategory.FILE_IO,
-                ErrorSeverity.MEDIUM,
-            )
+            logger.error("Failed to export metrics", extra={'exc_info': e})
 
     def set_baseline(self, metric_name: str, value: float) -> None:
         """Set performance baseline for comparison."""
         self.baselines[metric_name] = value
-        logger.info("Baseline set for %s: %s", metric_name, value)
+        logger.info(f"Baseline set for {metric_name}: {value}")
 
     def compare_to_baseline(self, metric_name: str) -> Optional[Dict[str, Any]]:
         """Compare current performance to baseline."""

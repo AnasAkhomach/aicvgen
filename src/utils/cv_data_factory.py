@@ -4,7 +4,7 @@ This module provides factory functions for creating and manipulating CV data str
 
 from typing import Any, Dict, Optional
 
-from ..models.data_models import (
+from ..models.cv_models import (
     Item,
     ItemStatus,
     JobDescriptionData,

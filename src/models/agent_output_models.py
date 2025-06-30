@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 from datetime import datetime
 
-from src.models.data_models import JobDescriptionData, StructuredCV, BasicCVInfo
+from src.models.cv_models import JobDescriptionData, StructuredCV
+from src.models.llm_data_models import BasicCVInfo
 
 
 class ParserAgentOutput(BaseModel):

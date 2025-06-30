@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 import uuid
 
-from ..models.data_models import JobDescriptionData, StructuredCV, UserFeedback
+from ..models.cv_models import JobDescriptionData, StructuredCV
+from ..models.workflow_models import UserFeedback
 from ..models.agent_output_models import (
     CVAnalysisResult,
     QualityAssuranceAgentOutput,

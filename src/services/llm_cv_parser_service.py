@@ -6,11 +6,9 @@ from typing import Optional, Any
 import json
 import logging
 import re
-from src.models.data_models import (
-    JobDescriptionData,
-    CVParsingResult,
-    ContentType,
-)
+from src.models.cv_models import JobDescriptionData
+from src.models.llm_data_models import CVParsingResult
+from src.models.workflow_models import ContentType
 from src.templates.content_templates import ContentTemplateManager
 from src.services.llm_service import EnhancedLLMService
 from src.config.settings import Settings

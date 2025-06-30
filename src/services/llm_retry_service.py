@@ -8,7 +8,8 @@ except ImportError:
     google_exceptions = None
 
 from src.config.logging_config import get_structured_logger
-from src.models.data_models import ContentType, LLMResponse
+from src.models.workflow_models import ContentType
+from src.models.llm_data_models import LLMResponse
 from src.services.llm_retry_handler import LLMRetryHandler
 from src.services.llm_api_key_manager import LLMApiKeyManager
 from src.services.rate_limiter import RateLimiter
