@@ -263,7 +263,7 @@ class RetryableRateLimiter(RateLimiter):
                 max=self.config.max_backoff_seconds,
             ),
             retry=retry_if_exception_type((RateLimitError, NetworkError)),
-            before_sleep=before_sleep_log(self.logger.logger, logging.WARNING),
+            before_sleep=before_sleep_log(self.logger._logger, logging.WARNING),
         )
 
     async def execute_with_retry(

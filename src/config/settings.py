@@ -156,13 +156,13 @@ class UIConfig:
 
 
 @dataclass
-class SessionSettings(BaseModel):
+class SessionSettings:
     """Configuration for session management."""
 
-    max_active_sessions: int = Field(
+    max_active_sessions: int = field(
         default_factory=lambda: int(os.getenv("MAX_ACTIVE_SESSIONS", "100"))
     )
-    cleanup_interval_minutes: int = Field(
+    cleanup_interval_minutes: int = field(
         default_factory=lambda: int(os.getenv("SESSION_CLEANUP_INTERVAL_MINUTES", "30"))
     )
 
@@ -218,7 +218,14 @@ class AppConfig:
     ui: UIConfig = field(default_factory=UIConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
-    session: SessionSettings = field(default_factory=SessionSettings)
+    session: SessionSettings = field(
+        default_factory=lambda: SessionSettings(
+            max_active_sessions=int(os.getenv("MAX_ACTIVE_SESSIONS", "100")),
+            cleanup_interval_minutes=int(
+                os.getenv("SESSION_CLEANUP_INTERVAL_MINUTES", "30")
+            ),
+        )
+    )
 
     # NEW: Add structured configuration sections
     llm_settings: LLMSettings = field(default_factory=LLMSettings)

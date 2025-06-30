@@ -83,6 +83,18 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         """
         await self.api_key_manager.ensure_api_key_valid()
 
+    async def validate_api_key(self) -> bool:
+        """
+        Validate the current API key. Returns True if valid, False otherwise.
+        This is intended for UI callbacks and does not raise.
+        """
+        try:
+            await self.api_key_manager.ensure_api_key_valid()
+            return True
+        except Exception as e:
+            logger.error("API key validation failed", error=str(e))
+            return False
+
     def get_current_api_key_info(self) -> LLMApiKeyInfo:
         """Get information about the currently active API key."""
         return self.api_key_manager.get_current_api_key_info()

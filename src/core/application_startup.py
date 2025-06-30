@@ -102,7 +102,9 @@ class ApplicationStartup:
             logger.info("Application services initialized successfully.")
 
         except Exception as e:
-            logger.error("Failed to initialize application services", error=str(e))
+            logger.error(
+                "Failed to initialize application services", error=str(e), exc_info=True
+            )
             errors.append(str(e))
             self.is_initialized = False
 

@@ -14,6 +14,9 @@ from ..services.llm_service import EnhancedLLMService
 from ..services.llm_caching_service import get_llm_caching_service
 from ..services.llm_client import LLMClient
 from ..services.llm_retry_handler import LLMRetryHandler
+from ..services.llm_api_key_manager import LLMApiKeyManager
+from ..services.llm_retry_service import LLMRetryService
+from ..services.rate_limiter import get_rate_limiter
 from ..agents.parser_agent import ParserAgent
 from ..agents.cv_analyzer_agent import CVAnalyzerAgent
 from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
@@ -63,17 +66,33 @@ class Container(
         llm_client=llm_client,
     )
 
-    advanced_cache = providers.Singleton(
-        get_llm_caching_service
+    advanced_cache = providers.Singleton(get_llm_caching_service)
+
+    llm_api_key_manager = providers.Singleton(
+        LLMApiKeyManager,
+        settings=config,
+        llm_client=llm_client,
+        user_api_key=providers.Object(None),
+    )
+
+    rate_limiter = providers.Singleton(get_rate_limiter)
+
+    llm_retry_service = providers.Singleton(
+        LLMRetryService,
+        llm_retry_handler=llm_retry_handler,
+        api_key_manager=llm_api_key_manager,
+        rate_limiter=rate_limiter,
+        timeout=config.provided.llm.request_timeout,
+        model_name=config.provided.llm_settings.default_model,
     )
 
     llm_service = providers.Singleton(  # pylint: disable=c-extension-no-member
         EnhancedLLMService,
         settings=config,
-        llm_client=llm_client,
-        llm_retry_handler=llm_retry_handler,
-        cache=advanced_cache,
-        timeout=config.provided.llm.request_timeout,
+        caching_service=advanced_cache,
+        api_key_manager=llm_api_key_manager,
+        retry_service=llm_retry_service,
+        rate_limiter=rate_limiter,
     )
 
     vector_store_service = providers.Singleton(  # pylint: disable=c-extension-no-member
@@ -81,10 +100,7 @@ class Container(
     )
 
     progress_tracker = providers.Factory(  # pylint: disable=c-extension-no-member
-        ProgressTracker,
-        enabled=config.provided.progress_tracker.enabled,
-        log_interval=config.provided.progress_tracker.log_interval,
-        max_history=config.provided.progress_tracker.max_history,
+        ProgressTracker
     )
 
     # Agent Providers
@@ -123,16 +139,12 @@ class Container(
         session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
-    quality_assurance_agent = (
-        providers.Factory(  
-            QualityAssuranceAgent,
-            llm_service=llm_service,
-            template_manager=template_manager,
-            settings=providers.Object({}),  # pylint: disable=c-extension-no-member
-            session_id=providers.Object(
-                "default"
-            ),  # pylint: disable=c-extension-no-member
-        )
+    quality_assurance_agent = providers.Factory(
+        QualityAssuranceAgent,
+        llm_service=llm_service,
+        template_manager=template_manager,
+        settings=providers.Object({}),  # pylint: disable=c-extension-no-member
+        session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
     formatter_agent = providers.Factory(  # pylint: disable=c-extension-no-member

@@ -40,9 +40,6 @@ def run_with_timeout(func, args=(), kwargs=None, timeout=30):
 
     if exception[0] is not None:
         raise exception[0]
-    else:
-        raise Exception("An unknown error occurred in the timed operation.")
-
     return result[0]
 
 
@@ -87,13 +84,13 @@ class VectorStoreService:
                 client = run_with_timeout(create_client, timeout=30)
             except OperationTimeoutError as e:
                 raise ConfigurationError(
-                    f"ChromaDB initialization timed out after 30 seconds. "
-                    f"This might be due to:\n"
-                    f"1. ChromaDB downloading embedding models on first run\n"
-                    f"2. Network connectivity issues\n"
-                    f"3. File system permission problems\n"
-                    f"4. Another process using the database\n\n"
-                    f"Try restarting the application or clearing the vector_db directory."
+                    "ChromaDB initialization timed out after 30 seconds. "
+                    "This might be due to:\n"
+                    "1. ChromaDB downloading embedding models on first run\n"
+                    "2. Network connectivity issues\n"
+                    "3. File system permission problems\n"
+                    "4. Another process using the database\n\n"
+                    "Try restarting the application or clearing the vector_db directory."
                 ) from e
 
             logger.info(
