@@ -43,6 +43,12 @@ class ContentType(str, Enum):
     ACHIEVEMENTS = "achievements"
     JOB_ANALYSIS = "job_analysis"
     JSON = "json"
+    SKILL_EXTRACTION = "skill_extraction"
+    JSON_CLEANING = "json_cleaning"
+    CV_ASSESSMENT = "cv_assessment"
+    SKILL_GENERATION = "skill_generation"
+    ROLE_GENERATION = "role_generation"
+    PROJECT_GENERATION = "project_generation"
 
 
 class UserAction(str, Enum):

@@ -49,19 +49,23 @@ class ResearchAgent(AgentBase):
         self.settings = settings
         self.template_manager = template_manager
 
-    async def run(self, **kwargs: Any) -> AgentResult[ResearchAgentOutput]:
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Validate inputs for research agent."""
+        if not input_data.get("job_description_data") or not input_data.get(
+            "structured_cv"
+        ):
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message="Missing required parameters: job_description_data or structured_cv",
+            )
+
+    async def _execute(self, **kwargs: Any) -> AgentResult[ResearchAgentOutput]:
         """
         Executes the research agent asynchronously.
         """
         # Extract parameters from kwargs
         job_description_data = kwargs.get("job_description_data")
         structured_cv = kwargs.get("structured_cv")
-
-        if not job_description_data or not structured_cv:
-            return AgentResult.failure(
-                agent_name=self.name,
-                error_message="Missing required parameters: job_description_data or structured_cv",
-            )
 
         self.update_progress(0, "Starting research analysis")
 
@@ -106,6 +110,27 @@ class ResearchAgent(AgentBase):
                 agent_name=self.name,
                 error_message=f"An unexpected error occurred during research: {e}",
             )
+
+    async def run_as_node(self, state: dict) -> dict:
+        """Runs the agent as a node in the workflow."""
+        self.update_progress(0, "Starting research node.")
+        try:
+            # Extract relevant data from the state
+            job_description_data = state.get("job_description_data")
+            structured_cv = state.get("structured_cv")
+
+            # Perform research
+            research_findings = await self._perform_research_analysis(
+                structured_cv, job_description_data
+            )
+            state["research_findings"] = research_findings
+
+            self.update_progress(100, "Research node completed.")
+            return state
+        except Exception as e:
+            logger.error(f"Error in research node: {e}", exc_info=True)
+            state["error_messages"] = state.get("error_messages", []) + [str(e)]
+            return state
 
     async def _perform_research_analysis(
         self, structured_cv: StructuredCV, job_desc_data: JobDescriptionData

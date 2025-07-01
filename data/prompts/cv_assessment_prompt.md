@@ -1,3 +1,9 @@
+---
+name: cv_assessment
+category: prompt
+content_type: cv_assessment
+description: "Analyzes a CV against job requirements and provides a detailed assessment."
+---
 Analyze the following CV against the job requirements and provide a detailed assessment.
 
 Job Title: {job_title}

@@ -28,39 +28,21 @@ class CVAnalyzerAgent(AgentBase):
         self.llm_service = llm_service
         self.settings = get_config()
 
-    async def run(self, **kwargs: Any) -> AgentResult:
-        """Analyze CV content against job requirements using Pydantic models."""
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Validate the input data for the CV Analyzer Agent."""
+        if not isinstance(input_data, dict):
+            raise AgentExecutionError("Input validation failed: input_data must be a dict")
+        if "cv_data" not in input_data or "job_description" not in input_data:
+            raise AgentExecutionError("Input validation failed: 'cv_data' and 'job_description' are required.")
 
+    async def _execute(self, **kwargs: Any) -> AgentResult:
+        """Analyze CV content against job requirements using Pydantic models."""
         input_data = kwargs.get("input_data")
         context = kwargs.get(
             "context", AgentExecutionContext(session_id=self.session_id)
         )
 
         try:
-            # Validate input data
-            if not isinstance(input_data, dict):
-                self.logger.error(
-                    "Input validation failed for CVAnalyzerAgent: input_data must be a dict"
-                )
-                return AgentResult(
-                    success=False,
-                    output_data=CVAnalysisResult(
-                        skill_matches=[],
-                        experience_relevance=0.0,
-                        gaps_identified=[
-                            "Input validation failed: expected dictionary input"
-                        ],
-                        strengths=[],
-                        recommendations=[],
-                        match_score=0.0,
-                        analysis_timestamp=None,
-                    ),
-                    confidence_score=0.0,
-                    error_message="Input validation failed: expected dictionary input",
-                    metadata={
-                        "agent_type": "cv_analysis",
-                    },
-                )
             cv_data = input_data.get("cv_data")
             job_description = input_data.get("job_description")
             if not isinstance(cv_data, StructuredCV):

@@ -1,3 +1,9 @@
+---
+name: cv_analysis
+category: prompt
+content_type: cv_analysis
+description: "Analyzes CV text and extracts key sections and information into a JSON format."
+---
 Analyze the following CV text and extract the key sections and information.
 Provide the output in JSON format with the following keys:
 "summary": The professional summary or objective statement.

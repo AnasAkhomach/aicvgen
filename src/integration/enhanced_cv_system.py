@@ -143,7 +143,7 @@ class EnhancedCVIntegration:
             )
 
             # Initialize template manager
-            if self.config.enable_templates:
+            if self.config.enable_templates and not self._template_manager:
                 self._template_manager = ContentTemplateManager()
                 self.logger.info("Template manager initialized")
 
@@ -498,6 +498,7 @@ class EnhancedCVIntegration:
                 if workflow_type in [
                     WorkflowType.BASIC_CV_GENERATION,
                     WorkflowType.JOB_TAILORED_CV,
+                    WorkflowType.COMPREHENSIVE_CV,
                 ]:
                     # Populate input data for the workflow
                     if initial_agent_state.structured_cv:
@@ -506,6 +507,7 @@ class EnhancedCVIntegration:
                         # Prepare workflow inputs based on AgentState
                         workflow_inputs = {
                             "structured_cv": initial_agent_state.structured_cv,
+                            "cv_text": initial_agent_state.structured_cv.to_raw_text(),
                             "session_id": session_id or self._session_id,
                             "workflow_type": workflow_type.value,
                         }
@@ -539,6 +541,7 @@ class EnhancedCVIntegration:
                             # Create a new AgentState from the workflow result
                             result_state = AgentState(
                                 structured_cv=workflow_result.get("structured_cv"),
+                                cv_text=workflow_result.get("structured_cv").to_raw_text(),
                                 job_description_data=workflow_result.get(
                                     "job_description_data"
                                 ),

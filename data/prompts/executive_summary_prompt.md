@@ -1,3 +1,9 @@
+---
+name: executive_summary
+category: prompt
+content_type: executive_summary
+description: "Generates an Executive Summary for a resume or LinkedIn profile."
+---
 ## Executive Summary Prompt for AI Generation
 
 **Custom Instructions:**

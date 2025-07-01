@@ -381,8 +381,7 @@ class MemoryOptimizer:
         }
 
         logger.info(
-            "Memory optimization completed, freed %s MB",
-            round(memory_freed, 2),
+            f"Memory optimization completed, freed {round(memory_freed, 2)} MB",
             extra={
                 "objects_collected": collected,
                 "memory_freed_mb": round(memory_freed, 2),

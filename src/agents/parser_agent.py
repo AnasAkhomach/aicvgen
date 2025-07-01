@@ -197,3 +197,30 @@ class ParserAgent(AgentBase):
         except VectorStoreError as e:
             logger.warning("Failed to store CV vectors", error=str(e))
             # Non-critical error, so we don't re-raise as AgentExecutionError
+
+    async def run_as_node(self, state: dict) -> dict:
+        """Runs the agent as a node in the workflow."""
+        self.update_progress(0, "Starting parser node.")
+        try:
+            # Extract relevant data from the state
+            raw_cv_text = state.get("cv_text")
+            job_description_text = state.get("job_description_data", {}).get("raw_text")
+
+            # Parse CV
+            if raw_cv_text:
+                structured_cv = await self.parse_cv(raw_cv_text)
+                state["structured_cv"] = structured_cv
+
+            # Parse Job Description
+            if job_description_text:
+                job_description_data = await self.parse_job_description(
+                    job_description_text
+                )
+                state["job_description_data"] = job_description_data
+
+            self.update_progress(100, "Parser node completed.")
+            return state
+        except Exception as e:
+            logger.error(f"Error in parser node: {e}", exc_info=True)
+            state["error_messages"] = state.get("error_messages", []) + [str(e)]
+            return state

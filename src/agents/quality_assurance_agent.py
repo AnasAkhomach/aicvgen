@@ -52,42 +52,31 @@ class QualityAssuranceAgent(AgentBase):
         self.template_manager = template_manager
         self.settings = settings
 
-    async def run(self, **kwargs: Any) -> AgentResult:
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Validates the input for the QualityAssuranceAgent."""
+        if not isinstance(input_data, dict):
+            raise AgentExecutionError("Input validation failed: input_data must be a dict")
+        if "structured_cv" not in input_data:
+            raise AgentExecutionError("Invalid input: 'structured_cv' is a required field.")
+        structured_cv = input_data["structured_cv"]
+        if not isinstance(structured_cv, StructuredCV):
+            if isinstance(structured_cv, dict):
+                input_data["structured_cv"] = StructuredCV(**structured_cv)
+            else:
+                raise AgentExecutionError(
+                    f"Invalid type for 'structured_cv'. Expected StructuredCV or dict, got {type(structured_cv)}."
+                )
+
+    async def _execute(self, **kwargs: Any) -> AgentResult:
         """
         Runs the quality assurance agent to evaluate generated CV content.
-
-        This method validates the input, performs a series of quality checks on the
-        structured CV data, and returns the results. It checks individual sections
-        and performs overall CV-level validation.
-
-        Args:
-            **kwargs: A dictionary containing 'structured_cv'.
-
-        Returns:
-            An AgentResult containing the QualityAssuranceAgentOutput.
-
-        Raises:
-            AgentExecutionError: If the input is invalid or an error occurs during processing.
         """
         logger.info("Quality Assurance Agent: Starting execution.")
         self.update_progress(0, "Starting QA process.")
         input_data = kwargs.get("input_data", {})
 
         try:
-            if "structured_cv" not in input_data:
-                raise AgentExecutionError(
-                    message="Invalid input: 'structured_cv' is a required field."
-                )
-
             structured_cv = input_data["structured_cv"]
-            if not isinstance(structured_cv, StructuredCV):
-                if isinstance(structured_cv, dict):
-                    structured_cv = StructuredCV(**structured_cv)
-                else:
-                    raise AgentExecutionError(
-                        message=f"Invalid type for 'structured_cv'. Expected StructuredCV or dict, got {type(structured_cv)}."
-                    )
-
             self.update_progress(20, "Input validation passed.")
 
             section_results = [

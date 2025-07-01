@@ -255,6 +255,19 @@ class StructuredCV(BaseModel):
                         items.append(item)
         return items
 
+    def to_raw_text(self) -> str:
+        """Converts the structured CV back into a raw text string."""
+        lines = []
+        for section in self.sections:
+            lines.append(f"\n## {section.name}\n")
+            for item in section.items:
+                lines.append(item.content)
+            for subsection in section.subsections:
+                lines.append(f"\n### {subsection.name}\n")
+                for item in subsection.items:
+                    lines.append(f"- {item.content}")
+        return "\n".join(lines)
+
     @staticmethod
     def create_empty(
         cv_text: str = "", job_data: Optional["JobDescriptionData"] = None

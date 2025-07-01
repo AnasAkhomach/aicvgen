@@ -56,29 +56,32 @@ class FormatterAgent(AgentBase):
         self.template_manager = template_manager
         self.settings = settings
 
-    async def run(self, **kwargs: Any) -> AgentResult[FormatterAgentOutput]:
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Validates the input for the FormatterAgent."""
+        if not isinstance(input_data, dict):
+            raise AgentExecutionError("Input validation failed: input_data must be a dict")
+        if "structured_cv" not in input_data:
+            raise AgentExecutionError("'structured_cv' of type StructuredCV is required.")
+        if not isinstance(input_data["structured_cv"], StructuredCV):
+            raise AgentExecutionError("'structured_cv' must be of type StructuredCV.")
+        format_type = input_data.get("format_type", "pdf").lower()
+        if format_type == "pdf" and not WEASYPRINT_AVAILABLE:
+            raise DependencyError(
+                "PDF generation requires WeasyPrint, but it is not installed or failed to load."
+            )
+
+    async def _execute(self, **kwargs: Any) -> AgentResult[FormatterAgentOutput]:
         """Formats a StructuredCV into a file and returns the path."""
-        structured_cv: Optional[StructuredCV] = kwargs.get("structured_cv")
-        format_type: str = kwargs.get("format_type", "pdf")
-        template_name: str = kwargs.get("template_name", "default_template.html")
-        output_path: Optional[str] = kwargs.get("output_path")
+        input_data = kwargs.get("input_data", {})
+        structured_cv: Optional[StructuredCV] = input_data.get("structured_cv")
+        format_type: str = input_data.get("format_type", "pdf")
+        template_name: str = input_data.get("template_name", "default_template.html")
+        output_path: Optional[str] = input_data.get("output_path")
 
         self.update_progress(0, "Starting formatting process")
         format_type = format_type.lower()
 
         try:
-            if not structured_cv or not isinstance(structured_cv, StructuredCV):
-                raise AgentExecutionError(
-                    agent_name=self.name,
-                    message="'structured_cv' of type StructuredCV is required.",
-                )
-
-            if format_type == "pdf" and not WEASYPRINT_AVAILABLE:
-                logger.warning("WeasyPrint not found. PDF generation is disabled.")
-                raise DependencyError(
-                    "PDF generation requires WeasyPrint, but it is not installed or failed to load."
-                )
-
             self.update_progress(30, "Rendering CV from template")
             html_content = self._format_html(structured_cv, template_name)
 

@@ -1,3 +1,9 @@
+---
+name: job_research_analysis
+category: prompt
+content_type: job_analysis
+description: "Analyzes a job description and provides a structured analysis."
+---
 Analyze the following job description and provide a structured analysis.
 Extract the following information:
 
