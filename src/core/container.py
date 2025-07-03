@@ -9,24 +9,28 @@ from dependency_injector import (
 )  # pylint: disable=c-extension-no-member
 import google.generativeai as genai
 
-from ..config.settings import get_config
-from ..services.llm_service import EnhancedLLMService
-from ..services.llm_caching_service import get_llm_caching_service
-from ..services.llm_client import LLMClient
-from ..services.llm_retry_handler import LLMRetryHandler
-from ..services.llm_api_key_manager import LLMApiKeyManager
-from ..services.llm_retry_service import LLMRetryService
-from ..services.rate_limiter import get_rate_limiter
-from ..agents.parser_agent import ParserAgent
-from ..agents.cv_analyzer_agent import CVAnalyzerAgent
-from ..agents.enhanced_content_writer import EnhancedContentWriterAgent
-from ..agents.cleaning_agent import CleaningAgent
-from ..agents.quality_assurance_agent import QualityAssuranceAgent
-from ..agents.formatter_agent import FormatterAgent
-from ..agents.research_agent import ResearchAgent
-from ..services.vector_store_service import VectorStoreService
-from ..services.progress_tracker import ProgressTracker
-from ..templates.content_templates import ContentTemplateManager
+from src.config.settings import get_config
+from src.services.llm_service import EnhancedLLMService
+from src.services.llm_caching_service import get_llm_caching_service
+from src.services.llm_client import LLMClient
+from src.services.llm_retry_handler import LLMRetryHandler
+from src.services.llm_api_key_manager import LLMApiKeyManager
+from src.services.llm_retry_service import LLMRetryService
+from src.services.rate_limiter import get_rate_limiter
+from src.agents.job_description_parser_agent import JobDescriptionParserAgent
+from src.agents.user_cv_parser_agent import UserCVParserAgent
+from src.agents.cv_analyzer_agent import CVAnalyzerAgent
+from src.agents.key_qualifications_writer_agent import KeyQualificationsWriterAgent
+from src.agents.professional_experience_writer_agent import ProfessionalExperienceWriterAgent
+from src.agents.projects_writer_agent import ProjectsWriterAgent
+from src.agents.executive_summary_writer_agent import ExecutiveSummaryWriterAgent
+from src.agents.cleaning_agent import CleaningAgent
+from src.agents.quality_assurance_agent import QualityAssuranceAgent
+from src.agents.formatter_agent import FormatterAgent
+from src.agents.research_agent import ResearchAgent
+from src.services.vector_store_service import VectorStoreService
+from src.services.progress_tracker import ProgressTracker
+from src.templates.content_templates import ContentTemplateManager
 
 
 def create_configured_llm_model(api_key: str, model_name: str) -> genai.GenerativeModel:
@@ -104,31 +108,42 @@ class Container(
     )
 
     # Agent Providers
-    parser_agent = providers.Factory(  # pylint: disable=c-extension-no-member
-        ParserAgent,
-        llm_service=llm_service,
-        vector_store_service=vector_store_service,
-        template_manager=template_manager,
-        settings=providers.Object({}),  # pylint: disable=c-extension-no-member
-        session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
-    )
-
     cv_analyzer_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         CVAnalyzerAgent,
         llm_service=llm_service,
         session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
     )
 
-    enhanced_content_writer_agent = (
-        providers.Factory(  # pylint: disable=c-extension-no-member
-            EnhancedContentWriterAgent,
-            llm_service=llm_service,
-            template_manager=template_manager,
-            settings=providers.Object({}),  # pylint: disable=c-extension-no-member
-            session_id=providers.Object(
-                "default"
-            ),  # pylint: disable=c-extension-no-member
-        )
+    key_qualifications_writer_agent = providers.Factory(
+        KeyQualificationsWriterAgent,
+        llm_service=llm_service,
+        template_manager=template_manager,
+        settings=providers.Object({}),
+        session_id=providers.Object("default"),
+    )
+
+    professional_experience_writer_agent = providers.Factory(
+        ProfessionalExperienceWriterAgent,
+        llm_service=llm_service,
+        template_manager=template_manager,
+        settings=providers.Object({}),
+        session_id=providers.Object("default"),
+    )
+
+    projects_writer_agent = providers.Factory(
+        ProjectsWriterAgent,
+        llm_service=llm_service,
+        template_manager=template_manager,
+        settings=providers.Object({}),
+        session_id=providers.Object("default"),
+    )
+
+    executive_summary_writer_agent = providers.Factory(
+        ExecutiveSummaryWriterAgent,
+        llm_service=llm_service,
+        template_manager=template_manager,
+        settings=providers.Object({}),
+        session_id=providers.Object("default"),
     )
 
     cleaning_agent = providers.Factory(  # pylint: disable=c-extension-no-member
@@ -161,6 +176,23 @@ class Container(
         settings=providers.Object({}),  # pylint: disable=c-extension-no-member
         template_manager=template_manager,
         session_id=providers.Object("default"),  # pylint: disable=c-extension-no-member
+    )
+
+    job_description_parser_agent = providers.Factory(
+        JobDescriptionParserAgent,
+        llm_service=llm_service,
+        template_manager=template_manager,
+        settings=providers.Object({}),
+        session_id=providers.Object("default"),
+    )
+
+    user_cv_parser_agent = providers.Factory(
+        UserCVParserAgent,
+        llm_service=llm_service,
+        vector_store_service=vector_store_service,
+        template_manager=template_manager,
+        settings=providers.Object({}),
+        session_id=providers.Object("default"),
     )
 
 

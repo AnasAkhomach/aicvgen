@@ -5,7 +5,7 @@ It implements granular, item-by-item processing with user feedback loops.
 """
 
 from typing import Dict, Any, Optional
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, MessageGraph
 import uuid
 
 from ..orchestration.state import AgentState
@@ -34,8 +34,6 @@ class CVWorkflowGraph:
     def __init__(self, session_id: Optional[str] = None):
         self.session_id = session_id or str(uuid.uuid4())
         self.container = get_container()
-        # Note: session_manager is not defined in the container, this might need to be fixed
-        # self.session_manager: SessionManager = self.container.session_manager()
         self.workflow = self._build_graph()
         self.app = self.workflow.compile()
 
@@ -43,362 +41,50 @@ class CVWorkflowGraph:
 
     def _get_agent(self, agent_name: str) -> Any:
         """Retrieve an agent from the container for the current session."""
-        # Use attribute access for dependency-injector containers
         if hasattr(self.container, agent_name):
             return getattr(self.container, agent_name)()
         else:
-            raise AttributeError(
-                f"Agent '{agent_name}' not found in container"
-            )  # Node wrapper functions for granular workflow
+            raise AttributeError(f"Agent '{agent_name}' not found in container")
 
     @validate_node_output
-    async def parser_node(
+    async def jd_parser_node(
         self, state: AgentState, config: Optional[Dict] = None
     ) -> AgentState:
-        """Execute parser node to process CV and job description."""
-        logger.info(f"Executing parser_node") # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args
-
+        """Execute parser node to process job description."""
+        logger.info(f"Executing jd_parser_node")
         try:
-            parser_agent = self._get_agent("parser_agent")
-            result = await parser_agent.run_as_node(state)
+            jd_parser_agent = self._get_agent("job_description_parser_agent")
+            result = await jd_parser_agent.run_as_node(state)
             if isinstance(result, dict):
                 return state.model_copy(update=result)
             return result
         except (KeyError, AttributeError, RuntimeError) as exc:
-            logger.error("Parser node failed: %s", exc)
-            # Add error to state for centralized handling
-            error_msg = f"ParserAgent failed: {str(exc)}"
+            logger.error("JD Parser node failed: %s", exc)
+            error_msg = f"JobDescriptionParserAgent failed: {str(exc)}"
             return state.model_copy(
                 update={"error_messages": state.error_messages + [error_msg]}
             )
 
     @validate_node_output
-    async def content_writer_node(
+    async def cv_parser_node(
         self, state: AgentState, config: Optional[Dict] = None
     ) -> AgentState:
-        """Execute content writer node for current item."""
-        logger.info(f"Executing content_writer_node for item: {state.current_item_id}")
-
-        if not state.current_item_id:
-            # Try to get the next item from queue if available
-            if state.items_to_process_queue:
-                queue_copy = state.items_to_process_queue.copy()
-                next_item_id = queue_copy.pop(0)
-                logger.info(f"Auto-setting current_item_id to: {next_item_id}") # pylint: disable=too-many-function-args
-                # Update state and continue
-                state = state.model_copy(
-                    update={
-                        "current_item_id": next_item_id,
-                        "items_to_process_queue": queue_copy,
-                    }
-                )
-            else:
-                logger.error(
-                    "ContentWriter called without current_item_id and no items in queue"
-                )
-                return state.model_copy(
-                    update={
-                        "error_messages": state.error_messages
-                        + ["ContentWriter failed: No item ID."]
-                    }
-                )
-
-        content_writer_agent = self._get_agent("writer_agent")
-        result = await content_writer_agent.run_as_node(state)
-        if isinstance(result, dict):
-            return state.model_copy(update=result)
-        return result
-
-    @validate_node_output
-    async def qa_node(
-        self, state: AgentState, config: Optional[Dict] = None
-    ) -> AgentState:
-        """Execute QA node for current item."""
-        logger.info(f"Executing qa_node for item: {state.current_item_id}") # pylint: disable=too-many-function-args
-        qa_agent = self._get_agent("qa_agent")
-        result = await qa_agent.run_as_node(state)
-        if isinstance(result, dict):
-            return state.model_copy(update=result)
-        return result
-
-    async def process_next_item_node(
-        self, state: AgentState, config: Optional[Dict] = None
-    ) -> AgentState:
-        """Process the next item from the queue."""
-        logger.info("Executing process_next_item_node")
-
-        if not state.items_to_process_queue:
-            logger.warning("No items in queue to process")
-            return state
-
-        # Pop the next item from the queue
-        queue_copy = state.items_to_process_queue.copy()
-        next_item_id = queue_copy.pop(0)
-
-        logger.info(f"Processing next item: {next_item_id}") # pylint: disable=too-many-function-args
-        return state.model_copy(
-            update={
-                "current_item_id": next_item_id,
-                "items_to_process_queue": queue_copy,
-            }
-        )
-
-    @validate_node_output
-    async def setup_generation_queue_node(
-        self, state: AgentState, config: Optional[Dict] = None
-    ) -> AgentState:
-        """Set up the content generation queue with all items."""
-        logger.info("--- Executing Node: setup_generation_queue_node ---")
-        content_queue = []
-
-        # Collect all items from all sections that need content generation
-        for section in state.structured_cv.sections:
-            for item in section.items:
-                content_queue.append(str(item.id))
-            # Include subsection items if any
-            if section.subsections:
-                for subsection in section.subsections:
-                    for item in subsection.items:
-                        content_queue.append(str(item.id))
-
-        logger.info(
-            f"Setup content generation queue with {len(content_queue)} items: {content_queue}"
-        )
-
-        return state.model_copy(update={"content_generation_queue": content_queue})
-
-    @validate_node_output
-    async def pop_next_item_node(
-        self, state: AgentState, config: Optional[Dict] = None
-    ) -> AgentState:
-        """Pop the next item from the content generation queue."""
-        logger.info("--- Executing Node: pop_next_item_node ---")
-
-        if not state.content_generation_queue:
-            logger.warning("Content generation queue is empty")
-            return state
-
-        # Pop the next item from the queue
-        queue_copy = state.content_generation_queue.copy()
-        next_item_id = queue_copy.pop(0)
-
-        logger.info(
-            f"Popped item {next_item_id} from content generation queue. "
-            f"Remaining: {len(queue_copy)}"
-        )
-
-        return state.model_copy(
-            update={
-                "current_item_id": next_item_id,
-                "content_generation_queue": queue_copy,
-            }
-        )
-
-    @validate_node_output
-    async def prepare_regeneration_node(
-        self, state: AgentState, config: Optional[Dict] = None
-    ) -> AgentState:
-        """Prepare for item regeneration based on user feedback."""
-        logger.info("--- Executing Node: prepare_regeneration_node ---")
-
-        if not state.user_feedback or not state.user_feedback.item_id:
-            logger.error("No user feedback or item_id for regeneration")
-            return state.model_copy(
-                update={
-                    "error_messages": state.error_messages
-                    + ["No item specified for regeneration"]
-                }
-            )
-
-        item_id = str(state.user_feedback.item_id)
-        logger.info(f"Preparing regeneration for item: {item_id}")
-
-        return state.model_copy(
-            update={
-                "content_generation_queue": [item_id],
-                "current_item_id": None,  # Will be set by pop_next_item_node
-                "is_initial_generation": False,
-            }
-        )
-
-    @validate_node_output
-    async def generate_skills_node(
-        self, state: AgentState, config: Optional[Dict] = None
-    ) -> AgentState:
-        """Generate skills using the content writer agent."""
-        logger.info("--- Executing Node: generate_skills_node ---")
-
-        my_talents = ""  # Placeholder for now, could be extracted from original CV
-
-        # Get the content writer agent and call the async method directly
-        content_writer_agent = self._get_agent("writer_agent")
-        result = await content_writer_agent.generate_big_10_skills(
-            job_data={
-                "job_description": state.job_description_data.raw_text,
-                "my_talents": my_talents,
-            }
-        )
-
-        if result["success"]:
-            updated_cv = state.structured_cv.model_copy(deep=True)
-            updated_cv.big_10_skills = result["skills"]
-            updated_cv.big_10_skills_raw_output = result[
-                "raw_llm_output"
-            ]  # Find the Key Qualifications section to populate it
-            qual_section = None
-            for section in updated_cv.sections:
-                # Normalize section name for matching (handle both formats)
-                normalized_name = (
-                    section.name.lower().replace(":", "").replace("_", " ").strip()
-                )
-                if normalized_name in ["key qualifications", "qualifications"]:
-                    qual_section = section
-                    break
-
-            if not qual_section:
-                error_msg = (
-                    "Could not find 'Key Qualifications' section to populate skills."
-                )
-                logger.error(error_msg)
-                return state.model_copy(
-                    update={"error_messages": state.error_messages + [error_msg]}
-                )
-
-            # Import late to avoid circular imports
-
-            qual_section.items = [
-                Item(
-                    content=skill,
-                    status=ItemStatus.GENERATED,
-                    item_type=ItemType.KEY_QUALIFICATION,
-                )
-                for skill in result["skills"]
-            ]
-            item_queue = [str(item.id) for item in qual_section.items]
-
-            logger.info(
-                f"Populated 'Key Qualifications' with {len(item_queue)} skills "
-                f"and set up queue."
-            )
-
-            return state.model_copy(
-                update={
-                    "structured_cv": updated_cv,
-                    "items_to_process_queue": item_queue,
-                    "current_section_key": "key_qualifications",
-                    "is_initial_generation": True,
-                }
-            )
-
-        return state.model_copy(
-            update={
-                "error_messages": state.error_messages
-                + [f"Skills generation failed: {result['error']}"]
-            }
-        )
-
-    @validate_node_output
-    async def formatter_node(self, state: AgentState, **kwargs) -> AgentState:
-        """Execute formatter node to generate PDF output."""
-        logger.info("Executing formatter_node")
-
-        # Use FormatterAgent to generate PDF (now async)
-        formatter_agent = self._get_agent("formatter_agent")
-        result = await formatter_agent.run_as_node(state)
-
-        # Update state with the result
-        updated_state = state.model_copy()
-        if isinstance(result, dict):
-            if "final_output_path" in result:
-                updated_state.final_output_path = result["final_output_path"]
-            if "error_messages" in result:
-                updated_state.error_messages.extend(result["error_messages"])
-
-        return updated_state
-
-    async def error_handler_node(self, state: AgentState, **kwargs) -> AgentState:
-        """
-        Centralized error handling node that processes agent failures and determines
-        recovery actions. This implements Task A-04's centralized error recovery.
-        """
-        logger.info("Executing error_handler_node")
-
-        # Check if there are any recent errors to handle
-        if not state.error_messages:
-            logger.warning("Error handler called but no error messages found")
-            return state
-
-        last_error = state.error_messages[-1]
-        logger.error("Handling error: %s", last_error)
-
+        """Execute parser node to process CV."""
+        logger.info(f"Executing cv_parser_node")
         try:
-            # Get error recovery service from container
-            container = self.container
-
-            # Import ErrorRecoveryService locally to avoid import-time issues
-
-            logger.info("Getting error recovery service from container")
-            # Note: error_recovery_service is not defined in the container, this might need to be added
-            # error_recovery_service = container.error_recovery_service()
-            # For now, create the service directly
-
-            error_recovery_service = ErrorRecoveryService()
-            logger.info(
-                f"Got error recovery service: {error_recovery_service}"
-            )  # Use the error recovery service to determine the next action
-
-            recovery_action = await error_recovery_service.handle_error(
-                Exception(last_error),
-                state.current_item_id or "unknown",
-                ContentType.QUALIFICATION,  # Default content type
-                self.session_id,
-                0,  # retry_count managed at orchestration level
-                {
-                    "workflow_step": "agent_execution",
-                    "trace_id": state.trace_id,
-                },
-            )  # Apply recovery action
-            updates = {}
-            if recovery_action.strategy.value == "skip_item":
-                logger.info(f"Skipping failed item: {state.current_item_id}")
-                updates["current_item_id"] = None
-
-            elif recovery_action.strategy.value == "immediate_retry":
-                logger.info(f"Marking item for retry: {state.current_item_id}") # pylint: disable=too-many-function-args # pylint: disable=too-many-function-args
-                # For now, we'll just clear the error and let the workflow retry
-
-            elif recovery_action.strategy.value == "fallback_content":
-                logger.info("Using fallback content")
-                updates["fallback_content"] = (
-                    recovery_action.fallback_content
-                )  # Clear all errors (since the workflow ends after error handling)
-            updates["error_messages"] = []
-
-            return state.model_copy(update=updates)
-
-        except (ImportError, KeyError, AttributeError, RuntimeError) as exc:
-            logger.error("Error handler itself failed: %s", exc)
-            # Return state with additional error
+            cv_parser_agent = self._get_agent("user_cv_parser_agent")
+            result = await cv_parser_agent.run_as_node(state)
+            if isinstance(result, dict):
+                return state.model_copy(update=result)
+            return result
+        except (KeyError, AttributeError, RuntimeError) as exc:
+            logger.error("CV Parser node failed: %s", exc)
+            error_msg = f"UserCVParserAgent failed: {str(exc)}"
             return state.model_copy(
-                update={
-                    "error_messages": state.error_messages
-                    + [f"Error handler failed: {exc}"]
-                }
+                update={"error_messages": state.error_messages + [error_msg]}
             )
 
     @validate_node_output
-    @validate_node_output
-    async def cv_analyzer_node(self, state: AgentState, **kwargs) -> AgentState:
-        """Analyze the user's CV and store results in state.cv_analysis_results."""
-        logger.info("Executing cv_analyzer_node")
-        cv_analyzer_agent = self._get_agent("cv_analyzer_agent")
-        result = await cv_analyzer_agent.run_as_node(
-            state
-        )  # result is a CVAnalyzerNodeResult with cv_analysis_results as CVAnalysisResult
-        return state.model_copy(
-            update={"cv_analysis_results": result.cv_analysis_results}
-        )
-
     async def research_node(self, state: AgentState, **kwargs) -> AgentState:
         """Execute research node."""
         logger.info("Executing research_node")
@@ -409,109 +95,334 @@ class CVWorkflowGraph:
         return result
 
     @validate_node_output
-    async def writer_node(self, state: AgentState, **kwargs) -> AgentState:
-        """Execute writer node for current item."""
-        logger.info(
-            f"Executing writer_node for item: {getattr(state, 'current_item_id', 'unknown')}"
+    async def cv_analyzer_node(self, state: AgentState, **kwargs) -> AgentState:
+        """Analyze the user's CV and store results in state.cv_analysis_results."""
+        logger.info("Executing cv_analyzer_node")
+        cv_analyzer_agent = self._get_agent("cv_analyzer_agent")
+        result = await cv_analyzer_agent.run_as_node(state)
+        return state.model_copy(
+            update={"cv_analysis_results": result.cv_analysis_results}
         )
-        writer_agent = self._get_agent("writer_agent")
-        result = await writer_agent.run_as_node(state)
+
+    @validate_node_output
+    async def key_qualifications_writer_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
+        """Execute key qualifications writer node."""
+        logger.info(f"Executing key_qualifications_writer_node")
+        agent = self._get_agent("key_qualifications_writer_agent")
+        result = await agent.run_as_node(state)
         if isinstance(result, dict):
             return state.model_copy(update=result)
         return result
 
-    def should_continue_generation(self, state: Dict[str, Any]) -> str:
-        """Router function to determine if content generation loop should continue."""
-        agent_state = AgentState.model_validate(state)
+    @validate_node_output
+    async def professional_experience_writer_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
+        """Execute professional experience writer node."""
+        logger.info(f"Executing professional_experience_writer_node")
+        agent = self._get_agent("professional_experience_writer_agent")
+        result = await agent.run_as_node(state)
+        if isinstance(result, dict):
+            return state.model_copy(update=result)
+        return result
 
-        # Check for errors first
-        if agent_state.error_messages:
-            logger.warning("Errors detected in state, routing to error handler")
-            return "error"
+    @validate_node_output
+    async def projects_writer_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
+        """Execute projects writer node."""
+        logger.info(f"Executing projects_writer_node")
+        agent = self._get_agent("projects_writer_agent")
+        result = await agent.run_as_node(state)
+        if isinstance(result, dict):
+            return state.model_copy(update=result)
+        return result
 
-        # Check if there are more items in the content generation queue
-        if agent_state.content_generation_queue:
-            logger.info(
-                f"Content generation queue has {len(agent_state.content_generation_queue)} "
-                f"items remaining, continuing loop"
+    @validate_node_output
+    async def executive_summary_writer_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
+        """Execute executive summary writer node."""
+        logger.info(f"Executing executive_summary_writer_node")
+        agent = self._get_agent("executive_summary_writer_agent")
+        result = await agent.run_as_node(state)
+        if isinstance(result, dict):
+            return state.model_copy(update=result)
+        return result
+
+    @validate_node_output
+    async def qa_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> AgentState:
+        """Execute QA node for current item."""
+        logger.info(f"Executing qa_node for item: {state.current_item_id}")
+        qa_agent = self._get_agent("qa_agent")
+        result = await qa_agent.run_as_node(state)
+        if isinstance(result, dict):
+            return state.model_copy(update=result)
+        return result
+
+    @validate_node_output
+    async def formatter_node(self, state: AgentState, **kwargs) -> AgentState:
+        """Execute formatter node to generate PDF output."""
+        logger.info("Executing formatter_node")
+        formatter_agent = self._get_agent("formatter_agent")
+        result = await formatter_agent.run_as_node(state)
+        updated_state = state.model_copy()
+        if isinstance(result, dict):
+            if "final_output_path" in result:
+                updated_state.final_output_path = result["final_output_path"]
+            if "error_messages" in result:
+                updated_state.error_messages.extend(result["error_messages"])
+        return updated_state
+
+    async def error_handler_node(self, state: AgentState, **kwargs) -> AgentState:
+        """
+        Centralized error handling node that processes agent failures and determines
+        recovery actions.
+        """
+        logger.info("Executing error_handler_node")
+        if not state.error_messages:
+            logger.warning("Error handler called but no error messages found")
+            return state
+
+        last_error = state.error_messages[-1]
+        logger.error("Handling error: %s", last_error)
+
+        try:
+            error_recovery_service = ErrorRecoveryService()
+            recovery_action = await error_recovery_service.handle_error(
+                Exception(last_error),
+                state.current_item_id or "unknown",
+                ContentType.QUALIFICATION,  # Default content type
+                self.session_id,
+                0,  # retry_count managed at orchestration level
+                {
+                    "workflow_step": "agent_execution",
+                    "trace_id": state.trace_id,
+                },
             )
-            return "continue"
+            updates = {}
+            if recovery_action.strategy.value == "skip_item":
+                logger.info(f"Skipping failed item: {state.current_item_id}")
+                updates["current_item_id"] = None
+            elif recovery_action.strategy.value == "immediate_retry":
+                logger.info(f"Marking item for retry: {state.current_item_id}")
+            elif recovery_action.strategy.value == "fallback_content":
+                logger.info("Using fallback content")
+                updates["fallback_content"] = recovery_action.fallback_content
+            updates["error_messages"] = []
+            return state.model_copy(update=updates)
+        except Exception as exc:
+            logger.error("Error handler itself failed: %s", exc)
+            return state.model_copy(
+                update={
+                    "error_messages": state.error_messages
+                    + [f"Error handler failed: {exc}"]
+                }
+            )
 
-        # No more items to process
-        logger.info("Content generation queue is empty, completing workflow")
-        return "complete"
+    async def supervisor_node(self, state: AgentState, config: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Supervisor node to route to the correct content generation subgraph
+        or to the formatter node if all content is generated.
+        """
+        logger.info(f"Executing supervisor_node. Current section index: {state.current_section_index}")
 
-    def route_after_qa(self, state: Dict[str, Any]) -> str:
-        """Route after QA based on user feedback and workflow state."""
-        agent_state = AgentState.model_validate(state)
+        if state.error_messages:
+            logger.warning("Errors detected in state, routing to error handler from supervisor.")
+            return {"next_node": "error_handler"}
 
-        # Priority 1: Check for user feedback first to ensure user intent is honored
-        if (
-            agent_state.user_feedback
-            and agent_state.user_feedback.action == UserAction.REGENERATE
-        ):
-            logger.info(f"User requested regeneration, routing to prepare_regeneration")
-            return "regenerate"
+        if state.user_feedback and state.user_feedback.action == UserAction.REGENERATE:
+            logger.info("User requested regeneration, routing to prepare_regeneration from supervisor.")
+            return {"next_node": "prepare_regeneration"}
 
-        # Priority 2: Check for errors if no explicit user action
-        if agent_state.error_messages:
-            logger.warning("Errors detected in state, routing to error handler")
-            return "error"
+        if state.current_section_index >= len(WORKFLOW_SEQUENCE):
+            logger.info("All content sections processed, routing to formatter.")
+            return {"next_node": "formatter"}
 
-        # Priority 3: Continue with content generation loop
-        return self.should_continue_generation(state)
+        next_section_key = WORKFLOW_SEQUENCE[state.current_section_index]
+        logger.info(f"Routing to {next_section_key}_subgraph.")
+        return {"next_node": f"{next_section_key}_subgraph"}
 
     async def handle_feedback_node(self, state: AgentState, **kwargs) -> AgentState:
         """Handles user feedback to refine content."""
         logger.info(
             f"Executing handle_feedback_node for item: {getattr(state, 'current_item_id', 'unknown')}"
-        )  # This node would incorporate user feedback and re-run the writer
-        # For now, it's a placeholder
+        )
+        if state.user_feedback and state.user_feedback.action == UserAction.REGENERATE:
+            logger.info(f"User feedback: Regenerate for item {state.current_item_id}")
+            return state.model_copy(update={"user_feedback": None})
+        elif state.user_feedback and state.user_feedback.action == UserAction.APPROVE:
+            logger.info(f"User feedback: Approved for item {state.current_item_id}")
+            return state.model_copy(update={"user_feedback": None})
         return state
 
+    def _route_after_content_generation(self, state: Dict[str, Any]) -> str:
+        """
+        Router function for subgraphs after content generation and QA.
+        Determines if content needs regeneration or if the subgraph should end.
+        """
+        agent_state = AgentState.model_validate(state)
+
+        if agent_state.error_messages:
+            logger.warning("Errors detected in state, routing to error handler from content generation subgraph.")
+            return "error"
+
+        if agent_state.user_feedback and agent_state.user_feedback.action == UserAction.REGENERATE:
+            logger.info("User requested regeneration, looping back within subgraph.")
+            return "regenerate"
+
+        # If no regeneration requested and no errors, assume content is approved or acceptable
+        logger.info("Content approved or no regeneration requested, continuing to next item/section.")
+        return "continue"
+
+    def _route_from_supervisor(self, state: Dict[str, Any]) -> str:
+        """
+        Router function for the main graph, called by the supervisor node.
+        Determines the next step based on the 'next_node' field set by the supervisor.
+        """
+        agent_state = AgentState.model_validate(state)
+        return agent_state.node_execution_metadata.get("next_node", "error_handler")
+
+
+    def _build_key_qualifications_subgraph(self) -> StateGraph:
+        """Builds the subgraph for Key Qualifications generation."""
+        workflow = StateGraph(AgentState)
+        workflow.add_node("generate", self.key_qualifications_writer_node)
+        workflow.add_node("qa", self.qa_node)
+        workflow.add_node("handle_feedback", self.handle_feedback_node)
+
+        workflow.set_entry_point("generate")
+        workflow.add_edge("generate", "qa")
+        workflow.add_edge("qa", "handle_feedback")
+
+        workflow.add_conditional_edges(
+            "handle_feedback",
+            self._route_after_content_generation,
+            {
+                "regenerate": "generate",
+                "continue": END,
+                "error": "error_handler",
+            },
+        )
+        return workflow
+
+    def _build_professional_experience_subgraph(self) -> StateGraph:
+        """Builds the subgraph for Professional Experience generation."""
+        workflow = StateGraph(AgentState)
+        workflow.add_node("generate", self.professional_experience_writer_node)
+        workflow.add_node("qa", self.qa_node)
+        workflow.add_node("handle_feedback", self.handle_feedback_node)
+
+        workflow.set_entry_point("generate")
+        workflow.add_edge("generate", "qa")
+        workflow.add_edge("qa", "handle_feedback")
+
+        workflow.add_conditional_edges(
+            "handle_feedback",
+            self._route_after_content_generation,
+            {
+                "regenerate": "generate",
+                "continue": END,
+                "error": "error_handler",
+            },
+        )
+        return workflow
+
+    def _build_projects_subgraph(self) -> StateGraph:
+        """Builds the subgraph for Projects generation."""
+        workflow = StateGraph(AgentState)
+        workflow.add_node("generate", self.projects_writer_node)
+        workflow.add_node("qa", self.qa_node)
+        workflow.add_node("handle_feedback", self.handle_feedback_node)
+
+        workflow.set_entry_point("generate")
+        workflow.add_edge("generate", "qa")
+        workflow.add_edge("qa", "handle_feedback")
+
+        workflow.add_conditional_edges(
+            "handle_feedback",
+            self._route_after_content_generation,
+            {
+                "regenerate": "generate",
+                "continue": END,
+                "error": "error_handler",
+            },
+        )
+        return workflow
+
+    def _build_executive_summary_subgraph(self) -> StateGraph:
+        """Builds the subgraph for Executive Summary generation."""
+        workflow = StateGraph(AgentState)
+        workflow.add_node("generate", self.executive_summary_writer_node)
+        workflow.add_node("qa", self.qa_node)
+        workflow.add_node("handle_feedback", self.handle_feedback_node)
+
+        workflow.set_entry_point("generate")
+        workflow.add_edge("generate", "qa")
+        workflow.add_edge("qa", "handle_feedback")
+
+        workflow.add_conditional_edges(
+            "handle_feedback",
+            self._route_after_content_generation,
+            {
+                "regenerate": "generate",
+                "continue": END,
+                "error": "error_handler",
+            },
+        )
+        return workflow
+
     def _build_graph(self) -> StateGraph:
-        """Build and return the refactored CV workflow graph with explicit content generation loop."""
-        # Create the state graph
+        """Build and return the refactored CV workflow graph with supervisor and subgraphs."""
         workflow = StateGraph(AgentState)
 
-        # Add nodes for the new architecture
-        workflow.add_node("parser", self.parser_node)
+        # Add main graph nodes
+        workflow.add_node("jd_parser", self.jd_parser_node)
+        workflow.add_node("cv_parser", self.cv_parser_node)
         workflow.add_node("research", self.research_node)
-        workflow.add_node("generate_skills", self.generate_skills_node)
-        workflow.add_node("setup_generation_queue", self.setup_generation_queue_node)
-        workflow.add_node("pop_next_item", self.pop_next_item_node)
-        workflow.add_node("content_writer", self.content_writer_node)
-        workflow.add_node("qa", self.qa_node)
-        workflow.add_node("prepare_regeneration", self.prepare_regeneration_node)
+        workflow.add_node("cv_analyzer", self.cv_analyzer_node)
+        workflow.add_node("supervisor", self.supervisor_node)
         workflow.add_node("formatter", self.formatter_node)
         workflow.add_node("error_handler", self.error_handler_node)
-        workflow.add_node("cv_analyzer", self.cv_analyzer_node)
+
+        # Add subgraphs as nodes
+        workflow.add_node("key_qualifications_subgraph", self._build_key_qualifications_subgraph())
+        workflow.add_node("professional_experience_subgraph", self._build_professional_experience_subgraph())
+        workflow.add_node("projects_subgraph", self._build_projects_subgraph())
+        workflow.add_node("executive_summary_subgraph", self._build_executive_summary_subgraph())
 
         # Set entry point
-        workflow.set_entry_point("parser")
+        workflow.set_entry_point("jd_parser")
 
-        # Add linear edges for initial setup
-        workflow.add_edge("parser", "research")
-        workflow.add_edge("research", "generate_skills")
-        workflow.add_edge("generate_skills", "setup_generation_queue")
-        workflow.add_edge("setup_generation_queue", "pop_next_item")
-        workflow.add_edge("pop_next_item", "content_writer")
-        workflow.add_edge("content_writer", "qa")
+        # Define main graph edges
+        workflow.add_edge("jd_parser", "cv_parser")
+        workflow.add_edge("cv_parser", "research")
+        workflow.add_edge("research", "cv_analyzer")
+        workflow.add_edge("cv_analyzer", "supervisor")
 
-        # Add conditional routing after QA
+        # Conditional routing from supervisor
         workflow.add_conditional_edges(
-            "qa",
-            self.route_after_qa,
+            "supervisor",
+            self._route_from_supervisor,
             {
-                "error": "error_handler",  # Route to error handler if errors detected
-                "regenerate": "prepare_regeneration",  # User wants to regenerate current item
-                "continue": "pop_next_item",  # More items in content generation queue
-                "complete": "formatter",  # All processing done
+                "key_qualifications_subgraph": "key_qualifications_subgraph",
+                "professional_experience_subgraph": "professional_experience_subgraph",
+                "projects_subgraph": "projects_subgraph",
+                "executive_summary_subgraph": "executive_summary_subgraph",
+                "formatter": "formatter",
+                "error_handler": "error_handler",
             },
         )
 
-        # After preparing regeneration, pop the item and continue
-        workflow.add_edge("prepare_regeneration", "pop_next_item")
+        # After each subgraph, return to the supervisor to determine the next section
+        workflow.add_edge("key_qualifications_subgraph", "supervisor")
+        workflow.add_edge("professional_experience_subgraph", "supervisor")
+        workflow.add_edge("projects_subgraph", "supervisor")
+        workflow.add_edge("executive_summary_subgraph", "supervisor")
 
         # Formatter ends the workflow
         workflow.add_edge("formatter", END)

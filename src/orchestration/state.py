@@ -34,6 +34,8 @@ class AgentState(BaseModel):
     # Workflow Control & Granular Processing
     # The key of the section currently being processed (e.g., "professional_experience")
     current_section_key: Optional[str] = None
+    # Index to track the current position in the WORKFLOW_SEQUENCE
+    current_section_index: int = 0
     # A queue of item IDs (subsections) for the current section to be processed one by one.
     items_to_process_queue: List[str] = Field(default_factory=list)
     # The ID of the specific role, project, or item currently being processed by an agent.

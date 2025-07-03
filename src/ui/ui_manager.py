@@ -4,7 +4,7 @@ This module provides a centralized UIManager class that handles all UI rendering
 and user interaction logic, keeping presentation concerns separate from business logic.
 """
 from typing import Optional, Tuple
-# import traceback
+import traceback
 import time
 import streamlit as st
 
@@ -227,6 +227,4 @@ class UIManager:
 
         # Show error details in expander for debugging
         with st.expander("🔍 Error Details", expanded=False):
-            import traceback
-
             st.code(traceback.format_exc(), language="text")

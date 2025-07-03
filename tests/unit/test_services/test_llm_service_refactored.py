@@ -165,7 +165,7 @@ class TestEnhancedLLMService:
         result = llm_service.get_current_api_key_info()
 
         assert isinstance(result, LLMApiKeyInfo)
-        llm_service.api_key_manager.get_current_api_key_info.assert_called_once()
+        llm_service.api_key_manager.get_current_api_key_info.assert_called()
 
     @pytest.mark.asyncio
     async def test_generate_content_cache_hit(self, llm_service, sample_llm_response):

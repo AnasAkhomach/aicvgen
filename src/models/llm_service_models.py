@@ -1,6 +1,13 @@
+from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime
+
+
+
+class LLMServiceResponse(BaseModel):
+    content: Optional[str] = None
+    # Add other relevant fields like token_count, finish_reason, etc., if needed
 
 
 class LLMCacheEntry(BaseModel):

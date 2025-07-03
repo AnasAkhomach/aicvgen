@@ -1,5 +1,27 @@
 # aicvgen MVP Changelog
 
+## Task FIX-UNIT-TESTS: Resolve Unit Test Failures for Content Writer Agents
+
+- **Status:** IN_PROGRESS 🚧
+- **Implementation:**
+  - **Corrected ItemType Enum Usage in Test Fixtures:**
+    - Updated `tests/unit/test_executive_summary_writer_agent.py`, `tests/unit/test_key_qualifications_writer_agent.py`, `tests/unit/test_professional_experience_writer_agent.py`, and `tests/unit/test_projects_writer_agent.py`.
+    - Replaced incorrect `ItemType.PROFESSIONAL_EXPERIENCE` with `ItemType.EXPERIENCE_ROLE_TITLE`.
+    - Replaced incorrect `ItemType.EXECUTIVE_SUMMARY` with `ItemType.EXECUTIVE_SUMMARY_PARA`.
+    - Replaced incorrect `ItemType.PROJECT_EXPERIENCE` with `ItemType.PROJECT_DESCRIPTION_BULLET`.
+  - **Added Missing `uuid4` Imports to Test Files:**
+    - Added `from uuid import uuid4` to the top of `tests/unit/test_executive_summary_writer_agent.py`, `tests/unit/test_key_qualifications_writer_agent.py`, `tests/unit/test_professional_experience_writer_agent.py`, and `tests/unit/test_projects_writer_agent.py`.
+  - **Modified Tests to Pass `AgentState` Objects to `run_as_node`:**
+    - Updated `initial_state` dictionaries in test fixtures to be instances of `AgentState` from `src/orchestration/state.py`.
+    - Ensured `session_id`, `structured_cv`, `job_description_data`, `research_findings`, and `cv_text` are correctly initialized within the `AgentState` object.
+    - Added `from src.orchestration.state import AgentState` to relevant test files.
+- **Tests:**
+  - Ran `pytest tests/unit/` after each set of changes.
+  - Observed a reduction in errors and failures, indicating progress towards full test pass.
+- **Notes:** These fixes address fundamental type and import errors that were preventing the unit tests for the new content writer agents from running correctly. The `run_as_node` method in `AgentBase` now correctly receives an `AgentState` object, resolving the `AttributeError`. Further testing is required to confirm all unit tests pass.
+
+# aicvgen MVP Changelog
+
 ## Task CB-001: Fix Duplicate Decorator Placement in cv_analyzer_node
 
 - **Status:** COMPLETED ✅

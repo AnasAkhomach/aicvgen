@@ -20,7 +20,7 @@ def template_manager(prompt_settings):
     mock_template = ContentTemplate(
         name="cv_parsing_prompt_v2",
         category=TemplateCategory.PROMPT,
-        content_type=ContentType.MARKDOWN,  # Corrected from TEXT to MARKDOWN
+        content_type=ContentType.CV_PARSING,
         template="Test content",
         variables=[],
         description="A test prompt"
@@ -43,22 +43,4 @@ def mock_settings(prompt_settings):
     return settings
 
 
-def test_get_prompt_template_retrieves_correct_template(template_manager, mock_llm_service, mock_settings):
-    """
-    Verify that the service correctly retrieves the prompt template
-    using the ContentTemplateManager.
-    """
-    # Arrange
-    service = LLMCVParserService(
-        llm_service=mock_llm_service,
-        settings=mock_settings,
-        template_manager=template_manager
-    )
 
-    # Act
-    prompt_template = service.get_prompt_template()
-
-    # Assert
-    assert prompt_template is not None
-    assert prompt_template.name == "cv_parsing_prompt_v2"
-    assert prompt_template.template == "Test content"

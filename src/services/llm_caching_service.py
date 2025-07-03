@@ -203,6 +203,10 @@ class LLMCachingService:
                 content_type=content_type.value,
             )
 
+            # Ensure metadata exists
+            if "metadata" not in cached_response:
+                cached_response["metadata"] = {}
+                
             cached_response["metadata"]["cache_hit"] = True
             cached_response["metadata"]["session_id"] = session_id
             cached_response["metadata"]["item_id"] = item_id
@@ -228,19 +232,9 @@ class LLMCachingService:
         **kwargs,
     ) -> None:
         """Cache the successful LLM response."""
-        cache_data = {
-            "content": llm_response.content,
-            "tokens_used": llm_response.tokens_used,
-            "processing_time": llm_response.processing_time,
-            "model_used": llm_response.model_used,
-            "success": llm_response.success,
-            "error_message": None,
-            "metadata": {
-                "content_type": content_type.value,
-                "timestamp": datetime.now().isoformat(),
-                "cache_hit": False,
-            },
-        }
+        cache_data = llm_response.model_dump()
+        cache_data["metadata"]["content_type"] = content_type.value
+        cache_data["metadata"]["cache_hit"] = False
 
         await self.set(
             prompt,

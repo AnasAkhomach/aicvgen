@@ -30,8 +30,12 @@ class MockAgent(AgentBase):
             session_id=session_id,
         )
 
-    async def run(self, **kwargs) -> AgentResult:
-        """Mock run method."""
+    def _validate_inputs(self, input_data: dict) -> None:
+        """Mock input validation."""
+        pass
+
+    async def _execute(self, **kwargs) -> AgentResult:
+        """Mock execute method."""
         test_output = TestOutput(result="success")
         return AgentResult(
             success=True,
@@ -104,6 +108,7 @@ def test_agent_execution_context():
     assert context.processing_options == {"option": "value"}
 
 
+@pytest.mark.asyncio
 async def test_mock_agent_run():
     """Test that the mock agent can execute."""
     agent = MockAgent()

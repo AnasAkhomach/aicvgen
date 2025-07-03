@@ -38,8 +38,11 @@ def test_container_provides_agents():
     container = get_container()
 
     # Test that agent factories can be called
-    parser_agent = container.parser_agent()
-    assert parser_agent is not None
+    jd_parser_agent = container.job_description_parser_agent()
+    assert jd_parser_agent is not None
+
+    cv_parser_agent = container.user_cv_parser_agent()
+    assert cv_parser_agent is not None
 
     cv_analyzer = container.cv_analyzer_agent()
     assert cv_analyzer is not None
@@ -67,8 +70,8 @@ def test_factory_services_return_new_instances():
     container = get_container()
 
     # Factory services should return different instances
-    agent1 = container.parser_agent()
-    agent2 = container.parser_agent()
+    agent1 = container.job_description_parser_agent()
+    agent2 = container.job_description_parser_agent()
     assert agent1 is not agent2
 
     tracker1 = container.progress_tracker()

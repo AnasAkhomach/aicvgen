@@ -11,6 +11,7 @@ from ..models.data_models import (
     JobDescriptionData,
     StructuredCV,
 )
+from ..orchestration.state import AgentState
 from ..services.llm_service import EnhancedLLMService
 from ..templates.content_templates import ContentTemplateManager
 from ..utils.cv_data_factory import get_item_by_id, update_item_by_id
@@ -138,3 +139,35 @@ class EnhancedContentWriterAgent(AgentBase):
             )
 
         return response.content
+
+    async def run_as_node(self, state: Union[AgentState, dict]) -> dict:
+        """Execute the agent as a node in the workflow, returning a dictionary."""
+        if hasattr(state, 'model_dump'):
+            state_dict = state.model_dump()
+        else:
+            state_dict = state.copy() if isinstance(state, dict) else {}
+
+        try:
+            result = await self._execute(
+                structured_cv=state_dict.get('structured_cv'),
+                job_description_data=state_dict.get('job_description_data'),
+                item_id=state_dict.get('current_item_id'),
+                research_findings=state_dict.get('research_findings')
+            )
+
+            if result.success:
+                state_dict["structured_cv"] = result.output_data.updated_structured_cv
+                if "error_messages" not in state_dict:
+                    state_dict["error_messages"] = []
+            else:
+                if "error_messages" not in state_dict:
+                    state_dict["error_messages"] = []
+                state_dict["error_messages"].append(result.error_message)
+
+        except Exception as e:
+            logger.error(f"EnhancedContentWriterAgent execution failed: {str(e)}")
+            if "error_messages" not in state_dict:
+                state_dict["error_messages"] = []
+            state_dict["error_messages"].append(str(e))
+
+        return state_dict

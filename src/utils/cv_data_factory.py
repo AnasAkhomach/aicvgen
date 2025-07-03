@@ -114,13 +114,18 @@ def get_item_by_id(cv_data: StructuredCV, item_id: str) -> Optional[Dict[str, An
     """Finds an item (section, subsection, or item) in the CV by its ID."""
     for section in cv_data.sections:
         if str(section.id) == item_id:
-            return section.dict()
+            return section
+        # Check items directly in sections
+        for item in section.items:
+            if str(item.id) == item_id:
+                return item
+        # Check items in subsections
         for subsection in section.subsections:
             if str(subsection.id) == item_id:
-                return subsection.dict()
+                return subsection
             for item in subsection.items:
                 if str(item.id) == item_id:
-                    return item.dict()
+                    return item
     return None
 
 
@@ -133,6 +138,13 @@ def update_item_by_id(
             for key, value in new_data.items():
                 setattr(section, key, value)
             return cv_data
+        # Check items directly in sections
+        for item in section.items:
+            if str(item.id) == item_id:
+                for key, value in new_data.items():
+                    setattr(item, key, value)
+                return cv_data
+        # Check subsections
         for subsection in section.subsections:
             if str(subsection.id) == item_id:
                 for key, value in new_data.items():
@@ -144,3 +156,14 @@ def update_item_by_id(
                         setattr(item, key, value)
                     return cv_data
     return cv_data
+
+def add_item_to_section(
+    cv_data: StructuredCV, section_name: str, new_item: Item
+) -> StructuredCV:
+    """Adds a new item to a specified section in the StructuredCV."""
+    for section in cv_data.sections:
+        if section.name.lower().replace(" ", "_") == section_name.lower().replace(" ", "_"):
+            section.items.append(new_item)
+            return cv_data
+    # If section not found, you might want to raise an error or create the section
+    raise ValueError(f"Section '{section_name}' not found in StructuredCV.")

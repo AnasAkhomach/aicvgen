@@ -8,7 +8,8 @@ import unittest.mock as mock
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from src.core.container import get_container
-from src.agents.parser_agent import ParserAgent
+from src.agents.job_description_parser_agent import JobDescriptionParserAgent
+from src.agents.user_cv_parser_agent import UserCVParserAgent
 
 
 def test_parser_agent_dependency_injection():
@@ -30,14 +31,16 @@ def test_parser_agent_dependency_injection():
         mock_template_manager.return_value = mock.Mock()
 
         # Create agent through container
-        agent = container.parser_agent()
+        jd_agent = container.job_description_parser_agent()
+        cv_agent = container.user_cv_parser_agent()
 
         # Verify agent was created
-        assert isinstance(agent, ParserAgent)
+        assert isinstance(jd_agent, JobDescriptionParserAgent)
+        assert isinstance(cv_agent, UserCVParserAgent)
 
         # Verify dependencies were injected
-        assert agent.llm_cv_parser_service is not None
-        assert agent.vector_store_service is not None
+        assert jd_agent.llm_cv_parser_service is not None
+        assert cv_agent.vector_store_service is not None
 
 
 def test_container_agent_factory_behavior():
@@ -45,10 +48,10 @@ def test_container_agent_factory_behavior():
     container = get_container()
 
     # Create multiple agents
-    agent1 = container.parser_agent()
-    agent2 = container.parser_agent()
+    agent1 = container.job_description_parser_agent()
+    agent2 = container.job_description_parser_agent()
 
     # Should be different instances (factory behavior)
     assert agent1 is not agent2
-    assert isinstance(agent1, ParserAgent)
-    assert isinstance(agent2, ParserAgent)
+    assert isinstance(agent1, JobDescriptionParserAgent)
+    assert isinstance(agent2, JobDescriptionParserAgent)

@@ -172,7 +172,7 @@ class TestLLMCachingService:
             metadata={"test": "data"},
         )
 
-        await caching_service.cache_response(prompt, model, content_type, llm_response)
+        await caching_service.cache_response(prompt, model, content_type, llm_response, session_id="123")
 
         # Cache hit
         result = await caching_service.check_cache(
