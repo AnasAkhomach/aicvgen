@@ -9,24 +9,24 @@ This module provides sophisticated caching strategies including:
 """
 
 import asyncio
-import time
 import hashlib
 import json
 import pickle
 import re
 import threading
-from typing import Dict, Any, Optional, List, Callable, Union, Tuple, Set
+import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from collections import defaultdict, deque
-import weakref
-from functools import wraps
 from enum import Enum
+from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Set
 
-from ..config.logging_config import get_structured_logger
-from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
-from ..utils.performance import get_performance_monitor
-from ..utils.decorators import create_async_sync_decorator
+from src.config.logging_config import get_structured_logger
+from src.constants.cache_constants import CacheConstants
+from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from src.utils.decorators import create_async_sync_decorator
+from src.utils.performance import get_performance_monitor
 
 logger = get_structured_logger("caching_strategy")
 
@@ -101,7 +101,7 @@ class CacheStats:
 class PredictiveCacheWarmer:
     """Predictive cache warming based on usage patterns."""
 
-    def __init__(self, max_predictions: int = 1000):
+    def __init__(self, max_predictions: int = CacheConstants.DEFAULT_MAX_PREDICTIONS):
         self.max_predictions = max_predictions
         self._access_patterns: Dict[str, List[float]] = defaultdict(list)
         self._pattern_weights: Dict[str, float] = defaultdict(lambda: 1.0)
@@ -124,8 +124,8 @@ class PredictiveCacheWarmer:
             self._access_patterns[key].append(timestamp)
 
             # Limit pattern history
-            if len(self._access_patterns[key]) > 100:
-                self._access_patterns[key] = self._access_patterns[key][-100:]
+            if len(self._access_patterns[key]) > CacheConstants.MAX_PATTERN_HISTORY:
+                self._access_patterns[key] = self._access_patterns[key][-CacheConstants.MAX_PATTERN_HISTORY:]
 
     def predict_next_accesses(self, current_key: str, count: int = 10) -> List[str]:
         """Predict next likely cache accesses."""
@@ -150,10 +150,10 @@ class PredictiveCacheWarmer:
         combined_predictions = {}
 
         for key, score in temporal_predictions.items():
-            combined_predictions[key] = combined_predictions.get(key, 0) + score * 0.6
+            combined_predictions[key] = combined_predictions.get(key, 0) + score * CacheConstants.TEMPORAL_WEIGHT
 
         for key, score in spatial_predictions.items():
-            combined_predictions[key] = combined_predictions.get(key, 0) + score * 0.4
+            combined_predictions[key] = combined_predictions.get(key, 0) + score * CacheConstants.SPATIAL_WEIGHT
 
         # Sort by score and return top predictions
         sorted_predictions = sorted(
@@ -171,16 +171,16 @@ class PredictiveCacheWarmer:
         current_accesses = self._access_patterns.get(current_key, [])
 
         for access_time in current_accesses[-10:]:  # Last 10 accesses
-            # Find keys accessed within 1 hour after this access
+            # Find keys accessed within temporal window after this access
             for other_key, other_accesses in self._access_patterns.items():
                 if other_key == current_key:
                     continue
 
                 for other_time in other_accesses:
-                    if access_time < other_time <= access_time + 3600:  # Within 1 hour
+                    if access_time < other_time <= access_time + CacheConstants.TEMPORAL_WINDOW_SECONDS:
                         time_diff = other_time - access_time
                         score = 1.0 / (
-                            1.0 + time_diff / 3600
+                            1.0 + time_diff / CacheConstants.TEMPORAL_WINDOW_SECONDS
                         )  # Closer in time = higher score
                         predictions[other_key] = predictions.get(other_key, 0) + score
 
@@ -196,7 +196,7 @@ class PredictiveCacheWarmer:
                 continue
 
             similarity = self._calculate_key_similarity(current_key, other_key)
-            if similarity > 0.3:  # Threshold for similarity
+            if similarity > CacheConstants.SIMILARITY_THRESHOLD:
                 predictions[other_key] = similarity
 
         return predictions
@@ -312,12 +312,12 @@ class IntelligentCacheManager:
 
     def __init__(
         self,
-        max_memory_mb: int = 500,
+        max_memory_mb: int = CacheConstants.DEFAULT_MAX_MEMORY_MB,
         enable_prediction: bool = True,
         enable_coherence: bool = True,
     ):
 
-        self.max_memory_bytes = max_memory_mb * 1024 * 1024
+        self.max_memory_bytes = max_memory_mb * CacheConstants.MEMORY_CONVERSION_FACTOR
         self.enable_prediction = enable_prediction
         self.enable_coherence = enable_coherence
 
@@ -507,18 +507,18 @@ class IntelligentCacheManager:
     ) -> CacheLevel:
         """Determine optimal cache level for an entry."""
         # Small, high-priority items go to L1
-        if size_bytes < 10240 and priority >= 4:  # < 10KB, high priority
+        if size_bytes < CacheConstants.SMALL_ITEM_THRESHOLD and priority >= CacheConstants.HIGH_PRIORITY_THRESHOLD:
             return CacheLevel.L1_MEMORY
 
         # Medium items with frequent access patterns
-        if size_bytes < 102400 and pattern in [
+        if size_bytes < CacheConstants.MEDIUM_ITEM_THRESHOLD and pattern in [
             CachePattern.READ_HEAVY,
             CachePattern.TEMPORAL,
         ]:
             return CacheLevel.L2_COMPRESSED
 
         # Large items or write-heavy patterns
-        if size_bytes > 1048576 or pattern == CachePattern.WRITE_HEAVY:  # > 1MB
+        if size_bytes > CacheConstants.LARGE_ITEM_THRESHOLD or pattern == CachePattern.WRITE_HEAVY:
             return CacheLevel.L3_PERSISTENT
 
         # Default to L2
@@ -537,8 +537,8 @@ class IntelligentCacheManager:
         if level == CacheLevel.L1_MEMORY:
             current_size = sum(e.size_bytes for e in current_cache.values())
             if (
-                current_size + entry.size_bytes > self.max_memory_bytes * 0.3
-            ):  # 30% for L1
+                current_size + entry.size_bytes > self.max_memory_bytes * CacheConstants.L1_MEMORY_PERCENTAGE
+            ):
                 return False
 
         return True
@@ -566,7 +566,7 @@ class IntelligentCacheManager:
         # Evict entries until we have enough space
         freed_bytes = 0
         config = self._level_configs[level]
-        target_count = max(len(current_cache) - config["max_entries"] // 4, 0)
+        target_count = max(len(current_cache) - int(config["max_entries"] * CacheConstants.EVICTION_BATCH_SIZE_RATIO), 0)
 
         for key, entry, _ in entries_with_scores:
             if freed_bytes >= needed_bytes and len(current_cache) <= target_count:
@@ -626,7 +626,7 @@ class IntelligentCacheManager:
             stats.avg_access_time_ms = access_time_ms
         else:
             # Exponential moving average
-            alpha = 0.1
+            alpha = CacheConstants.ACCESS_TIME_EMA_ALPHA
             stats.avg_access_time_ms = (
                 alpha * access_time_ms + (1 - alpha) * stats.avg_access_time_ms
             )
@@ -635,7 +635,7 @@ class IntelligentCacheManager:
         """Background maintenance loop."""
         while True:
             try:
-                await asyncio.sleep(300)  # Run every 5 minutes
+                await asyncio.sleep(CacheConstants.MAINTENANCE_INTERVAL)
                 await self._run_maintenance()
             except asyncio.CancelledError:
                 break
@@ -646,7 +646,7 @@ class IntelligentCacheManager:
         """Background cache warming loop."""
         while True:
             try:
-                await asyncio.sleep(60)  # Run every minute
+                await asyncio.sleep(CacheConstants.WARMING_INTERVAL)
                 await self._run_cache_warming()
             except asyncio.CancelledError:
                 break
@@ -761,13 +761,12 @@ def reset_intelligent_cache_manager():
 
 # Decorator for intelligent caching
 def intelligent_cache(
-    ttl_hours: int = 1,
+    ttl_hours: int = CacheConstants.DEFAULT_TTL_HOURS,
     tags: Optional[Set[str]] = None,
-    priority: int = 1,
+    priority: int = CacheConstants.DEFAULT_PRIORITY,
     pattern: CachePattern = CachePattern.MIXED,
 ):
     """Decorator for intelligent caching of function results."""
-
 
     def _generate_cache_key(func, args, kwargs):
         """Generate cache key for function call."""

@@ -12,9 +12,10 @@ The configuration is controlled by the `APP_ENV` environment variable.
 import logging
 import os
 from pathlib import Path
-from pythonjsonlogger import jsonlogger
-from .settings import get_config
 
+from pythonjsonlogger import jsonlogger
+from config.settings import get_config
+# from src.config.logging_config.settings import get_config
 
 def setup_logging(log_level=logging.INFO):
     """Configures logging based on the APP_ENV environment variable."""
@@ -176,6 +177,6 @@ def get_structured_logger(name: str) -> "StructuredLogger":
 def log_error_with_context(logger, message, error=None):
     """Logs an error with additional context, including exception info."""
     if error:
-        logger.error("%s: %s", message, error, exc_info=True)
+        logger.error(f"{message}: {str(error)}", exc_info=True)
     else:
         logger.error(message, exc_info=True)

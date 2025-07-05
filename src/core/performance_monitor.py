@@ -12,8 +12,9 @@ from typing import Any, Dict, List, Optional
 
 import psutil
 
-from ..config.logging_config import get_structured_logger
-from .agent_lifecycle_manager import get_agent_lifecycle_manager
+from src.config.logging_config import get_structured_logger
+from src.constants.performance_constants import PerformanceConstants
+from src.core.performance_monitor.agent_lifecycle_manager import get_agent_lifecycle_manager
 
 logger = get_structured_logger(__name__)
 
@@ -61,30 +62,10 @@ class AgentPerformanceStats:
 class PerformanceMonitor:
     """Monitors and analyzes system performance."""
 
-    # Constants
-    DEFAULT_MAX_HISTORY_SIZE = 1000
-    DEFAULT_MONITORING_INTERVAL_SECONDS = 30
-    MEMORY_CONVERSION_FACTOR = 1024 * 1024
-    OPERATION_TIMES_MAX_SIZE = 100
-    MILLISECONDS_PER_SECOND = 1000
+    # Use centralized constants from PerformanceConstants
+    # All hardcoded values moved to constants module
 
-    # Thresholds
-    CPU_THRESHOLD_PERCENT = 80.0
-    MEMORY_THRESHOLD_PERCENT = 85.0
-    RESPONSE_TIME_THRESHOLD_MS = 5000.0
-    ERROR_RATE_THRESHOLD_PERCENT = 5.0
-    POOL_UTILIZATION_THRESHOLD_PERCENT = 90.0
-
-    # Recommendation Thresholds
-    RECOMMENDATION_CPU_THRESHOLD = 70
-    RECOMMENDATION_MEMORY_THRESHOLD = 75
-    RECOMMENDATION_AGENT_RESPONSE_TIME_MS = 3000
-    RECOMMENDATION_POOL_UTILIZATION = 80
-    RECOMMENDATION_ERROR_RATE = 3
-    RECOMMENDATION_OPERATION_AVG_TIME_MS = 2000
-    RECOMMENDATION_RECENT_SAMPLES_MINUTES = 10
-
-    def __init__(self, max_history_size: int = DEFAULT_MAX_HISTORY_SIZE):
+    def __init__(self, max_history_size: int = PerformanceConstants.DEFAULT_MAX_HISTORY_SIZE):
         self.max_history_size = max_history_size
 
         # Metrics storage
@@ -98,22 +79,24 @@ class PerformanceMonitor:
 
         # Monitoring state
         self.monitoring_active = False
-        self.monitoring_interval = self.DEFAULT_MONITORING_INTERVAL_SECONDS
+        self.monitoring_interval = PerformanceConstants.DEFAULT_MONITORING_INTERVAL_SECONDS
         self.monitoring_task: Optional[asyncio.Task] = None
 
         # Thresholds for alerts
         self.thresholds = {
-            "cpu_percent": self.CPU_THRESHOLD_PERCENT,
-            "memory_percent": self.MEMORY_THRESHOLD_PERCENT,
-            "response_time_ms": self.RESPONSE_TIME_THRESHOLD_MS,
-            "error_rate_percent": self.ERROR_RATE_THRESHOLD_PERCENT,
-            "pool_utilization_percent": self.POOL_UTILIZATION_THRESHOLD_PERCENT,
+            "cpu_percent": PerformanceConstants.CPU_THRESHOLD_PERCENT,
+            "memory_percent": PerformanceConstants.MEMORY_THRESHOLD_PERCENT,
+            "response_time_ms": PerformanceConstants.RESPONSE_TIME_THRESHOLD_MS,
+            "error_rate_percent": PerformanceConstants.ERROR_RATE_THRESHOLD_PERCENT,
+            "pool_utilization_percent": PerformanceConstants.POOL_UTILIZATION_THRESHOLD_PERCENT,
         }
 
         # Performance baselines
         self.baselines: Dict[str, float] = {}
 
-    def start_monitoring(self, interval: int = DEFAULT_MONITORING_INTERVAL_SECONDS) -> None:
+    def start_monitoring(
+        self, interval: int = PerformanceConstants.DEFAULT_MONITORING_INTERVAL_SECONDS
+    ) -> None:
         """Start continuous performance monitoring."""
         if self.monitoring_active:
             logger.warning("Performance monitoring is already active")
@@ -128,7 +111,9 @@ class PerformanceMonitor:
             self.monitoring_task = loop.create_task(self._monitoring_loop())
         except RuntimeError:
             # No event loop running, monitoring will be manual
-            logger.warning("No running event loop found, performance monitoring disabled")
+            logger.warning(
+                "No running event loop found, performance monitoring disabled"
+            )
 
         logger.info(f"Performance monitoring started with {interval}s interval")
 
@@ -165,7 +150,7 @@ class PerformanceMonitor:
             snapshot = SystemSnapshot(
                 timestamp=datetime.now(),
                 cpu_percent=psutil.cpu_percent(interval=1),
-                memory_mb=process.memory_info().rss / self.MEMORY_CONVERSION_FACTOR,
+                memory_mb=process.memory_info().rss / PerformanceConstants.MEMORY_CONVERSION_FACTOR,
                 memory_percent=process.memory_percent(),
                 active_threads=process.num_threads(),
                 open_files=len(process.open_files()),
@@ -181,7 +166,7 @@ class PerformanceMonitor:
             self.record_metric("active_threads", snapshot.active_threads, "count")
 
         except OSError as e:
-            logger.warning("Failed to collect system snapshot", extra={'exc_info': e})
+            logger.warning("Failed to collect system snapshot", extra={"exc_info": e})
 
     async def _collect_agent_stats(self) -> None:
         """Collect agent performance statistics."""
@@ -190,9 +175,11 @@ class PerformanceMonitor:
             stats = lifecycle_manager.get_metrics()
 
             for agent_id, agent_metrics in stats.get("agent_metrics", {}).items():
-                agent_type = agent_id.split('_')[0] # Extract agent type from agent_id
+                agent_type = agent_id.split("_")[0]  # Extract agent type from agent_id
                 total_requests = agent_metrics.get("usage_count", 0)
-                successful_requests = total_requests  # Assuming all are successful for now
+                successful_requests = (
+                    total_requests  # Assuming all are successful for now
+                )
                 failed_requests = 0
 
                 # These metrics are not directly available from AgentMetrics
@@ -222,7 +209,7 @@ class PerformanceMonitor:
                 # Other metrics are not available from AgentMetrics currently
 
         except Exception as e:
-            logger.warning("Failed to collect agent stats", extra={'exc_info': e})
+            logger.warning("Failed to collect agent stats", extra={"exc_info": e})
 
     async def _check_thresholds(self) -> None:
         """Check performance thresholds and generate alerts."""
@@ -235,9 +222,7 @@ class PerformanceMonitor:
 
             # Check system thresholds
             if latest_snapshot.cpu_percent > self.thresholds["cpu_percent"]:
-                alerts.append(
-                    f"High CPU usage: {latest_snapshot.cpu_percent:.1f}%"
-                )
+                alerts.append(f"High CPU usage: {latest_snapshot.cpu_percent:.1f}%")
 
             if latest_snapshot.memory_percent > self.thresholds["memory_percent"]:
                 alerts.append(
@@ -273,7 +258,7 @@ class PerformanceMonitor:
                 logger.warning(f"Performance alert: {alert}")
 
         except Exception as e:
-            logger.warning("Failed to check thresholds", extra={'exc_info': e})
+            logger.warning("Failed to check thresholds", extra={"exc_info": e})
 
     def record_metric(
         self,
@@ -298,9 +283,9 @@ class PerformanceMonitor:
         self.operation_times[operation].append(duration)
 
         # Keep only recent measurements
-        if len(self.operation_times[operation]) > self.OPERATION_TIMES_MAX_SIZE:
+        if len(self.operation_times[operation]) > PerformanceConstants.OPERATION_TIMES_MAX_SIZE:
             self.operation_times[operation] = self.operation_times[operation][
-                -self.OPERATION_TIMES_MAX_SIZE:
+                -PerformanceConstants.OPERATION_TIMES_MAX_SIZE :
             ]
 
         self.record_metric(f"operation_{operation}_time", duration, "ms")
@@ -421,13 +406,13 @@ class PerformanceMonitor:
         if self.system_snapshots:
             latest_snapshot = self.system_snapshots[-1]
 
-            if latest_snapshot.cpu_percent > self.RECOMMENDATION_CPU_THRESHOLD:
+            if latest_snapshot.cpu_percent > PerformanceConstants.RECOMMENDATION_CPU_THRESHOLD:
                 recommendations.append(
                     "High CPU usage detected. Consider optimizing agent algorithms "
                     "or reducing concurrent operations."
                 )
 
-            if latest_snapshot.memory_percent > self.RECOMMENDATION_MEMORY_THRESHOLD:
+            if latest_snapshot.memory_percent > PerformanceConstants.RECOMMENDATION_MEMORY_THRESHOLD:
                 recommendations.append(
                     "High memory usage detected. Consider implementing more "
                     "aggressive cleanup or reducing agent pool sizes."
@@ -435,13 +420,13 @@ class PerformanceMonitor:
 
         # Check agent performance
         for agent_type, stats in self.agent_stats.items():
-            if stats.average_response_time > self.RECOMMENDATION_AGENT_RESPONSE_TIME_MS:
+            if stats.average_response_time > PerformanceConstants.RECOMMENDATION_AGENT_RESPONSE_TIME_MS:
                 recommendations.append(
                     f"Agent {agent_type} has slow response times. "
                     "Consider optimization or scaling."
                 )
 
-            if stats.pool_utilization > self.RECOMMENDATION_POOL_UTILIZATION:
+            if stats.pool_utilization > PerformanceConstants.RECOMMENDATION_POOL_UTILIZATION:
                 recommendations.append(
                     f"Agent {agent_type} pool is highly utilized. "
                     "Consider increasing pool size."
@@ -452,7 +437,7 @@ class PerformanceMonitor:
                 if stats.total_requests > 0
                 else 0
             )
-            if error_rate > self.RECOMMENDATION_ERROR_RATE:
+            if error_rate > PerformanceConstants.RECOMMENDATION_ERROR_RATE:
                 recommendations.append(
                     f"Agent {agent_type} has high error rate ({error_rate:.1f}%). "
                     "Investigate error causes."
@@ -462,7 +447,7 @@ class PerformanceMonitor:
         for operation, times in self.operation_times.items():
             if times and len(times) > 10:
                 avg_time = sum(times) / len(times)
-                if avg_time > self.RECOMMENDATION_OPERATION_AVG_TIME_MS:  # 2 seconds
+                if avg_time > PerformanceConstants.RECOMMENDATION_OPERATION_AVG_TIME_MS:  # 2 seconds
                     recommendations.append(
                         f"Operation {operation} is slow (avg: {avg_time:.1f}ms). Consider optimization."
                     )
@@ -522,14 +507,12 @@ class PerformanceMonitor:
                 with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
             else:
-                raise ValueError(
-                    f"Unsupported export format: {export_format}"
-                )
+                raise ValueError(f"Unsupported export format: {export_format}")
 
             logger.info(f"Metrics exported to {file_path}")
 
         except Exception as e:
-            logger.error("Failed to export metrics", extra={'exc_info': e})
+            logger.error("Failed to export metrics", extra={"exc_info": e})
 
     def set_baseline(self, metric_name: str, value: float) -> None:
         """Set performance baseline for comparison."""

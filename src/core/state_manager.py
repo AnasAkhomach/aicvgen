@@ -4,10 +4,12 @@ This module provides a centralized StateManager class that encapsulates all
 session state logic, providing a clean, testable interface for state management.
 """
 
-from typing import Any, Optional, Dict
+from typing import Any, Dict, Optional
+
 import streamlit as st
-from ..orchestration.state import AgentState
-from ..config.logging_config import get_logger
+
+from src.config.logging_config import get_logger
+from src.orchestration.state import AgentState
 
 logger = get_logger(__name__)
 
@@ -48,7 +50,7 @@ class StateManager:
         for key, value in defaults.items():
             if key not in st.session_state:
                 st.session_state[key] = value
-                logger.debug("Initialized session state key: %s", key)
+                logger.debug(f"Initialized session state key: {key}")
 
     def get(self, key: str, default: Any = None) -> Any:
         """Gets a value from the session state.
@@ -70,7 +72,7 @@ class StateManager:
             value: The value to set
         """
         st.session_state[key] = value
-        logger.debug("Set session state key: %s", key)
+        logger.debug(f"Set session state key: {key}")
 
     def clear_key(self, key: str) -> None:
         """Removes a key from session state if it exists.
@@ -80,7 +82,7 @@ class StateManager:
         """
         if key in st.session_state:
             del st.session_state[key]
-            logger.debug("Cleared session state key: %s", key)
+            logger.debug(f"Cleared session state key: {key}")
 
     def reset_processing_state(self) -> None:
         """Resets all processing-related state variables."""

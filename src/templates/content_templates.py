@@ -1,16 +1,14 @@
 """Content templates for CV generation with Phase 1 infrastructure integration."""
-
-import os
 import re
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from src.models.workflow_models import ContentType
-from src.config.logging_config import get_structured_logger
-from src.error_handling.exceptions import TemplateError
+from ..config.logging_config import get_structured_logger
+from ..error_handling.exceptions import TemplateError
+from ..models.workflow_models import ContentType
 
 logger = get_structured_logger("content_templates")
 
@@ -172,6 +170,24 @@ class ContentTemplateManager:
                     templates.append(template)
         return templates
 
+    def get_template_by_type(
+        self,
+        content_type: ContentType,
+        category: TemplateCategory = TemplateCategory.PROMPT,
+    ) -> Optional[ContentTemplate]:
+        """Get the first template for a specific content type."""
+        templates = self.get_templates_by_type(content_type, category)
+        if templates:
+            return templates[0]
+
+        # If no template found with specified category, try without category filter
+        if category != TemplateCategory.PROMPT:
+            templates = self.get_templates_by_type(content_type)
+            if templates:
+                return templates[0]
+
+        return None
+
     def format_template(
         self, template: ContentTemplate, variables: Dict[str, Any]
     ) -> str:
@@ -193,8 +209,7 @@ class ContentTemplateManager:
             formatted_content = template.template.format(**variables)
 
             logger.debug(
-                "Template formatted successfully: %s",
-                template.name,
+                f"Template formatted successfully: {template.name}",
                 extra={"content_length": len(formatted_content)},
             )
 
@@ -202,9 +217,7 @@ class ContentTemplateManager:
 
         except (KeyError, IndexError) as e:
             logger.error(
-                "Template formatting failed for %s due to missing key: %s",
-                template.name,
-                e,
+                f"Template formatting failed for {template.name} due to missing key: {e}",
                 exc_info=True,
             )
             raise TemplateError(

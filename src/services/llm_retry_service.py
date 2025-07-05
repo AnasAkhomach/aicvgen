@@ -1,5 +1,5 @@
-import time
 import asyncio
+import time
 from typing import Any, Optional
 
 try:
@@ -7,20 +7,17 @@ try:
 except ImportError:
     google_exceptions = None
 
-from src.config.logging_config import get_structured_logger
-from src.models.workflow_models import ContentType
-from src.models.llm_data_models import LLMResponse
-from src.services.llm_retry_handler import LLMRetryHandler
-from src.services.llm_api_key_manager import LLMApiKeyManager
-from src.services.rate_limiter import RateLimiter
-from src.error_handling.exceptions import (
-    OperationTimeoutError,
-    RateLimitError,
-    NetworkError,
-    ConfigurationError,
-)
-from src.error_handling.classification import is_rate_limit_error
 from datetime import datetime
+
+from src.config.logging_config import get_structured_logger
+from src.constants.llm_constants import LLMConstants
+from src.error_handling.classification import is_rate_limit_error
+from src.error_handling.exceptions import (ConfigurationError, NetworkError, OperationTimeoutError, RateLimitError)
+from src.models.llm_data_models import LLMResponse
+from src.models.workflow_models import ContentType
+from src.services.llm_api_key_manager import LLMApiKeyManager
+from src.services.llm_retry_handler import LLMRetryHandler
+from src.services.rate_limiter import RateLimiter
 
 logger = get_structured_logger("llm_retry_service")
 
@@ -37,8 +34,8 @@ class LLMRetryService:
         api_key_manager: LLMApiKeyManager,
         rate_limiter: Optional[RateLimiter] = None,
         error_recovery=None,
-        timeout: int = 60,
-        model_name: str = "gemini-pro",
+        timeout: int = LLMConstants.DEFAULT_TIMEOUT,
+        model_name: str = LLMConstants.DEFAULT_MODEL,
     ):
         """
         Initialize the retry service.
@@ -108,25 +105,29 @@ class LLMRetryService:
         ).get("total_tokens", 0)
 
         # Defensive check for negative or excessively high token usage
-        if tokens_used < 0:
+        if tokens_used < LLMConstants.MIN_TOKEN_USAGE:
             logger.warning(
                 "Negative token usage detected, defaulting to 0",
                 response=response,
                 processing_time=processing_time,
             )
-            tokens_used = 0
-        elif tokens_used > 10000:
+            tokens_used = LLMConstants.MIN_TOKEN_USAGE
+        elif tokens_used > LLMConstants.MAX_TOKEN_USAGE_THRESHOLD:
             logger.warning(
-                "Excessive token usage detected, capping at 10000",
+                "Excessive token usage detected, capping at threshold",
                 response=response,
                 processing_time=processing_time,
                 tokens_used=tokens_used,
+                threshold=LLMConstants.MAX_TOKEN_USAGE_THRESHOLD,
             )
-            tokens_used = 10000
+            tokens_used = LLMConstants.MAX_TOKEN_USAGE_THRESHOLD
 
         # Estimate processing time based on response length (defensive)
         if processing_time is None or processing_time <= 0:
-            processing_time = max(0.001, tokens_used / 1000)  # Default to 1ms per token
+            processing_time = max(
+                LLMConstants.MIN_PROCESSING_TIME, 
+                tokens_used / LLMConstants.TOKEN_PROCESSING_RATE
+            )
 
         # Create structured response with defensive metadata
         safe_metadata = {
@@ -203,11 +204,15 @@ class LLMRetryService:
                             "fallback_used": True,
                         },
                     )
-            except (ValueError, TypeError, KeyError) as recovery_error:
+            except Exception as recovery_error:
                 logger.warning(
-                    "Error recovery service failed",
-                    error=str(recovery_error),
+                    "Error recovery service failed, propagating original error",
+                    recovery_error=str(recovery_error),
+                    original_error=str(error),
                 )
+                # Re-raise the original error to maintain error propagation contract
+                # Don't swallow exceptions that should be handled upstream
+                raise error
 
         # If no fallback available, re-raise the original error
         logger.error(

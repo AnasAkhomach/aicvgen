@@ -4,11 +4,12 @@ This module provides the ContentAggregator class that collects individual conten
 from different agents and assembles them into a complete StructuredCV structure.
 """
 
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 from uuid import uuid4
-from src.config.logging_config import get_structured_logger
-from src.error_handling.exceptions import CATCHABLE_EXCEPTIONS
-from src.models.data_models import StructuredCV, Section, Item, MetadataModel, ItemStatus
+
+from config.logging_config import get_structured_logger
+from error_handling.exceptions import CATCHABLE_EXCEPTIONS
+from models.data_models import (Item, ItemStatus, MetadataModel, Section, StructuredCV)
 
 logger = get_structured_logger(__name__)
 
@@ -151,7 +152,7 @@ class ContentAggregator:
                 return self._infer_and_assign_content(agent_content, structured_cv)
 
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error processing content writer result: %s", e)
+            logger.error("Error processing content writer result", error=str(e))
 
         return False
 
@@ -193,7 +194,7 @@ class ContentAggregator:
                     return self._infer_and_assign_content(content, structured_cv)
 
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error processing generic result: %s", e)
+            logger.error("Error processing generic result", error=str(e))
 
         return False
 
@@ -272,7 +273,7 @@ class ContentAggregator:
             status=ItemStatus.GENERATED,
         )
         structured_cv.sections.append(new_section)
-        logger.info("Created new section: %s", extra={"section_name": section_name})
+        logger.info("Created new section", section_name=section_name)
         return new_section
 
     def _infer_and_assign_content(
@@ -366,7 +367,7 @@ class ContentAggregator:
                 return True
 
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error inferring content type: %s", e)
+            logger.error("Error inferring content type", error=str(e))
 
         return False
 
@@ -420,7 +421,7 @@ class ContentAggregator:
                 )
 
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error populating Big 10 skills: %s", e)
+            logger.error("Error populating Big 10 skills", error=str(e))
 
     def validate_structured_cv(self, structured_cv: StructuredCV) -> bool:
         """Validate that the StructuredCV has meaningful content.
@@ -451,5 +452,5 @@ class ContentAggregator:
             return False
 
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error validating StructuredCV: %s", e)
+            logger.error("Error validating StructuredCV", error=str(e))
             return False

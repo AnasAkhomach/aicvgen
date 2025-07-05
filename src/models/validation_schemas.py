@@ -3,16 +3,16 @@
 This module provides validation functions and error handling for agent inputs and outputs.
 """
 
-from typing import Any, List, Optional, TYPE_CHECKING
-from pydantic import BaseModel, Field, ValidationError
 import logging
+from typing import TYPE_CHECKING, Any, List, Optional
 
-# Use TYPE_CHECKING to avoid circular imports
+from pydantic import BaseModel, Field
+from src.models.cv_models import JobDescriptionData, StructuredCV
+
+
 if TYPE_CHECKING:
+    from src.models.agent_output_models import ResearchFindings
     from src.orchestration.state import AgentState
-
-from src.models.cv_models import StructuredCV, JobDescriptionData
-from src.models.agent_output_models import ResearchFindings
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ class ParserAgentInput(BaseModel):
 
 class ContentWriterAgentInput(BaseModel):
     structured_cv: StructuredCV
-    research_findings: Optional[ResearchFindings] = None
+    research_findings: Optional["ResearchFindings"] = None
     current_item_id: Optional[str] = None
 
 
@@ -130,55 +130,34 @@ class CVAnalyzerAgentInput(BaseModel):
     job_description_data: JobDescriptionData
 
 
-class CleaningAgentInput(BaseModel):
-    """Input schema for the Cleaning Agent."""
-
-    structured_cv: StructuredCV
+# CleaningAgentInput moved to agent_input_models.py to avoid circular imports
 
 
-def validate_agent_input(agent_type: str, state: "AgentState") -> Any:
-    """Validate agent input data against a specific Pydantic model."""
-    try:
-        if agent_type == "parser":
-            return ParserAgentInput(
-                cv_text=state.cv_text,
-                job_description_data=state.job_description_data,
+# validate_agent_input function removed - use ValidatorFactory.validate_agent_input directly
+
+
+def validate_agent_result_output_data(values: dict) -> dict:
+    """Validate that output_data is a Pydantic model or a dict of them if success is True."""
+    is_success = values.get("success")
+    output_data = values.get("output_data")
+
+    if is_success:
+        if output_data is None:
+            raise ValueError("output_data must not be None for successful results")
+
+        if not isinstance(output_data, (BaseModel, dict)):
+            raise TypeError(
+                "output_data must be a Pydantic model or a dictionary of Pydantic models"
             )
-        elif agent_type == "content_writer":
-            return ContentWriterAgentInput(
-                structured_cv=state.structured_cv,
-                research_findings=getattr(state, "research_findings", None),
-                current_item_id=state.current_item_id,
+
+        if isinstance(output_data, dict) and not all(
+            isinstance(v, BaseModel) for v in output_data.values()
+        ):
+            raise TypeError(
+                "All values in the output_data dictionary must be Pydantic models"
             )
-        elif agent_type == "research":
-            return ResearchAgentInput(
-                job_description_data=state.job_description_data,
-                structured_cv=state.structured_cv,
-            )
-        elif agent_type == "qa":
-            return QualityAssuranceAgentInput(
-                structured_cv=state.structured_cv,
-                current_item_id=state.current_item_id,
-            )
-        elif agent_type == "formatter":
-            return FormatterAgentInput(
-                structured_cv=state.structured_cv,
-                job_description_data=getattr(state, "job_description_data", None),
-            )
-        elif agent_type == "cv_analyzer":
-            return CVAnalyzerAgentInput(
-                cv_text=state.cv_text,
-                job_description_data=state.job_description_data,
-            )
-        elif agent_type == "cleaning":
-            return CleaningAgentInput(
-                structured_cv=state.structured_cv,
-            )
-        else:
-            return state
-    except ValidationError as e:
-        logger.error("Validation error for %s: %s", agent_type, e)
-        raise ValueError(f"Input validation failed for {agent_type}: {e}") from e
+
+    return values
 
 
 def validate_agent_output(output_data: Any, required_fields: List[str] = None) -> bool:
@@ -197,9 +176,9 @@ def validate_agent_output(output_data: Any, required_fields: List[str] = None) -
                 field for field in required_fields if field not in output_data
             ]
             if missing_fields:
-                logger.warning("Missing required fields: %s", missing_fields)
+                logger.warning("Missing required fields", missing_fields=missing_fields)
                 return False
         return True
     except (TypeError, AttributeError) as e:
-        logger.error("Output validation error: %s", e)
+        logger.error("Output validation error", error=str(e))
         return False

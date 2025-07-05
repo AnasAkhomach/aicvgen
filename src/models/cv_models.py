@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field
 
 
@@ -48,11 +49,11 @@ class MetadataModel(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     status: Optional[ItemStatus] = None  # Added status field for item processing
-    extra: Dict[str, Any] = Field(default_factory=dict) # Added extra field for arbitrary data
+    extra: Dict[str, Any] = Field(
+        default_factory=dict
+    )  # Added extra field for arbitrary data
 
-    def update_status(
-        self, status: ItemStatus, error_message: Optional[str] = None
-    ):
+    def update_status(self, status: ItemStatus, error_message: Optional[str] = None):
         self.status = status
         if error_message is not None:
             self.extra["error_message"] = error_message  # pylint: disable=no-member
@@ -280,10 +281,16 @@ class StructuredCV(BaseModel):
 
         structured_cv = StructuredCV()
         if job_data:
-            structured_cv.metadata.extra["job_description"] = job_data.model_dump() # pylint: disable=no-member
+            structured_cv.metadata.extra["job_description"] = (
+                job_data.model_dump()
+            )  # pylint: disable=no-member
         else:
-            structured_cv.metadata.extra["job_description"] = {} # pylint: disable=no-member
-        structured_cv.metadata.extra["original_cv_text"] = cv_text # pylint: disable=no-member
+            structured_cv.metadata.extra["job_description"] = (
+                {}
+            )  # pylint: disable=no-member
+        structured_cv.metadata.extra["original_cv_text"] = (
+            cv_text  # pylint: disable=no-member
+        )
         return structured_cv
 
 

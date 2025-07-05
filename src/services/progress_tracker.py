@@ -6,12 +6,13 @@ for the individual item processing workflow.
 
 import asyncio
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Callable, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
-from ..config.logging_config import get_structured_logger
-from ..models.progress_models import ProgressEventType, ProgressEvent, ProgressMetrics
-from ..models.workflow_models import ContentType
-from ..orchestration.state import AgentState
+from src.config.logging_config import get_structured_logger
+from src.models.progress_models import (ProgressEvent, ProgressEventType, ProgressMetrics)
+from src.models.workflow_models import ContentType
+from src.orchestration.state import AgentState
+from src.constants.config_constants import ConfigConstants
 
 
 class SessionTracker:
@@ -43,7 +44,7 @@ class SessionTracker:
         self.events.append(event)
         # Limit event history size
         if len(self.events) > self.max_events_per_session:
-            self.events = self.events[-self.max_events_per_session:]
+            self.events = self.events[-self.max_events_per_session :]
         return event
 
     def notify_subscribers(self, event: ProgressEvent, logger):
@@ -57,7 +58,8 @@ class SessionTracker:
                     callback(event)
             except (TypeError, ValueError, AttributeError) as e:
                 logger.error(
-                    f"Error in progress subscriber callback: {e}", session_id=self.session_id
+                    f"Error in progress subscriber callback: {e}",
+                    session_id=self.session_id,
                 )
 
     def subscribe(self, callback: Callable[[ProgressEvent], None]):
@@ -88,7 +90,7 @@ class SessionTracker:
 
     def get_progress_summary(self) -> Dict[str, Any]:
         """Get a comprehensive progress summary for this session."""
-        recent_events = self.get_events(limit=10)
+        recent_events = self.get_events(limit=ConfigConstants.DEFAULT_RECENT_EVENTS_LIMIT)
 
         return {
             "metrics": self.metrics.to_dict(),
@@ -152,7 +154,8 @@ class ProgressTracker:
         session_tracker = self.sessions.get(session_id)
         if not session_tracker:
             self.logger.warning(
-                "Attempted to update progress for unknown session", session_id=session_id
+                "Attempted to update progress for unknown session",
+                session_id=session_id,
             )
             return
 
@@ -171,7 +174,9 @@ class ProgressTracker:
             )
             session_tracker.notify_subscribers(event, self.logger)
 
-    def record_item_started(self, session_id: str, item_id: str, item_type: ContentType):
+    def record_item_started(
+        self, session_id: str, item_id: str, item_type: ContentType
+    ):
         """Record that an item has started processing for a session."""
         session_tracker = self.sessions.get(session_id)
         if not session_tracker:

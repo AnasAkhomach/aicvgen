@@ -2,24 +2,20 @@
 This module defines the ProfessionalExperienceWriterAgent, responsible for generating the Professional Experience section of the CV.
 """
 
-from typing import Any, Dict, Union
+from typing import Any, Dict
 
-from ..models.agent_models import AgentResult
-from ..models.agent_output_models import EnhancedContentWriterOutput
-from ..models.data_models import (
-    ContentType,
-    JobDescriptionData,
-    StructuredCV,
-)
-from ..orchestration.state import AgentState
-from ..services.llm_service import EnhancedLLMService
-from ..templates.content_templates import ContentTemplateManager
-from ..utils.cv_data_factory import get_item_by_id, update_item_by_id, add_item_to_section
-
-from ..config.logging_config import get_structured_logger
-from ..error_handling.exceptions import AgentExecutionError
-from .agent_base import AgentBase
-from ..models.cv_models import Item, ItemStatus, ItemType
+from src.agents.agent_base import AgentBase
+from src.config.logging_config import get_structured_logger
+from src.constants.agent_constants import AgentConstants
+from src.constants.llm_constants import LLMConstants
+from src.error_handling.exceptions import AgentExecutionError
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import EnhancedContentWriterOutput
+from src.models.cv_models import ItemStatus, ItemType
+from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
+from src.services.llm_service_interface import LLMServiceInterface
+from src.templates.content_templates import ContentTemplateManager
+from src.utils.cv_data_factory import get_item_by_id, update_item_by_id
 
 logger = get_structured_logger(__name__)
 
@@ -29,7 +25,7 @@ class ProfessionalExperienceWriterAgent(AgentBase):
 
     def __init__(
         self,
-        llm_service: EnhancedLLMService,
+        llm_service: LLMServiceInterface,
         template_manager: ContentTemplateManager,
         settings: dict,
         session_id: str,
@@ -39,42 +35,11 @@ class ProfessionalExperienceWriterAgent(AgentBase):
             name="ProfessionalExperienceWriter",
             description="Generates tailored Professional Experience for the CV.",
             session_id=session_id,
+            settings=settings,
         )
         self.llm_service = llm_service
         self.template_manager = template_manager
         self.settings = settings
-
-    async def run_as_node(self, state: Union[AgentState, dict]) -> dict:
-        """Execute the agent as a node in the workflow, returning a dictionary."""
-        if hasattr(state, 'model_dump'):
-            state_dict = state.model_dump()
-        else:
-            state_dict = state.copy() if isinstance(state, dict) else {}
-
-        try:
-            result = await self._execute(
-                structured_cv=state_dict.get('structured_cv'),
-                job_description_data=state_dict.get('job_description_data'),
-                current_item_id=state_dict.get('current_item_id'),
-                research_findings=state_dict.get('research_findings')
-            )
-
-            if result.success:
-                state_dict["structured_cv"] = result.output_data.updated_structured_cv
-                if "error_messages" not in state_dict:
-                    state_dict["error_messages"] = []
-            else:
-                if "error_messages" not in state_dict:
-                    state_dict["error_messages"] = []
-                state_dict["error_messages"].append(result.error_message)
-
-        except Exception as e:
-            logger.error(f"ProfessionalExperienceWriterAgent execution failed: {str(e)}")
-            if "error_messages" not in state_dict:
-                state_dict["error_messages"] = []
-            state_dict["error_messages"].append(str(e))
-
-        return state_dict
 
     def _validate_inputs(self, input_data: dict) -> None:
         """Validate inputs for Professional Experience writer agent."""
@@ -83,12 +48,17 @@ class ProfessionalExperienceWriterAgent(AgentBase):
                 agent_name=self.name,
                 message="Missing or invalid 'structured_cv' in input_data.",
             )
-        if "job_description_data" not in input_data or input_data["job_description_data"] is None:
+        if (
+            "job_description_data" not in input_data
+            or input_data["job_description_data"] is None
+        ):
             raise AgentExecutionError(
                 agent_name=self.name,
                 message="Missing or invalid 'job_description_data' in input_data.",
             )
-        if "current_item_id" not in input_data or not isinstance(input_data["current_item_id"], str):
+        if "current_item_id" not in input_data or not isinstance(
+            input_data["current_item_id"], str
+        ):
             raise AgentExecutionError(
                 agent_name=self.name,
                 message="Missing or invalid 'current_item_id' in input_data.",
@@ -97,71 +67,87 @@ class ProfessionalExperienceWriterAgent(AgentBase):
         if isinstance(input_data["structured_cv"], dict):
             input_data["structured_cv"] = StructuredCV(**input_data["structured_cv"])
         if isinstance(input_data["job_description_data"], dict):
-            input_data["job_description_data"] = JobDescriptionData(**input_data["job_description_data"])
+            input_data["job_description_data"] = JobDescriptionData(
+                **input_data["job_description_data"]
+            )
 
     async def _execute(self, **kwargs: Any) -> AgentResult:
         """Execute the core content generation logic for Professional Experience."""
-        structured_cv_data = kwargs.get("structured_cv")
-        if isinstance(structured_cv_data, dict):
-            structured_cv = StructuredCV(**structured_cv_data)
-        else:
-            structured_cv = structured_cv_data
-
-        job_description_data = kwargs.get("job_description_data")
-        if isinstance(job_description_data, dict):
-            job_description_data = JobDescriptionData(**job_description_data)
-        else:
-            job_description_data = job_description_data
+        try:
+            # Validate and convert inputs in place
+            self._validate_inputs(kwargs)
             
-        current_item_id: str = kwargs.get("current_item_id")
-        research_findings = kwargs.get("research_findings")
+            # Extract validated inputs (already converted by _validate_inputs)
+            structured_cv: StructuredCV = kwargs.get("structured_cv")
+            job_description_data: JobDescriptionData = kwargs.get("job_description_data")
+            current_item_id = kwargs.get("current_item_id")
+            research_findings = kwargs.get("research_findings")
 
-        self._validate_inputs({
-            "structured_cv": structured_cv,
-            "job_description_data": job_description_data,
-            "current_item_id": current_item_id
-        })
-
-        self.update_progress(40, f"Generating Professional Experience content for item {current_item_id}.")
-
-        # Get the specific professional experience item to be enhanced
-        experience_item = get_item_by_id(structured_cv, current_item_id)
-        if not experience_item or experience_item.item_type != ItemType.EXPERIENCE_ROLE_TITLE:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"Item with ID '{current_item_id}' not found or is not a professional experience item.",
+            self.update_progress(
+                AgentConstants.PROGRESS_MAIN_PROCESSING,
+                f"Generating Professional Experience content for item {current_item_id}.",
             )
 
-        generated_content = await self._generate_professional_experience_content(
-            structured_cv, job_description_data, experience_item, research_findings
-        )
+            # Get the specific professional experience item to be enhanced
+            experience_item = get_item_by_id(structured_cv, current_item_id)
+            if (
+                not experience_item
+                or experience_item.item_type != ItemType.EXPERIENCE_ROLE_TITLE
+            ):
+                raise AgentExecutionError(
+                    agent_name=self.name,
+                    message=f"Item with ID '{current_item_id}' not found or is not a professional experience item.",
+                )
 
-        self.update_progress(
-            80, f"Updating CV with generated Professional Experience for item {current_item_id}."
-        )
+            generated_content = await self._generate_professional_experience_content(
+                structured_cv, job_description_data, experience_item, research_findings
+            )
 
-        # Update the specific item with the generated content
-        updated_cv = update_item_by_id(
-            structured_cv,
-            current_item_id,
-            {"content": generated_content, "status": ItemStatus.GENERATED}
-        )
+            self.update_progress(
+                AgentConstants.PROGRESS_POST_PROCESSING,
+                f"Updating CV with generated Professional Experience for item {current_item_id}.",
+            )
 
-        output_data = EnhancedContentWriterOutput(
-            updated_structured_cv=updated_cv,
-            item_id=current_item_id,
-            generated_content=generated_content,
-        )
+            # Update the specific item with the generated content
+            updated_cv = update_item_by_id(
+                structured_cv,
+                current_item_id,
+                {"content": generated_content, "status": ItemStatus.GENERATED},
+            )
 
-        self.update_progress(100, "Professional Experience generation completed successfully.")
-        return AgentResult(
-            success=True,
-            output_data=output_data,
-            metadata={
-                "agent_name": self.name,
-                "message": f"Successfully generated Professional Experience for item '{current_item_id}'.",
-            },
-        )
+            output_data = EnhancedContentWriterOutput(
+                updated_structured_cv=updated_cv,
+                item_id=current_item_id,
+                generated_content=generated_content,
+            )
+
+            self.update_progress(
+                AgentConstants.PROGRESS_COMPLETE, "Professional Experience generation completed successfully."
+            )
+            return AgentResult(
+                success=True,
+                output_data=output_data,
+                metadata={
+                    "agent_name": self.name,
+                    "message": f"Successfully generated Professional Experience for item '{current_item_id}'.",
+                },
+            )
+        except AgentExecutionError:
+            # Re-raise AgentExecutionError to maintain error context
+            raise
+        except (AttributeError, TypeError, ValueError, KeyError) as e:
+            # Handle common exceptions with proper context
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message=f"Error processing Professional Experience data: {str(e)}",
+            ) from e
+        except Exception as e:
+            # Handle any other unexpected exceptions with proper context
+            logger.error(f"Unexpected error in {self.name}: {str(e)}", exc_info=True)
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message=f"Unexpected error during Professional Experience generation: {str(e)}",
+            ) from e
 
     async def _generate_professional_experience_content(
         self,
@@ -171,7 +157,9 @@ class ProfessionalExperienceWriterAgent(AgentBase):
         research_findings: Dict[str, Any] | None,
     ) -> str:
         """Generates professional experience content for a specific item using an LLM."""
-        prompt_template = self.template_manager.get_template_by_type(ContentType.EXPERIENCE)
+        prompt_template = self.template_manager.get_template_by_type(
+            ContentType.EXPERIENCE
+        )
         if not prompt_template:
             raise AgentExecutionError(
                 agent_name=self.name,
@@ -181,24 +169,35 @@ class ProfessionalExperienceWriterAgent(AgentBase):
         # Prepare context for the prompt
         # You might want to include other sections like Key Qualifications or Executive Summary
         # to provide more context to the LLM.
-        key_qualifications_content = "; ".join([item.content for section in structured_cv.sections if section.name.lower().replace(" ", "_") == "key_qualifications" for item in section.items])
+        key_qualifications_content = "; ".join(
+            [
+                item.content
+                for section in structured_cv.sections
+                if section.name.lower().replace(" ", "_") == "key_qualifications"
+                for item in section.items
+            ]
+        )
 
-        prompt = prompt_template.format(
-            job_description=job_data.model_dump_json(indent=2),
-            experience_item=experience_item, # Pass the specific experience item
-            key_qualifications=key_qualifications_content,
-            research_findings=research_findings,
+        prompt = self.template_manager.format_template(
+            prompt_template,
+            {
+                "job_description": job_data.model_dump_json(indent=2),
+                "experience_item": experience_item,  # Pass the specific experience item
+                "key_qualifications": key_qualifications_content,
+                "research_findings": research_findings,
+            },
         )
 
         response = await self.llm_service.generate_content(
             prompt=prompt,
-            max_tokens=self.settings.get("max_tokens_content_generation", 1024),
-            temperature=self.settings.get("temperature_content_generation", 0.7),
+            max_tokens=self.settings.get("max_tokens_content_generation", LLMConstants.MAX_TOKENS_GENERATION),
+            temperature=self.settings.get("temperature_content_generation", LLMConstants.TEMPERATURE_BALANCED),
         )
 
         if not response or not response.content:
             raise AgentExecutionError(
-                agent_name=self.name, message="LLM failed to generate valid Professional Experience content."
+                agent_name=self.name,
+                message="LLM failed to generate valid Professional Experience content.",
             )
 
         return response.content

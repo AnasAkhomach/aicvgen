@@ -8,20 +8,16 @@ user-friendly error messages.
 """
 
 import functools
+import time
 import traceback
-from typing import Any, Callable, Optional, Dict
-from datetime import datetime
-
 from contextlib import contextmanager
+from datetime import datetime
+from typing import Any, Callable, Dict, Optional
+
 import streamlit as st
 
-from src.config.logging_config import get_logger, log_error_with_context
-from src.error_handling.exceptions import (
-    AicvgenError,
-    NetworkError,
-    OperationTimeoutError,
-    CATCHABLE_EXCEPTIONS,
-)
+from config.logging_config import get_logger, log_error_with_context
+from src.error_handling.exceptions import (CATCHABLE_EXCEPTIONS, AicvgenError, NetworkError, OperationTimeoutError)
 from src.error_handling.models import ErrorSeverity
 
 logger = get_logger(__name__)
@@ -75,7 +71,8 @@ class StreamlitErrorBoundary:
             "kwargs_keys": list(kwargs.keys()),
         }
 
-        log_error_with_context("error_boundaries", error, context)
+        logger = get_logger("error_boundaries")
+        log_error_with_context(logger, f"Error in {self.component_name}.{func_name}", error)
 
         self._display_error_message(error, error_id)
 
@@ -156,17 +153,17 @@ def handle_api_errors(func: Callable) -> Callable:
             st.error(
                 "🌐 Connection Error: Unable to connect to the service. Please check your internet connection."
             )
-            logger.error("Connection error in %s: %s", func.__name__, str(e))
+            logger.error(f"Connection error in {func.__name__}: {str(e)}")
         except OperationTimeoutError as e:
             st.error("⏱️ Timeout Error: The request took too long. Please try again.")
-            logger.error("Timeout error in %s: %s", func.__name__, str(e))
+            logger.error(f"Timeout error in {func.__name__}: {str(e)}")
         except (ValueError, TypeError) as e:
             st.error(f"📝 Input Error: Invalid data provided. {e}")
-            logger.error("Data validation error in %s: %s", func.__name__, str(e))
+            logger.error(f"Data validation error in {func.__name__}: {str(e)}")
         except AicvgenError as e:
             st.error(f"❌ An application error occurred: {e}")
             log_error_with_context(
-                "error_boundaries", e, {"function": func.__name__, "type": "api_error"}
+                logger, f"API error in {func.__name__}", e
             )
         return None
 
@@ -182,21 +179,19 @@ def handle_file_operations(func: Callable) -> Callable:
             return func(*args, **kwargs)
         except FileNotFoundError as e:
             st.error(f"📁 File Not Found: The file could not be found. {e}")
-            logger.error("File not found in %s: %s", func.__name__, str(e))
+            logger.error(f"File not found in {func.__name__}: {str(e)}")
         except PermissionError as e:
             st.error(f"🔒 Permission Error: Unable to access the file. {e}")
-            logger.error("Permission error in %s: %s", func.__name__, str(e))
+            logger.error(f"Permission error in {func.__name__}: {str(e)}")
         except (OSError, IOError) as e:
             st.error(
                 f"💾 File System Error: A problem occurred with the file system. {e}"
             )
-            logger.error("OS/IO error in %s: %s", func.__name__, str(e))
+            logger.error(f"OS/IO error in {func.__name__}: {str(e)}")
         except AicvgenError as e:
             st.error(f"❌ File Operation Error: An unexpected error occurred. {e}")
             log_error_with_context(
-                "error_boundaries",
-                e,
-                {"function": func.__name__, "type": "file_error"},
+                logger, f"File operation error in {func.__name__}", e
             )
         return None
 
@@ -214,16 +209,14 @@ def handle_data_processing(func: Callable) -> Callable:
             st.error(
                 f"🔑 Data Error: Required data field is missing or out of bounds. {e}"
             )
-            logger.error("Key/Index error in %s: %s", func.__name__, str(e))
+            logger.error(f"Key/Index error in {func.__name__}: {str(e)}")
         except (TypeError, ValueError) as e:
             st.error(f"🔧 Type/Value Error: Data format is incorrect or invalid. {e}")
-            logger.error("Type/Value error in %s: %s", func.__name__, str(e))
+            logger.error(f"Type/Value error in {func.__name__}: {str(e)}")
         except AicvgenError as e:
             st.error(f"❌ Data Processing Error: An application error occurred. {e}")
             log_error_with_context(
-                "error_boundaries",
-                e,
-                {"function": func.__name__, "type": "data_error"},
+                logger, f"Data processing error in {func.__name__}", e
             )
         return None
 
@@ -245,7 +238,7 @@ class ErrorRecovery:
                 return func()
             except RETRYABLE_EXCEPTIONS as e:
                 if attempt == max_retries - 1:
-                    logger.error("Final attempt failed for %s.", func.__name__)
+                    logger.error(f"Final attempt failed for {func.__name__}")
                     raise e
 
                 wait_time = backoff_factor * (2**attempt)

@@ -3,10 +3,12 @@ only return valid AgentState fields, preventing contract breaches.
 """
 
 from functools import wraps
-from typing import Dict, Any, Set
+from typing import Any, Dict, Set
+
 from pydantic import ValidationError
-from ..orchestration.state import AgentState
+
 from ..config.logging_config import get_structured_logger
+from ..orchestration.state import AgentState
 
 logger = get_structured_logger(__name__)
 

@@ -1,7 +1,7 @@
 ---
 name: key_qualifications
 category: prompt
-content_type: skill_generation
+content_type: qualification
 description: "Generates a list of the 10 most relevant and impactful skills for a candidate's 'Key Qualifications' section."
 ---
 [System Instruction]

@@ -241,48 +241,9 @@ class TestEnhancedLLMService:
             == initial_processing_time + sample_llm_response.processing_time
         )
 
-    @pytest.mark.asyncio
-    async def test_get_service_stats(self, llm_service):
-        """Test service statistics collection."""
-        # Set up some test data
-        llm_service.call_count = 10
-        llm_service.total_tokens = 500
-        llm_service.total_processing_time = 25.0
-
-        # Mock optimizer stats
-        mock_optimizer = MagicMock()
-        mock_optimizer.get_comprehensive_stats.return_value = {"optimization": "data"}
-        llm_service.performance_optimizer = mock_optimizer
-
-        mock_async_optimizer = MagicMock()
-        mock_async_optimizer.get_comprehensive_stats.return_value = {"async": "data"}
-        llm_service.async_optimizer = mock_async_optimizer
-
-        # Mock rate limiter
-        mock_rate_limiter = MagicMock()
-        mock_rate_limiter.get_status.return_value = {"status": "ok"}
-        llm_service.rate_limiter = mock_rate_limiter
-
-        result = await llm_service.get_service_stats()
-
-        assert isinstance(result, LLMServiceStats)
-        assert result.total_calls == 10
-        assert result.total_tokens == 500
-        assert result.total_processing_time == 25.0
-        assert result.average_processing_time == 2.5
-        assert result.model_name == "test-model"
-        assert result.rate_limiter_status == {"status": "ok"}
-        assert result.cache_stats["hit_rate_percent"] == 50.0
-        assert result.optimizer_stats == {"optimization": "data"}
-        assert result.async_stats == {"async": "data"}
-
-    @pytest.mark.asyncio
-    async def test_get_service_stats_no_calls(self, llm_service):
-        """Test service statistics when no calls have been made."""
-        result = await llm_service.get_service_stats()
-
-        assert result.total_calls == 0
-        assert result.average_processing_time == 0.0
+    # Note: Removed tests for get_service_stats, clear_cache, and optimize_performance
+    # as these methods are now private implementation details and should not be
+    # exposed through the public interface (CB-011 contract breach fix)
 
     def test_reset_stats(self, llm_service):
         """Test statistics reset."""
@@ -297,30 +258,8 @@ class TestEnhancedLLMService:
         assert llm_service.total_tokens == 0
         assert llm_service.total_processing_time == 0.0
 
-    @pytest.mark.asyncio
-    async def test_clear_cache(self, llm_service):
-        """Test cache clearing."""
-        await llm_service.clear_cache()
-
-        llm_service.caching_service.clear.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_optimize_performance(self, llm_service):
-        """Test performance optimization."""
-        # Mock cache stats before and after
-        llm_service.caching_service.get_cache_stats.side_effect = [
-            {"size": 100},  # Before
-            {"size": 80},  # After
-        ]
-
-        result = await llm_service.optimize_performance()
-
-        assert isinstance(result, LLMPerformanceOptimizationResult)
-        assert result.cache_optimization["entries_before"] == 100
-        assert result.cache_optimization["entries_after"] == 80
-        assert result.cache_optimization["entries_removed"] == 20
-
-        llm_service.caching_service.evict_expired_entries.assert_called_once()
+    # Note: Tests for clear_cache and optimize_performance removed as these
+    # are now private implementation details (CB-011 contract breach fix)
 
     @pytest.mark.asyncio
     async def test_generate_backward_compatibility(
@@ -334,7 +273,7 @@ class TestEnhancedLLMService:
 
         # Test that generate() calls generate_content()
         result = await llm_service.generate(
-            "test prompt", ContentType.CV_ANALYSIS, session_id="123"
+            "test prompt", content_type=ContentType.CV_ANALYSIS, session_id="123"
         )
 
         assert result is sample_llm_response
@@ -352,6 +291,51 @@ class TestEnhancedLLMService:
 
         with pytest.raises(ConfigurationError, match="Test error"):
             await llm_service.generate_content("test prompt", ContentType.CV_ANALYSIS)
+
+    @pytest.mark.asyncio
+    async def test_cb004_contract_breach_fix(self, llm_service, sample_llm_response):
+        """Test CB-004 fix: generate_content method with optional content_type parameter."""
+        llm_service.caching_service.check_cache.return_value = None
+        llm_service.retry_service.generate_content_with_retry.return_value = (
+            sample_llm_response
+        )
+
+        # Test 1: generate_content with explicit content_type
+        result1 = await llm_service.generate_content(
+            "test prompt",
+            ContentType.CV_ANALYSIS,
+            max_tokens=100,
+            temperature=0.7
+        )
+        assert result1 is sample_llm_response
+
+        # Test 2: generate_content with default content_type (should use CV_ANALYSIS)
+        result2 = await llm_service.generate_content(
+            "test prompt",
+            max_tokens=100,
+            temperature=0.7
+        )
+        assert result2 is sample_llm_response
+
+        # Test 3: generate method with content_type in kwargs
+        result3 = await llm_service.generate(
+            "test prompt",
+            content_type=ContentType.PROJECT,
+            max_tokens=100,
+            temperature=0.7
+        )
+        assert result3 is sample_llm_response
+
+        # Test 4: generate method without content_type (should use default)
+        result4 = await llm_service.generate(
+            "test prompt",
+            max_tokens=100,
+            temperature=0.7
+        )
+        assert result4 is sample_llm_response
+
+        # Verify all calls were made to retry service
+        assert llm_service.retry_service.generate_content_with_retry.call_count == 4
 
     @pytest.mark.asyncio
     async def test_integration_workflow(self, llm_service, sample_llm_response):

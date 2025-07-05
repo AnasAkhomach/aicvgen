@@ -1,7 +1,7 @@
 ---
 name: side_project
 category: prompt
-content_type: project_generation
+content_type: PROJECT
 description: "Analyzes project experiences to generate compelling, concise resume bullet points."
 ---
 You are an expert career consultant skilled at analyzing project experiences to generate compelling, concise resume bullet points.

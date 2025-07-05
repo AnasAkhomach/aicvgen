@@ -1,5 +1,5 @@
 """Orchestration module for CV generation workflow."""
 
-from .state import AgentState
+from src.orchestration.state import AgentState
 
 __all__ = ["AgentState"]

@@ -5,10 +5,11 @@ AgentResult.output_data field. These models ensure type safety and data
 validation for agent outputs according to Task C-03.
 """
 
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.llm_data_models import BasicCVInfo
@@ -24,6 +25,22 @@ class ParserAgentOutput(BaseModel):
         default=None, description="Parsed CV data structure"
     )
 
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ParserAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
 
 class EnhancedContentWriterOutput(BaseModel):
     """Output model for EnhancedContentWriterAgent run_async method."""
@@ -33,6 +50,22 @@ class EnhancedContentWriterOutput(BaseModel):
     )
     item_id: str = Field(description="The ID of the item that was enhanced.")
     generated_content: str = Field(description="The newly generated content.")
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EnhancedContentWriterOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
 
 class CleaningAgentOutput(BaseModel):
@@ -53,6 +86,22 @@ class CleaningAgentOutput(BaseModel):
         description="The type of output that was cleaned (e.g., 'skills_list').",
     )
 
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CleaningAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
 
 class CVAnalysisResult(BaseModel):
     summary: Optional[str] = None
@@ -64,6 +113,22 @@ class CVAnalysisResult(BaseModel):
     recommendations: List[str] = Field(default_factory=list)
     match_score: float = 0.0
     analysis_timestamp: Optional[str] = None
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CVAnalysisResult":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
 
 class CVAnalyzerAgentOutput(BaseModel):
@@ -82,6 +147,22 @@ class CVAnalyzerAgentOutput(BaseModel):
         default=None, ge=0.0, le=1.0, description="CV-job compatibility score"
     )
 
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CVAnalyzerAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
 
 class ItemQualityResultModel(BaseModel):
     """Model for individual item quality check results."""
@@ -90,6 +171,22 @@ class ItemQualityResultModel(BaseModel):
     passed: bool
     issues: List[str]
     suggestions: Optional[List[str]] = None
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ItemQualityResultModel":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
 
 class SectionQualityResultModel(BaseModel):
@@ -100,6 +197,22 @@ class SectionQualityResultModel(BaseModel):
     issues: List[str]
     item_checks: Optional[List[ItemQualityResultModel]] = Field(default_factory=list)
 
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SectionQualityResultModel":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
 
 class OverallQualityCheckResultModel(BaseModel):
     """Model for overall CV quality check results."""
@@ -107,6 +220,22 @@ class OverallQualityCheckResultModel(BaseModel):
     check_name: str
     passed: bool
     details: Optional[str] = None
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "OverallQualityCheckResultModel":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
 
 class QualityAssuranceAgentOutput(BaseModel):
@@ -122,11 +251,43 @@ class QualityAssuranceAgentOutput(BaseModel):
         default_factory=list, description="Suggestions for improving the CV"
     )
 
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "QualityAssuranceAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
 
 class FormatterAgentOutput(BaseModel):
     """Output model for FormatterAgent run method."""
 
     output_path: str = Field(description="The absolute path to the generated CV file.")
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FormatterAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
 
 # Research Models
@@ -150,6 +311,22 @@ class CompanyInsight(BaseModel):
     key_values: List[str] = Field(default_factory=list)
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CompanyInsight":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
 
 class IndustryInsight(BaseModel):
     """Industry-specific research insight."""
@@ -160,6 +337,22 @@ class IndustryInsight(BaseModel):
     growth_areas: List[str] = Field(default_factory=list)
     challenges: List[str] = Field(default_factory=list)
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "IndustryInsight":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
 
 class RoleInsight(BaseModel):
@@ -173,6 +366,22 @@ class RoleInsight(BaseModel):
     salary_range: Optional[str] = None
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RoleInsight":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
 
 class ResearchMetadataModel(BaseModel):
     """Model for research metadata."""
@@ -180,7 +389,23 @@ class ResearchMetadataModel(BaseModel):
     source: Optional[str] = None
     analyst: Optional[str] = None
     notes: Optional[str] = None
-    extra: Optional[dict] = Field(default_factory=dict)
+    extra: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ResearchMetadataModel":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
 
 class ResearchFindings(BaseModel):
@@ -247,6 +472,22 @@ class ResearchAgentOutput(BaseModel):
         le=1.0,
         description="Confidence level of research findings",
     )
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ResearchAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
 
     @field_validator("research_findings", mode="before")
     @classmethod

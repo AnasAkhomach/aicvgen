@@ -1,28 +1,28 @@
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 from src.config.logging_config import get_structured_logger
-from src.models.workflow_models import ContentType
 from src.models.llm_data_models import LLMResponse
-from src.models.llm_service_models import (
-    LLMApiKeyInfo,
-    LLMServiceStats,
-    LLMPerformanceOptimizationResult,
-)
-from src.services.llm_caching_service import LLMCachingService
+from src.models.llm_service_models import (LLMApiKeyInfo, LLMPerformanceOptimizationResult, LLMServiceStats)
+from src.models.workflow_models import ContentType
 from src.services.llm_api_key_manager import LLMApiKeyManager
+from src.services.llm_caching_service import LLMCachingService
 from src.services.llm_retry_service import LLMRetryService
+from src.services.llm_service_interface import LLMServiceInterface
 from src.services.rate_limiter import RateLimiter
 
 logger = get_structured_logger("llm_service")
 
 
-class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
+class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-instance-attributes
     """
     Enhanced LLM service with decomposed responsibilities.
     Now uses composed services for caching, API key management, and retry logic.
     Strict DI: all dependencies must be injected.
     Fully asynchronous implementation.
+    
+    This implementation hides internal caching, retry, and rate limiting details
+    behind a clean interface contract.
     """
 
     def __init__(
@@ -100,7 +100,15 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         return self.api_key_manager.get_current_api_key_info()
 
     async def generate_content(
-        self, prompt: str, content_type: ContentType, **kwargs
+        self,
+        prompt: str,
+        content_type: ContentType = None,
+        session_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        item_id: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        **kwargs
     ) -> LLMResponse:
         """
         Generate content using the Gemini model with enhanced error handling and caching.
@@ -109,30 +117,53 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
         Args:
             prompt: Text prompt to send to the model
-            content_type: Type of content being generated
-            **kwargs: Additional arguments including session_id, item_id, trace_id
+            content_type: Type of content being generated (optional, defaults to CV_ANALYSIS)
+            session_id: Session identifier for tracking
+            trace_id: Trace identifier for debugging
+            item_id: Item identifier for tracking
+            max_tokens: Maximum number of tokens to generate
+            temperature: Sampling temperature for generation
+            **kwargs: Additional LLM parameters
 
         Returns:
             LLMResponse with generated content and metadata
         """
+        # Default content_type if not provided for backward compatibility
+        if content_type is None:
+            content_type = ContentType.CV_ANALYSIS
+            logger.debug("No content_type provided, defaulting to CV_ANALYSIS")
+
+        # Consolidate all parameters for consistent handling
+        all_kwargs = {
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "item_id": item_id,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            **kwargs
+        }
+
+        # Remove None values to avoid passing them downstream
+        all_kwargs = {k: v for k, v in all_kwargs.items() if v is not None}
+
         # 0. Ensure cache is initialized
         await self._ensure_cache_initialized()
 
         # 1. Check cache
         cached_response = await self.caching_service.check_cache(
-            prompt, self.model_name, content_type, **kwargs
+            prompt, self.model_name, content_type, **all_kwargs
         )
         if cached_response:
             return cached_response
 
         # 2. Generate content with retry logic
         llm_response = await self.retry_service.generate_content_with_retry(
-            prompt, content_type, **kwargs
+            prompt, content_type, **all_kwargs
         )
 
         # 3. Cache the response
         await self.caching_service.cache_response(
-            prompt, self.model_name, content_type, llm_response, **kwargs
+            prompt, self.model_name, content_type, llm_response, **all_kwargs
         )
 
         # 4. Update stats
@@ -142,8 +173,11 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
 
         return llm_response
 
-    async def get_service_stats(self) -> LLMServiceStats:
-        """Get service performance statistics including cache metrics."""
+    async def _get_service_stats(self) -> LLMServiceStats:
+        """
+        Internal method to get service performance statistics including cache metrics.
+        This is not part of the public interface to avoid exposing implementation details.
+        """
         await self._ensure_cache_initialized()
 
         # Get cache stats from caching service
@@ -185,15 +219,21 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         self.total_processing_time = 0.0
         logger.info("LLM service statistics reset")
 
-    async def clear_cache(self):
-        """Clear the LLM response cache."""
+    async def _clear_cache(self):
+        """
+        Internal method to clear the LLM response cache.
+        This is not part of the public interface to avoid exposing implementation details.
+        """
         await self._ensure_cache_initialized()
         if self.caching_service:
             await self.caching_service.clear()
         logger.info("LLM service cache cleared")
 
-    async def optimize_performance(self) -> LLMPerformanceOptimizationResult:
-        """Run performance optimization."""
+    async def _optimize_performance(self) -> LLMPerformanceOptimizationResult:
+        """
+        Internal method to run performance optimization.
+        This is not part of the public interface to avoid exposing implementation details.
+        """
         await self._ensure_cache_initialized()
 
         # Clear expired cache entries (if cache is available)
@@ -225,9 +265,18 @@ class EnhancedLLMService:  # pylint: disable=too-many-instance-attributes
         logger.info("Performance optimization completed", result=result.dict())
         return result
 
-    async def generate(self, *args, **kwargs):
+    async def generate(self, prompt: str, **kwargs):
         """
         Backward-compatible wrapper for generate_content.
-        Accepts arbitrary args/kwargs and passes them to generate_content.
+        Standardizes parameter handling for legacy callers.
+
+        Args:
+            prompt: Text prompt to send to the model
+            **kwargs: Additional arguments including max_tokens, temperature, etc.
+
+        Returns:
+            LLMResponse with generated content and metadata
         """
-        return await self.generate_content(*args, **kwargs)
+        # Extract content_type from kwargs if provided, otherwise use default
+        content_type = kwargs.pop('content_type', ContentType.CV_ANALYSIS)
+        return await self.generate_content(prompt=prompt, content_type=content_type, **kwargs)

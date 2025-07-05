@@ -1,11 +1,9 @@
 """Centralized error classification utilities."""
 
+import re
+from src.constants.error_constants import ErrorConstants
+from src.error_handling.exceptions import (NetworkError, OperationTimeoutError, RateLimitError)
 from src.error_handling.models import ErrorCategory
-from src.error_handling.exceptions import (
-    RateLimitError,
-    NetworkError,
-    OperationTimeoutError,
-)
 
 
 def is_retryable_error(exception: Exception) -> tuple[bool, str]:
@@ -44,20 +42,12 @@ def is_rate_limit_error(exception: Exception) -> bool:
     if isinstance(exception, RateLimitError):
         return True
 
-    # Check error message for rate limit keywords
+    # Check error message for rate limit patterns
     error_message = str(exception).lower()
-    rate_limit_keywords = [
-        "rate limit",
-        "rate-limit",
-        "too many requests",
-        "quota exceeded",
-        "quota_exceeded",
-        "resource_exhausted",
-        "resource exhausted",
-        "429",
-    ]
-
-    return any(keyword in error_message for keyword in rate_limit_keywords)
+    return any(
+        re.search(pattern, error_message, re.IGNORECASE)
+        for pattern in ErrorConstants.RATE_LIMIT_PATTERNS
+    )
 
 
 def is_network_error(exception: Exception) -> bool:
@@ -74,21 +64,12 @@ def is_network_error(exception: Exception) -> bool:
     if isinstance(exception, NetworkError):
         return True
 
-    # Check error message for network keywords
+    # Check error message for network patterns
     error_message = str(exception).lower()
-    network_keywords = [
-        "connection",
-        "network",
-        "timeout",
-        "dns",
-        "unreachable",
-        "host",
-        "socket",
-        "ssl",
-        "certificate",
-    ]
-
-    return any(keyword in error_message for keyword in network_keywords)
+    return any(
+        re.search(pattern, error_message, re.IGNORECASE)
+        for pattern in ErrorConstants.NETWORK_ERROR_PATTERNS
+    )
 
 
 def is_timeout_error(exception: Exception) -> bool:
@@ -105,6 +86,6 @@ def is_timeout_error(exception: Exception) -> bool:
     if isinstance(exception, OperationTimeoutError):
         return True
 
-    # Check error message for timeout keywords
+    # Check error message for timeout patterns
     error_message = str(exception).lower()
     return "timeout" in error_message

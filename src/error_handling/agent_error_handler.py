@@ -4,19 +4,20 @@ This module provides consistent error handling patterns that all agents should u
 to ensure uniform error reporting, logging, and recovery across the system.
 """
 
-from typing import Any, Dict, Optional, TYPE_CHECKING
 from functools import wraps
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
 from pydantic import BaseModel
 
-from src.models.validation_schemas import ValidationError
-from src.orchestration.state import AgentState
-from src.models.data_models import ErrorFallbackModel
 from src.config.logging_config import get_structured_logger
-from src.error_handling.models import ErrorCategory, ErrorSeverity, ErrorContext
 from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from src.error_handling.models import (ErrorCategory, ErrorContext, ErrorSeverity)
+from src.models.data_models import ErrorFallbackModel
+from src.error_handling.exceptions import ValidationError
+from src.orchestration.state import AgentState
 
 if TYPE_CHECKING:
-    from src.agents.agent_base import AgentResult
+    from ..agents.agent_base import AgentResult
 
 logger = get_structured_logger(__name__)
 
@@ -46,7 +47,7 @@ class AgentErrorHandler:
         error: ValidationError, agent_type: str, fallback_data: Optional[Any] = None
     ) -> "AgentResult":
         """Handle validation errors consistently across agents."""
-        from src.agents.agent_base import AgentResult
+        from ..agents.agent_base import AgentResult
 
         error_msg = f"Input validation failed for {agent_type}: {str(error)}"
         logger.error(error_msg)
@@ -80,7 +81,7 @@ class AgentErrorHandler:
         context: Optional[str] = None,
     ) -> "AgentResult":
         """Handle general exceptions consistently across agents."""
-        from src.agents.agent_base import AgentResult
+        from ..agents.agent_base import AgentResult
 
         context_msg = f" in {context}" if context else ""
         error_msg = f"{agent_type} error{context_msg}: {str(error)}"
@@ -122,7 +123,7 @@ class AgentErrorHandler:
         error_msg = f"{agent_type} Error{context_msg}: {str(error)}"
         logger.error(error_msg, exc_info=True)
 
-        error_list = state.get("error_messages", []) or []
+        error_list = list(state.error_messages) if state.error_messages else []
         error_list.append(error_msg)
         return {"error_messages": error_list}
 
@@ -180,7 +181,7 @@ class AgentErrorHandler:
 
 def with_error_handling(agent_type: str, context: Optional[str] = None):
     """Decorator to add standardized error handling to agent methods."""
-    from src.utils.decorators import create_async_sync_decorator
+    from ..utils.decorators import create_async_sync_decorator
 
     def create_async_wrapper(func):
         @wraps(func)
@@ -223,7 +224,7 @@ def with_error_handling(agent_type: str, context: Optional[str] = None):
 
 def with_node_error_handling(agent_type: str, context: Optional[str] = None):
     """Decorator to add standardized error handling to LangGraph node methods."""
-    from src.utils.decorators import create_async_sync_decorator
+    from utils.decorators import create_async_sync_decorator
 
     def create_async_wrapper(func):
         @wraps(func)

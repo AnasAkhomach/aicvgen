@@ -4,10 +4,10 @@ This module provides utilities to prevent sensitive information from being
 exposed in logs, error messages, and other outputs.
 """
 
-import re
 import json
-from typing import Any, Dict, List, Optional
+import re
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass

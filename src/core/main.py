@@ -1,8 +1,8 @@
-import sys
-from pathlib import Path
-import traceback
-import logging
 import atexit
+import logging
+import sys
+import traceback
+from pathlib import Path
 
 # Add project root to Python path for imports
 project_root = Path(__file__).parent.parent.parent
@@ -11,13 +11,14 @@ sys.path.insert(0, str(project_root))
 # Third-party imports
 import streamlit as st
 
+from src.config.logging_config import get_logger, setup_logging
 # Project imports
-from ..core.application_startup import get_startup_manager
-from ..core.state_manager import StateManager
-from ..ui.ui_manager import UIManager
-from ..error_handling.exceptions import ConfigurationError, ServiceInitializationError
-from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
-from ..config.logging_config import get_logger, setup_logging
+from src.core.application_startup import get_startup_manager
+from src.core.state_manager import StateManager
+from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from src.error_handling.exceptions import (ConfigurationError,
+                                         ServiceInitializationError)
+from src.ui.ui_manager import UIManager
 
 # Get logger (will be initialized by startup service)
 logger = get_logger(__name__)
@@ -98,10 +99,10 @@ def initialize_application(state_manager: StateManager) -> bool:
         return True
 
     except (ConfigurationError, ServiceInitializationError) as e:
-        logger.error("Application startup failed: %s", e)
+        logger.error("Application startup failed: %s", str(e))
         return False
     except CATCHABLE_EXCEPTIONS as e:
-        logger.error("Unexpected error during startup: %s", e, exc_info=True)
+        logger.error("Unexpected error during startup: %s", str(e), exc_info=True)
         return False
 
 
@@ -134,7 +135,7 @@ def main():
                 else:
                     st.error("Application startup failed. Please check configuration.")
             except CATCHABLE_EXCEPTIONS as e:
-                logger.error("Error showing startup failure details: %s", e)
+                logger.error("Error showing startup failure details: %s", str(e))
                 st.error("Application startup failed. Please check configuration.")
             st.stop()
 
@@ -155,7 +156,7 @@ def main():
         )
         st.stop()
     except CATCHABLE_EXCEPTIONS as e:
-        logger.error("Main application error", error=str(e), exc_info=True)
+        logger.error("Main application error: %s", str(e), exc_info=True)
 
         # Use UI manager to show error if available, otherwise fallback
         try:

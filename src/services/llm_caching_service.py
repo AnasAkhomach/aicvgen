@@ -1,18 +1,20 @@
-import os
 import asyncio
 import hashlib
 import json
+import os
 import pickle
 import threading
-from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
 from collections import OrderedDict
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
 from src.config.logging_config import get_structured_logger
+from src.config.settings import get_config
+from src.models.llm_data_models import LLMResponse
 from src.models.llm_service_models import LLMCacheEntry
 from src.models.workflow_models import ContentType
-from src.models.llm_data_models import LLMResponse
-from src.config.settings import get_config
+from src.constants.llm_constants import LLMConstants
+
 
 logger = get_structured_logger("llm_caching_service")
 
@@ -54,9 +56,13 @@ class LLMCachingService:
             logger.info("LLM caching service initialized")
 
     def _generate_cache_key(
-        self, prompt: str, model: str, temperature: float = 0.7, **kwargs
+        self, prompt: str, model: str, temperature: float = None, **kwargs
     ) -> str:
         """Generate a comprehensive cache key."""
+
+        if temperature is None:
+            temperature = LLMConstants.TEMPERATURE_BALANCED
+
         key_data = {
             "prompt": prompt,
             "model": model,
@@ -70,8 +76,8 @@ class LLMCachingService:
         """Check if cache entry is expired."""
         return datetime.now() > entry.expiry
 
-    def _evict_expired(self):
-        """Remove expired entries."""
+    async def _evict_expired(self):
+        """Remove expired entries asynchronously."""
         expired_keys = [
             key for key, entry in self._cache.items() if self._is_expired(entry)
         ]
@@ -79,8 +85,8 @@ class LLMCachingService:
             del self._cache[key]
             self._evictions += 1
 
-    def _evict_lru(self):
-        """Evict least recently used entries if cache is full."""
+    async def _evict_lru(self):
+        """Evict least recently used entries if cache is full asynchronously."""
         while len(self._cache) >= self.max_size:
             self._cache.popitem(last=False)  # Remove oldest (LRU)
             self._evictions += 1
@@ -89,7 +95,7 @@ class LLMCachingService:
         """Get cached response."""
         cache_key = self._generate_cache_key(prompt, model, **kwargs)
         async with self._lock:
-            self._evict_expired()
+            await self._evict_expired()
             if cache_key in self._cache:
                 entry = self._cache[cache_key]
                 if not self._is_expired(entry):
@@ -114,8 +120,8 @@ class LLMCachingService:
         cache_key = self._generate_cache_key(prompt, model, **kwargs)
         ttl = ttl_hours or self.default_ttl_hours
         async with self._lock:
-            self._evict_expired()
-            self._evict_lru()
+            await self._evict_expired()
+            await self._evict_lru()
             entry = LLMCacheEntry(
                 response=response,
                 expiry=datetime.now() + timedelta(hours=ttl),
@@ -132,6 +138,7 @@ class LLMCachingService:
         async with self._lock:
             total_requests = self._hits + self._misses
             hit_rate = (self._hits / total_requests * 100) if total_requests > 0 else 0
+            memory_usage = await self._estimate_memory_usage()
 
             return {
                 "size": len(self._cache),
@@ -140,11 +147,11 @@ class LLMCachingService:
                 "misses": self._misses,
                 "hit_rate_percent": hit_rate,
                 "evictions": self._evictions,
-                "memory_usage_estimate_mb": self._estimate_memory_usage(),
+                "memory_usage_estimate_mb": memory_usage,
             }
 
-    def _estimate_memory_usage(self) -> float:
-        """Estimate cache memory usage in MB."""
+    async def _estimate_memory_usage(self) -> float:
+        """Estimate cache memory usage in MB asynchronously."""
         try:
             return len(self._cache) * 0.1  # Assume ~100KB per entry
         except (TypeError, ValueError):
@@ -164,7 +171,7 @@ class LLMCachingService:
     async def evict_expired_entries(self):
         """Public method to manually trigger eviction of expired entries."""
         async with self._lock:
-            self._evict_expired()
+            await self._evict_expired()
 
     async def check_cache(
         self,
@@ -206,7 +213,7 @@ class LLMCachingService:
             # Ensure metadata exists
             if "metadata" not in cached_response:
                 cached_response["metadata"] = {}
-                
+
             cached_response["metadata"]["cache_hit"] = True
             cached_response["metadata"]["session_id"] = session_id
             cached_response["metadata"]["item_id"] = item_id
@@ -316,7 +323,6 @@ def get_llm_caching_service() -> LLMCachingService:
     if _CACHING_SERVICE is None:
         with _cache_lock:
             if _CACHING_SERVICE is None:
-
 
                 settings = get_config()
                 cache_file = (

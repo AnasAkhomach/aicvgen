@@ -3,17 +3,14 @@
 NOTE: AgentState is the single source of truth for workflow execution. It is created from UI input at the start and archived at the end. No UI or persistence logic should modify AgentState during workflow execution.
 """
 
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
 import uuid
+from typing import Any, Dict, List, Optional
 
-from ..models.cv_models import JobDescriptionData, StructuredCV
-from ..models.workflow_models import UserFeedback
-from ..models.agent_output_models import (
-    CVAnalysisResult,
-    QualityAssuranceAgentOutput,
-    ResearchFindings,
-)
+from pydantic import BaseModel, Field
+
+from src.models.agent_output_models import (CVAnalysisResult, QualityAssuranceAgentOutput, ResearchFindings)
+from src.models.cv_models import JobDescriptionData, StructuredCV
+from src.models.workflow_models import ContentType, UserFeedback
 
 
 class AgentState(BaseModel):
@@ -40,6 +37,8 @@ class AgentState(BaseModel):
     items_to_process_queue: List[str] = Field(default_factory=list)
     # The ID of the specific role, project, or item currently being processed by an agent.
     current_item_id: Optional[str] = None
+    # The type of content currently being processed (for error handling context)
+    current_content_type: Optional[ContentType] = None
     # Flag to indicate if this is the first pass or a user-driven regeneration.
     is_initial_generation: bool = True
 

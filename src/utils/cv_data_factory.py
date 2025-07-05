@@ -4,17 +4,9 @@ This module provides factory functions for creating and manipulating CV data str
 
 from typing import Any, Dict, Optional
 
-from ..models.cv_models import (
-    Item,
-    ItemStatus,
-    JobDescriptionData,
-    StructuredCV,
-    Section,
-    Subsection,
-    ItemType,
-)
-from ..models.agent_output_models import ParserAgentOutput
 from ..error_handling.exceptions import DataConversionError
+from ..models.agent_output_models import ParserAgentOutput
+from ..models.cv_models import (Item, ItemStatus, ItemType, JobDescriptionData, Section, StructuredCV, Subsection)
 
 
 def create_empty_cv_structure(
@@ -157,12 +149,15 @@ def update_item_by_id(
                     return cv_data
     return cv_data
 
+
 def add_item_to_section(
     cv_data: StructuredCV, section_name: str, new_item: Item
 ) -> StructuredCV:
     """Adds a new item to a specified section in the StructuredCV."""
     for section in cv_data.sections:
-        if section.name.lower().replace(" ", "_") == section_name.lower().replace(" ", "_"):
+        if section.name.lower().replace(" ", "_") == section_name.lower().replace(
+            " ", "_"
+        ):
             section.items.append(new_item)
             return cv_data
     # If section not found, you might want to raise an error or create the section

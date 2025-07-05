@@ -1,4 +1,5 @@
 from typing import Any, List
+
 import google.generativeai as genai
 
 
@@ -8,10 +9,12 @@ class LLMClient:
     def __init__(self, llm_model: genai.GenerativeModel):
         self.llm = llm_model
 
-    async def generate_content(self, prompt: str) -> Any:
+    async def generate_content(self, prompt: str, **kwargs) -> Any:
         """Directly call the LLM provider's API asynchronously."""
         if self.llm is None:
             raise ValueError("LLM model is not initialized.")
+        # Note: kwargs like max_tokens, temperature are ignored as Gemini API
+        # only accepts prompt parameter through generate_content_async
         return await self.llm.generate_content_async(prompt)
 
     async def list_models(self) -> List[Any]:

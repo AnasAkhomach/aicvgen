@@ -4,7 +4,9 @@ This module defines and exports metrics for monitoring workflow performance,
 LLM usage, and system health.
 """
 
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Gauge, Histogram
+
+from src.constants.metrics_constants import MetricsConstants
 
 # --- Workflow Metrics ---
 # UPPER_CASE is used here to conform to the standard prometheus_client library convention for metric objects.
@@ -12,7 +14,7 @@ from prometheus_client import Counter, Histogram, Gauge
 WORKFLOW_DURATION_SECONDS = Histogram(
     "aicvgen_workflow_duration_seconds",
     "Histogram of CV generation workflow durations.",
-    buckets=[1, 5, 10, 30, 60, 120, 300, 600],  # Buckets for different duration ranges
+    buckets=MetricsConstants.WORKFLOW_DURATION_BUCKETS,
 )
 
 WORKFLOW_ERRORS_TOTAL = Counter(
@@ -40,7 +42,7 @@ LLM_REQUEST_DURATION_SECONDS = Histogram(
     "aicvgen_llm_request_duration_seconds",
     "Histogram of LLM request durations.",
     ["model_name"],
-    buckets=[0.1, 0.5, 1, 2, 5, 10, 30],  # Buckets for LLM response times
+    buckets=MetricsConstants.LLM_REQUEST_DURATION_BUCKETS,
 )
 
 LLM_REQUESTS_TOTAL = Counter(
@@ -54,7 +56,7 @@ AGENT_EXECUTION_DURATION_SECONDS = Histogram(
     "aicvgen_agent_execution_duration_seconds",
     "Histogram of individual agent execution durations.",
     ["agent_name"],
-    buckets=[0.1, 0.5, 1, 5, 10, 30, 60],  # Buckets for agent execution times
+    buckets=MetricsConstants.AGENT_EXECUTION_DURATION_BUCKETS,
 )
 
 AGENT_ERRORS_TOTAL = Counter(

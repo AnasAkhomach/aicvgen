@@ -6,10 +6,17 @@ the new clean architecture pattern.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call
+import pytest_asyncio
+from unittest.mock import Mock, patch, AsyncMock, MagicMock, call
+
 from src.core.main import main, initialize_application
 from src.core.state_manager import StateManager
 from src.ui.ui_manager import UIManager
+from src.orchestration.cv_workflow_graph import CVWorkflowGraph
+from src.orchestration.state import AgentState
+from src.models.cv_models import StructuredCV, Section, Item, ItemType, ItemStatus, JobDescriptionData
+from src.models.workflow_models import UserFeedback, UserAction, ContentType
+from src.core.container import ContainerSingleton
 
 
 class TestMainOrchestration:
@@ -469,3 +476,414 @@ class TestStateManagerUIManagerIntegration:
             assert updated_summary["is_processing"] is True
             assert state_manager.cv_text == "Updated CV"
             assert state_manager.user_gemini_api_key == "api_key_123"
+
+
+class TestCVWorkflowGraphIntegration:
+    """Integration tests for CVWorkflowGraph and its subgraphs."""
+
+    @pytest.fixture(autouse=True)
+    def setup_and_teardown(self):
+        """Reset ContainerSingleton before and after each test."""
+        ContainerSingleton.reset_instance()
+        yield
+        ContainerSingleton.reset_instance()
+
+    @pytest.fixture
+    def sample_structured_cv(self):
+        """Create a sample StructuredCV for testing."""
+        return StructuredCV(
+            sections=[
+                Section(
+                     name="executive_summary",
+                    items=[
+                        Item(
+                            item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
+                            content="Sample executive summary",
+                            status=ItemStatus.PENDING
+                        )
+                    ]
+                ),
+                Section(
+                     name="key_qualifications",
+                    items=[
+                        Item(
+                            item_type=ItemType.KEY_QUALIFICATION,
+                            content="Python programming",
+                            status=ItemStatus.PENDING
+                        ),
+                        Item(
+                            item_type=ItemType.KEY_QUALIFICATION,
+                            content="Machine learning",
+                            status=ItemStatus.PENDING
+                        )
+                    ]
+                ),
+                Section(
+                     name="professional_experience",
+                    items=[
+                        Item(
+                            item_type=ItemType.EXPERIENCE_ROLE_TITLE,
+                            content="Software Engineer at TechCorp",
+                            status=ItemStatus.PENDING
+                        )
+                    ]
+                ),
+                Section(
+                     name="project_experience",
+                    items=[
+                        Item(
+                            item_type=ItemType.PROJECT_DESCRIPTION_BULLET,
+                            content="AI CV Generator",
+                            status=ItemStatus.PENDING
+                        )
+                    ]
+                )
+            ]
+        )
+
+    @pytest.fixture
+    def sample_job_description_data(self):
+        """Create sample job description data for testing."""
+        return JobDescriptionData(
+            raw_text="Senior Software Engineer at TechCorp. We are looking for a senior software engineer with Python, Machine Learning, and 5+ years experience. Responsibilities include developing software and leading projects.",
+            job_title="Senior Software Engineer",
+            company_name="TechCorp",
+            main_job_description_raw="We are looking for a senior software engineer...",
+            responsibilities=["Develop software", "Lead projects"],
+            skills=["Python", "TensorFlow", "AWS"]
+        )
+
+    @pytest.fixture
+    def initial_agent_state(self, sample_structured_cv, sample_job_description_data):
+        """Create initial AgentState for testing."""
+        from src.models.agent_output_models import ResearchFindings, CVAnalysisResult, ResearchStatus
+        from datetime import datetime
+        
+        return AgentState(
+            session_id="test_session_123",
+            trace_id="test_trace_456",
+            cv_text="Sample CV text content",
+            structured_cv=sample_structured_cv,
+            job_description_data=sample_job_description_data,
+            research_findings=ResearchFindings(
+                status=ResearchStatus.SUCCESS,
+                research_timestamp=datetime.now(),
+                key_terms=["Python", "Software Engineering"],
+                enhancement_suggestions=["Add more technical details"]
+            ),
+            cv_analysis_results=CVAnalysisResult(
+                summary="Sample analysis",
+                key_skills=["Python", "AWS"],
+                match_score=0.8
+            ),
+            current_section_key="key_qualifications",
+            current_section_index=0,
+            items_to_process_queue=["qual_1", "qual_2"],
+            current_item_id="qual_1",
+            current_content_type=ContentType.QUALIFICATION,
+            is_initial_generation=True,
+            error_messages=[],
+            node_execution_metadata={}
+        )
+
+    @pytest.fixture
+    def mock_agents(self):
+        """Create mocked agent instances for testing."""
+        agents = {
+            'jd_parser_agent': Mock(),
+            'cv_parser_agent': Mock(),
+            'research_agent': Mock(),
+            'cv_analyzer_agent': Mock(),
+            'key_qualifications_writer_agent': Mock(),
+            'professional_experience_writer_agent': Mock(),
+            'projects_writer_agent': Mock(),
+            'executive_summary_writer_agent': Mock(),
+            'qa_agent': Mock(),
+            'formatter_agent': Mock()
+        }
+        
+        # Configure successful responses for each agent
+        for agent_name, agent in agents.items():
+            agent.run_as_node = AsyncMock()
+            
+        return agents
+
+    @pytest.fixture
+    def mock_error_recovery_service(self):
+        """Create mocked ErrorRecoveryService."""
+        service = Mock()
+        service.handle_error = AsyncMock(return_value="skip_item")
+        return service
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_success_path(self, initial_agent_state, mock_agents, mock_error_recovery_service):
+        """Test Case 1: Verify entire workflow executes successfully from start to finish."""
+        # Arrange - Configure successful agent responses
+        mock_agents['jd_parser_agent'].run_as_node.return_value = initial_agent_state.model_copy(
+            update={"job_description_data": initial_agent_state.job_description_data}
+        )
+        
+        mock_agents['cv_parser_agent'].run_as_node.return_value = initial_agent_state.model_copy(
+            update={"structured_cv": initial_agent_state.structured_cv}
+        )
+        
+        mock_agents['research_agent'].run_as_node.return_value = initial_agent_state.model_copy(
+            update={"research_findings": "Research completed successfully"}
+        )
+        
+        mock_agents['cv_analyzer_agent'].run_as_node.return_value = initial_agent_state.model_copy(
+            update={"cv_analysis_results": "Analysis completed"}
+        )
+        
+        # Configure writer agents to mark items as completed
+        updated_cv = initial_agent_state.structured_cv.model_copy(deep=True)
+        for section in updated_cv.sections:
+            for item in section.items:
+                item.status = ItemStatus.COMPLETED
+                item.content = f"Enhanced {item.content}"
+        
+        for writer_agent in ['key_qualifications_writer_agent', 'professional_experience_writer_agent', 
+                           'projects_writer_agent', 'executive_summary_writer_agent']:
+            mock_agents[writer_agent].run_as_node.return_value = initial_agent_state.model_copy(
+                update={"structured_cv": updated_cv}
+            )
+        
+        mock_agents['qa_agent'].run_as_node.return_value = initial_agent_state.model_copy(
+            update={"quality_check_results": "Quality check passed"}
+        )
+        
+        mock_agents['formatter_agent'].run_as_node.return_value = initial_agent_state.model_copy(
+            update={"final_output_path": "/path/to/generated_cv.pdf"}
+        )
+        
+        # Mock the container's agent providers
+        container = ContainerSingleton.get_instance()
+        with patch.object(container, 'job_description_parser_agent') as mock_jd_provider, \
+             patch.object(container, 'user_cv_parser_agent') as mock_cv_provider, \
+             patch.object(container, 'research_agent') as mock_research_provider, \
+             patch.object(container, 'cv_analyzer_agent') as mock_analyzer_provider, \
+             patch.object(container, 'key_qualifications_writer_agent') as mock_qual_provider, \
+             patch.object(container, 'professional_experience_writer_agent') as mock_exp_provider, \
+             patch.object(container, 'projects_writer_agent') as mock_proj_provider, \
+             patch.object(container, 'executive_summary_writer_agent') as mock_exec_provider, \
+             patch.object(container, 'quality_assurance_agent') as mock_qa_provider, \
+             patch.object(container, 'formatter_agent') as mock_formatter_provider:
+            
+            # Set up mock return values
+            mock_jd_provider.return_value = mock_agents['jd_parser_agent']
+            mock_cv_provider.return_value = mock_agents['cv_parser_agent']
+            mock_research_provider.return_value = mock_agents['research_agent']
+            mock_analyzer_provider.return_value = mock_agents['cv_analyzer_agent']
+            mock_qual_provider.return_value = mock_agents['key_qualifications_writer_agent']
+            mock_exp_provider.return_value = mock_agents['professional_experience_writer_agent']
+            mock_proj_provider.return_value = mock_agents['projects_writer_agent']
+            mock_exec_provider.return_value = mock_agents['executive_summary_writer_agent']
+            mock_qa_provider.return_value = mock_agents['qa_agent']
+            mock_formatter_provider.return_value = mock_agents['formatter_agent']
+            
+            # Initialize CVWorkflowGraph using the container factory
+            cv_workflow_graph = container.cv_workflow_graph()
+            
+            # Act
+            print(f"\n=== Starting test with initial state ===")
+            print(f"Initial section index: {initial_agent_state.current_section_index}")
+            print(f"Initial metadata: {initial_agent_state.node_execution_metadata}")
+            
+            final_state_dict = await cv_workflow_graph.app.ainvoke(initial_agent_state)
+            final_state = AgentState.model_validate(final_state_dict)
+            
+            print(f"\n=== Final state ===")
+            print(f"Final section index: {final_state.current_section_index}")
+            print(f"Final metadata: {final_state.node_execution_metadata}")
+            print(f"Key qualifications writer call count: {mock_agents['key_qualifications_writer_agent'].run_as_node.call_count}")
+            
+            # Assert
+            assert len(final_state.error_messages) == 0, f"Unexpected errors: {final_state.error_messages}"
+            assert final_state.final_output_path == "/path/to/generated_cv.pdf"
+            assert final_state.research_findings == "Research completed successfully"
+            assert final_state.cv_analysis_results == "Analysis completed"
+            assert final_state.quality_check_results == "Quality check passed"
+            
+            # Verify each agent was called exactly once
+            for agent_name, agent in mock_agents.items():
+                agent.run_as_node.assert_called()
+                assert agent.run_as_node.call_count >= 1, f"{agent_name} was not called"
+
+    @pytest.mark.asyncio
+    async def test_workflow_error_handling_and_recovery(self, initial_agent_state, mock_agents, mock_error_recovery_service):
+        """Test Case 2: Verify workflow correctly handles agent failure and routes to error handler."""
+        # Arrange - Configure jd_parser_agent to fail
+        error_message = "Error in job description parser node: JD Parser failed to process job description"
+        mock_agents['jd_parser_agent'].run_as_node.side_effect = Exception(error_message)
+        
+        # Configure other agents for success (in case workflow continues)
+        for agent_name, agent in mock_agents.items():
+            if agent_name != 'jd_parser_agent':
+                agent.run_as_node.return_value = initial_agent_state.model_copy(
+                    update={"node_execution_metadata": {agent_name: "success"}}
+                )
+        
+        # Configure error recovery service
+        mock_error_recovery_service.handle_error.return_value = "skip_item"
+        
+        # Mock the container's agent providers
+        container = ContainerSingleton.get_instance()
+        with patch.object(container, 'job_description_parser_agent') as mock_jd_provider, \
+             patch.object(container, 'user_cv_parser_agent') as mock_cv_provider, \
+             patch.object(container, 'research_agent') as mock_research_provider, \
+             patch.object(container, 'cv_analyzer_agent') as mock_analyzer_provider, \
+             patch.object(container, 'key_qualifications_writer_agent') as mock_qual_provider, \
+             patch.object(container, 'professional_experience_writer_agent') as mock_exp_provider, \
+             patch.object(container, 'projects_writer_agent') as mock_proj_provider, \
+             patch.object(container, 'executive_summary_writer_agent') as mock_exec_provider, \
+             patch.object(container, 'quality_assurance_agent') as mock_qa_provider, \
+             patch.object(container, 'formatter_agent') as mock_formatter_provider:
+            
+            # Set up mock return values
+            mock_jd_provider.return_value = mock_agents['jd_parser_agent']
+            mock_cv_provider.return_value = mock_agents['cv_parser_agent']
+            mock_research_provider.return_value = mock_agents['research_agent']
+            mock_analyzer_provider.return_value = mock_agents['cv_analyzer_agent']
+            mock_qual_provider.return_value = mock_agents['key_qualifications_writer_agent']
+            mock_exp_provider.return_value = mock_agents['professional_experience_writer_agent']
+            mock_proj_provider.return_value = mock_agents['projects_writer_agent']
+            mock_exec_provider.return_value = mock_agents['executive_summary_writer_agent']
+            mock_qa_provider.return_value = mock_agents['qa_agent']
+            mock_formatter_provider.return_value = mock_agents['formatter_agent']
+            
+            # Initialize CVWorkflowGraph using the container factory
+            cv_workflow_graph = container.cv_workflow_graph()
+            
+            # Act
+            print(f"\n=== Starting regeneration test with initial state ===")
+            print(f"Initial section index: {initial_agent_state.current_section_index}")
+            print(f"Initial metadata: {initial_agent_state.node_execution_metadata}")
+            print(f"Initial current_section_key: {initial_agent_state.current_section_key}")
+            
+            final_state_dict = await cv_workflow_graph.app.ainvoke(initial_agent_state)
+            final_state = AgentState.model_validate(final_state_dict)
+            
+            print(f"\n=== Final regeneration test state ===")
+            print(f"Final section index: {final_state.current_section_index}")
+            print(f"Final metadata: {final_state.node_execution_metadata}")
+            print(f"Key qualifications writer call count: {mock_agents['key_qualifications_writer_agent'].run_as_node.call_count}")
+            print(f"Final errors: {final_state.error_messages}")
+            
+            # Assert
+            assert len(final_state.error_messages) > 0, "Expected error messages but found none"
+            assert any(error_message in str(error) for error in final_state.error_messages), \
+                f"Expected error message '{error_message}' not found in {final_state.error_messages}"
+            
+            # Verify error recovery service was called
+            mock_error_recovery_service.handle_error.assert_called()
+            
+            # Verify the failing agent was called
+            mock_agents['jd_parser_agent'].run_as_node.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_workflow_user_regeneration_loop(self, initial_agent_state, mock_agents, mock_error_recovery_service):
+        """Test Case 3: Verify workflow correctly handles user feedback requesting regeneration."""
+        # Arrange - Configure agents for success
+        for agent_name, agent in mock_agents.items():
+            if agent_name != 'key_qualifications_writer_agent':
+                agent.run_as_node.return_value = initial_agent_state.model_copy(
+                    update={"node_execution_metadata": {agent_name: "success"}}
+                )
+        
+        # Configure key_qualifications_writer_agent for regeneration scenario
+        call_count = 0
+        def mock_writer_side_effect(state):
+            nonlocal call_count
+            call_count += 1
+            
+            if call_count == 1:
+                # First call - request regeneration
+                # Get the first qualification item's ID
+                qual_section = next((s for s in state.structured_cv.sections if s.name == "key_qualifications"), None)
+                target_item_id = qual_section.items[0].id if qual_section and qual_section.items else "qual_1"
+                
+                return state.model_copy(update={
+                    "user_feedback": UserFeedback(
+                        action=UserAction.REGENERATE,
+                        content="Please regenerate this content",
+                        target_item_id=target_item_id
+                    )
+                })
+            else:
+                # Subsequent calls - successful regeneration
+                updated_cv = state.structured_cv.model_copy(deep=True)
+                for section in updated_cv.sections:
+                    if section.name == "key_qualifications":
+                        if section.items:
+                            # Update the first qualification item
+                            section.items[0].content = "Regenerated Python programming expertise"
+                            section.items[0].status = ItemStatus.COMPLETED
+                        break
+                
+                return state.model_copy(update={
+                    "structured_cv": updated_cv,
+                    "user_feedback": None  # Clear feedback after processing
+                })
+        
+        mock_agents['key_qualifications_writer_agent'].run_as_node.side_effect = mock_writer_side_effect
+        
+        # Mock the container's agent providers
+        container = ContainerSingleton.get_instance()
+        with patch.object(container, 'job_description_parser_agent') as mock_jd_provider, \
+             patch.object(container, 'user_cv_parser_agent') as mock_cv_provider, \
+             patch.object(container, 'research_agent') as mock_research_provider, \
+             patch.object(container, 'cv_analyzer_agent') as mock_analyzer_provider, \
+             patch.object(container, 'key_qualifications_writer_agent') as mock_qual_provider, \
+             patch.object(container, 'professional_experience_writer_agent') as mock_exp_provider, \
+             patch.object(container, 'projects_writer_agent') as mock_proj_provider, \
+             patch.object(container, 'executive_summary_writer_agent') as mock_exec_provider, \
+             patch.object(container, 'quality_assurance_agent') as mock_qa_provider, \
+             patch.object(container, 'formatter_agent') as mock_formatter_provider:
+            
+            # Set up mock return values
+            mock_jd_provider.return_value = mock_agents['jd_parser_agent']
+            mock_cv_provider.return_value = mock_agents['cv_parser_agent']
+            mock_research_provider.return_value = mock_agents['research_agent']
+            mock_analyzer_provider.return_value = mock_agents['cv_analyzer_agent']
+            mock_qual_provider.return_value = mock_agents['key_qualifications_writer_agent']
+            mock_exp_provider.return_value = mock_agents['professional_experience_writer_agent']
+            mock_proj_provider.return_value = mock_agents['projects_writer_agent']
+            mock_exec_provider.return_value = mock_agents['executive_summary_writer_agent']
+            mock_qa_provider.return_value = mock_agents['qa_agent']
+            mock_formatter_provider.return_value = mock_agents['formatter_agent']
+            
+            # Initialize CVWorkflowGraph using the container factory
+            cv_workflow_graph = container.cv_workflow_graph()
+            
+            # Act
+            print(f"\n=== Starting regeneration test with initial state ===")
+            print(f"Initial section index: {initial_agent_state.current_section_index}")
+            print(f"Initial metadata: {initial_agent_state.node_execution_metadata}")
+            print(f"Initial current_section_key: {initial_agent_state.current_section_key}")
+            
+            final_state_dict = await cv_workflow_graph.app.ainvoke(initial_agent_state)
+            final_state = AgentState.model_validate(final_state_dict)
+            
+            print(f"\n=== Final regeneration test state ===")
+            print(f"Final section index: {final_state.current_section_index}")
+            print(f"Final metadata: {final_state.node_execution_metadata}")
+            print(f"Key qualifications writer call count: {mock_agents['key_qualifications_writer_agent'].run_as_node.call_count}")
+            print(f"Final errors: {final_state.error_messages}")
+            
+            # Assert
+            # Verify the writer agent was called multiple times (initial + regeneration)
+            assert mock_agents['key_qualifications_writer_agent'].run_as_node.call_count >= 2, \
+                f"Expected at least 2 calls but got {mock_agents['key_qualifications_writer_agent'].run_as_node.call_count}"
+            
+            # Verify user feedback was processed (should be None in final state)
+            assert final_state.user_feedback is None, \
+                f"Expected user_feedback to be None but got {final_state.user_feedback}"
+            
+            # Verify the content was regenerated
+            qual_section = next((s for s in final_state.structured_cv.sections if s.name == "key_qualifications"), None)
+            assert qual_section is not None, "key_qualifications section not found"
+            
+            # Check the first qualification item was regenerated
+            assert qual_section.items, "No items found in Key Qualifications section"
+            qual_item = qual_section.items[0]
+            assert "Regenerated" in qual_item.content, f"Expected regenerated content but got: {qual_item.content}"

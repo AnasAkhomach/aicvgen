@@ -47,8 +47,8 @@ def test_container_provides_agents():
     cv_analyzer = container.cv_analyzer_agent()
     assert cv_analyzer is not None
 
-    content_writer = container.enhanced_content_writer_agent()
-    assert content_writer is not None
+    cleaning_agent = container.cleaning_agent()
+    assert cleaning_agent is not None
 
 
 def test_singleton_services_are_consistent():

@@ -29,6 +29,7 @@ def mock_template_manager():
     """Fixture for a mock ContentTemplateManager."""
     mock = MagicMock()
     mock.get_template_by_type.return_value = "Job Description: {job_description}\nCV Summary: {cv_summary}\nResearch Findings: {research_findings}"
+    mock.format_template.return_value = "Job Description: Job description details.\nCV Summary: A seasoned professional.\nResearch Findings: {'company_values': 'innovation'}"
     return mock
 
 @pytest.fixture
@@ -81,12 +82,12 @@ async def test_key_qualifications_writer_agent_success(
     result = await agent.run_as_node(initial_state)
     print(f"DEBUG: result = {result}")
     print(f"DEBUG: result type = {type(result)}")
-    print(f"DEBUG: result.get('success') = {result.get('success') if isinstance(result, dict) else 'Not a dict'}")
+    print(f"DEBUG: result.error_messages = {result.error_messages if hasattr(result, 'error_messages') else 'No error_messages attr'}")
 
-    assert isinstance(result, dict)
-    assert not result.get("error_messages")
+    assert isinstance(result, AgentState)
+    assert not result.error_messages
 
-    updated_cv = result["structured_cv"]
+    updated_cv = result.structured_cv
     qual_section = next(s for s in updated_cv.sections if s.name == "Key Qualifications")
     assert len(qual_section.items) == 2
     assert qual_section.items[0].content == "Qualification 1"
@@ -95,9 +96,10 @@ async def test_key_qualifications_writer_agent_success(
     assert qual_section.items[0].item_type == ItemType.KEY_QUALIFICATION
 
     mock_template_manager.get_template_by_type.assert_called_once_with(ContentType.QUALIFICATION)
+    mock_template_manager.format_template.assert_called_once()
     mock_llm_service.generate_content.assert_called_once()
     call_args = mock_llm_service.generate_content.call_args[1]
-    assert "Job Description:" in call_args["prompt"]
+    assert "Job Description: Job description details." in call_args["prompt"]
     assert "CV Summary: A seasoned professional." in call_args["prompt"]
     assert "Research Findings:" in call_args["prompt"]
     assert call_args["max_tokens"] == 1024
@@ -128,9 +130,9 @@ async def test_key_qualifications_writer_agent_missing_structured_cv(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    assert "Key Qualifications section not found in structured_cv." in result["error_messages"][0]
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    assert "Key Qualifications section not found in structured_cv. It should be pre-initialized." in result.error_messages[0]
 
 @pytest.mark.asyncio
 async def test_key_qualifications_writer_agent_llm_failure(
@@ -155,11 +157,11 @@ async def test_key_qualifications_writer_agent_llm_failure(
     )
 
     result = await agent.run_as_node(initial_state)
-    
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    error_msg = result["error_messages"][0]
-    assert "LLM failed" in error_msg or "generate" in error_msg or "Key Qualifications" in error_msg
+
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    error_msg = result.error_messages[0]
+    assert "LLM failed to generate valid Key Qualifications content" in error_msg
 
 @pytest.mark.asyncio
 async def test_key_qualifications_writer_agent_no_qual_section(
@@ -190,9 +192,9 @@ async def test_key_qualifications_writer_agent_no_qual_section(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    assert "Key Qualifications section not found in structured_cv." in result["error_messages"][0]
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    assert "Key Qualifications section not found in structured_cv. It should be pre-initialized." in result.error_messages[0]
 
 @pytest.mark.asyncio
 async def test_key_qualifications_writer_agent_empty_llm_response(
@@ -218,10 +220,9 @@ async def test_key_qualifications_writer_agent_empty_llm_response(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    assert "LLM failed to generate valid" in result["error_messages"][0]
-    assert "Key Qualifications" in result["error_messages"][0]
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    assert "LLM failed to generate valid Key Qualifications content" in result.error_messages[0]
 
 @pytest.mark.asyncio
 async def test_key_qualifications_writer_agent_template_not_found(
@@ -247,10 +248,76 @@ async def test_key_qualifications_writer_agent_template_not_found(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    error_msg = result["error_messages"][0]
-    assert "template" in error_msg or "QUALIFICATION" in error_msg or "prompt" in error_msg
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    error_msg = result.error_messages[0]
+    assert "No prompt template found for type ContentType.QUALIFICATION" in error_msg
+
+
+@pytest.mark.asyncio
+async def test_key_qualifications_writer_agent_unexpected_exception_handling(
+    mock_llm_service, mock_template_manager, mock_settings, sample_structured_cv, sample_job_description_data
+):
+    """Test agent proper handling of unexpected exceptions by raising AgentExecutionError."""
+    # Mock an unexpected exception during LLM service call
+    mock_llm_service.generate_content.side_effect = RuntimeError("Unexpected network error")
+
+    agent = KeyQualificationsWriterAgent(
+        llm_service=mock_llm_service,
+        template_manager=mock_template_manager,
+        settings=mock_settings,
+        session_id="test_session",
+    )
+
+    initial_state = AgentState(
+        session_id="test_session",
+        structured_cv=sample_structured_cv,
+        job_description_data=sample_job_description_data,
+        research_findings={"company_values": "innovation"},
+        cv_text="mock cv text"
+    )
+
+    result = await agent.run_as_node(initial_state)
+
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    error_msg = result.error_messages[0]
+    # Verify that the unexpected exception was properly wrapped in AgentExecutionError
+    assert "Unexpected error during Key Qualifications generation" in error_msg
+    assert "Unexpected network error" in error_msg
+
+
+@pytest.mark.asyncio
+async def test_key_qualifications_writer_agent_attribute_error_handling(
+    mock_llm_service, mock_template_manager, mock_settings, sample_structured_cv, sample_job_description_data
+):
+    """Test agent proper handling of AttributeError by raising AgentExecutionError."""
+    # Mock an AttributeError during template formatting
+    mock_template_manager.format_template.side_effect = AttributeError("'NoneType' object has no attribute 'format'")
+
+    agent = KeyQualificationsWriterAgent(
+        llm_service=mock_llm_service,
+        template_manager=mock_template_manager,
+        settings=mock_settings,
+        session_id="test_session",
+    )
+
+    initial_state = AgentState(
+        session_id="test_session",
+        structured_cv=sample_structured_cv,
+        job_description_data=sample_job_description_data,
+        research_findings={"company_values": "innovation"},
+        cv_text="mock cv text"
+    )
+
+    result = await agent.run_as_node(initial_state)
+
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    error_msg = result.error_messages[0]
+    # Verify that the AttributeError was properly wrapped in AgentExecutionError
+    assert "Error processing Key Qualifications data" in error_msg
+    assert "'NoneType' object has no attribute 'format'" in error_msg
 
 
 # You would repeat similar tests for ProfessionalExperienceWriterAgent, ProjectsWriterAgent, and ExecutiveSummaryWriterAgent

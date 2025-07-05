@@ -6,21 +6,21 @@ tracking capabilities for the individual item processing workflow.
 
 import asyncio
 import json
-import pickle
-import uuid
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Set
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-import threading
-from contextlib import contextmanager
 import logging
+import pickle
+import threading
+import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
-from ..config.logging_config import get_structured_logger
-from ..config.settings import AppConfig, get_config
-from ..models.workflow_models import WorkflowState, WorkflowStage, ContentType
-from ..models.vector_store_and_session_models import SessionInfoModel
+from src.config.logging_config import get_structured_logger
+from src.config.settings import AppConfig, get_config
+from src.constants.config_constants import ConfigConstants
+from src.models.vector_store_and_session_models import SessionInfoModel
+from src.models.workflow_models import WorkflowStage, WorkflowState
 
 
 class SessionStatus(Enum):
@@ -159,7 +159,7 @@ class SessionManager:
             except asyncio.CancelledError:
                 break
             except (TypeError, ValueError, KeyError, AttributeError) as e:
-                self.logger.error("Error in periodic cleanup: %s", e)
+                self.logger.error("Error in periodic cleanup", error=str(e))
 
     def _initialize_session_state(
         self,
@@ -511,7 +511,7 @@ class SessionManager:
         self,
         user_id: Optional[str] = None,
         status: Optional[SessionStatus] = None,
-        limit: int = 50,
+        limit: int = ConfigConstants.DEFAULT_SESSION_LIST_LIMIT,
     ) -> List[SessionInfo]:
         """List sessions with optional filtering."""
         sessions = []

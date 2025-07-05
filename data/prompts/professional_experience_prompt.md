@@ -1,7 +1,7 @@
 ---
 name: resume_role
 category: prompt
-content_type: role_generation
+content_type: EXPERIENCE
 description: "Generates tailored CV content for professional experience and roles."
 ---
 # Resume Role Content Generation Prompt
@@ -41,23 +41,23 @@ description: "Generates tailored CV content for professional experience and role
 **CRITICAL: You must return your response as a single, valid JSON object using this exact schema:**
 
 ```json
-{
+{{
   "roles": [
-    {
+    {{
       "job_title": "string",
       "organization": "string", 
       "organization_description": "string (max 200 chars)",
       "role_description": "string (max 200 chars)",
       "bullet_points": [
-        {
+        {{
           "skill": "string",
           "alignment_score": "number (1-5)",
           "bullet_text": "string (max 300 chars)"
-        }
+        }}
       ]
-    }
+    }}
   ]
-}
+}}
 ```
 
 **JSON Output Requirements:**

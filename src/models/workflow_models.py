@@ -1,11 +1,11 @@
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from uuid import UUID, uuid4
+from typing import Any, Dict, List, Optional
+from uuid import  uuid4
+
 from pydantic import BaseModel, Field
 
-from .cv_models import MetadataModel
+from src.models.cv_models import MetadataModel
 
 
 class WorkflowStage(str, Enum):
@@ -56,6 +56,7 @@ class UserAction(str, Enum):
 
     ACCEPT = "accept"
     REGENERATE = "regenerate"
+    APPROVE = "approve"
 
 
 class UserFeedback(BaseModel):

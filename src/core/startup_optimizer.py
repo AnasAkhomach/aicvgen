@@ -1,17 +1,15 @@
 """Simplified startup optimization utilities for the CV generation system."""
 
-import asyncio
+import threading
 import time
-from typing import Dict, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
-import threading
-import psutil
-import os
+from typing import  Optional
 
-from .container import get_container
-from .agent_lifecycle_manager import get_agent_lifecycle_manager
-from ..config.logging_config import get_structured_logger
+
+from src.config.logging_config import get_structured_logger
+from src.core.container import get_container
+from src.utils.performance import PerformanceMonitor
 
 logger = get_structured_logger(__name__)
 
@@ -69,8 +67,8 @@ class StartupOptimizer:
                 metrics.service_validation_time = time.time() - validation_start
 
             # Record memory usage
-            process = psutil.Process(os.getpid())
-            metrics.memory_usage_mb = process.memory_info().rss / 1024 / 1024
+            performance_monitor = PerformanceMonitor()
+            metrics.memory_usage_mb = performance_monitor.get_memory_usage()
 
             metrics.total_startup_time = time.time() - start_time
             self._metrics_history.append(metrics)

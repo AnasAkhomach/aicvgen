@@ -5,38 +5,22 @@ and resilience mechanisms for the individual item processing workflow.
 """
 
 import asyncio
-import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable, Union
-from dataclasses import dataclass, field
-from enum import Enum
 import traceback
-import json
-
-from ..config.logging_config import get_structured_logger
-from ..error_handling.classification import (
-    is_rate_limit_error,
-    is_network_error,
-    is_timeout_error,
-)
-from ..models.data_models import ItemStatus, ContentType, Item
-from ..orchestration.state import AgentState
-from ..error_handling.exceptions import (
-    AicvgenError,
-    WorkflowPreconditionError,
-    LLMResponseParsingError,
-    AgentExecutionError,
-    ConfigurationError,
-    StateManagerError,
-    ValidationError,
-    RateLimitError,
-    NetworkError,
-    OperationTimeoutError,
-)
-
-
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+from src.constants.error_constants import ErrorConstants
+from src.error_handling.classification import (is_network_error,
+                                             is_rate_limit_error,
+                                             is_timeout_error)
+from src.error_handling.exceptions import (AgentExecutionError,
+                                         ConfigurationError,
+                                         LLMResponseParsingError,
+                                         StateManagerError, ValidationError,
+                                         WorkflowPreconditionError)
+from src.models.data_models import ContentType, Item, ItemStatus
 # Additional exception types for comprehensive error handling
-
 
 
 class ErrorType(Enum):
@@ -117,15 +101,19 @@ class CircuitBreakerState:
     half_open_attempts: int = 0
 
     # Configuration
-    failure_threshold: int = 5
-    timeout_seconds: int = 60
-    half_open_max_attempts: int = 3
+    failure_threshold: int = ErrorConstants.CIRCUIT_BREAKER_FAILURE_THRESHOLD
+    timeout_seconds: int = ErrorConstants.CIRCUIT_BREAKER_TIMEOUT_SECONDS
+    half_open_max_attempts: int = ErrorConstants.CIRCUIT_BREAKER_HALF_OPEN_MAX_ATTEMPTS
 
 
 class ErrorRecoveryService:
     """Service for handling errors and implementing recovery strategies."""
 
     def __init__(self, logger=None):
+        if logger is None:
+            from ..config.logging_config import get_structured_logger
+
+            logger = get_structured_logger(__name__)
         self.logger = logger
 
         # Error tracking
@@ -134,7 +122,7 @@ class ErrorRecoveryService:
 
         # Recovery configuration
         self.error_strategies = self._initialize_error_strategies()
-        self.max_error_history = 100
+        self.max_error_history = ErrorConstants.MAX_ERROR_HISTORY_SIZE
 
         # Fallback content templates
         self.fallback_templates = self._initialize_fallback_templates()
@@ -144,42 +132,45 @@ class ErrorRecoveryService:
         return {
             ErrorType.RATE_LIMIT: RecoveryAction(
                 strategy=RecoveryStrategy.RATE_LIMIT_BACKOFF,
-                delay_seconds=60.0,
-                max_retries=5,
+                delay_seconds=ErrorConstants.RATE_LIMIT_RECOVERY_DELAY,
+                max_retries=ErrorConstants.RATE_LIMIT_MAX_RETRIES,
             ),
             ErrorType.API_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.EXPONENTIAL_BACKOFF,
-                delay_seconds=2.0,
-                max_retries=3,
+                delay_seconds=ErrorConstants.API_ERROR_RECOVERY_DELAY,
+                max_retries=ErrorConstants.API_ERROR_MAX_RETRIES,
             ),
             ErrorType.NETWORK_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.EXPONENTIAL_BACKOFF,
-                delay_seconds=5.0,
-                max_retries=4,
+                delay_seconds=ErrorConstants.NETWORK_ERROR_RECOVERY_DELAY,
+                max_retries=ErrorConstants.NETWORK_ERROR_MAX_RETRIES,
             ),
             ErrorType.TIMEOUT_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.LINEAR_BACKOFF,
-                delay_seconds=10.0,
-                max_retries=2,
+                delay_seconds=ErrorConstants.TIMEOUT_ERROR_RECOVERY_DELAY,
+                max_retries=ErrorConstants.TIMEOUT_ERROR_MAX_RETRIES,
             ),
             ErrorType.VALIDATION_ERROR: RecoveryAction(
-                strategy=RecoveryStrategy.MANUAL_INTERVENTION, max_retries=0
+                strategy=RecoveryStrategy.MANUAL_INTERVENTION,
+                max_retries=ErrorConstants.VALIDATION_ERROR_MAX_RETRIES
             ),
             ErrorType.PARSING_ERROR: RecoveryAction(
-                strategy=RecoveryStrategy.FALLBACK_CONTENT, max_retries=1
+                strategy=RecoveryStrategy.FALLBACK_CONTENT,
+                max_retries=ErrorConstants.PARSING_ERROR_MAX_RETRIES
             ),
             ErrorType.CONTENT_ERROR: RecoveryAction(
-                strategy=RecoveryStrategy.FALLBACK_CONTENT, max_retries=1
+                strategy=RecoveryStrategy.FALLBACK_CONTENT,
+                max_retries=ErrorConstants.CONTENT_ERROR_MAX_RETRIES
             ),
             ErrorType.SYSTEM_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.CIRCUIT_BREAKER,
-                delay_seconds=30.0,
-                max_retries=2,
+                delay_seconds=ErrorConstants.SYSTEM_ERROR_RECOVERY_DELAY,
+                max_retries=ErrorConstants.SYSTEM_ERROR_MAX_RETRIES,
             ),
             ErrorType.UNKNOWN_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.EXPONENTIAL_BACKOFF,
-                delay_seconds=5.0,
-                max_retries=2,
+                delay_seconds=ErrorConstants.UNKNOWN_ERROR_RECOVERY_DELAY,
+                max_retries=ErrorConstants.UNKNOWN_ERROR_MAX_RETRIES,
             ),
         }
 

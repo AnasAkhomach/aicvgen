@@ -3,7 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, Optional, TypeVar, Union
 
-from pydantic import BaseModel, model_validator, Field
+from pydantic import BaseModel, Field, model_validator
+from src.models.validation_schemas import validate_agent_result_output_data
 
 T_Model = TypeVar("T_Model", bound=Union[BaseModel, Dict[str, BaseModel]])
 
@@ -35,28 +36,8 @@ class AgentResult(BaseModel, Generic[T_Model]):
     @classmethod
     def check_output_data(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """Validate that output_data is a Pydantic model or a dict of them if success is True."""
-        is_success = values.get("success")
-        output_data = values.get("output_data")
+        return validate_agent_result_output_data(values)
 
-        if is_success:
-            if output_data is None:
-                raise ValueError("output_data must not be None for successful results")
-
-            if not isinstance(output_data, (BaseModel, dict)):
-                raise TypeError(
-                    "output_data must be a Pydantic model or a dictionary of Pydantic models"
-                )
-
-            if isinstance(output_data, dict) and not all(
-                isinstance(v, BaseModel) for v in output_data.values()
-            ):
-                raise TypeError(
-                    "All values in the output_data dictionary must be Pydantic models"
-                )
-
-        return values
-
-    @classmethod
     @classmethod
     def success(
         cls,

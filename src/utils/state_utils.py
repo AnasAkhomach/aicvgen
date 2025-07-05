@@ -5,8 +5,8 @@ particularly for creating the initial AgentState. It is decoupled from Streamlit
 session state to be usable in any context (e.g., testing, background workers).
 """
 
+from ..models.cv_models import JobDescriptionData, MetadataModel, StructuredCV
 from ..orchestration.state import AgentState
-from ..models.cv_models import JobDescriptionData, StructuredCV, MetadataModel
 
 
 def create_initial_agent_state(

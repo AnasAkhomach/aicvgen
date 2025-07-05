@@ -5,17 +5,14 @@ This module defines the FormatterAgent, responsible for formatting CVs into file
 from pathlib import Path
 from typing import Any, Optional
 
-from ..models.agent_models import AgentResult
+from src.agents.agent_base import AgentBase
+from src.config.logging_config import get_structured_logger
+from src.error_handling.exceptions import (AgentExecutionError, DependencyError, TemplateError)
+from src.models.agent_models import AgentResult
 from src.models.agent_output_models import FormatterAgentOutput
-from ..config.logging_config import get_structured_logger
-from ..error_handling.exceptions import (
-    AgentExecutionError,
-    DependencyError,
-    TemplateError,
-)
-from ..models.data_models import StructuredCV
-from ..templates.content_templates import ContentTemplateManager
-from .agent_base import AgentBase
+from src.constants.agent_constants import AgentConstants
+from src.models.data_models import StructuredCV
+from src.templates.content_templates import ContentTemplateManager
 
 try:
     from weasyprint import HTML
@@ -52,6 +49,7 @@ class FormatterAgent(AgentBase):
             name="FormatterAgent",
             description="Formats the tailored CV content into a file.",
             session_id=session_id,
+            settings=settings,
         )
         self.template_manager = template_manager
         self.settings = settings
@@ -59,11 +57,20 @@ class FormatterAgent(AgentBase):
     def _validate_inputs(self, input_data: dict) -> None:
         """Validates the input for the FormatterAgent."""
         if not isinstance(input_data, dict):
-            raise AgentExecutionError("Input validation failed: input_data must be a dict")
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message="Input validation failed: input_data must be a dict",
+            )
         if "structured_cv" not in input_data:
-            raise AgentExecutionError("'structured_cv' of type StructuredCV is required.")
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message="'structured_cv' of type StructuredCV is required.",
+            )
         if not isinstance(input_data["structured_cv"], StructuredCV):
-            raise AgentExecutionError("'structured_cv' must be of type StructuredCV.")
+            raise AgentExecutionError(
+                agent_name=self.name,
+                message="'structured_cv' must be of type StructuredCV.",
+            )
         format_type = input_data.get("format_type", "pdf").lower()
         if format_type == "pdf" and not WEASYPRINT_AVAILABLE:
             raise DependencyError(
@@ -78,27 +85,27 @@ class FormatterAgent(AgentBase):
         template_name: str = input_data.get("template_name", "default_template.html")
         output_path: Optional[str] = input_data.get("output_path")
 
-        self.update_progress(0, "Starting formatting process")
+        self.update_progress(AgentConstants.PROGRESS_START, "Starting formatting process")
         format_type = format_type.lower()
 
         try:
-            self.update_progress(30, "Rendering CV from template")
+            self.update_progress(AgentConstants.PROGRESS_PREPROCESSING, "Rendering CV from template")
             html_content = self._format_html(structured_cv, template_name)
 
             final_output_path = self._get_output_path(output_path, format_type)
             final_output_path.parent.mkdir(parents=True, exist_ok=True)
 
             if format_type == "pdf":
-                self.update_progress(70, "Generating PDF file")
+                self.update_progress(AgentConstants.PROGRESS_PDF_GENERATION, "Generating PDF file")
                 self._generate_pdf(html_content, final_output_path)
             else:  # html
-                self.update_progress(70, "Generating HTML file")
+                self.update_progress(AgentConstants.PROGRESS_HTML_GENERATION, "Generating HTML file")
                 self._generate_html(html_content, final_output_path)
 
             output_data = FormatterAgentOutput(
                 output_path=str(final_output_path.resolve())
             )
-            self.update_progress(100, "Formatting completed successfully")
+            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Formatting completed successfully")
             return AgentResult(
                 status="success",
                 agent_name=self.name,

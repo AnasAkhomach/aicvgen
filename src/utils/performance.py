@@ -4,21 +4,24 @@ This module provides comprehensive performance monitoring, optimization,
 and profiling tools to enhance the application's efficiency.
 """
 
-import time
 import asyncio
 import functools
-import threading
-import psutil
 import gc
-from typing import Dict, Any, Optional, List, Callable
+import json
+import threading
+import time
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from collections import defaultdict, deque
-import json
-from contextlib import asynccontextmanager, contextmanager
+from typing import Any, Callable, Dict, List, Optional
+
+import psutil
 
 from ..config.logging_config import get_structured_logger
 from ..error_handling.exceptions import AicvgenError
+from ..constants.memory_constants import MemoryConstants
+from ..constants.performance_constants import PerformanceConstants
 
 logger = get_structured_logger(__name__)
 
@@ -59,11 +62,11 @@ class PerformanceMonitor:
 
         # Performance thresholds (in seconds)
         self.thresholds = {
-            "llm_call": 30.0,
-            "agent_execution": 60.0,
-            "file_processing": 10.0,
-            "database_operation": 5.0,
-            "default": 15.0,
+            "llm_call": PerformanceConstants.LLM_CALL_THRESHOLD,
+            "agent_execution": PerformanceConstants.AGENT_EXECUTION_THRESHOLD,
+            "file_processing": PerformanceConstants.FILE_PROCESSING_THRESHOLD,
+            "database_operation": PerformanceConstants.DATABASE_OPERATION_THRESHOLD,
+            "default": PerformanceConstants.DEFAULT_OPERATION_THRESHOLD,
         }
 
         logger.info("Performance monitor initialized", max_history=max_history)
@@ -93,9 +96,7 @@ class PerformanceMonitor:
             success = False
             error_message = str(e)
             logger.error(
-                "Operation %s failed with known error: %s",
-                operation_name,
-                e,
+                f"Operation {operation_name} failed with known error: {e}",
                 exc_info=True,
             )
             raise
@@ -103,9 +104,7 @@ class PerformanceMonitor:
             success = False
             error_message = str(e)
             logger.error(
-                "Operation %s failed with unexpected error: %s",
-                operation_name,
-                e,
+                f"Operation {operation_name} failed with unexpected error: {e}",
                 exc_info=True,
             )
             raise
@@ -146,9 +145,7 @@ class PerformanceMonitor:
             success = False
             error_message = str(e)
             logger.error(
-                "Async operation %s failed with known error: %s",
-                operation_name,
-                e,
+                f"Async operation {operation_name} failed with known error: {e}",
                 exc_info=True,
             )
             raise
@@ -156,9 +153,7 @@ class PerformanceMonitor:
             success = False
             error_message = str(e)
             logger.error(
-                "Async operation %s failed with unexpected error: %s",
-                operation_name,
-                e,
+                f"Async operation {operation_name} failed with unexpected error: {e}",
                 exc_info=True,
             )
             raise
@@ -195,10 +190,7 @@ class PerformanceMonitor:
             )
             if metrics.duration > threshold:
                 logger.warning(
-                    "Performance threshold exceeded for %s: duration %s > threshold %s",
-                    metrics.operation_name,
-                    metrics.duration,
-                    threshold,
+                    f"Performance threshold exceeded for {metrics.operation_name}: duration {metrics.duration} > threshold {threshold}",
                     extra={
                         "operation": metrics.operation_name,
                         "duration": metrics.duration,
@@ -210,8 +202,7 @@ class PerformanceMonitor:
             # Log successful operations at debug level
             if metrics.success:
                 logger.debug(
-                    "Operation %s completed successfully",
-                    metrics.operation_name,
+                    f"Operation {metrics.operation_name} completed successfully",
                     extra={
                         "operation": metrics.operation_name,
                         "duration_ms": metrics.duration_ms,
@@ -221,8 +212,7 @@ class PerformanceMonitor:
                 )
             else:
                 logger.error(
-                    "Operation %s failed",
-                    metrics.operation_name,
+                    f"Operation {metrics.operation_name} failed",
                     extra={
                         "operation": metrics.operation_name,
                         "duration_ms": metrics.duration_ms,
@@ -314,7 +304,7 @@ class PerformanceMonitor:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
-            logger.info("Performance metrics exported to %s", filepath)
+            logger.info("Performance metrics exported", filepath=filepath)
 
     def clear_metrics(self):
         """Clear all stored metrics."""
@@ -330,9 +320,9 @@ class MemoryOptimizer:
     """Memory optimization utilities."""
 
     def __init__(self):
-        self.gc_threshold = 100  # MB
+        self.gc_threshold = MemoryConstants.GC_THRESHOLD_MB
         self.last_gc_time = time.time()
-        self.gc_interval = 300  # 5 minutes
+        self.gc_interval = MemoryConstants.GC_INTERVAL_SECONDS
 
         logger.info("Memory optimizer initialized")
 
@@ -400,15 +390,13 @@ class MemoryOptimizer:
 class BatchProcessor:
     """Optimized batch processing utilities."""
 
-    def __init__(self, batch_size: int = 10, max_concurrent: int = 5):
+    def __init__(self, batch_size: int = MemoryConstants.DEFAULT_BATCH_SIZE, max_concurrent: int = MemoryConstants.MAX_CONCURRENT_OPERATIONS):
         self.batch_size = batch_size
         self.max_concurrent = max_concurrent
         self.semaphore = asyncio.Semaphore(max_concurrent)
 
         logger.info(
-            "Batch processor initialized with batch_size=%s, max_concurrent=%s",
-            batch_size,
-            max_concurrent,
+            f"Batch processor initialized with batch_size={batch_size}, max_concurrent={max_concurrent}"
         )
 
     async def process_batch_async(
@@ -428,9 +416,7 @@ class BatchProcessor:
         ]
 
         logger.info(
-            "Starting batch processing for %s items in %s batches",
-            total_items,
-            len(batches),
+            f"Starting batch processing for {total_items} items in {len(batches)} batches"
         )
 
         for batch_idx, batch in enumerate(batches):
@@ -446,16 +432,11 @@ class BatchProcessor:
                     await progress_callback(progress, batch_idx + 1, len(batches))
 
                 logger.debug(
-                    "Batch %s/%s completed (size: %s)",
-                    batch_idx + 1,
-                    len(batches),
-                    len(batch),
+                    f"Batch {batch_idx + 1}/{len(batches)} completed (size: {len(batch)})"
                 )
 
         logger.info(
-            "Batch processing completed for %s items, %s results produced",
-            total_items,
-            len(results),
+            f"Batch processing completed for {total_items} items, {len(results)} results produced"
         )
 
         return results
@@ -537,7 +518,7 @@ def monitor_performance(operation_name: str = None, **metadata):
     return decorator
 
 
-def auto_memory_optimize(threshold_mb: float = 100):
+def auto_memory_optimize(threshold_mb: float = MemoryConstants.AUTO_OPTIMIZE_THRESHOLD_MB):
     """Decorator for automatic memory optimization."""
 
     def decorator(func):

@@ -1,21 +1,20 @@
 # In src/frontend/callbacks.py
-import streamlit as st
 import asyncio
 import threading
 import uuid
 from typing import Optional
 
-from ..orchestration.state import AgentState, UserFeedback
-from ..error_handling.exceptions import ConfigurationError, AgentExecutionError
-from ..core.container import get_container
-from ..utils.state_utils import create_initial_agent_state
-from ..core.application_startup import get_application_startup
-from ..models.data_models import UserAction, WorkflowType
+import streamlit as st
 
-# Import the integration layer instead of direct workflow graph
-from ..integration.enhanced_cv_system import get_enhanced_cv_integration
-from ..services.llm_service import EnhancedLLMService
-from ..config.logging_config import get_logger
+from src.config.logging_config import get_logger
+from src.core.application_startup import get_application_startup
+from src.core.container import get_container
+from src.error_handling.exceptions import (AgentExecutionError, ConfigurationError)
+from src.integration.enhanced_cv_system import get_enhanced_cv_integration
+from src.models.data_models import UserAction, WorkflowType
+from src.orchestration.state import AgentState, UserFeedback
+from src.services.llm_service import EnhancedLLMService
+from src.utils.state_utils import create_initial_agent_state
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -45,11 +44,7 @@ def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
     The target function for the background thread.
     Executes the CV workflow using the EnhancedCVIntegration layer.
     """
-    from ..config.logging_config import setup_logging
-    import logging
-
-    setup_logging()
-    thread_logger = logging.getLogger(__name__)
+    thread_logger = logger
     try:  # Each thread needs its own event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -107,11 +102,7 @@ def _execute_workflow_in_thread(state_to_run: AgentState, trace_id: str):
 
 def _start_workflow_thread(state_to_run: AgentState):
     """Helper to configure and start the background workflow thread."""
-    from ..config.logging_config import setup_logging
-    import logging
-
-    setup_logging()
-    start_logger = logging.getLogger(__name__)
+    start_logger = logger
     trace_id = str(uuid.uuid4())
     state_to_run.trace_id = trace_id  # Set flags to indicate processing has started
     st.session_state.is_processing = True
@@ -229,8 +220,8 @@ def handle_api_key_validation():
     except ConfigurationError as e:
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Configuration error: {e}")
-        logger.error("Gemini API key configuration error: %s", e, exc_info=True)
+        logger.error("Gemini API key configuration error", error=str(e), exc_info=True)
     except (AgentExecutionError, RuntimeError) as e:
         st.session_state.api_key_validation_failed = True
         st.error(f"❌ Validation failed: {e}")
-        logger.error("Gemini API key validation exception: %s", e, exc_info=True)
+        logger.error("Gemini API key validation exception", error=str(e), exc_info=True)

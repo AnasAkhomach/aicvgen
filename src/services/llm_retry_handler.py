@@ -1,8 +1,9 @@
 from typing import Any
-from tenacity import retry, stop_after_attempt, wait_exponential
-import asyncio
 
-from ..error_handling.classification import is_retryable_error
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from src.constants.config_constants import ConfigConstants
+from src.error_handling.classification import is_retryable_error
 
 
 class LLMRetryHandler:
@@ -12,10 +13,14 @@ class LLMRetryHandler:
         self.llm_client = llm_client
 
     @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=1, min=2, max=60),
+        stop=stop_after_attempt(ConfigConstants.LLM_RETRY_MAX_ATTEMPTS),
+        wait=wait_exponential(
+            multiplier=ConfigConstants.LLM_RETRY_MULTIPLIER,
+            min=ConfigConstants.LLM_RETRY_MIN_WAIT,
+            max=ConfigConstants.LLM_RETRY_MAX_WAIT
+        ),
         retry=lambda exc: is_retryable_error(exc)[0],
         reraise=True,
     )
-    async def generate_content(self, prompt: str) -> Any:
-        return await self.llm_client.generate_content(prompt)
+    async def generate_content(self, prompt: str, **kwargs) -> Any:
+        return await self.llm_client.generate_content(prompt, **kwargs)

@@ -3,21 +3,17 @@
 This module provides a centralized UIManager class that handles all UI rendering
 and user interaction logic, keeping presentation concerns separate from business logic.
 """
-from typing import Optional, Tuple
-import traceback
+
 import time
+import traceback
+from typing import Optional, Tuple
+
 import streamlit as st
 
-
-from ..core.state_manager import StateManager
 from ..config.logging_config import get_logger
+from ..core.state_manager import StateManager
 from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
-from ..frontend.ui_components import (
-    display_sidebar,
-    display_input_form,
-    display_review_and_edit_tab,
-    display_export_tab,
-)
+from ..frontend.ui_components import (display_export_tab, display_input_form, display_review_and_edit_tab, display_sidebar)
 
 logger = get_logger(__name__)
 
@@ -60,7 +56,7 @@ class UIManager:
         try:
             display_sidebar()
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error rendering sidebar: %s", e)
+            logger.error("Error rendering sidebar", error=str(e))
             st.sidebar.error("Error loading sidebar components")
 
     def render_processing_indicator(self) -> None:
@@ -110,7 +106,7 @@ class UIManager:
         try:
             display_input_form()
         except CATCHABLE_EXCEPTIONS as e:
-            logger.error("Error rendering input form: %s", e)
+            logger.error("Error rendering input form", error=str(e))
             st.error("Error loading input form")
 
     def _render_review_tab(self) -> None:
@@ -119,7 +115,7 @@ class UIManager:
             try:
                 display_review_and_edit_tab(self.state.agent_state)
             except CATCHABLE_EXCEPTIONS as e:
-                logger.error("Error rendering review tab: %s", e)
+                logger.error("Error rendering review tab", error=str(e))
                 st.error("Error loading review interface")
         else:
             st.info("Start CV generation in the first tab to see results here.")
@@ -130,7 +126,7 @@ class UIManager:
             try:
                 display_export_tab(self.state.agent_state)
             except CATCHABLE_EXCEPTIONS as e:
-                logger.error("Error rendering export tab: %s", e)
+                logger.error("Error rendering export tab", error=str(e))
                 st.error("Error loading export interface")
         else:
             st.info("Complete CV generation to export your results.")

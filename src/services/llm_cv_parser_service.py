@@ -2,17 +2,18 @@
 Service for LLM-based CV and job description parsing.
 """
 
-from typing import Optional, Any
 import json
 import logging
 import re
+from typing import Any, Optional
+
+from src.config.settings import Settings
+from src.error_handling.exceptions import (LLMResponseParsingError, TemplateError)
 from src.models.cv_models import JobDescriptionData
 from src.models.llm_data_models import CVParsingResult
 from src.models.workflow_models import ContentType
+from src.services.llm_service_interface import LLMServiceInterface
 from src.templates.content_templates import ContentTemplateManager
-from src.services.llm_service import EnhancedLLMService
-from src.config.settings import Settings
-from src.error_handling.exceptions import LLMResponseParsingError, TemplateError
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +23,14 @@ class LLMCVParserService:
 
     def __init__(
         self,
-        llm_service: EnhancedLLMService,
+        llm_service: LLMServiceInterface,
         settings: Settings,
         template_manager: ContentTemplateManager,
     ):
         """Initialize the LLMCVParserService.
 
         Args:
-            llm_service: The EnhancedLLMService instance.
+            llm_service: The LLMServiceInterface instance.
             settings: The application settings.
             template_manager: The ContentTemplateManager for prompt templates.
         """

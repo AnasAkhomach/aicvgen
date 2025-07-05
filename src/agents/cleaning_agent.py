@@ -2,14 +2,13 @@
 
 from typing import Any, List, Tuple
 
-from ..config.logging_config import get_structured_logger
-from ..error_handling.exceptions import AgentExecutionError
-from ..models.agent_models import AgentResult
-from ..models.agent_output_models import CleaningAgentOutput
-from ..services.llm_service import EnhancedLLMService
-from ..templates.content_templates import ContentTemplateManager
-from .agent_base import AgentBase
-
+from src.agents.agent_base import AgentBase
+from src.config.logging_config import get_structured_logger
+from src.constants.agent_constants import AgentConstants
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import CleaningAgentOutput
+from src.services.llm_service_interface import LLMServiceInterface
+from src.templates.content_templates import ContentTemplateManager
 
 logger = get_structured_logger(__name__)
 
@@ -19,7 +18,7 @@ class CleaningAgent(AgentBase):
 
     def __init__(
         self,
-        llm_service: EnhancedLLMService,
+        llm_service: LLMServiceInterface,
         template_manager: ContentTemplateManager,
         settings: dict,
         session_id: str = "default",
@@ -29,29 +28,11 @@ class CleaningAgent(AgentBase):
             name="CleaningAgent",
             description="Cleans and structures raw text or LLM outputs.",
             session_id=session_id,
+            settings=settings,
         )
         self.llm_service = llm_service
         self.template_manager = template_manager
         self.settings = settings
-
-    def _validate_inputs(self, input_data: dict) -> None:
-        """Validate inputs for cleaning agent."""
-        if input_data is None:
-            raise AgentExecutionError(
-                agent_name=self.name, message="Input data cannot be None."
-            )
-
-        if isinstance(input_data, dict) and input_data.get("raw_output") is None:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="Dictionary input must contain a 'raw_output' key.",
-            )
-
-        if not isinstance(input_data, (dict, list, str)):
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"Unsupported input type for CleaningAgent: {type(input_data)}",
-            )
 
     async def _execute(self, **kwargs: Any) -> AgentResult:
         """Execute the core cleaning logic."""
@@ -92,18 +73,18 @@ class CleaningAgent(AgentBase):
 
     def _clean_generic_output(self, raw_output: str) -> Tuple[str, List[str]]:
         """Cleans generic text output by removing unnecessary formatting."""
-        self.update_progress(30, "Cleaning generic output")
+        self.update_progress(AgentConstants.PROGRESS_PREPROCESSING, "Cleaning generic output")
         cleaned_text = raw_output.strip()
         modifications = ["Stripped leading/trailing whitespace."]
-        self.update_progress(70, "Generic output cleaned")
+        self.update_progress(AgentConstants.PROGRESS_CLEANING_COMPLETE, "Generic output cleaned")
         return cleaned_text, modifications
 
     def _clean_skills_list(self, skills_list: List[str]) -> Tuple[List[str], List[str]]:
         """Cleans a list of skills by standardizing format."""
-        self.update_progress(30, "Cleaning skills list")
+        self.update_progress(AgentConstants.PROGRESS_PREPROCESSING, "Cleaning skills list")
         cleaned_skills = [skill.strip().lower() for skill in skills_list]
         modifications = [
             "Standardized all skills to lowercase and stripped whitespace."
         ]
-        self.update_progress(70, "Skills list cleaned")
+        self.update_progress(AgentConstants.PROGRESS_CLEANING_COMPLETE, "Skills list cleaned")
         return cleaned_skills, modifications

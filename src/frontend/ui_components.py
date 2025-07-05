@@ -1,15 +1,10 @@
 # In src/frontend/ui_components.py
-import streamlit as st
 from pathlib import Path
-from typing import Optional
-from ..orchestration.state import AgentState
-from ..config.logging_config import get_logger
-from ..services.session_manager import SessionManager
-from .callbacks import (
-    handle_api_key_validation,
-    handle_user_action,
-    start_cv_generation,
-)
+import streamlit as st
+
+from src.config.logging_config import get_logger
+from src.frontend.callbacks import (handle_api_key_validation, handle_user_action, start_cv_generation)
+from src.orchestration.state import AgentState
 
 # Initialize logger
 logger = get_logger(__name__)

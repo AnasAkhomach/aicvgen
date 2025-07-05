@@ -1,13 +1,13 @@
 """Agent lifecycle manager for simplified agent management with dependency injection."""
 
 import threading
-from typing import Dict, Optional, Any
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, Optional
 
-from .container import get_container
-from ..config.logging_config import get_structured_logger
-from ..error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
+from src.config.logging_config import get_structured_logger
+from src.error_handling.agent_error_handler import AgentErrorHandler as ErrorHandler
+from src.core.container import get_container
 
 logger = get_structured_logger(__name__)
 

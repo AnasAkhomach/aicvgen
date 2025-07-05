@@ -2,16 +2,19 @@
 
 from datetime import datetime
 from typing import Any, List
+
 from pydantic import BaseModel, ValidationError
 
-from .agent_base import AgentBase
-from ..models.agent_models import AgentResult, AgentExecutionContext
-from ..models.data_models import StructuredCV, JobDescriptionData
-from ..models.agent_output_models import CVAnalysisResult, CVAnalyzerAgentOutput
-from ..config.logging_config import get_structured_logger
-from ..config.settings import get_config
-from ..services.llm_service import EnhancedLLMService
-from ..error_handling.agent_error_handler import AgentErrorHandler
+from src.agents.agent_base import AgentBase, AgentResult
+from src.config.logging_config import get_structured_logger
+from src.config.settings import get_config
+from src.constants.analysis_constants import AnalysisConstants
+from src.constants.agent_constants import AgentConstants
+from src.error_handling.agent_error_handler import AgentErrorHandler
+
+from src.models.agent_output_models import (CVAnalysisResult, CVAnalyzerAgentOutput)
+from src.models.cv_models import JobDescriptionData, StructuredCV
+from src.services.llm_service_interface import LLMServiceInterface
 
 logger = get_structured_logger("cv_analyzer_agent")
 
@@ -19,7 +22,7 @@ logger = get_structured_logger("cv_analyzer_agent")
 class CVAnalyzerAgent(AgentBase):
     """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
 
-    def __init__(self, llm_service: EnhancedLLMService, session_id: str = "default"):
+    def __init__(self, llm_service: LLMServiceInterface, session_id: str = "default"):
         super().__init__(
             name="CVAnalyzerAgent",
             description="Analyzes CV content and job requirements to provide optimization recommendations",
@@ -28,32 +31,33 @@ class CVAnalyzerAgent(AgentBase):
         self.llm_service = llm_service
         self.settings = get_config()
 
-    def _validate_inputs(self, input_data: dict) -> None:
-        """Validate the input data for the CV Analyzer Agent."""
-        if not isinstance(input_data, dict):
-            raise AgentExecutionError("Input validation failed: input_data must be a dict")
-        if "cv_data" not in input_data or "job_description" not in input_data:
-            raise AgentExecutionError("Input validation failed: 'cv_data' and 'job_description' are required.")
-
     async def _execute(self, **kwargs: Any) -> AgentResult:
         """Analyze CV content against job requirements using Pydantic models."""
         input_data = kwargs.get("input_data")
-        context = kwargs.get(
-            "context", AgentExecutionContext(session_id=self.session_id)
-        )
 
         try:
+            self.update_progress(AgentConstants.PROGRESS_START, "Starting CV analysis")
+            
             cv_data = input_data.get("cv_data")
             job_description = input_data.get("job_description")
             if not isinstance(cv_data, StructuredCV):
                 cv_data = StructuredCV.model_validate(cv_data)
             if not isinstance(job_description, JobDescriptionData):
                 job_description = JobDescriptionData.model_validate(job_description)
+            
+            self.update_progress(AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation completed")
+            
             analysis = await self._analyze_cv_job_match(
-                cv_data, job_description, context
+                cv_data, job_description
             )
-            recommendations = await self._generate_recommendations(analysis, context)
+            
+            self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Analyzing CV-job match")
+            
+            recommendations = await self._generate_recommendations(analysis)
             match_score = self._calculate_match_score(analysis)
+            
+            self.update_progress(AgentConstants.PROGRESS_POST_PROCESSING, "Generating recommendations and scores")
+            
             analysis_result = CVAnalysisResult(
                 skill_matches=analysis.skill_matches,
                 experience_relevance=analysis.experience_relevance,
@@ -68,10 +72,13 @@ class CVAnalyzerAgent(AgentBase):
                 recommendations=recommendations,
                 compatibility_score=match_score,
             )
+            
+            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "CV analysis completed successfully")
+            
             return AgentResult(
                 success=True,
                 output_data=output_data,
-                confidence_score=0.85,
+                confidence_score=AnalysisConstants.DEFAULT_CONFIDENCE_SCORE,
                 metadata={
                     "analysis_type": "cv_job_match",
                     "items_analyzed": (
@@ -97,7 +104,6 @@ class CVAnalyzerAgent(AgentBase):
         self,
         cv_data: StructuredCV,
         job_description: JobDescriptionData,
-        context: AgentExecutionContext,
     ) -> "CVAnalyzerAgent._AnalysisResult":
         """Analyze match between CV and job requirements using Pydantic models."""
         analysis = self._AnalysisResult()
@@ -113,14 +119,13 @@ class CVAnalyzerAgent(AgentBase):
     async def _generate_recommendations(
         self,
         analysis: "CVAnalyzerAgent._AnalysisResult",
-        context: AgentExecutionContext,
     ) -> List[str]:
         recommendations = []
-        if len(analysis.skill_matches) < 3:
+        if len(analysis.skill_matches) < AnalysisConstants.MIN_SKILL_MATCHES:
             recommendations.append(
                 "Consider highlighting more relevant technical skills"
             )
-        if analysis.experience_relevance < 0.7:
+        if analysis.experience_relevance < AnalysisConstants.MIN_EXPERIENCE_RELEVANCE:
             recommendations.append(
                 "Emphasize experience that directly relates to the job requirements"
             )
@@ -129,11 +134,7 @@ class CVAnalyzerAgent(AgentBase):
     def _calculate_match_score(
         self, analysis: "CVAnalyzerAgent._AnalysisResult"
     ) -> float:
-        skill_score = min(len(analysis.skill_matches) * 0.2, 1.0)
+        skill_score = min(len(analysis.skill_matches) * AnalysisConstants.SKILL_SCORE_MULTIPLIER, AnalysisConstants.MAX_MATCH_SCORE)
         experience_score = analysis.experience_relevance
-        gap_penalty = len(analysis.gaps_identified) * 0.1
-        return max(0.0, (skill_score + experience_score) / 2 - gap_penalty)
-
-    async def run_as_node(self, state):
-        """Stub for LangGraph node execution (not used in CVAnalyzerAgent)."""
-        raise NotImplementedError("CVAnalyzerAgent does not implement run_as_node.")
+        gap_penalty = len(analysis.gaps_identified) * AnalysisConstants.GAP_PENALTY_MULTIPLIER
+        return max(AnalysisConstants.MIN_MATCH_SCORE, (skill_score + experience_score) * AnalysisConstants.SCORE_WEIGHT_FACTOR - gap_penalty)

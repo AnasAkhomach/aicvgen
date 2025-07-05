@@ -1,10 +1,8 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
-
-from .cv_models import MetadataModel
-
 
 class VectorStoreConfig(BaseModel):
     """Configuration for vector store database."""

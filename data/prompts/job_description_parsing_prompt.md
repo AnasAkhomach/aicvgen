@@ -1,7 +1,7 @@
 ---
 name: job_description_parser
 category: prompt
-content_type: job_analysis
+content_type: JOB_ANALYSIS
 description: Prompt for parsing job descriptions into structured fields.
 ---
 **Instructions:**

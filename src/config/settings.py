@@ -5,11 +5,13 @@ including API keys, model settings, and other configuration parameters.
 """
 
 import os
-from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
-from pydantic import BaseModel, Field, DirectoryPath
+from typing import Optional
 
+from pydantic import BaseModel, Field
+from config.shared_configs import PerformanceConfig, DatabaseConfig
+from constants.config_constants import ConfigConstants
 # Try to import python-dotenv, but don't fail if it's not available
 try:
     from dotenv import load_dotenv
@@ -30,53 +32,62 @@ except ImportError:
 class LLMSettings(BaseModel):
     """Configuration for Large Language Model services."""
 
-    default_model: str = "gemini-2.0-flash"
-    default_temperature: float = 0.7
-    max_tokens: int = 4096
-    temperature_analysis: float = 0.5
-    max_tokens_analysis: int = 2048
+    default_model: str = ConfigConstants.DEFAULT_MODEL
+    default_temperature: float = ConfigConstants.DEFAULT_TEMPERATURE
+    max_tokens: int = ConfigConstants.DEFAULT_MAX_TOKENS
+    temperature_analysis: float = ConfigConstants.ANALYSIS_TEMPERATURE
+    max_tokens_analysis: int = ConfigConstants.ANALYSIS_MAX_TOKENS
 
 
 class PromptSettings(BaseModel):
     """Manages paths and names for prompt templates."""
 
-    directory: str = "data/prompts"
-    cv_parser: str = "cv_parsing_prompt_v2.md"
-    cv_assessment: str = "cv_assessment_prompt.md"
-    job_description_parser: str = "job_description_parsing_prompt.md"
-    resume_role_writer: str = "resume_role_prompt.md"
-    project_writer: str = "side_project_prompt.md"
-    key_qualifications_writer: str = "key_qualifications_prompt.md"
-    executive_summary_writer: str = "executive_summary_prompt.md"
-    cv_analysis: str = "cv_analysis_prompt.md"
-    clean_big_6: str = "clean_big_6_prompt.md"
-    clean_json_output: str = "clean_json_output_prompt.md"
-    job_research_analysis: str = "job_research_analysis_prompt.md"
+    directory: str = ConfigConstants.DEFAULT_PROMPTS_DIRECTORY_NAME
+    cv_parser: str = ConfigConstants.CV_PARSER_PROMPT
+    cv_assessment: str = ConfigConstants.CV_ASSESSMENT_PROMPT
+    job_description_parser: str = ConfigConstants.JOB_DESCRIPTION_PARSER_PROMPT
+    resume_role_writer: str = ConfigConstants.RESUME_ROLE_WRITER_PROMPT
+    project_writer: str = ConfigConstants.PROJECT_WRITER_PROMPT
+    key_qualifications_writer: str = ConfigConstants.KEY_QUALIFICATIONS_WRITER_PROMPT
+    executive_summary_writer: str = ConfigConstants.EXECUTIVE_SUMMARY_WRITER_PROMPT
+    cv_analysis: str = ConfigConstants.CV_ANALYSIS_PROMPT
+    clean_big_6: str = ConfigConstants.CLEAN_BIG_6_PROMPT
+    clean_json_output: str = ConfigConstants.CLEAN_JSON_OUTPUT_PROMPT
+    job_research_analysis: str = ConfigConstants.JOB_RESEARCH_ANALYSIS_PROMPT
 
 
 class AgentSettings(BaseModel):
     """Settings for agent behavior and default values."""
 
     default_skills: list[str] = Field(
-        default_factory=lambda: [
-            "Problem Solving",
-            "Team Collaboration",
-            "Communication Skills",
-            "Analytical Thinking",
-            "Project Management",
-            "Technical Documentation",
-            "Quality Assurance",
-            "Process Improvement",
-            "Leadership",
-            "Adaptability",
-        ]
+        default_factory=lambda: ConfigConstants.DEFAULT_SKILLS
     )
-    max_skills_to_parse: int = 10
-    max_bullet_points_per_role: int = 5
-    max_bullet_points_per_project: int = 3
-    default_company_name: str = "Unknown Company"
-    default_job_title: str = "Unknown Title"
+    max_skills_to_parse: int = ConfigConstants.MAX_SKILLS_TO_PARSE
+    max_bullet_points_per_role: int = ConfigConstants.MAX_BULLET_POINTS_PER_ROLE
+    max_bullet_points_per_project: int = ConfigConstants.MAX_BULLET_POINTS_PER_PROJECT
+    default_company_name: str = ConfigConstants.DEFAULT_COMPANY_NAME
+    default_job_title: str = ConfigConstants.DEFAULT_JOB_TITLE
 
+
+@dataclass
+class RateLimitingConfig:
+    """Rate limiting settings for LLM API calls."""
+    max_requests_per_minute: int = field(
+        default_factory=lambda: int(os.getenv("LLM_REQUESTS_PER_MINUTE", str(ConfigConstants.DEFAULT_REQUESTS_PER_MINUTE)))
+    )
+    max_tokens_per_minute: int = field(
+        default_factory=lambda: int(os.getenv("LLM_TOKENS_PER_MINUTE", str(ConfigConstants.DEFAULT_TOKENS_PER_MINUTE)))
+    )
+
+@dataclass
+class RetryConfig:
+    """Retry settings for LLM API calls."""
+    max_retries: int = ConfigConstants.DEFAULT_MAX_RETRIES
+    retry_delay: float = ConfigConstants.DEFAULT_RETRY_DELAY
+    exponential_backoff: bool = True
+    request_timeout: int = field(
+        default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", str(ConfigConstants.DEFAULT_REQUEST_TIMEOUT)))
+    )
 
 @dataclass
 class LLMConfig:
@@ -91,24 +102,12 @@ class LLMConfig:
     )
 
     # Model Configuration
-    generation_model: str = "deepseek-r1-distill-llama-70b"
+    generation_model: str = "gemini-2.0-flash"
     cleaning_model: str = "llama-3.3-70b-versatile"
 
-    # Rate Limiting Configuration
-    max_requests_per_minute: int = field(
-        default_factory=lambda: int(os.getenv("LLM_REQUESTS_PER_MINUTE", "30"))
-    )
-    max_tokens_per_minute: int = field(
-        default_factory=lambda: int(os.getenv("LLM_TOKENS_PER_MINUTE", "60000"))
-    )
-
-    # Retry Configuration
-    max_retries: int = 3
-    retry_delay: float = 1.0
-    exponential_backoff: bool = True  # Timeout Configuration
-    request_timeout: int = field(
-        default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", "60"))
-    )
+    # Composed configurations
+    rate_limiting: RateLimitingConfig = field(default_factory=RateLimitingConfig)
+    retry: RetryConfig = field(default_factory=RetryConfig)
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -122,16 +121,28 @@ class VectorDBConfig:
     """Configuration for vector database settings."""
 
     # ChromaDB Configuration
-    persist_directory: str = "instance/vector_db"
-    collection_name: str = "cv_content"
+    persist_directory: str = field(
+        default_factory=lambda: os.getenv("VECTOR_DB_PERSIST_DIR", ConfigConstants.DEFAULT_PERSIST_DIRECTORY)
+    )
+    collection_name: str = field(
+        default_factory=lambda: os.getenv("VECTOR_DB_COLLECTION", ConfigConstants.DEFAULT_COLLECTION_NAME)
+    )
 
     # Embedding Configuration
-    embedding_model: str = "all-MiniLM-L6-v2"
-    embedding_dimension: int = 384
+    embedding_model: str = field(
+        default_factory=lambda: os.getenv("VECTOR_DB_EMBEDDING_MODEL", ConfigConstants.DEFAULT_EMBEDDING_MODEL)
+    )
+    embedding_dimension: int = field(
+        default_factory=lambda: int(os.getenv("VECTOR_DB_EMBEDDING_DIM", str(ConfigConstants.DEFAULT_EMBEDDING_DIMENSION)))
+    )
 
     # Search Configuration
-    max_search_results: int = 10
-    similarity_threshold: float = 0.7
+    max_search_results: int = field(
+        default_factory=lambda: int(os.getenv("VECTOR_DB_MAX_RESULTS", str(ConfigConstants.DEFAULT_MAX_SEARCH_RESULTS)))
+    )
+    similarity_threshold: float = field(
+        default_factory=lambda: float(os.getenv("VECTOR_DB_SIMILARITY_THRESHOLD", str(ConfigConstants.DEFAULT_SIMILARITY_THRESHOLD)))
+    )
 
 
 @dataclass
@@ -139,20 +150,34 @@ class UIConfig:
     """Configuration for user interface settings."""
 
     # Streamlit Configuration
-    page_title: str = "AI CV Generator"
-    page_icon: str = "📄"
-    layout: str = "wide"
+    page_title: str = field(
+        default_factory=lambda: os.getenv("UI_PAGE_TITLE", ConfigConstants.DEFAULT_PAGE_TITLE)
+    )
+    page_icon: str = field(
+        default_factory=lambda: os.getenv("UI_PAGE_ICON", ConfigConstants.DEFAULT_PAGE_ICON)
+    )
+    layout: str = field(
+        default_factory=lambda: os.getenv("UI_LAYOUT", ConfigConstants.DEFAULT_LAYOUT)
+    )
 
     # Session Configuration
     session_timeout_seconds: int = field(
-        default_factory=lambda: int(os.getenv("SESSION_TIMEOUT_SECONDS", "3600"))
+        default_factory=lambda: int(os.getenv("SESSION_TIMEOUT_SECONDS", str(ConfigConstants.DEFAULT_SESSION_TIMEOUT)))
     )
-    auto_save_interval_seconds: int = 30
+    auto_save_interval_seconds: int = field(
+        default_factory=lambda: int(os.getenv("UI_AUTO_SAVE_INTERVAL", str(ConfigConstants.DEFAULT_AUTO_SAVE_INTERVAL)))
+    )
 
     # Display Configuration
-    show_raw_llm_output: bool = True
-    show_debug_information: bool = False
-    items_per_page: int = 5
+    show_raw_llm_output: bool = field(
+        default_factory=lambda: os.getenv("UI_SHOW_RAW_OUTPUT", "true").lower() == "true"
+    )
+    show_debug_information: bool = field(
+        default_factory=lambda: os.getenv("UI_SHOW_DEBUG", "false").lower() == "true"
+    )
+    items_per_page: int = field(
+        default_factory=lambda: int(os.getenv("UI_ITEMS_PER_PAGE", str(ConfigConstants.DEFAULT_ITEMS_PER_PAGE)))
+    )
 
 
 @dataclass
@@ -160,10 +185,10 @@ class SessionSettings:
     """Configuration for session management."""
 
     max_active_sessions: int = field(
-        default_factory=lambda: int(os.getenv("MAX_ACTIVE_SESSIONS", "100"))
+        default_factory=lambda: int(os.getenv("MAX_ACTIVE_SESSIONS", str(ConfigConstants.DEFAULT_MAX_ACTIVE_SESSIONS)))
     )
     cleanup_interval_minutes: int = field(
-        default_factory=lambda: int(os.getenv("SESSION_CLEANUP_INTERVAL_MINUTES", "30"))
+        default_factory=lambda: int(os.getenv("SESSION_CLEANUP_INTERVAL_MINUTES", str(ConfigConstants.DEFAULT_CLEANUP_INTERVAL_MINUTES)))
     )
 
 
@@ -172,18 +197,34 @@ class OutputConfig:
     """Configuration for output generation settings."""
 
     # Output Formats
-    primary_format: str = "pdf"
-    supported_formats: list = field(default_factory=lambda: ["pdf", "markdown", "html"])
+    primary_format: str = field(
+        default_factory=lambda: os.getenv("OUTPUT_PRIMARY_FORMAT", ConfigConstants.DEFAULT_PRIMARY_FORMAT)
+    )
+    supported_formats: list = field(
+        default_factory=lambda: os.getenv("OUTPUT_SUPPORTED_FORMATS", ",".join(ConfigConstants.DEFAULT_SUPPORTED_FORMATS)).split(",")
+    )
 
     # PDF Configuration
-    pdf_template_path: str = "src/templates/cv_template.md"
-    pdf_output_directory: str = "instance/output"
+    pdf_template_path: str = field(
+        default_factory=lambda: os.getenv("OUTPUT_PDF_TEMPLATE_PATH", ConfigConstants.DEFAULT_PDF_TEMPLATE_PATH)
+    )
+    pdf_output_directory: str = field(
+        default_factory=lambda: os.getenv("OUTPUT_PDF_DIRECTORY", ConfigConstants.DEFAULT_PDF_OUTPUT_DIRECTORY)
+    )
 
     # Content Generation Constants
-    max_skills_count: int = 10
-    max_bullet_points_per_role: int = 5
-    max_bullet_points_per_project: int = 3
-    min_skill_length: int = 2
+    max_skills_count: int = field(
+        default_factory=lambda: int(os.getenv("OUTPUT_MAX_SKILLS_COUNT", str(ConfigConstants.DEFAULT_MAX_SKILLS_COUNT)))
+    )
+    max_bullet_points_per_role: int = field(
+        default_factory=lambda: int(os.getenv("OUTPUT_MAX_BULLET_POINTS_ROLE", str(ConfigConstants.MAX_BULLET_POINTS_PER_ROLE)))
+    )
+    max_bullet_points_per_project: int = field(
+        default_factory=lambda: int(os.getenv("OUTPUT_MAX_BULLET_POINTS_PROJECT", str(ConfigConstants.MAX_BULLET_POINTS_PER_PROJECT)))
+    )
+    min_skill_length: int = field(
+        default_factory=lambda: int(os.getenv("OUTPUT_MIN_SKILL_LENGTH", str(ConfigConstants.DEFAULT_MIN_SKILL_LENGTH)))
+    )
 
 
 @dataclass
@@ -191,22 +232,95 @@ class LoggingConfig:
     """Configuration for logging settings."""
 
     # Log Levels
-    log_level: str = "INFO"
+    log_level: str = field(
+        default_factory=lambda: os.getenv("LOG_LEVEL", ConfigConstants.DEFAULT_LOG_LEVEL)
+    )
 
     # Log Files
-    log_directory: str = "instance/logs"
-    main_log_file: str = "app.log"
-    error_log_file: str = "error.log"
-    llm_log_file: str = "llm_calls.log"
+    log_directory: str = field(
+        default_factory=lambda: os.getenv("LOG_DIRECTORY", ConfigConstants.DEFAULT_LOG_DIRECTORY)
+    )
+    main_log_file: str = field(
+        default_factory=lambda: os.getenv("LOG_MAIN_FILE", ConfigConstants.DEFAULT_MAIN_LOG_FILE)
+    )
+    error_log_file: str = field(
+        default_factory=lambda: os.getenv("LOG_ERROR_FILE", ConfigConstants.DEFAULT_ERROR_LOG_FILE)
+    )
+    llm_log_file: str = field(
+        default_factory=lambda: os.getenv("LOG_LLM_FILE", ConfigConstants.DEFAULT_LLM_LOG_FILE)
+    )
 
     # Log Rotation
-    max_log_size_mb: int = 10
-    backup_count: int = 5
+    max_log_size_mb: int = field(
+        default_factory=lambda: int(os.getenv("LOG_MAX_SIZE_MB", str(ConfigConstants.DEFAULT_MAX_LOG_SIZE_MB)))
+    )
+    backup_count: int = field(
+        default_factory=lambda: int(os.getenv("LOG_BACKUP_COUNT", str(ConfigConstants.DEFAULT_BACKUP_COUNT)))
+    )
 
     # Log Format
-    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    date_format: str = "%Y-%m-%d %H:%M:%S"
+    log_format: str = field(
+        default_factory=lambda: os.getenv("LOG_FORMAT", ConfigConstants.DEFAULT_LOG_FORMAT)
+    )
+    date_format: str = field(
+        default_factory=lambda: os.getenv("LOG_DATE_FORMAT", ConfigConstants.DEFAULT_DATE_FORMAT)
+    )
 
+    # Performance Logging
+    performance_logging: bool = field(
+        default_factory=lambda: os.getenv("LOG_PERFORMANCE", "false").lower() == "true"
+    )
+    log_to_console: bool = field(
+        default_factory=lambda: os.getenv("LOG_TO_CONSOLE", "true").lower() == "true"
+    )
+
+
+@dataclass
+class ApplicationMetadataConfig:
+    """Application metadata settings."""
+
+    app_name: str = field(
+        default_factory=lambda: os.getenv("APP_NAME", ConfigConstants.DEFAULT_APP_NAME)
+    )
+    app_version: str = field(
+        default_factory=lambda: os.getenv("APP_VERSION", ConfigConstants.DEFAULT_APP_VERSION)
+    )
+
+
+@dataclass
+class EnvironmentConfig:
+    """Environment-specific settings."""
+
+    environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", ConfigConstants.DEFAULT_ENVIRONMENT))
+    debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "true").lower() == "true")
+
+
+@dataclass
+class PathsConfig:
+    """Configuration for application paths."""
+
+    project_root: Path = field(default_factory=lambda: Path.cwd())
+    data_directory: str = field(
+        default_factory=lambda: os.getenv("PATHS_DATA_DIRECTORY", ConfigConstants.DEFAULT_DATA_DIRECTORY)
+    )
+    prompts_directory: str = field(
+        default_factory=lambda: os.getenv("PATHS_PROMPTS_DIRECTORY", ConfigConstants.DEFAULT_PROMPTS_DIRECTORY)
+    )
+    sessions_directory: str = field(
+        default_factory=lambda: os.getenv("PATHS_SESSIONS_DIRECTORY", ConfigConstants.DEFAULT_SESSIONS_DIRECTORY)
+    )
+    logs_directory: str = field(
+        default_factory=lambda: os.getenv("PATHS_LOGS_DIRECTORY", ConfigConstants.DEFAULT_LOGS_DIRECTORY)
+    )
+    output_directory: str = field(
+        default_factory=lambda: os.getenv("PATHS_OUTPUT_DIRECTORY", ConfigConstants.DEFAULT_OUTPUT_DIRECTORY)
+    )
+    vector_db_directory: str = field(
+        default_factory=lambda: os.getenv("PATHS_VECTOR_DB_DIRECTORY", ConfigConstants.DEFAULT_VECTOR_DB_DIRECTORY)
+    )
+
+
+# PerformanceConfig and DatabaseConfig are imported from environment.py
 
 @dataclass
 class AppConfig:
@@ -231,31 +345,18 @@ class AppConfig:
     llm_settings: LLMSettings = field(default_factory=LLMSettings)
     prompts: PromptSettings = field(default_factory=PromptSettings)
     agent_settings: AgentSettings = field(default_factory=AgentSettings)
+    metadata: ApplicationMetadataConfig = field(default_factory=ApplicationMetadataConfig)
+    env: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    paths: PathsConfig = field(default_factory=PathsConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
 
-    # Application Metadata
-    app_name: str = "AI CV Generator"
-    app_version: str = "1.0.0"
 
-    # Environment
-    environment: str = field(
-        default_factory=lambda: os.getenv("ENVIRONMENT", "development")
-    )
-    debug: bool = field(
-        default_factory=lambda: os.getenv("DEBUG_MODE", "false").lower() == "true"
-    )
-
-    # Paths
-    project_root: Path = field(
-        default_factory=lambda: Path(__file__).parent.parent.parent
-    )
-    data_directory: Path = field(default_factory=lambda: Path("data"))
-    prompts_directory: Path = field(default_factory=lambda: Path("data/prompts"))
-    sessions_directory: Path = field(default_factory=lambda: Path("instance/sessions"))
 
     def __post_init__(self):
         """Initialize paths and create directories if needed."""
         # Define instance path and ensure it exists
-        instance_path = self.project_root / "instance"
+        instance_path = self.paths.project_root / "instance"
         instance_path.mkdir(exist_ok=True)
 
         # Create all runtime directories under instance path
@@ -265,12 +366,27 @@ class AppConfig:
         (instance_path / "vector_db").mkdir(parents=True, exist_ok=True)
 
         # Ensure source data directories exist (relative to project root)
-        (self.project_root / self.data_directory).mkdir(exist_ok=True)
-        (self.project_root / self.prompts_directory).mkdir(parents=True, exist_ok=True)
+        (self.paths.project_root / self.paths.data_directory).mkdir(exist_ok=True)
+        (self.paths.project_root / self.paths.prompts_directory).mkdir(parents=True, exist_ok=True)
+
+        # Environment-specific adjustments
+        if self.env.environment == "development":
+            self.logging.performance_logging = True
+            self.ui.show_debug_information = True
+            self.performance.enable_profiling = True
+        elif self.env.environment == "testing":
+            self.logging.log_to_console = False
+            self.database.backup_enabled = False
+            self.performance.enable_caching = False
+        elif self.env.environment == "production":
+            self.env.debug = False
+            self.logging.log_level = "WARNING"
+            self.ui.show_debug_information = False
+            self.performance.enable_profiling = False
 
     def get_prompt_path(self, prompt_name: str) -> Path:
         """Get the full path to a prompt file."""
-        return self.project_root / self.prompts_directory / f"{prompt_name}.md"
+        return self.paths.project_root / self.paths.prompts_directory / f"{prompt_name}.md"
 
     def get_prompt_path_by_key(self, prompt_key: str) -> str:
         """
@@ -280,18 +396,18 @@ class AppConfig:
         if not prompt_filename:
             raise ValueError(f"Prompt key '{prompt_key}' not found in settings.")
 
-        path = self.project_root / self.prompts_directory / prompt_filename
+        path = self.paths.project_root / self.paths.prompts_directory / prompt_filename
         if not path.exists():
             raise FileNotFoundError(f"Prompt file does not exist at path: {path}")
         return str(path)
 
     def get_session_path(self, session_id: str) -> Path:
         """Get the full path to a session directory."""
-        return self.project_root / self.sessions_directory / session_id
+        return self.paths.project_root / self.paths.sessions_directory / session_id
 
     def get_output_path(self, filename: str) -> Path:
         """Get the full path to an output file."""
-        return self.project_root / self.output.pdf_output_directory / filename
+        return self.paths.project_root / self.output.pdf_output_directory / filename
 
 
 # For backward compatibility: export Settings as AppConfig

@@ -10,23 +10,22 @@ This module provides comprehensive performance optimizations including:
 
 import asyncio
 import gc
-import time
+import hashlib
+import os
+import pickle
 import threading
-from typing import Dict, Any, Optional, List, Callable, Tuple
+import time
+from collections import OrderedDict, defaultdict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from collections import defaultdict, OrderedDict
-from contextlib import asynccontextmanager
-import hashlib
-import pickle
-import os
 from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ..config.logging_config import get_structured_logger
-from ..utils.performance import get_memory_optimizer, get_performance_monitor
-from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
-from ..utils.decorators import create_async_sync_decorator
-
+from src.config.logging_config import get_structured_logger
+from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from src.utils.decorators import create_async_sync_decorator
+from src.utils.performance import get_memory_optimizer, get_performance_monitor
 
 logger = get_structured_logger("performance_optimizer")
 

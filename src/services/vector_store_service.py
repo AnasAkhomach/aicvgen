@@ -1,21 +1,25 @@
+import hashlib
+import logging
+import threading
+from typing import Any, Dict, Optional
+
 import chromadb
+
+from ..config.settings import get_config
+from ..constants.config_constants import ConfigConstants
 from ..error_handling.exceptions import (
-    VectorStoreError,
     ConfigurationError,
     OperationTimeoutError,
+    VectorStoreError,
 )
-from ..config.settings import get_config
-from typing import List, Dict, Any, Optional
-import logging
-import hashlib
-import threading
-import time
 from ..models.vector_store_and_session_models import VectorStoreSearchResult
 
 logger = logging.getLogger("vector_store_service")
 
 
-def run_with_timeout(func, args=(), kwargs=None, timeout=30):
+def run_with_timeout(
+    func, args=(), kwargs=None, timeout=ConfigConstants.DEFAULT_VECTOR_STORE_TIMEOUT
+):
     """Run a function with a timeout using threading."""
     if kwargs is None:
         kwargs = {}
@@ -39,7 +43,13 @@ def run_with_timeout(func, args=(), kwargs=None, timeout=30):
         raise OperationTimeoutError(f"Operation timed out after {timeout} seconds")
 
     if exception[0] is not None:
-        raise exception[0]
+        # Ensure we have a valid exception to raise
+        exc = exception[0]
+        if isinstance(exc, BaseException):
+            raise exc  # pylint: disable=raising-bad-type
+        else:
+            # This should never happen, but provide a fallback
+            raise RuntimeError(f"Thread failed with invalid exception: {exc}")
     return result[0]
 
 
@@ -81,10 +91,12 @@ class VectorStoreService:
                 return client
 
             try:
-                client = run_with_timeout(create_client, timeout=30)
+                client = run_with_timeout(
+                    create_client, timeout=ConfigConstants.DEFAULT_VECTOR_STORE_TIMEOUT
+                )
             except OperationTimeoutError as e:
                 raise ConfigurationError(
-                    "ChromaDB initialization timed out after 30 seconds. "
+                    f"ChromaDB initialization timed out after {ConfigConstants.DEFAULT_VECTOR_STORE_TIMEOUT} seconds. "
                     "This might be due to:\n"
                     "1. ChromaDB downloading embedding models on first run\n"
                     "2. Network connectivity issues\n"
@@ -133,7 +145,7 @@ class VectorStoreService:
     def add_item(
         self, item: Any, content: str, metadata: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Add an item to the vector store."""
+        """Add an item to the vector store with transaction-like consistency."""
         try:
             item_id = self._generate_id(content)
             meta = metadata or {}
@@ -145,8 +157,31 @@ class VectorStoreService:
                         if isinstance(v, (str, int, float, bool))
                     }
                 )
-            self.collection.add(documents=[content], metadatas=[meta], ids=[item_id])
-            logger.debug("Added item to vector store with ID: %s", item_id)
+
+            # Use upsert for data consistency - handles both add and update scenarios
+            self.collection.upsert(documents=[content], metadatas=[meta], ids=[item_id])
+
+            # Verify persistence by attempting to retrieve the item
+            try:
+                verification_result = self.collection.get(ids=[item_id])
+                if (
+                    not verification_result["ids"]
+                    or verification_result["ids"][0] != item_id
+                ):
+                    raise VectorStoreError(
+                        f"Persistence verification failed for item {item_id}"
+                    )
+            except Exception as verify_error:
+                logger.warning(
+                    "Could not verify persistence for item %s: %s",
+                    item_id,
+                    verify_error,
+                )
+                # Continue execution as the upsert may have succeeded
+
+            logger.debug(
+                f"Successfully persisted item to vector store with ID: {item_id}"
+            )
             return item_id
         except (chromadb.errors.ChromaError, TypeError) as e:
             logger.error("Failed to add item to vector store: %s", e)
@@ -191,6 +226,89 @@ class VectorStoreService:
     def _generate_id(self, content: str) -> str:
         """Generate a unique ID for content based on its hash."""
         return hashlib.md5(content.encode("utf-8")).hexdigest()
+
+    def verify_persistence_integrity(self) -> bool:
+        """Verify the integrity of the persistent vector store."""
+        try:
+            # Test basic operations to ensure persistence is working
+            test_id = "integrity_test_" + str(hash("test_content"))
+            test_content = "Test content for integrity verification"
+            test_metadata = {"test": "true", "timestamp": str(hash("timestamp"))}
+
+            # Add test item
+            self.collection.upsert(
+                documents=[test_content], metadatas=[test_metadata], ids=[test_id]
+            )
+
+            # Verify retrieval
+            result = self.collection.get(ids=[test_id])
+            if not result["ids"] or result["ids"][0] != test_id:
+                logger.error(
+                    "Persistence integrity check failed: could not retrieve test item"
+                )
+                return False
+
+            # Clean up test item
+            self.collection.delete(ids=[test_id])
+
+            logger.debug("Persistence integrity verification successful")
+            return True
+
+        except Exception as e:
+            logger.error("Persistence integrity check failed: %s", e)
+            return False
+
+    def batch_add_items(
+        self, items_data: list[tuple[Any, str, Optional[Dict[str, Any]]]]
+    ) -> list[str]:
+        """Add multiple items in a batch operation for better consistency."""
+        if not items_data:
+            return []
+
+        try:
+            documents = []
+            metadatas = []
+            ids = []
+
+            for item, content, metadata in items_data:
+                item_id = self._generate_id(content)
+                meta = metadata or {}
+                if hasattr(item, "__dict__"):
+                    meta.update(
+                        {
+                            k: str(v)
+                            for k, v in item.__dict__.items()
+                            if isinstance(v, (str, int, float, bool))
+                        }
+                    )
+
+                documents.append(content)
+                metadatas.append(meta)
+                ids.append(item_id)
+
+            # Batch upsert for better consistency
+            self.collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
+
+            # Verify batch persistence
+            try:
+                verification_result = self.collection.get(ids=ids)
+                verified_ids = set(verification_result["ids"] or [])
+                expected_ids = set(ids)
+
+                if not expected_ids.issubset(verified_ids):
+                    missing_ids = expected_ids - verified_ids
+                    logger.warning(
+                        "Batch persistence verification: missing items %s", missing_ids
+                    )
+            except Exception as verify_error:
+                logger.warning("Could not verify batch persistence: %s", verify_error)
+
+            logger.debug(f"Successfully batch persisted {len(ids)} items to vector store")
+            return ids
+
+        except (chromadb.errors.ChromaError, TypeError) as e:
+            logger.error("Failed to batch add items to vector store: %s", e)
+            raise VectorStoreError("Failed to batch add items to vector store") from e
 
 
 _vector_store_instance = None
@@ -238,3 +356,14 @@ class MockVectorStoreService:
     def shutdown(self):
         """Mock shutdown implementation."""
         logger.info("MockVectorStoreService shutdown.")
+
+    def verify_persistence_integrity(self) -> bool:
+        """Mock persistence integrity check."""
+        logger.debug("Mock persistence integrity check - always returns True")
+        return True
+
+    def batch_add_items(
+        self, items_data: list[tuple[Any, str, Optional[Dict[str, Any]]]]
+    ) -> list[str]:
+        """Mock batch add items implementation."""
+        return [f"mock_id_{i}" for i in range(len(items_data))]

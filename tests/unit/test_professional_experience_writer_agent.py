@@ -29,6 +29,7 @@ def mock_template_manager():
     """Fixture for a mock ContentTemplateManager."""
     mock = MagicMock()
     mock.get_template_by_type.return_value = "Job Description: {job_description}\nExperience Item: {experience_item}\nKey Qualifications: {key_qualifications}\nResearch Findings: {research_findings}"
+    mock.format_template.return_value = "Job Description: test job data\nExperience Item: test experience\nKey Qualifications: Strong leadership skills\nResearch Findings: test research"
     return mock
 
 @pytest.fixture
@@ -86,10 +87,10 @@ async def test_professional_experience_writer_agent_success(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert not result.get("error_messages")
+    assert isinstance(result, AgentState)
+    assert not result.error_messages
 
-    updated_cv = result["structured_cv"]
+    updated_cv = result.structured_cv
     exp_section = next(s for s in updated_cv.sections if s.name == "Professional Experience")
     updated_item = next(item for item in exp_section.items if str(item.id) == "12345678-1234-5678-9012-123456789012")
 
@@ -119,22 +120,27 @@ async def test_professional_experience_writer_agent_missing_inputs(
     )
 
     # Test missing job_description_data
-    initial_state_missing_jd = {
-        "structured_cv": sample_structured_cv,
-        "current_item_id": "exp1",
-    }
+    initial_state_missing_jd = AgentState(
+        session_id="test_session",
+        structured_cv=sample_structured_cv,
+        current_item_id="exp1",
+        cv_text="mock cv text"
+    )
     result = await agent.run_as_node(initial_state_missing_jd)
-    assert result.get("error_messages")
-    assert "Missing or invalid 'job_description_data' in input_data." in result["error_messages"][0]
+    assert result.error_messages
+    assert "Input validation failed" in result.error_messages[0]
+    assert "job_description_data" in result.error_messages[0]
 
     # Test missing current_item_id
-    initial_state_missing_item_id = {
-        "structured_cv": sample_structured_cv,
-        "job_description_data": sample_job_description_data,
-    }
+    initial_state_missing_item_id = AgentState(
+        session_id="test_session",
+        structured_cv=sample_structured_cv,
+        job_description_data=sample_job_description_data,
+        cv_text="mock cv text"
+    )
     result = await agent.run_as_node(initial_state_missing_item_id)
-    assert result.get("error_messages")
-    assert "Missing or invalid 'current_item_id' in input_data." in result["error_messages"][0]
+    assert result.error_messages
+    assert "Missing or invalid 'current_item_id' in input_data." in result.error_messages[0]
 
 @pytest.mark.asyncio
 async def test_professional_experience_writer_agent_llm_failure(
@@ -161,9 +167,9 @@ async def test_professional_experience_writer_agent_llm_failure(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    assert "Agent 'ProfessionalExperienceWriter' failed: LLM failed to generate valid Professional Experience content." in result["error_messages"][0]
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    assert "Agent 'ProfessionalExperienceWriter' failed: LLM failed to generate valid Professional Experience content." in result.error_messages[0]
 
 @pytest.mark.asyncio
 async def test_professional_experience_writer_agent_item_not_found(
@@ -177,30 +183,34 @@ async def test_professional_experience_writer_agent_item_not_found(
         session_id="test_session",
     )
 
-    initial_state = {
-        "structured_cv": sample_structured_cv,
-        "job_description_data": sample_job_description_data,
-        "current_item_id": "87654321-4321-8765-2109-876543210987",
-        "research_findings": {"company_culture": "fast-paced"},
-    }
+    initial_state = AgentState(
+        session_id="test_session",
+        structured_cv=sample_structured_cv,
+        job_description_data=sample_job_description_data,
+        current_item_id="87654321-4321-8765-2109-876543210987",
+        research_findings={"company_culture": "fast-paced"},
+        cv_text="mock cv text"
+    )
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    assert "Item with ID '87654321-4321-8765-2109-876543210987' not found or is not a professional experience item." in result["error_messages"][0]
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    assert "Item with ID '87654321-4321-8765-2109-876543210987' not found or is not a professional experience item." in result.error_messages[0]
 
     # Test with an item of wrong type
-    initial_state_wrong_type = {
-        "structured_cv": sample_structured_cv,
-        "job_description_data": sample_job_description_data,
-        "current_item_id": "11111111-1111-1111-1111-111111111111", # This is a Key Qualification item
-        "research_findings": {"company_culture": "fast-paced"},
-    }
+    initial_state_wrong_type = AgentState(
+        session_id="test_session",
+        structured_cv=sample_structured_cv,
+        job_description_data=sample_job_description_data,
+        current_item_id="11111111-1111-1111-1111-111111111111", # This is a Key Qualification item
+        research_findings={"company_culture": "fast-paced"},
+        cv_text="mock cv text"
+    )
     result = await agent.run_as_node(initial_state_wrong_type)
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    assert "Item with ID '11111111-1111-1111-1111-111111111111' not found or is not a professional experience item." in result["error_messages"][0]
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    assert "Item with ID '11111111-1111-1111-1111-111111111111' not found or is not a professional experience item." in result.error_messages[0]
 
 @pytest.mark.asyncio
 async def test_professional_experience_writer_agent_template_not_found(
@@ -227,6 +237,6 @@ async def test_professional_experience_writer_agent_template_not_found(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, dict)
-    assert result.get("error_messages")
-    assert f"No prompt template found for type {ContentType.EXPERIENCE}" in result["error_messages"][0]
+    assert isinstance(result, AgentState)
+    assert result.error_messages
+    assert f"No prompt template found for type {ContentType.EXPERIENCE}" in result.error_messages[0]

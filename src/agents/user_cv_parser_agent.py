@@ -5,30 +5,18 @@ This module defines the UserCVParserAgent, responsible for parsing user CVs.
 from typing import Any
 from uuid import uuid4
 
-from ..config.logging_config import get_structured_logger
-from ..error_handling.exceptions import (
-    AgentExecutionError,
-    DataConversionError,
-    LLMResponseParsingError,
-    VectorStoreError,
-)
-from ..models.agent_models import AgentResult
-from ..models.agent_output_models import ParserAgentOutput
-from ..models.data_models import (
-    StructuredCV,
-)
-from ..services.llm_cv_parser_service import LLMCVParserService
-from ..services.llm_service import EnhancedLLMService
-from ..services.vector_store_service import VectorStoreService
-from ..templates.content_templates import ContentTemplateManager
-from ..utils.cv_data_factory import (
-    determine_section_content_type,
-    determine_item_type,
-)
-from .agent_base import AgentBase
-
-from ..models.data_models import Section, Subsection, Item, ItemStatus
-
+from src.agents.agent_base import AgentBase
+from src.config.logging_config import get_structured_logger
+from src.error_handling.exceptions import AgentExecutionError, DataConversionError, LLMResponseParsingError, VectorStoreError
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import ParserAgentOutput
+from src.models.data_models import Item, ItemStatus, Section, StructuredCV, Subsection
+from src.services.llm_cv_parser_service import LLMCVParserService
+from src.services.llm_service_interface import LLMServiceInterface
+from src.constants.agent_constants import AgentConstants
+from src.services.vector_store_service import VectorStoreService
+from src.templates.content_templates import ContentTemplateManager
+from src.utils.cv_data_factory import determine_item_type, determine_section_content_type
 
 logger = get_structured_logger(__name__)
 
@@ -38,7 +26,7 @@ class UserCVParserAgent(AgentBase):
 
     def __init__(
         self,
-        llm_service: EnhancedLLMService,
+        llm_service: LLMServiceInterface,
         vector_store_service: VectorStoreService,
         template_manager: ContentTemplateManager,
         settings: dict,
@@ -49,19 +37,12 @@ class UserCVParserAgent(AgentBase):
             name="UserCVParserAgent",
             description="Parses raw text of user CVs into structured data.",
             session_id=session_id,
+            settings=settings,
         )
         self.vector_store_service = vector_store_service
         self.llm_cv_parser_service = LLMCVParserService(
             llm_service, settings, template_manager
         )
-
-    def _validate_inputs(self, input_data: dict) -> None:
-        """Validate inputs for parser agent."""
-        if not input_data.get("raw_text"):
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="'raw_text' is a required field.",
-            )
 
     async def _execute(self, **kwargs: Any) -> AgentResult:
         """Execute the core parsing logic."""
@@ -69,11 +50,11 @@ class UserCVParserAgent(AgentBase):
         raw_text = input_data.get("raw_text")
 
         output = ParserAgentOutput()
-        self.update_progress(40, "Parsing CV")
+        self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Parsing CV")
         parsed_data = await self.parse_cv(raw_text)
         output.structured_cv = parsed_data
 
-        self.update_progress(100, "Parsing completed")
+        self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Parsing completed")
         return AgentResult(success=True, output_data=output)
 
     async def parse_cv(self, raw_text: str) -> StructuredCV:
@@ -83,18 +64,19 @@ class UserCVParserAgent(AgentBase):
                 agent_name=self.name, message="Cannot parse an empty CV."
             )
         try:
-            self.update_progress(40, "Calling LLM for CV parsing")
+            self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Calling LLM for CV parsing")
             llm_output = await self.llm_cv_parser_service.parse_cv_with_llm(raw_text)
 
-            self.update_progress(70, "Converting LLM output to structured format")
+            self.update_progress(AgentConstants.PROGRESS_PARSING_COMPLETE, "Converting LLM output to structured format")
             # Create a StructuredCV directly from CVParsingResult
             structured_cv = self._convert_cv_parsing_result_to_structured_cv(
                 llm_output, raw_text
             )
 
-            self.update_progress(90, "Storing CV vectors")
+            self.update_progress(AgentConstants.PROGRESS_VECTOR_STORAGE, "Storing CV vectors")
             await self._store_cv_vectors(structured_cv)
 
+            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Parsing completed")
             return structured_cv
         except (LLMResponseParsingError, DataConversionError) as e:
             raise AgentExecutionError(
@@ -171,22 +153,3 @@ class UserCVParserAgent(AgentBase):
         except VectorStoreError as e:
             logger.warning("Failed to store CV vectors", error=str(e))
             # Non-critical error, so we don't re-raise as AgentExecutionError
-
-    async def run_as_node(self, state: dict) -> dict:
-        """Runs the agent as a node in the workflow."""
-        self.update_progress(0, "Starting CV parser node.")
-        try:
-            # Extract relevant data from the state
-            raw_cv_text = state.get("cv_text")
-
-            # Parse CV
-            if raw_cv_text:
-                structured_cv = await self.parse_cv(raw_cv_text)
-                state["structured_cv"] = structured_cv
-
-            self.update_progress(100, "CV parser node completed.")
-            return state
-        except Exception as e:
-            logger.error(f"Error in CV parser node: {e}", exc_info=True)
-            state["error_messages"] = state.get("error_messages", []) + [str(e)]
-            return state

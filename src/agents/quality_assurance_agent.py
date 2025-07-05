@@ -2,22 +2,17 @@
 
 import re
 from typing import Any, Dict
-
 from pydantic import ValidationError
-
-from ..config.logging_config import get_structured_logger
-from ..error_handling.exceptions import AgentExecutionError
-from ..models.agent_models import AgentResult
-from ..models.agent_output_models import (
-    ItemQualityResultModel,
-    OverallQualityCheckResultModel,
-    QualityAssuranceAgentOutput,
-    SectionQualityResultModel,
-)
-from ..models.data_models import Item, Section, StructuredCV
-from ..services.llm_service import EnhancedLLMService
-from ..templates.content_templates import ContentTemplateManager
-from .agent_base import AgentBase
+from src.agents.agent_base import AgentBase
+from src.config.logging_config import get_structured_logger
+from src.constants.agent_constants import AgentConstants
+from src.constants.qa_constants import QAConstants
+from src.error_handling.exceptions import AgentExecutionError
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import ItemQualityResultModel, OverallQualityCheckResultModel, QualityAssuranceAgentOutput, SectionQualityResultModel
+from src.models.data_models import Item, Section, StructuredCV
+from src.services.llm_service_interface import LLMServiceInterface
+from src.templates.content_templates import ContentTemplateManager
 
 logger = get_structured_logger(__name__)
 
@@ -30,7 +25,7 @@ class QualityAssuranceAgent(AgentBase):
 
     def __init__(
         self,
-        llm_service: EnhancedLLMService,
+        llm_service: LLMServiceInterface,
         template_manager: ContentTemplateManager,
         settings: Dict[str, Any],
         session_id: str = "default",
@@ -47,52 +42,50 @@ class QualityAssuranceAgent(AgentBase):
             name="QualityAssuranceAgent",
             description="Agent responsible for quality assurance of CV content",
             session_id=session_id,
+            settings=settings,
         )
         self.llm_service = llm_service
         self.template_manager = template_manager
         self.settings = settings
-
-    def _validate_inputs(self, input_data: dict) -> None:
-        """Validates the input for the QualityAssuranceAgent."""
-        if not isinstance(input_data, dict):
-            raise AgentExecutionError("Input validation failed: input_data must be a dict")
-        if "structured_cv" not in input_data:
-            raise AgentExecutionError("Invalid input: 'structured_cv' is a required field.")
-        structured_cv = input_data["structured_cv"]
-        if not isinstance(structured_cv, StructuredCV):
-            if isinstance(structured_cv, dict):
-                input_data["structured_cv"] = StructuredCV(**structured_cv)
-            else:
-                raise AgentExecutionError(
-                    f"Invalid type for 'structured_cv'. Expected StructuredCV or dict, got {type(structured_cv)}."
-                )
 
     async def _execute(self, **kwargs: Any) -> AgentResult:
         """
         Runs the quality assurance agent to evaluate generated CV content.
         """
         logger.info("Quality Assurance Agent: Starting execution.")
-        self.update_progress(0, "Starting QA process.")
-        input_data = kwargs.get("input_data", {})
+        self.update_progress(AgentConstants.PROGRESS_START, "Starting QA process.")
 
         try:
-            structured_cv = input_data["structured_cv"]
-            self.update_progress(20, "Input validation passed.")
+            # Extract structured_cv from kwargs (passed by base class run method)
+            structured_cv = kwargs.get("structured_cv")
+            if not structured_cv:
+                raise AgentExecutionError(agent_name=self.name, message="structured_cv is required but not provided")
+
+            # Ensure structured_cv is a StructuredCV object
+            if isinstance(structured_cv, dict):
+                structured_cv = StructuredCV(**structured_cv)
+            elif not isinstance(structured_cv, StructuredCV):
+                raise AgentExecutionError(
+                    agent_name=self.name,
+                    message=f"Invalid type for 'structured_cv'. Expected StructuredCV or dict, got {type(structured_cv)}."
+                )
+
+            self.update_progress(AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation passed.")
 
             section_results = [
                 self._check_section(section) for section in structured_cv.sections
             ]
-            self.update_progress(70, "Section checks completed.")
+            self.update_progress(AgentConstants.PROGRESS_SECTION_CHECKS, "Section checks completed.")
 
             overall_checks = self._check_overall_cv()
-            self.update_progress(90, "Overall CV checks completed.")
+            self.update_progress(AgentConstants.PROGRESS_OVERALL_CHECKS, "Overall CV checks completed.")
 
             qa_results = QualityAssuranceAgentOutput(
                 section_results=section_results, overall_checks=overall_checks
             )
 
             logger.info("Quality Assurance Agent: Execution completed successfully.")
-            self.update_progress(100, "QA checks completed.")
+            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "QA checks completed.")
 
             return AgentResult(success=True, output_data=qa_results)
 
@@ -135,13 +128,20 @@ class QualityAssuranceAgent(AgentBase):
                 item.content for item in section.items if item.content
             )
             word_count = len(re.findall(r"\b\w+\b", summary_text))
-            min_word_count = self.settings.get("qa", {}).get(
-                "executive_summary_min_words", 50
-            )
-            if word_count < min_word_count:
+            if word_count < QAConstants.MIN_WORD_COUNT_EXECUTIVE_SUMMARY:
                 issues.append(
-                    f"Executive Summary is too short ({word_count} words, recommend "
-                    f"{min_word_count}-{min_word_count + 25})"
+                    QAConstants.ERROR_WORD_COUNT_LOW.format(
+                        actual=word_count,
+                        minimum=QAConstants.MIN_WORD_COUNT_EXECUTIVE_SUMMARY
+                    )
+                )
+                passed = False
+            elif word_count > QAConstants.MAX_WORD_COUNT_EXECUTIVE_SUMMARY:
+                issues.append(
+                    QAConstants.ERROR_WORD_COUNT_HIGH.format(
+                        actual=word_count,
+                        maximum=QAConstants.MAX_WORD_COUNT_EXECUTIVE_SUMMARY
+                    )
                 )
                 passed = False
         return SectionQualityResultModel(

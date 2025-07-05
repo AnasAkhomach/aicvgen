@@ -10,20 +10,16 @@ This module provides sophisticated async execution optimizations including:
 
 import asyncio
 import time
-import weakref
-from typing import Dict, Any, Optional, List, Callable, Union, Tuple, Set
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from collections import defaultdict, deque
-import threading
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from functools import wraps
-import inspect
-import traceback
+from typing import Any, Callable, Dict, List, Optional, Set
+from src.constants.performance_constants import PerformanceConstants
+from src.config.logging_config import get_structured_logger
+from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from src.utils.performance import get_performance_monitor
 
-from ..config.logging_config import get_structured_logger
-from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
-from ..utils.performance import get_performance_monitor
 
 logger = get_structured_logger("async_optimizer")
 
@@ -32,25 +28,25 @@ logger = get_structured_logger("async_optimizer")
 class ConcurrencyConfig:
     """Configuration for concurrency control."""
 
-    max_concurrent_operations: int = 50
-    max_concurrent_per_type: int = 10
+    max_concurrent_operations: int = PerformanceConstants.DEFAULT_MAX_CONCURRENT_OPERATIONS
+    max_concurrent_per_type: int = PerformanceConstants.DEFAULT_MAX_CONCURRENT_PER_TYPE
     adaptive_scaling: bool = True
-    scaling_factor: float = 1.2
+    scaling_factor: float = PerformanceConstants.DEFAULT_SCALING_FACTOR
     min_concurrency: int = 2
-    max_concurrency: int = 100
-    throttle_threshold: float = 0.8
-    deadlock_timeout: float = 30.0
+    max_concurrency: int = PerformanceConstants.MAX_CONCURRENT_OPERATIONS
+    throttle_threshold: float = PerformanceConstants.HIGH_LOAD_THRESHOLD
+    deadlock_timeout: float = PerformanceConstants.DEFAULT_DEADLOCK_TIMEOUT
 
 
 @dataclass
 class AsyncPoolConfig:
     """Configuration for async context pooling."""
 
-    pool_size: int = 20
-    max_idle_time: float = 300.0
-    cleanup_interval: float = 60.0
+    pool_size: int = PerformanceConstants.DEFAULT_POOL_SIZE
+    max_idle_time: float = PerformanceConstants.DEFAULT_MAX_IDLE_TIME  # 5 minutes
+    cleanup_interval: float = PerformanceConstants.DEFAULT_CLEANUP_INTERVAL  # 1 minute
     enable_warmup: bool = True
-    warmup_size: int = 5
+    warmup_size: int = PerformanceConstants.DEFAULT_WARMUP_SIZE
 
 
 class AdaptiveSemaphore:
@@ -68,8 +64,8 @@ class AdaptiveSemaphore:
         self._lock = asyncio.Lock()
 
         # Performance tracking
-        self._operation_times: deque = deque(maxlen=100)
-        self._wait_times: deque = deque(maxlen=100)
+        self._operation_times: deque = deque(maxlen=PerformanceConstants.MAX_OPERATION_TIMES_HISTORY)
+        self._wait_times: deque = deque(maxlen=PerformanceConstants.MAX_WAIT_TIMES_HISTORY)
 
         logger.info("Adaptive semaphore initialized", initial_capacity=initial_value)
 
@@ -107,8 +103,8 @@ class AdaptiveSemaphore:
         async with self._lock:
             now = time.time()
 
-            # Only adjust every 10 seconds minimum
-            if now - self._last_adjustment < 10:
+            # Only adjust every minimum interval
+            if now - self._last_adjustment < PerformanceConstants.MIN_ADJUSTMENT_INTERVAL:
                 return
 
             # Calculate performance metrics
@@ -125,14 +121,14 @@ class AdaptiveSemaphore:
             # Determine if scaling is needed
             should_scale_up = (
                 avg_wait_time
-                > avg_operation_time * 0.1  # Wait time > 10% of operation time
-                and error_rate < 0.05  # Low error rate
+                > avg_operation_time * PerformanceConstants.WAIT_TIME_THRESHOLD  # Wait time > threshold of operation time
+                and error_rate < PerformanceConstants.ERROR_RATE_THRESHOLD  # Low error rate
                 and self._current_capacity < self.config.max_concurrency
             )
 
             should_scale_down = (
-                avg_wait_time < avg_operation_time * 0.01  # Very low wait time
-                or error_rate > 0.1  # High error rate
+                avg_wait_time < avg_operation_time * PerformanceConstants.PERFORMANCE_IMPROVEMENT_THRESHOLD  # Very low wait time
+                or error_rate > PerformanceConstants.HIGH_ERROR_RATE_THRESHOLD  # High error rate
                 or self._current_capacity > self.config.min_concurrency
             )
 
@@ -172,7 +168,7 @@ class AdaptiveSemaphore:
             # Decrease capacity (acquire without releasing)
             for _ in range(self._current_capacity - new_capacity):
                 try:
-                    await asyncio.wait_for(self._semaphore.acquire(), timeout=1.0)
+                    await asyncio.wait_for(self._semaphore.acquire(), timeout=PerformanceConstants.CAPACITY_ADJUSTMENT_TIMEOUT)
                 except asyncio.TimeoutError:
                     break
 
@@ -378,7 +374,7 @@ class AsyncContextPool:
 class DeadlockDetector:
     """Deadlock detection and prevention for async operations."""
 
-    def __init__(self, timeout: float = 30.0):
+    def __init__(self, timeout: float = PerformanceConstants.DEFAULT_DEADLOCK_TIMEOUT):
         self.timeout = timeout
         self._waiting_for: Dict[asyncio.Task, Set[asyncio.Task]] = {}
         self._lock = asyncio.Lock()
@@ -424,7 +420,7 @@ class DeadlockDetector:
         """Periodic deadlock detection."""
         while True:
             try:
-                await asyncio.sleep(5)  # Check every 5 seconds
+                await asyncio.sleep(PerformanceConstants.DEADLOCK_DETECTION_INTERVAL)  # Check every interval
                 await self._detect_deadlocks()
             except asyncio.CancelledError:
                 break

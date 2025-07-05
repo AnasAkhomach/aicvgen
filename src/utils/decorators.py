@@ -1,8 +1,8 @@
 """Decorator utilities for the aicvgen project."""
 
 import asyncio
-from typing import Callable
 import functools
+from typing import Callable
 
 
 def create_async_sync_decorator(
@@ -20,10 +20,10 @@ def create_async_sync_decorator(
         else:
 
             @functools.wraps(func)
-            def method_sync_wrapper(*args, **kwargs):
+            def sync_wrapper(*args, **kwargs):
                 bound_func = func
                 return sync_wrapper_func(bound_func)(*args, **kwargs)
 
-            return method_sync_wrapper
+            return sync_wrapper
 
     return decorator

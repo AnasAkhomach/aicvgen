@@ -4,21 +4,17 @@ This module defines the EnhancedContentWriterAgent, responsible for generating t
 
 from typing import Any, Dict
 
-from ..models.agent_models import AgentResult
-from ..models.agent_output_models import EnhancedContentWriterOutput
-from ..models.data_models import (
-    ContentType,
-    JobDescriptionData,
-    StructuredCV,
-)
-from ..orchestration.state import AgentState
-from ..services.llm_service import EnhancedLLMService
-from ..templates.content_templates import ContentTemplateManager
-from ..utils.cv_data_factory import get_item_by_id, update_item_by_id
-
-from ..config.logging_config import get_structured_logger
-from ..error_handling.exceptions import AgentExecutionError
-from .agent_base import AgentBase
+from src.agents.agent_base import AgentBase
+from src.config.logging_config import get_structured_logger
+from src.constants.agent_constants import AgentConstants
+from src.constants.llm_constants import LLMConstants
+from src.error_handling.exceptions import AgentExecutionError
+from src.models.agent_models import AgentResult
+from src.models.agent_output_models import EnhancedContentWriterOutput
+from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
+from src.services.llm_service_interface import LLMServiceInterface
+from src.templates.content_templates import ContentTemplateManager
+from src.utils.cv_data_factory import get_item_by_id, update_item_by_id
 
 logger = get_structured_logger(__name__)
 
@@ -28,7 +24,7 @@ class EnhancedContentWriterAgent(AgentBase):
 
     def __init__(
         self,
-        llm_service: EnhancedLLMService,
+        llm_service: LLMServiceInterface,
         template_manager: ContentTemplateManager,
         settings: dict,
         session_id: str,
@@ -38,6 +34,7 @@ class EnhancedContentWriterAgent(AgentBase):
             name="EnhancedContentWriter",
             description="Generates tailored CV content.",
             session_id=session_id,
+            settings=settings,
         )
         self.llm_service = llm_service
         self.template_manager = template_manager
@@ -75,13 +72,13 @@ class EnhancedContentWriterAgent(AgentBase):
                 message=f"Item with ID '{item_id}' not found in structured_cv.",
             )
 
-        self.update_progress(40, f"Generating content for item {item_id}")
+        self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, f"Generating content for item {item_id}")
         enhanced_content = await self._generate_enhanced_content(
             structured_cv, job_description_data, content_item, research_findings
         )
 
         self.update_progress(
-            80, f"Updating CV with enhanced content for item {item_id}"
+            AgentConstants.PROGRESS_POST_PROCESSING, f"Updating CV with enhanced content for item {item_id}"
         )
         updated_cv = update_item_by_id(
             structured_cv, item_id, {"enhanced_content": enhanced_content}
@@ -93,7 +90,7 @@ class EnhancedContentWriterAgent(AgentBase):
             generated_content=enhanced_content,
         )
 
-        self.update_progress(100, "Content generation completed successfully")
+        self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Content generation completed successfully")
         return AgentResult(
             success=True,
             output_data=output_data,
@@ -121,16 +118,20 @@ class EnhancedContentWriterAgent(AgentBase):
                 message=f"No prompt template found for type {content_type}",
             )
 
-        prompt = prompt_template.format(
-            job_description=job_data.model_dump_json(indent=2),
-            cv_section=content_item,
-            research_findings=research_findings,
+        prompt = self.template_manager.format_template(
+            prompt_template,
+            {
+                "job_description": job_data.model_dump_json(indent=2),
+                "cv_section": content_item,
+                "research_findings": research_findings,
+            },
         )
 
         response = await self.llm_service.generate_content(
             prompt=prompt,
-            max_tokens=self.settings.get("max_tokens_content_generation", 1024),
-            temperature=self.settings.get("temperature_content_generation", 0.7),
+            content_type=content_type,
+            max_tokens=self.settings.get("max_tokens_content_generation", LLMConstants.MAX_TOKENS_GENERATION),
+            temperature=self.settings.get("temperature_content_generation", LLMConstants.TEMPERATURE_BALANCED),
         )
 
         if not response or not response.content:
@@ -139,35 +140,3 @@ class EnhancedContentWriterAgent(AgentBase):
             )
 
         return response.content
-
-    async def run_as_node(self, state: Union[AgentState, dict]) -> dict:
-        """Execute the agent as a node in the workflow, returning a dictionary."""
-        if hasattr(state, 'model_dump'):
-            state_dict = state.model_dump()
-        else:
-            state_dict = state.copy() if isinstance(state, dict) else {}
-
-        try:
-            result = await self._execute(
-                structured_cv=state_dict.get('structured_cv'),
-                job_description_data=state_dict.get('job_description_data'),
-                item_id=state_dict.get('current_item_id'),
-                research_findings=state_dict.get('research_findings')
-            )
-
-            if result.success:
-                state_dict["structured_cv"] = result.output_data.updated_structured_cv
-                if "error_messages" not in state_dict:
-                    state_dict["error_messages"] = []
-            else:
-                if "error_messages" not in state_dict:
-                    state_dict["error_messages"] = []
-                state_dict["error_messages"].append(result.error_message)
-
-        except Exception as e:
-            logger.error(f"EnhancedContentWriterAgent execution failed: {str(e)}")
-            if "error_messages" not in state_dict:
-                state_dict["error_messages"] = []
-            state_dict["error_messages"].append(str(e))
-
-        return state_dict
