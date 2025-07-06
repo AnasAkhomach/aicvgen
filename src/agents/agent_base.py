@@ -61,12 +61,12 @@ class AgentBase(ABC):
             self.logger.error(
                 f"Agent execution error in {self.name}: {e}", exc_info=True
             )
-            return AgentResult.failure(agent_name=self.name, error_message=str(e))
+            return AgentResult.create_failure(agent_name=self.name, error_message=str(e))
         except (AttributeError, TypeError, ValueError, KeyError) as e:
             self.logger.error(
                 f"An unexpected error occurred in {self.name}: {e}", exc_info=True
             )
-            return AgentResult.failure(
+            return AgentResult.create_failure(
                 agent_name=self.name, error_message=f"An unexpected error occurred: {e}"
             )
 
@@ -110,10 +110,21 @@ class AgentBase(ABC):
                         }
                     )
                 else:
-                    # For other output types, use the standard dict conversion
-                    updated_state_data = agent_result.output_data.model_dump(
-                        exclude_unset=True
-                    )
+                    # For other output types, preserve Pydantic models for specific fields
+                    updated_state_data = {}
+                    
+                    # Convert to dict but preserve specific Pydantic model fields
+                    output_dict = agent_result.output_data.model_dump(exclude_unset=True)
+                    
+                    for key, value in output_dict.items():
+                        # Preserve JobDescriptionData and StructuredCV as Pydantic models
+                        if key == "job_description_data" and hasattr(agent_result.output_data, "job_description_data"):
+                            updated_state_data[key] = agent_result.output_data.job_description_data
+                        elif key == "structured_cv" and hasattr(agent_result.output_data, "structured_cv"):
+                            updated_state_data[key] = agent_result.output_data.structured_cv
+                        else:
+                            updated_state_data[key] = value
+                    
                     return state.model_copy(update=updated_state_data)
             return state  # No output data, return original state
         else:

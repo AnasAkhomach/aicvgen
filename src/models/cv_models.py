@@ -1,5 +1,4 @@
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
@@ -269,27 +268,75 @@ class StructuredCV(BaseModel):
                     lines.append(f"- {item.content}")
         return "\n".join(lines)
 
+    def ensure_required_sections(self) -> None:
+        """
+        Ensures all required sections exist in the CV structure.
+        Creates missing sections with default empty structure.
+        """
+        required_sections = [
+            "Executive Summary",
+            "Key Qualifications", 
+            "Professional Experience",
+            "Project Experience",
+            "Education"
+        ]
+        
+        existing_section_names = {section.name for section in self.sections}
+        
+        for section_name in required_sections:
+            if section_name not in existing_section_names:
+                section = Section(
+                    id=uuid4(),
+                    name=section_name,
+                    content_type="DYNAMIC",
+                    order=len(self.sections),
+                    status=ItemStatus.INITIAL,
+                    subsections=[],
+                    items=[]
+                )
+                self.sections.append(section)  # pylint: disable=no-member
+
     @staticmethod
     def create_empty(
         cv_text: str = "", job_data: Optional["JobDescriptionData"] = None
     ) -> "StructuredCV":
         """
-
-        Creates an empty CV structure, optionally with job data.
-
+        Creates an empty CV structure with pre-initialized standard sections.
         """
 
-        structured_cv = StructuredCV()
+        # Pre-initialize standard CV sections
+        standard_sections = [
+            "Executive Summary",
+            "Key Qualifications",
+            "Professional Experience",
+            "Project Experience",
+            "Education"
+        ]
+
+        sections = []
+        for i, section_name in enumerate(standard_sections):
+            section = Section(
+                id=uuid4(),
+                name=section_name,
+                content_type="DYNAMIC",
+                order=i,
+                status=ItemStatus.INITIAL,
+                subsections=[],
+                items=[]
+            )
+            sections.append(section)
+
+        structured_cv = StructuredCV(sections=sections)
         if job_data:
-            structured_cv.metadata.extra["job_description"] = (
+            structured_cv.metadata.extra["job_description"] = (  # pylint: disable=no-member
                 job_data.model_dump()
-            )  # pylint: disable=no-member
+            )
         else:
-            structured_cv.metadata.extra["job_description"] = (
+            structured_cv.metadata.extra["job_description"] = (  # pylint: disable=no-member
                 {}
-            )  # pylint: disable=no-member
-        structured_cv.metadata.extra["original_cv_text"] = (
-            cv_text  # pylint: disable=no-member
+            )
+        structured_cv.metadata.extra["original_cv_text"] = (  # pylint: disable=no-member
+            cv_text
         )
         return structured_cv
 

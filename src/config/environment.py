@@ -12,16 +12,27 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import List
-from config.settings import UIConfig, EnvironmentConfig
-from config.shared_configs import PerformanceConfig, DatabaseConfig as SharedDatabaseConfig
+from src.utils.import_fallbacks import get_dotenv
+from .settings import UIConfig, EnvironmentConfig
+from .shared_configs import PerformanceConfig, DatabaseConfig as SharedDatabaseConfig
 
-# Try to import python-dotenv, but don't fail if it's not available
-try:
-    from dotenv import load_dotenv
+# Load environment variables with standardized fallback handling
+# Note: Import moved to avoid circular dependency
+def _load_environment_variables():
+    """Load environment variables using standardized fallback handling."""
+    try:
+        load_dotenv, dotenv_available = get_dotenv()
+        if dotenv_available:
+            load_dotenv()
+    except ImportError:
+        # Fallback if import_fallbacks is not available
+        try:
+            load_dotenv()
+        except ImportError:
+            pass
 
-    load_dotenv()
-except ImportError:
-    pass
+# Load environment variables at module level
+_load_environment_variables()
 
 
 class Environment(Enum):

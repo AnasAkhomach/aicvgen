@@ -5,12 +5,14 @@ It implements granular, item-by-item processing with user feedback loops.
 """
 
 import uuid
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 from langgraph.graph import END, StateGraph
 
 from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
+from src.config.settings import get_config
 from src.models.workflow_models import ContentType, UserAction
 from src.orchestration.state import AgentState
 from src.services.error_recovery import ErrorRecoveryService
@@ -267,7 +269,10 @@ class CVWorkflowGraph:
             if "final_output_path" in result:
                 updates["final_output_path"] = result["final_output_path"]
             if "error_messages" in result:
-                updates["error_messages"] = [*state.error_messages, *result["error_messages"]]
+                updates["error_messages"] = [
+                    *state.error_messages,
+                    *result["error_messages"],
+                ]
             return state.model_copy(update=updates)
 
         # Default fallback
@@ -316,7 +321,10 @@ class CVWorkflowGraph:
             logger.error("Error handler itself failed: %s", exc)
             return state.model_copy(
                 update={
-                    "error_messages": [*state.error_messages, f"Error handler failed: {exc}"]
+                    "error_messages": [
+                        *state.error_messages,
+                        f"Error handler failed: {exc}",
+                    ]
                 }
             )
 
@@ -382,7 +390,7 @@ class CVWorkflowGraph:
         updated_metadata = {
             **state.node_execution_metadata,
             "next_node": next_node,
-            "last_executed_node": WorkflowNodes.SUPERVISOR.value
+            "last_executed_node": WorkflowNodes.SUPERVISOR.value,
         }
 
         return state.model_copy(
@@ -397,13 +405,83 @@ class CVWorkflowGraph:
         logger.info(
             f"Executing handle_feedback_node for item: {getattr(state, 'current_item_id', 'unknown')}"
         )
-        if state.user_feedback and state.user_feedback.action == UserAction.REGENERATE:
+
+        # If no user feedback yet, set status to awaiting feedback and prepare UI data
+        if not state.user_feedback:
+            logger.info(
+                "No user feedback found, setting workflow status to AWAITING_FEEDBACK"
+            )
+
+            # Prepare UI display data based on current section and content
+            current_section = (
+                WORKFLOW_SEQUENCE[state.current_section_index]
+                if state.current_section_index < len(WORKFLOW_SEQUENCE)
+                else "unknown"
+            )
+
+            ui_data = {
+                "section": current_section,
+                "item_id": state.current_item_id,
+                "content_type": (
+                    state.current_content_type.value
+                    if state.current_content_type
+                    else "unknown"
+                ),
+                "timestamp": datetime.now().isoformat(),
+                "requires_feedback": True,
+                "feedback_options": ["approve", "regenerate"],
+            }
+
+            # Add section-specific content to UI data
+            if hasattr(state, "structured_cv") and state.structured_cv:
+                # Find the relevant section content for display
+                for section in state.structured_cv.sections:
+                    if section.name == current_section:
+                        ui_data["content_preview"] = {
+                            "section_name": section.name,
+                            "items_count": len(section.items),
+                            "items": [
+                                {
+                                    "id": item.id,
+                                    "content": (
+                                        item.content[:200] + "..."
+                                        if len(item.content) > 200
+                                        else item.content
+                                    ),
+                                }
+                                for item in section.items[:3]
+                            ],  # Show first 3 items as preview
+                        }
+                        break
+
+            return state.model_copy(
+                update={
+                    "workflow_status": "AWAITING_FEEDBACK",
+                    "ui_display_data": ui_data,
+                }
+            )
+
+        # Process existing user feedback
+        if state.user_feedback.action == UserAction.REGENERATE:
             logger.info(f"User feedback: Regenerate for item {state.current_item_id}")
-            return state.model_copy(update={"user_feedback": None})
-        elif state.user_feedback and state.user_feedback.action == UserAction.APPROVE:
+            return state.model_copy(
+                update={
+                    "user_feedback": None,
+                    "workflow_status": "PROCESSING",
+                    "ui_display_data": {},
+                }
+            )
+        elif state.user_feedback.action == UserAction.APPROVE:
             logger.info(f"User feedback: Approved for item {state.current_item_id}")
-            return state.model_copy(update={"user_feedback": None})
-        # Always return a copy to maintain immutability
+            return state.model_copy(
+                update={
+                    "user_feedback": None,
+                    "workflow_status": "PROCESSING",
+                    "ui_display_data": {},
+                }
+            )
+
+        # Fallback: return state copy
         return state.model_copy()
 
     async def mark_subgraph_completion_node(
@@ -421,7 +499,7 @@ class CVWorkflowGraph:
         # Update metadata to indicate this subgraph completed
         updated_metadata = {
             **state.node_execution_metadata,
-            "last_executed_node": subgraph_name
+            "last_executed_node": subgraph_name,
         }
 
         return state.model_copy(update={"node_execution_metadata": updated_metadata})
@@ -485,10 +563,7 @@ class CVWorkflowGraph:
             next_node = WorkflowNodes.JD_PARSER.value
 
         # Update metadata with routing decision
-        updated_metadata = {
-            **state.node_execution_metadata,
-            "entry_route": next_node
-        }
+        updated_metadata = {**state.node_execution_metadata, "entry_route": next_node}
 
         return state.model_copy(update={"node_execution_metadata": updated_metadata})
 
@@ -707,3 +782,106 @@ class CVWorkflowGraph:
         return await self.app.ainvoke(
             inputs, config={"configurable": {"thread_id": self.session_id}}
         )
+
+    async def trigger_workflow_step(self, state: AgentState) -> AgentState:
+        """Trigger the next workflow step based on current state.
+
+        This method allows resuming workflow execution from a paused state
+        by streaming through workflow steps and saving state after each step.
+        The method stops streaming when workflow_status becomes "AWAITING_FEEDBACK".
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state after executing workflow steps
+        """
+        logger.info(f"Triggering workflow step for session {self.session_id}")
+
+        try:
+            # Set workflow status to processing
+            state = state.set_workflow_status("PROCESSING")
+            state = state.set_ui_display_data({})
+
+            # Convert state to dict for workflow invocation
+            state_dict = state.model_dump()
+
+            # Stream through workflow steps
+            async for step in self.app.astream(
+                state_dict, config={"configurable": {"thread_id": self.session_id}}
+            ):
+                # Update state from step result
+                if isinstance(step, dict):
+                    # Extract the actual state from the step result
+                    # LangGraph astream yields {node_name: result} format
+                    for node_name, node_result in step.items():
+                        if isinstance(node_result, dict):
+                            state = AgentState(**node_result)
+                        elif hasattr(node_result, "model_dump"):
+                            state = node_result
+                        else:
+                            # If it's already an AgentState, use it directly
+                            state = node_result
+                        break  # Take the first (and typically only) result
+
+                # Save state to JSON file after each step
+                self._save_state_to_file(state)
+
+                # Check if we should pause for user feedback
+                if state.workflow_status == "AWAITING_FEEDBACK":
+                    logger.info(
+                        f"Workflow paused for feedback in session {self.session_id}"
+                    )
+                    break
+
+                # Check if workflow completed or errored
+                if state.workflow_status in ["COMPLETED", "ERROR"]:
+                    logger.info(
+                        f"Workflow finished with status {state.workflow_status} in session {self.session_id}"
+                    )
+                    break
+
+            return state
+
+        except Exception as exc:
+            logger.error(f"Error triggering workflow step: {exc}")
+            error_msg = f"Workflow step execution failed: {str(exc)}"
+
+            # Update state with error information
+            state = state.model_copy(
+                update={
+                    "error_messages": [*state.error_messages, error_msg],
+                    "workflow_status": "ERROR",
+                }
+            )
+
+            # Save error state to file
+            try:
+                self._save_state_to_file(state)
+            except Exception as save_error:
+                logger.error(f"Failed to save error state: {save_error}")
+
+            return state
+
+    def _save_state_to_file(self, state: AgentState) -> None:
+        """Save the current state to a JSON file.
+
+        Args:
+            state: The state to save
+        """
+        try:
+            config = get_config()
+            sessions_dir = config.paths.project_root / "instance" / "sessions"
+            sessions_dir.mkdir(parents=True, exist_ok=True)
+
+            session_file = sessions_dir / f"{self.session_id}.json"
+
+            # Write state to file
+            with open(session_file, "w", encoding="utf-8") as f:
+                f.write(state.model_dump_json(indent=2))
+
+            logger.debug(f"State saved to {session_file}")
+
+        except Exception as exc:
+            logger.error(f"Failed to save state to file: {exc}")
+            raise

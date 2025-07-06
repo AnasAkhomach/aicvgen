@@ -14,10 +14,10 @@ import os
 from pathlib import Path
 
 from pythonjsonlogger import jsonlogger
-from config.settings import get_config
+from .settings import get_config
 # from src.config.logging_config.settings import get_config
 
-def setup_logging(log_level=logging.INFO):
+def setup_logging(log_level=logging.DEBUG):
     """Configures logging based on the APP_ENV environment variable."""
     APP_ENV = os.environ.get("APP_ENV", "development").lower()
     if APP_ENV == "production":

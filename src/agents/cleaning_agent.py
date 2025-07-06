@@ -32,7 +32,6 @@ class CleaningAgent(AgentBase):
         )
         self.llm_service = llm_service
         self.template_manager = template_manager
-        self.settings = settings
 
     async def _execute(self, **kwargs: Any) -> AgentResult:
         """Execute the core cleaning logic."""

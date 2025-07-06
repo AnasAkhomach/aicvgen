@@ -54,8 +54,8 @@ def run_with_timeout(
 
 
 class VectorStoreService:
-    def __init__(self, settings):
-        self.settings = settings
+    def __init__(self, vector_config):
+        self.vector_config = vector_config
         self.client = self._connect()
         self.collection = self._get_or_create_collection()
 
@@ -69,18 +69,18 @@ class VectorStoreService:
     def _connect(self):
         try:
             logger.info(
-                "Initializing ChromaDB at %s", self.settings.vector_db.persist_directory
+                "Initializing ChromaDB at %s", self.vector_config.persist_directory
             )
 
             # Create directory if it doesn't exist
             import os
 
-            os.makedirs(self.settings.vector_db.persist_directory, exist_ok=True)
+            os.makedirs(self.vector_config.persist_directory, exist_ok=True)
 
             # Try to connect with a timeout to prevent hanging
             def create_client():
                 client = chromadb.PersistentClient(
-                    path=self.settings.vector_db.persist_directory
+                    path=self.vector_config.persist_directory
                 )
                 # Test the connection with a simple operation
                 logger.info("Testing ChromaDB connection...")
@@ -107,14 +107,14 @@ class VectorStoreService:
 
             logger.info(
                 "Successfully connected to ChromaDB at %s",
-                self.settings.vector_db.persist_directory,
+                self.vector_config.persist_directory,
             )
             return client
 
         except (chromadb.errors.ChromaError, IOError) as e:
             error_msg = (
                 f"CRITICAL: Failed to connect to Vector Store (ChromaDB) at path "
-                f"'{self.settings.vector_db.persist_directory}'. "
+                f"'{self.vector_config.persist_directory}'. "
                 f"Error: {e}\n\n"
                 f"Troubleshooting steps:\n"
                 f"1. Check if the directory exists and is writable\n"
@@ -329,7 +329,8 @@ def get_vector_store_service():
                     )
                     _vector_store_instance = MockVectorStoreService()
                 else:
-                    _vector_store_instance = VectorStoreService(get_config())
+                    config = get_config()
+                    _vector_store_instance = VectorStoreService(config.vector_db)
     return _vector_store_instance
 
 

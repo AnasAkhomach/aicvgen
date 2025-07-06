@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, Optional, TypeVar, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from src.models.validation_schemas import validate_agent_result_output_data
 
 T_Model = TypeVar("T_Model", bound=Union[BaseModel, Dict[str, BaseModel]])
@@ -39,7 +39,7 @@ class AgentResult(BaseModel, Generic[T_Model]):
         return validate_agent_result_output_data(values)
 
     @classmethod
-    def success(
+    def create_success(
         cls,
         agent_name: str,
         output_data: T_Model,
@@ -54,7 +54,7 @@ class AgentResult(BaseModel, Generic[T_Model]):
         )
 
     @classmethod
-    def failure(
+    def create_failure(
         cls, agent_name: str, error_message: str, **kwargs
     ) -> "AgentResult[T_Model]":
         """Create a failure result."""
@@ -73,7 +73,4 @@ class AgentResult(BaseModel, Generic[T_Model]):
         """Get the error message if the execution failed."""
         return self.error_message
 
-    class Config:
-        """Pydantic configuration."""
-
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -11,6 +11,7 @@ from typing import Optional, Tuple
 import streamlit as st
 
 from ..config.logging_config import get_logger
+from ..core.container import get_container
 from ..core.state_manager import StateManager
 from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
 from ..frontend.ui_components import (display_export_tab, display_input_form, display_review_and_edit_tab, display_sidebar)
@@ -141,6 +142,162 @@ class UIManager:
             with st.expander("🔍 Debug Information", expanded=False):
                 st.json(self.state.get_state_summary())
 
+    def render_status_driven_ui(self) -> None:
+        """Render UI components based on workflow status."""
+        # Get workflow_session_id from session state
+        workflow_session_id = st.session_state.get("workflow_session_id")
+        
+        if not workflow_session_id:
+            # No workflow session, show normal UI
+            return
+        
+        try:
+            # Get workflow manager from container
+            container = get_container()
+            workflow_manager = container.workflow_manager()
+            
+            # Get current workflow status
+            agent_state = workflow_manager.get_workflow_status(workflow_session_id)
+            
+            if not agent_state:
+                return
+            
+            # Render components based on workflow status
+            if agent_state.workflow_status == "AWAITING_FEEDBACK":
+                self._render_awaiting_feedback_ui(agent_state)
+            elif agent_state.workflow_status == "COMPLETED":
+                self._render_completed_ui(agent_state)
+            elif agent_state.workflow_status == "ERROR":
+                self._render_error_ui(agent_state)
+            # For "PROCESSING" status, normal UI is shown
+                
+        except Exception as e:
+            logger.error(f"Error in status-driven UI rendering: {e}")
+            # Fall back to normal UI on error
+    
+    def _render_awaiting_feedback_ui(self, agent_state) -> None:
+        """Render UI for AWAITING_FEEDBACK status."""
+        st.info("🔄 Workflow is awaiting your feedback")
+        
+        # Display content from ui_display_data
+        if agent_state.ui_display_data:
+            st.subheader("Review Generated Content")
+            
+            # Display the content from ui_display_data
+            for key, value in agent_state.ui_display_data.items():
+                if isinstance(value, str):
+                    st.markdown(f"**{key.replace('_', ' ').title()}:**")
+                    st.markdown(value)
+                elif isinstance(value, dict):
+                    st.markdown(f"**{key.replace('_', ' ').title()}:**")
+                    st.json(value)
+                else:
+                    st.markdown(f"**{key.replace('_', ' ').title()}:** {value}")
+            
+            # Add Approve and Regenerate buttons
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("✅ Approve", type="primary", use_container_width=True):
+                    self._handle_approve_action(agent_state)
+            
+            with col2:
+                if st.button("🔄 Regenerate", use_container_width=True):
+                    self._handle_regenerate_action(agent_state)
+    
+    def _render_completed_ui(self, agent_state) -> None:
+        """Render UI for COMPLETED status."""
+        st.success("✅ CV Generation Completed!")
+        
+        # Show Download PDF button if final_output_path is available
+        if agent_state.final_output_path:
+            st.subheader("Download Your CV")
+            
+            # Check if file exists and provide download button
+            try:
+                import os
+                if os.path.exists(agent_state.final_output_path):
+                    with open(agent_state.final_output_path, "rb") as file:
+                        st.download_button(
+                            label="📄 Download PDF",
+                            data=file.read(),
+                            file_name="generated_cv.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            use_container_width=True
+                        )
+                else:
+                    st.error("Generated PDF file not found.")
+            except Exception as e:
+                logger.error(f"Error accessing PDF file: {e}")
+                st.error("Error accessing the generated PDF file.")
+        else:
+            st.warning("No output file path available.")
+    
+    def _render_error_ui(self, agent_state) -> None:
+        """Render UI for ERROR status."""
+        st.error("❌ Workflow encountered an error")
+        
+        # Display error messages
+        if agent_state.error_messages:
+            st.subheader("Error Details")
+            for error in agent_state.error_messages:
+                st.error(error)
+        
+        # Option to restart workflow
+        if st.button("🔄 Restart Workflow", type="primary"):
+            self._handle_restart_workflow()
+    
+    def _handle_approve_action(self, agent_state) -> None:
+        """Handle approve action."""
+        try:
+            # Get workflow manager and send feedback
+            container = get_container()
+            workflow_manager = container.workflow_manager()
+            workflow_session_id = st.session_state.get("workflow_session_id")
+            
+            if workflow_session_id:
+                # Send approval feedback
+                workflow_manager.send_feedback(
+                    session_id=workflow_session_id,
+                    feedback_type="approve",
+                    feedback_data={"action": "approve"}
+                )
+                st.success("Feedback sent! Processing approval...")
+                st.rerun()
+        except Exception as e:
+            logger.error(f"Error handling approve action: {e}")
+            st.error("Error processing approval.")
+    
+    def _handle_regenerate_action(self, agent_state) -> None:
+        """Handle regenerate action."""
+        try:
+            # Get workflow manager and send feedback
+            container = get_container()
+            workflow_manager = container.workflow_manager()
+            workflow_session_id = st.session_state.get("workflow_session_id")
+            
+            if workflow_session_id:
+                # Send regenerate feedback
+                workflow_manager.send_feedback(
+                    session_id=workflow_session_id,
+                    feedback_type="regenerate",
+                    feedback_data={"action": "regenerate"}
+                )
+                st.success("Feedback sent! Regenerating content...")
+                st.rerun()
+        except Exception as e:
+            logger.error(f"Error handling regenerate action: {e}")
+            st.error("Error processing regeneration request.")
+    
+    def _handle_restart_workflow(self) -> None:
+        """Handle workflow restart."""
+        # Clear workflow session and reset state
+        st.session_state.workflow_session_id = None
+        self.state.reset_processing_state()
+        st.success("Workflow reset. You can start a new CV generation.")
+        st.rerun()
+
     def render_full_ui(self, show_debug: bool = False) -> None:
         """Render the complete UI.
 
@@ -158,6 +315,9 @@ class UIManager:
 
         # Show status messages
         self.render_status_messages()
+        
+        # Render status-driven UI components
+        self.render_status_driven_ui()
 
         # Render main tabs
         self.render_main_tabs()

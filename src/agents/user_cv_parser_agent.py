@@ -88,25 +88,40 @@ class UserCVParserAgent(AgentBase):
     ) -> StructuredCV:
         """Convert CVParsingResult to StructuredCV."""
 
-        # Create base structure
+        # Create base structure with all required sections pre-initialized
         structured_cv = StructuredCV.create_empty(cv_text=cv_text)
 
-        # Convert sections
-        sections = []
+        # Convert LLM-parsed sections and merge with existing structure
         for section_data in parsing_result.sections:
-            section = Section(
-                id=uuid4(),
-                title=section_data.name,
-                content_type=determine_section_content_type(section_data.name),
-                status=ItemStatus.GENERATED,
-                subsections=[],
-            )
+            # Find existing section or create new one
+            existing_section = structured_cv.get_section_by_name(section_data.name)
+            
+            if existing_section:
+                # Update existing section with LLM data
+                section = existing_section
+                section.status = ItemStatus.GENERATED
+                section.content_type = determine_section_content_type(section_data.name)
+            else:
+                # Create new section if it doesn't exist in required sections
+                section = Section(
+                    id=uuid4(),
+                    name=section_data.name,
+                    content_type=determine_section_content_type(section_data.name),
+                    status=ItemStatus.GENERATED,
+                    subsections=[],
+                    order=len(structured_cv.sections)
+                )
+                structured_cv.sections.append(section)
+
+            # Clear existing items/subsections and add LLM-parsed content
+            section.items = []
+            section.subsections = []
 
             # Add direct items to section if any
             if section_data.items:
                 subsection = Subsection(
                     id=uuid4(),
-                    title="Main",
+                    name="Main",
                     status=ItemStatus.GENERATED,
                     items=[],
                 )
@@ -125,7 +140,7 @@ class UserCVParserAgent(AgentBase):
             for subsection_data in section_data.subsections:
                 subsection = Subsection(
                     id=uuid4(),
-                    title=subsection_data.name,
+                    name=subsection_data.name,
                     status=ItemStatus.GENERATED,
                     items=[],
                 )
@@ -139,10 +154,10 @@ class UserCVParserAgent(AgentBase):
                     )
                     subsection.items.append(item)
                 section.subsections.append(subsection)
-
-            sections.append(section)
-
-        structured_cv.sections = sections
+        
+        # Ensure all required sections still exist (this should be redundant now but kept for safety)
+        structured_cv.ensure_required_sections()
+        
         return structured_cv
 
     async def _store_cv_vectors(self, structured_cv: StructuredCV):

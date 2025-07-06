@@ -1,10 +1,10 @@
 """Factory module for creating service instances."""
 
-import asyncio
-import logging
+
 from typing import Any, Optional
 
 import google.generativeai as genai
+from src.models.vector_store_config_interface import VectorStoreConfigInterface
 
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import ServiceInitializationError
@@ -88,9 +88,9 @@ class ServiceFactory:
         )
 
     @staticmethod
-    def create_vector_store_service(settings: Any) -> VectorStoreService:
+    def create_vector_store_service(vector_config: VectorStoreConfigInterface) -> VectorStoreService:
         """Create a vector store service instance."""
-        return VectorStoreService(settings=settings)
+        return VectorStoreService(vector_config=vector_config)
 
     @staticmethod
     def create_progress_tracker() -> ProgressTracker:
@@ -117,30 +117,30 @@ class ServiceFactory:
         """Create an LLM API key manager with lazy initialization and validation."""
         try:
             logger.info("Creating LLM API key manager with lazy initialization")
-            
+
             # Validate dependencies before creation
             if not settings:
                 raise ServiceInitializationError(
                     "llm_api_key_manager",
                     "Settings dependency is None or invalid"
                 )
-            
+
             if not llm_client:
                 raise ServiceInitializationError(
                     "llm_api_key_manager",
                     "LLM client dependency is None or invalid"
                 )
-            
+
             # Create the service with validated dependencies
             manager = LLMApiKeyManager(
                 settings=settings,
                 llm_client=llm_client,
                 user_api_key=user_api_key
             )
-            
+
             logger.info("LLM API key manager created successfully")
             return manager
-            
+
         except Exception as e:
             logger.error(f"Failed to create LLM API key manager: {e}")
             raise ServiceInitializationError(
@@ -159,32 +159,32 @@ class ServiceFactory:
         """Create an LLM retry service with lazy initialization and validation."""
         try:
             logger.info("Creating LLM retry service with lazy initialization")
-            
+
             # Validate dependencies before creation
             if not llm_retry_handler:
                 raise ServiceInitializationError(
                     "llm_retry_service",
                     "LLM retry handler dependency is None or invalid"
                 )
-            
+
             if not api_key_manager:
                 raise ServiceInitializationError(
                     "llm_retry_service",
                     "API key manager dependency is None or invalid"
                 )
-            
+
             if timeout <= 0:
                 raise ServiceInitializationError(
                     "llm_retry_service",
                     f"Invalid timeout value: {timeout}"
                 )
-            
+
             if not model_name or not model_name.strip():
                 raise ServiceInitializationError(
                     "llm_retry_service",
                     "Model name is empty or invalid"
                 )
-            
+
             # Create the service with validated dependencies
             service = LLMRetryService(
                 llm_retry_handler=llm_retry_handler,
@@ -193,10 +193,10 @@ class ServiceFactory:
                 timeout=timeout,
                 model_name=model_name
             )
-            
+
             logger.info("LLM retry service created successfully")
             return service
-            
+
         except Exception as e:
             logger.error(f"Failed to create LLM retry service: {e}")
             raise ServiceInitializationError(
@@ -215,32 +215,32 @@ class ServiceFactory:
         """Create an enhanced LLM service with lazy initialization and validation."""
         try:
             logger.info("Creating enhanced LLM service with lazy initialization")
-            
+
             # Validate dependencies before creation
             if not settings:
                 raise ServiceInitializationError(
                     "enhanced_llm_service",
                     "Settings dependency is None or invalid"
                 )
-            
+
             if not caching_service:
                 raise ServiceInitializationError(
                     "enhanced_llm_service",
                     "Caching service dependency is None or invalid"
                 )
-            
+
             if not api_key_manager:
                 raise ServiceInitializationError(
                     "enhanced_llm_service",
                     "API key manager dependency is None or invalid"
                 )
-            
+
             if not retry_service:
                 raise ServiceInitializationError(
                     "enhanced_llm_service",
                     "Retry service dependency is None or invalid"
                 )
-            
+
             # Create the service with validated dependencies
             service = EnhancedLLMService(
                 settings=settings,
@@ -249,10 +249,10 @@ class ServiceFactory:
                 retry_service=retry_service,
                 rate_limiter=rate_limiter
             )
-            
+
             logger.info("Enhanced LLM service created successfully")
             return service
-            
+
         except Exception as e:
             logger.error(f"Failed to create enhanced LLM service: {e}")
             raise ServiceInitializationError(

@@ -27,6 +27,7 @@ class ParserAgentOutput(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -53,6 +54,7 @@ class EnhancedContentWriterOutput(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -88,6 +90,7 @@ class CleaningAgentOutput(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -116,6 +119,7 @@ class CVAnalysisResult(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -149,6 +153,7 @@ class CVAnalyzerAgentOutput(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -174,6 +179,7 @@ class ItemQualityResultModel(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -199,6 +205,7 @@ class SectionQualityResultModel(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -223,6 +230,7 @@ class OverallQualityCheckResultModel(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -253,6 +261,7 @@ class QualityAssuranceAgentOutput(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -275,6 +284,7 @@ class FormatterAgentOutput(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -313,6 +323,7 @@ class CompanyInsight(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -340,6 +351,7 @@ class IndustryInsight(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -368,6 +380,7 @@ class RoleInsight(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -393,6 +406,7 @@ class ResearchMetadataModel(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
@@ -475,6 +489,7 @@ class ResearchAgentOutput(BaseModel):
 
     class Config:
         """Pydantic configuration for proper JSON serialization."""
+
         arbitrary_types_allowed = True
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,

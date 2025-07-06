@@ -161,9 +161,9 @@ class CVWorkflowExecutor:
             )
         else:
             result_state = initial_agent_state
-            result_state.error_messages = [
+            result_state.add_error_message(
                 "Workflow execution did not return expected results"
-            ]
+            )
 
         success = not bool(result_state.error_messages if result_state else True)
         self.logger.info("Workflow success", extra={"success": success})

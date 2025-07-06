@@ -67,3 +67,30 @@ class TestContainerSingleton:
         # Test singleton behavior for services
         config2 = container.config()
         assert config is config2
+    
+    def test_singleton_bypass_prevention(self):
+        """Test that singleton pattern cannot be bypassed through various methods."""
+        # Test 1: Direct instantiation with wrong key should fail
+        with pytest.raises(RuntimeError, match="Container cannot be instantiated directly"):
+            Container("wrong_key")
+        
+        # Test 2: Direct instantiation with None should fail
+        with pytest.raises(RuntimeError, match="Container cannot be instantiated directly"):
+            Container(None)
+        
+        # Test 3: Direct instantiation with no args should fail
+        with pytest.raises(RuntimeError, match="Container cannot be instantiated directly"):
+            Container()
+        
+        # Test 4: Attempting to access private singleton key should not work
+        # (This tests that external code cannot easily get the key)
+        with pytest.raises(RuntimeError, match="Container cannot be instantiated directly"):
+            # Even if someone tries to access the private key, it should still fail
+            # because they can't get the exact object reference
+            fake_key = object()
+            Container(fake_key)
+        
+        # Test 5: Verify that legitimate singleton creation still works
+        container1 = get_container()
+        container2 = get_container()
+        assert container1 is container2

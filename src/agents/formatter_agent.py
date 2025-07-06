@@ -14,20 +14,14 @@ from src.constants.agent_constants import AgentConstants
 from src.models.data_models import StructuredCV
 from src.templates.content_templates import ContentTemplateManager
 
-try:
-    from weasyprint import HTML
+from src.utils.import_fallbacks import get_weasyprint
 
-    WEASYPRINT_AVAILABLE = True
-except (ImportError, OSError) as e:
+# Import WeasyPrint with standardized fallback handling
+weasyprint, WEASYPRINT_AVAILABLE = get_weasyprint()
+if WEASYPRINT_AVAILABLE:
+    from weasyprint import HTML
+else:
     HTML = None
-    WEASYPRINT_AVAILABLE = False
-    # Log the error once at import time
-    _logger = get_structured_logger(__name__)
-    _logger.warning(
-        "WeasyPrint not found. PDF generation will be disabled.",
-        error=str(e),
-        exc_info=False,  # Don't need a full stack trace here
-    )
 
 
 logger = get_structured_logger(__name__)

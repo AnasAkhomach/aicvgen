@@ -12,21 +12,40 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from config.shared_configs import PerformanceConfig, DatabaseConfig
 from constants.config_constants import ConfigConstants
-# Try to import python-dotenv, but don't fail if it's not available
-try:
-    from dotenv import load_dotenv
+from src.utils.import_fallbacks import get_dotenv
 
-    # Load .env file from project root
-    env_path = Path(__file__).parent.parent.parent / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
-        print(f"Loaded environment variables from {env_path}")
-    else:
-        print(f"Warning: .env file not found at {env_path}")
-except ImportError:
-    print(
-        "Warning: python-dotenv not available, environment variables must be set manually"
-    )
+# Try to import python-dotenv, but don't fail if it's not available
+# Load environment variables with standardized fallback handling
+# Note: Import moved to avoid circular dependency
+def _load_environment_variables():
+    """Load environment variables using standardized fallback handling."""
+    try:
+        load_dotenv, dotenv_available = get_dotenv()
+        if dotenv_available:
+            # Load environment variables from .env file
+            env_path = Path(__file__).parent.parent.parent / ".env"
+            if env_path.exists():
+                load_dotenv(env_path)
+                print(f"Loaded environment variables from {env_path}")
+            else:
+                print(f"Warning: .env file not found at {env_path}")
+        else:
+            print(
+                "Warning: python-dotenv not available, environment variables must be set manually"
+            )
+    except ImportError:
+        # Fallback if import_fallbacks is not available
+        try:
+            from dotenv import load_dotenv
+            env_path = Path(__file__).parent.parent.parent / ".env"
+            if env_path.exists():
+                load_dotenv(env_path)
+                print(f"Loaded environment variables from {env_path}")
+        except ImportError:
+            print("Warning: python-dotenv not available, environment variables must be set manually")
+
+# Load environment variables at module level
+_load_environment_variables()
 
 
 class LLMSettings(BaseModel):

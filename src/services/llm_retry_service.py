@@ -1,14 +1,9 @@
 import asyncio
 import time
+from datetime import datetime
 from typing import Any, Optional
 
-try:
-    from google.api_core import exceptions as google_exceptions
-except ImportError:
-    google_exceptions = None
-
-from datetime import datetime
-
+from src.utils.import_fallbacks import get_google_exceptions
 from src.config.logging_config import get_structured_logger
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.classification import is_rate_limit_error
@@ -18,6 +13,10 @@ from src.models.workflow_models import ContentType
 from src.services.llm_api_key_manager import LLMApiKeyManager
 from src.services.llm_retry_handler import LLMRetryHandler
 from src.services.rate_limiter import RateLimiter
+# Import Google API exceptions with standardized fallback handling
+google_exceptions, _ = get_google_exceptions()
+
+
 
 logger = get_structured_logger("llm_retry_service")
 
@@ -125,7 +124,7 @@ class LLMRetryService:
         # Estimate processing time based on response length (defensive)
         if processing_time is None or processing_time <= 0:
             processing_time = max(
-                LLMConstants.MIN_PROCESSING_TIME, 
+                LLMConstants.MIN_PROCESSING_TIME,
                 tokens_used / LLMConstants.TOKEN_PROCESSING_RATE
             )
 

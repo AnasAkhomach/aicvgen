@@ -16,9 +16,10 @@ from typing import Any, Callable, Dict, Optional
 
 import streamlit as st
 
-from config.logging_config import get_logger, log_error_with_context
 from src.error_handling.exceptions import (CATCHABLE_EXCEPTIONS, AicvgenError, NetworkError, OperationTimeoutError)
 from src.error_handling.models import ErrorSeverity
+from ..config.logging_config import get_logger, log_error_with_context
+
 
 logger = get_logger(__name__)
 

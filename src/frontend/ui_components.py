@@ -236,10 +236,10 @@ def _display_reviewable_item(item):
     cols = st.columns([1, 1, 5])
     with cols[0]:
         st.button(
-            "✅ Accept",
-            key=f"accept_{item_id}",
+            "✅ Approve",
+            key=f"approve_{item_id}",
             on_click=handle_user_action,
-            args=("accept", item_id),
+            args=("accept", item_id),  # Keep "accept" as internal action for backward compatibility
         )
     with cols[1]:
         st.button(

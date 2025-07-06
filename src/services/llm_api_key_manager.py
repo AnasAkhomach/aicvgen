@@ -2,15 +2,13 @@ import asyncio
 import logging
 from typing import Optional
 
-try:
-    from google.api_core import exceptions as google_exceptions
-except ImportError:
-    google_exceptions = None
-
+from src.utils.import_fallbacks import get_google_exceptions
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import ConfigurationError
 from src.models.llm_service_models import LLMApiKeyInfo
 from src.services.llm_client import LLMClient
+# Import Google API exceptions with standardized fallback handling
+google_exceptions, _ = get_google_exceptions()
 
 logger = get_structured_logger("llm_api_key_manager")
 

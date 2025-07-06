@@ -10,13 +10,21 @@ from typing import TYPE_CHECKING, Any, Dict, Type
 from pydantic import BaseModel, ValidationError
 
 from src.models.agent_input_models import CleaningAgentInput
-from src.models.validation_schemas import (
-    ContentWriterAgentInput,
+from src.models.agent_input_models import (
     CVAnalyzerAgentInput,
     FormatterAgentInput,
-    ParserAgentInput,
     QualityAssuranceAgentInput,
     ResearchAgentInput,
+    UserCVParserAgentInput,
+    JobDescriptionParserAgentInput,
+    ExecutiveSummaryWriterAgentInput,
+    ProfessionalExperienceWriterAgentInput,
+    KeyQualificationsWriterAgentInput,
+    ProjectsWriterAgentInput,
+)
+from src.models.validation_schemas import (
+    ContentWriterAgentInput,
+    ParserAgentInput,
 )
 
 if TYPE_CHECKING:
@@ -37,6 +45,17 @@ class ValidatorFactory:
         "formatter": FormatterAgentInput,
         "cv_analyzer": CVAnalyzerAgentInput,
         "cleaning": CleaningAgentInput,
+        "ResearchAgent": ResearchAgentInput,
+        "CVAnalyzerAgent": CVAnalyzerAgentInput,
+        "QualityAssuranceAgent": QualityAssuranceAgentInput,
+        "FormatterAgent": FormatterAgentInput,
+        "UserCVParserAgent": UserCVParserAgentInput,
+        "JobDescriptionParserAgent": JobDescriptionParserAgentInput,
+        "ExecutiveSummaryWriter": ExecutiveSummaryWriterAgentInput,
+        "ProfessionalExperienceWriter": ProfessionalExperienceWriterAgentInput,
+        "KeyQualificationsWriter": KeyQualificationsWriterAgentInput,
+        "ProjectsWriter": ProjectsWriterAgentInput,
+        "CleaningAgent": CleaningAgentInput,
     }
 
     @classmethod

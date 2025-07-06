@@ -21,8 +21,8 @@ class TestVectorStoreServiceContractFixes:
             persist_directory=self.temp_dir,
             collection_name="test_collection"
         )
-        # Create a mock settings object that matches the expected structure
-        self.config = type('MockSettings', (), {'vector_db': self.vector_db_config})()
+        # Use vector_db_config directly as VectorStoreService now expects vector_config
+        self.config = self.vector_db_config
 
     def teardown_method(self):
         """Clean up test environment."""

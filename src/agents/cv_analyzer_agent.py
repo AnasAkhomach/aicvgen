@@ -33,13 +33,17 @@ class CVAnalyzerAgent(AgentBase):
 
     async def _execute(self, **kwargs: Any) -> AgentResult:
         """Analyze CV content against job requirements using Pydantic models."""
-        input_data = kwargs.get("input_data")
-
         try:
             self.update_progress(AgentConstants.PROGRESS_START, "Starting CV analysis")
             
-            cv_data = input_data.get("cv_data")
-            job_description = input_data.get("job_description")
+            cv_data = kwargs.get("cv_data")
+            job_description = kwargs.get("job_description")
+            
+            if not cv_data:
+                raise ValueError("cv_data is required but not provided")
+            if not job_description:
+                raise ValueError("job_description is required but not provided")
+                
             if not isinstance(cv_data, StructuredCV):
                 cv_data = StructuredCV.model_validate(cv_data)
             if not isinstance(job_description, JobDescriptionData):

@@ -39,7 +39,6 @@ class ProfessionalExperienceWriterAgent(AgentBase):
         )
         self.llm_service = llm_service
         self.template_manager = template_manager
-        self.settings = settings
 
     def _validate_inputs(self, input_data: dict) -> None:
         """Validate inputs for Professional Experience writer agent."""
