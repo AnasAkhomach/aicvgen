@@ -5,14 +5,13 @@ from typing import Any, List
 
 from pydantic import BaseModel, ValidationError
 
-from src.agents.agent_base import AgentBase, AgentResult
+from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
 from src.config.settings import get_config
 from src.constants.analysis_constants import AnalysisConstants
 from src.constants.agent_constants import AgentConstants
-from src.error_handling.agent_error_handler import AgentErrorHandler
 
-from src.models.agent_output_models import (CVAnalysisResult, CVAnalyzerAgentOutput)
+from src.models.agent_output_models import CVAnalysisResult
 from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.services.llm_service_interface import LLMServiceInterface
 
@@ -31,37 +30,37 @@ class CVAnalyzerAgent(AgentBase):
         self.llm_service = llm_service
         self.settings = get_config()
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Analyze CV content against job requirements using Pydantic models."""
         try:
             self.update_progress(AgentConstants.PROGRESS_START, "Starting CV analysis")
-            
+
             cv_data = kwargs.get("cv_data")
             job_description = kwargs.get("job_description")
-            
+
             if not cv_data:
-                raise ValueError("cv_data is required but not provided")
+                return {"error_messages": ["cv_data is required but not provided"]}
             if not job_description:
-                raise ValueError("job_description is required but not provided")
-                
+                return {"error_messages": ["job_description is required but not provided"]}
+
             if not isinstance(cv_data, StructuredCV):
                 cv_data = StructuredCV.model_validate(cv_data)
             if not isinstance(job_description, JobDescriptionData):
                 job_description = JobDescriptionData.model_validate(job_description)
-            
+
             self.update_progress(AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation completed")
-            
+
             analysis = await self._analyze_cv_job_match(
                 cv_data, job_description
             )
-            
+
             self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Analyzing CV-job match")
-            
+
             recommendations = await self._generate_recommendations(analysis)
             match_score = self._calculate_match_score(analysis)
-            
+
             self.update_progress(AgentConstants.PROGRESS_POST_PROCESSING, "Generating recommendations and scores")
-            
+
             analysis_result = CVAnalysisResult(
                 skill_matches=analysis.skill_matches,
                 experience_relevance=analysis.experience_relevance,
@@ -71,32 +70,15 @@ class CVAnalyzerAgent(AgentBase):
                 match_score=match_score,
                 analysis_timestamp=datetime.now().isoformat(),
             )
-            output_data = CVAnalyzerAgentOutput(
-                analysis_results=analysis_result,
-                recommendations=recommendations,
-                compatibility_score=match_score,
-            )
-            
+
             self.update_progress(AgentConstants.PROGRESS_COMPLETE, "CV analysis completed successfully")
-            
-            return AgentResult(
-                success=True,
-                output_data=output_data,
-                confidence_score=AnalysisConstants.DEFAULT_CONFIDENCE_SCORE,
-                metadata={
-                    "analysis_type": "cv_job_match",
-                    "items_analyzed": (
-                        len(cv_data.sections)
-                        if hasattr(cv_data, "sections") and cv_data.sections
-                        else 0
-                    ),
-                },
-            )
+
+            return {
+                "cv_analysis_results": analysis_result
+            }
         except (ValidationError, KeyError, TypeError, AttributeError) as e:
-            fallback_data = AgentErrorHandler.create_fallback_data("cv_analysis")
-            return AgentErrorHandler.handle_general_error(
-                e, "cv_analysis", fallback_data, "run_async"
-            )
+            logger.error(f"CV analysis error: {str(e)}")
+            return {"error_messages": [f"CV analysis failed: {str(e)}"]}
 
     class _AnalysisResult(BaseModel):
         skill_matches: List[str] = []

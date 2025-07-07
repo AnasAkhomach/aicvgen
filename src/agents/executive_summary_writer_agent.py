@@ -9,7 +9,7 @@ from src.config.logging_config import get_structured_logger
 from src.constants.agent_constants import AgentConstants
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import EnhancedContentWriterOutput
 from src.models.cv_models import Item, ItemStatus, ItemType
 from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
@@ -64,89 +64,78 @@ class ExecutiveSummaryWriterAgent(AgentBase):
                 **input_data["job_description_data"]
             )
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core content generation logic for Executive Summary."""
-        structured_cv_data = kwargs.get("structured_cv")
-        job_description_data_raw = kwargs.get("job_description_data")
-        research_findings = kwargs.get("research_findings")
+        try:
+            structured_cv_data = kwargs.get("structured_cv")
+            job_description_data_raw = kwargs.get("job_description_data")
+            research_findings = kwargs.get("research_findings")
 
-        # Convert dict inputs to Pydantic objects if needed
-        if isinstance(structured_cv_data, dict):
-            structured_cv = StructuredCV(**structured_cv_data)
-        else:
-            structured_cv = structured_cv_data
-            
-        if isinstance(job_description_data_raw, dict):
-            job_description_data = JobDescriptionData(**job_description_data_raw)
-        else:
-            job_description_data = job_description_data_raw
+            # Convert dict inputs to Pydantic objects if needed
+            if isinstance(structured_cv_data, dict):
+                structured_cv = StructuredCV(**structured_cv_data)
+            else:
+                structured_cv = structured_cv_data
+                
+            if isinstance(job_description_data_raw, dict):
+                job_description_data = JobDescriptionData(**job_description_data_raw)
+            else:
+                job_description_data = job_description_data_raw
 
-        # Validate that we have the required inputs
-        if structured_cv is None:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="Missing or invalid 'structured_cv' in input_data.",
-            )
-        if job_description_data is None:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="Missing or invalid 'job_description_data' in input_data.",
-            )
+            # Validate that we have the required inputs
+            if structured_cv is None:
+                return {"error_messages": ["Missing or invalid 'structured_cv' in input_data."]}
+            if job_description_data is None:
+                return {"error_messages": ["Missing or invalid 'job_description_data' in input_data."]}
 
-        self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Generating Executive Summary content.")
-        generated_summary = await self._generate_executive_summary(
-            structured_cv, job_description_data, research_findings
-        )
-
-        self.update_progress(AgentConstants.PROGRESS_POST_PROCESSING, "Updating CV with generated Executive Summary.")
-
-        # Find the Executive Summary section or create it if it doesn't exist
-        summary_section = None
-        for section in structured_cv.sections:
-            if section.name.lower() == "executive summary":
-                summary_section = section
-                break
-
-        if not summary_section:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="Executive Summary section not found in structured_cv. It should be pre-initialized.",
+            self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Generating Executive Summary content.")
+            generated_summary = await self._generate_executive_summary(
+                structured_cv, job_description_data, research_findings
             )
 
-        # Update the content of the executive summary section
-        # Assuming executive summary is a single item within its section
-        if summary_section.items:
-            summary_item = summary_section.items[0]
-            summary_item.content = generated_summary
-            summary_item.status = ItemStatus.GENERATED
-            item_id = str(summary_item.id)
-        else:
-            # If for some reason there are no items, add one
-            new_item = Item(
-                content=generated_summary,
-                status=ItemStatus.GENERATED,
-                item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
+            self.update_progress(AgentConstants.PROGRESS_POST_PROCESSING, "Updating CV with generated Executive Summary.")
+
+            # Find the Executive Summary section or create it if it doesn't exist
+            summary_section = None
+            for section in structured_cv.sections:
+                if section.name.lower() == "executive summary":
+                    summary_section = section
+                    break
+
+            if not summary_section:
+                return {"error_messages": ["Executive Summary section not found in structured_cv. It should be pre-initialized."]}
+
+            # Update the content of the executive summary section
+            # Assuming executive summary is a single item within its section
+            if summary_section.items:
+                summary_item = summary_section.items[0]
+                summary_item.content = generated_summary
+                summary_item.status = ItemStatus.GENERATED
+                item_id = str(summary_item.id)
+            else:
+                # If for some reason there are no items, add one
+                new_item = Item(
+                    content=generated_summary,
+                    status=ItemStatus.GENERATED,
+                    item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
+                )
+                summary_section.items.append(new_item)
+                item_id = str(new_item.id)
+
+            self.update_progress(
+                AgentConstants.PROGRESS_COMPLETE, "Executive Summary generation completed successfully."
             )
-            summary_section.items.append(new_item)
-            item_id = str(new_item.id)
-
-        output_data = EnhancedContentWriterOutput(
-            updated_structured_cv=structured_cv,
-            item_id=item_id,  # Use the actual item ID
-            generated_content=generated_summary,
-        )
-
-        self.update_progress(
-            AgentConstants.PROGRESS_COMPLETE, "Executive Summary generation completed successfully."
-        )
-        return AgentResult(
-            success=True,
-            output_data=output_data,
-            metadata={
-                "agent_name": self.name,
-                "message": "Successfully generated Executive Summary.",
-            },
-        )
+            return {
+                "updated_structured_cv": structured_cv,
+                "item_id": item_id,
+                "generated_content": generated_summary
+            }
+        except AgentExecutionError as e:
+            logger.error(f"Agent execution error in {self.name}: {str(e)}")
+            return {"error_messages": [str(e)]}
+        except Exception as e:
+            logger.error(f"Unexpected error in {self.name}: {str(e)}", exc_info=True)
+            return {"error_messages": [f"Unexpected error during Executive Summary generation: {str(e)}"]}
 
     async def _generate_executive_summary(
         self,

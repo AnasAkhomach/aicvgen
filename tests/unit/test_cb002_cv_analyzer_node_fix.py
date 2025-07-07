@@ -26,9 +26,14 @@ class TestCB002CVAnalyzerNodeFix:
     @pytest.fixture
     def workflow_graph(self, mock_cv_analyzer_agent):
         """Create a workflow graph with mocked dependencies."""
-        with patch.object(CVWorkflowGraph, '_build_graph'), \
-             patch.object(CVWorkflowGraph, '__init__', lambda x: None), \
-             patch('src.orchestration.cv_workflow_graph.validate_node_output', lambda func: func):
+        with (
+            patch.object(CVWorkflowGraph, "_build_graph"),
+            patch.object(CVWorkflowGraph, "__init__", lambda x: None),
+            patch(
+                "src.orchestration.cv_workflow_graph.validate_node_output",
+                lambda func: func,
+            ),
+        ):
             graph = CVWorkflowGraph()
             graph.cv_analyzer_agent = mock_cv_analyzer_agent
             graph.session_id = "test-session"
@@ -44,9 +49,9 @@ class TestCB002CVAnalyzerNodeFix:
                 professional_experience=[],
                 education=[],
                 skills=[],
-                projects=[]
+                projects=[],
             ),
-            cv_text="Test CV content"
+            cv_text="Test CV content",
         )
 
     @pytest.fixture
@@ -57,7 +62,7 @@ class TestCB002CVAnalyzerNodeFix:
             weaknesses=["Limited leadership experience"],
             recommendations=["Consider highlighting project management experience"],
             overall_score=7.5,
-            key_insights=["Good match for technical roles"]
+            key_insights=["Good match for technical roles"],
         )
 
     @pytest.mark.asyncio
@@ -77,7 +82,9 @@ class TestCB002CVAnalyzerNodeFix:
         # Assert
         assert result.cv_analysis_results == cv_analysis_result
         assert result.session_id == base_agent_state.session_id
-        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_agent_state)
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(
+            base_agent_state
+        )
 
     @pytest.mark.asyncio
     async def test_cv_analyzer_node_with_missing_cv_analysis_results(
@@ -97,7 +104,9 @@ class TestCB002CVAnalyzerNodeFix:
         assert result == returned_state
         assert result.cv_analysis_results is None
         assert "Analysis failed" in result.error_messages
-        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_agent_state)
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(
+            base_agent_state
+        )
 
     @pytest.mark.asyncio
     async def test_cv_analyzer_node_with_none_cv_analysis_results(
@@ -116,7 +125,9 @@ class TestCB002CVAnalyzerNodeFix:
         # Assert
         assert result == returned_state
         assert result.cv_analysis_results is None
-        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_agent_state)
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(
+            base_agent_state
+        )
 
     @pytest.mark.asyncio
     async def test_cv_analyzer_node_with_object_without_cv_analysis_results_attribute(
@@ -135,15 +146,22 @@ class TestCB002CVAnalyzerNodeFix:
         # Assert
         assert result == returned_state
         assert result.cv_analysis_results is None
-        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_agent_state)
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(
+            base_agent_state
+        )
 
     @pytest.mark.asyncio
     async def test_cv_analyzer_node_agent_not_injected(self, base_agent_state):
         """Test cv_analyzer_node raises RuntimeError when agent is not injected."""
         # Arrange
-        with patch.object(CVWorkflowGraph, '_build_graph'), \
-             patch.object(CVWorkflowGraph, '__init__', lambda x: None), \
-             patch('src.orchestration.cv_workflow_graph.validate_node_output', lambda func: func):
+        with (
+            patch.object(CVWorkflowGraph, "_build_graph"),
+            patch.object(CVWorkflowGraph, "__init__", lambda x: None),
+            patch(
+                "src.orchestration.cv_workflow_graph.validate_node_output",
+                lambda func: func,
+            ),
+        ):
             graph = CVWorkflowGraph()
             graph.cv_analyzer_agent = None
             graph.session_id = "test-session"
@@ -160,7 +178,7 @@ class TestCB002CVAnalyzerNodeFix:
         # Arrange
         original_error_messages = ["Previous error"]
         base_agent_state.error_messages = original_error_messages
-        
+
         returned_state = base_agent_state.model_copy(
             update={"cv_analysis_results": cv_analysis_result}
         )
@@ -185,7 +203,7 @@ class TestCB002CVAnalyzerNodeFix:
             update={
                 "cv_analysis_results": cv_analysis_result,
                 "node_execution_metadata": {"execution_time": 1.5},
-                "error_messages": ["Analysis completed"]
+                "error_messages": ["Analysis completed"],
             }
         )
         workflow_graph.cv_analyzer_agent.run_as_node.return_value = returned_state
@@ -197,6 +215,160 @@ class TestCB002CVAnalyzerNodeFix:
         assert result.cv_analysis_results == cv_analysis_result
         assert result.node_execution_metadata == {"execution_time": 1.5}
         assert "Analysis completed" in result.error_messages
+
+    @pytest.mark.asyncio
+    async def test_cv_analyzer_node_initializes_supervisor_state_with_sections_and_items(
+        self, workflow_graph, cv_analysis_result
+    ):
+        """Test cv_analyzer_node initializes supervisor state when sections and items exist."""
+        from src.models.cv_models import Section, Item, ItemType, ItemStatus
+        from uuid import uuid4
+
+        # Arrange - Create a structured CV with sections and items
+        item1 = Item(
+            id=uuid4(),
+            content="Test qualification 1",
+            item_type=ItemType.KEY_QUALIFICATION,
+            status=ItemStatus.INITIAL,
+        )
+        item2 = Item(
+            id=uuid4(),
+            content="Test qualification 2",
+            item_type=ItemType.KEY_QUALIFICATION,
+            status=ItemStatus.INITIAL,
+        )
+
+        section1 = Section(name="Key Qualifications", items=[item1, item2], order=0)
+        section2 = Section(name="Professional Experience", items=[], order=1)
+
+        structured_cv = StructuredCV(sections=[section1, section2])
+
+        base_state = AgentState(
+            session_id="test-session",
+            structured_cv=structured_cv,
+            cv_text="Test CV content",
+        )
+
+        # Mock agent to return state with cv_analysis_results
+        returned_state = base_state.model_copy(
+            update={"cv_analysis_results": cv_analysis_result}
+        )
+        workflow_graph.cv_analyzer_agent.run_as_node.return_value = returned_state
+
+        # Act
+        result = await workflow_graph.cv_analyzer_node(base_state)
+
+        # Assert
+        assert result.cv_analysis_results == cv_analysis_result
+        assert result.current_section_index == 0
+        assert result.current_item_id == str(item1.id)
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_state)
+
+    @pytest.mark.asyncio
+    async def test_cv_analyzer_node_handles_empty_sections(
+        self, workflow_graph, cv_analysis_result
+    ):
+        """Test cv_analyzer_node handles case when no sections exist."""
+        # Arrange - Create a structured CV with no sections
+        structured_cv = StructuredCV(sections=[])
+
+        base_state = AgentState(
+            session_id="test-session",
+            structured_cv=structured_cv,
+            cv_text="Test CV content",
+        )
+
+        # Mock agent to return state with cv_analysis_results
+        returned_state = base_state.model_copy(
+            update={"cv_analysis_results": cv_analysis_result}
+        )
+        workflow_graph.cv_analyzer_agent.run_as_node.return_value = returned_state
+
+        # Act
+        result = await workflow_graph.cv_analyzer_node(base_state)
+
+        # Assert
+        assert result.cv_analysis_results == cv_analysis_result
+        # Supervisor state should not be initialized when no sections exist
+        assert result.current_section_index == 0  # Default value from AgentState
+        assert result.current_item_id is None  # Should remain None
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_state)
+
+    @pytest.mark.asyncio
+    async def test_cv_analyzer_node_handles_sections_without_items(
+        self, workflow_graph, cv_analysis_result
+    ):
+        """Test cv_analyzer_node handles case when sections exist but have no items."""
+        from src.models.cv_models import Section
+
+        # Arrange - Create a structured CV with sections but no items
+        section1 = Section(
+            name="Key Qualifications", items=[], order=0  # Empty items list
+        )
+
+        structured_cv = StructuredCV(sections=[section1])
+
+        base_state = AgentState(
+            session_id="test-session",
+            structured_cv=structured_cv,
+            cv_text="Test CV content",
+        )
+
+        # Mock agent to return state with cv_analysis_results
+        returned_state = base_state.model_copy(
+            update={"cv_analysis_results": cv_analysis_result}
+        )
+        workflow_graph.cv_analyzer_agent.run_as_node.return_value = returned_state
+
+        # Act
+        result = await workflow_graph.cv_analyzer_node(base_state)
+
+        # Assert
+        assert result.cv_analysis_results == cv_analysis_result
+        # Supervisor state should not be initialized when no items exist
+        assert result.current_section_index == 0  # Default value from AgentState
+        assert result.current_item_id is None  # Should remain None
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_state)
+
+    @pytest.mark.asyncio
+    async def test_cv_analyzer_node_initializes_supervisor_state_with_dict_result(
+        self, workflow_graph, cv_analysis_result
+    ):
+        """Test cv_analyzer_node initializes supervisor state when agent returns dict."""
+        from src.models.cv_models import Section, Item, ItemType, ItemStatus
+        from uuid import uuid4
+
+        # Arrange - Create a structured CV with sections and items
+        item1 = Item(
+            id=uuid4(),
+            content="Test qualification 1",
+            item_type=ItemType.KEY_QUALIFICATION,
+            status=ItemStatus.INITIAL,
+        )
+
+        section1 = Section(name="Key Qualifications", items=[item1], order=0)
+
+        structured_cv = StructuredCV(sections=[section1])
+
+        base_state = AgentState(
+            session_id="test-session",
+            structured_cv=structured_cv,
+            cv_text="Test CV content",
+        )
+
+        # Mock agent to return dict instead of AgentState
+        workflow_graph.cv_analyzer_agent.run_as_node.return_value = {
+            "cv_analysis_results": cv_analysis_result
+        }
+
+        # Act
+        result = await workflow_graph.cv_analyzer_node(base_state)
+
+        # Assert
+        assert result.cv_analysis_results == cv_analysis_result
+        assert result.current_section_index == 0
+        assert result.current_item_id == str(item1.id)
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_state)
 
     @pytest.mark.asyncio
     async def test_cv_analyzer_node_contract_compliance(
@@ -212,7 +384,9 @@ class TestCB002CVAnalyzerNodeFix:
 
         # Assert
         assert isinstance(result, AgentState)
-        assert hasattr(result, 'cv_analysis_results')
-        assert hasattr(result, 'session_id')
-        assert hasattr(result, 'structured_cv')
-        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(base_agent_state)
+        assert hasattr(result, "cv_analysis_results")
+        assert hasattr(result, "session_id")
+        assert hasattr(result, "structured_cv")
+        workflow_graph.cv_analyzer_agent.run_as_node.assert_called_once_with(
+            base_agent_state
+        )

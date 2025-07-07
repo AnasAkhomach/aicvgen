@@ -12,12 +12,11 @@ from pydantic import BaseModel
 from src.config.logging_config import get_structured_logger
 from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
 from src.error_handling.models import (ErrorCategory, ErrorContext, ErrorSeverity)
-from src.models.data_models import ErrorFallbackModel
+
 from src.error_handling.exceptions import ValidationError
 from src.orchestration.state import AgentState
 
-if TYPE_CHECKING:
-    from ..agents.agent_base import AgentResult
+
 
 logger = get_structured_logger(__name__)
 
@@ -45,33 +44,28 @@ class AgentErrorHandler:
     @staticmethod
     def handle_validation_error(
         error: ValidationError, agent_type: str, fallback_data: Optional[Any] = None
-    ) -> "AgentResult":
+    ) -> Dict[str, Any]:
         """Handle validation errors consistently across agents."""
-        from ..agents.agent_base import AgentResult
-
         error_msg = f"Input validation failed for {agent_type}: {str(error)}"
         logger.error(error_msg)
 
         if fallback_data is None:
-            output_data = ErrorFallbackModel(error=f"{agent_type} failed")
+            fallback_data = {"error": f"{agent_type} failed"}
         elif isinstance(fallback_data, BaseModel):
-            output_data = fallback_data
-        elif isinstance(fallback_data, dict):
-            output_data = ErrorFallbackModel(**fallback_data)
-        else:
-            output_data = ErrorFallbackModel(error=str(fallback_data))
+            fallback_data = fallback_data.model_dump()
+        elif not isinstance(fallback_data, dict):
+            fallback_data = {"error": str(fallback_data)}
 
-        return AgentResult(
-            success=False,
-            output_data=output_data,
-            confidence_score=0.0,
-            error_message=error_msg,
-            metadata={
+        return {
+            "error": error_msg,
+            "success": False,
+            "fallback_data": fallback_data,
+            "metadata": {
                 "agent_type": agent_type,
                 "validation_error": True,
                 "error_type": "ValidationError",
             },
-        )
+        }
 
     @staticmethod
     def handle_general_error(
@@ -79,37 +73,29 @@ class AgentErrorHandler:
         agent_type: str,
         fallback_data: Optional[Any] = None,
         context: Optional[str] = None,
-    ) -> "AgentResult":
+    ) -> Dict[str, Any]:
         """Handle general exceptions consistently across agents."""
-        from ..agents.agent_base import AgentResult
-
         context_msg = f" in {context}" if context else ""
         error_msg = f"{agent_type} error{context_msg}: {str(error)}"
         logger.error(error_msg, exc_info=True)
 
         if fallback_data is None:
-            output_data = ErrorFallbackModel(error=f"{agent_type} failed")
+            fallback_data = {"error": f"{agent_type} failed"}
         elif isinstance(fallback_data, BaseModel):
-            output_data = fallback_data
-        elif isinstance(fallback_data, dict):
-            if "error" not in fallback_data:
-                output_data = ErrorFallbackModel(error=str(fallback_data))
-            else:
-                output_data = ErrorFallbackModel(**fallback_data)
-        else:
-            output_data = ErrorFallbackModel(error=str(fallback_data))
+            fallback_data = fallback_data.model_dump()
+        elif not isinstance(fallback_data, dict):
+            fallback_data = {"error": str(fallback_data)}
 
-        return AgentResult(
-            success=False,
-            output_data=output_data,
-            confidence_score=0.0,
-            error_message=str(error),
-            metadata={
+        return {
+            "error": str(error),
+            "success": False,
+            "fallback_data": fallback_data,
+            "metadata": {
                 "agent_type": agent_type,
                 "error_type": type(error).__name__,
                 "context": context,
             },
-        )
+        }
 
     @staticmethod
     def handle_node_error(

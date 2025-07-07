@@ -29,14 +29,8 @@ def format_prompt(template: str, **kwargs) -> str:
 
 def ensure_company_name(job_desc_data):
     """
-    Ensures job_desc_data has a non-empty company_name. Returns a (possibly updated) copy.
+    Ensures job_desc_data has a non-empty company_name. Updates the object directly.
     """
     if not getattr(job_desc_data, "company_name", None):
-        # Use model_copy if available (Pydantic v2), else fallback
-        if hasattr(job_desc_data, "model_copy"):
-            return job_desc_data.model_copy(update={"company_name": "Unknown Company"})
-        elif hasattr(job_desc_data, "copy"):
-            return job_desc_data.copy(update={"company_name": "Unknown Company"})
-        else:
-            job_desc_data.company_name = "Unknown Company"
+        job_desc_data.company_name = "Unknown Company"
     return job_desc_data

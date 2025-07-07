@@ -10,7 +10,7 @@ from src.constants.agent_constants import AgentConstants
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError
 from src.models.agent_input_models import ProjectsWriterAgentInput
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import EnhancedContentWriterOutput
 from src.models.cv_models import ItemStatus, ItemType
 from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
@@ -62,61 +62,56 @@ class ProjectsWriterAgent(AgentBase):
                 message=f"Input validation failed: {e}",
             )
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core content generation logic for Projects."""
-        # Validate inputs using Pydantic model
-        validated_inputs = self._validate_inputs(**kwargs)
-        
-        structured_cv = validated_inputs.structured_cv
-        job_description_data = validated_inputs.job_description_data
-        current_item_id = validated_inputs.current_item_id
-        research_findings = validated_inputs.research_findings
+        try:
+            # Validate inputs using Pydantic model
+            validated_inputs = self._validate_inputs(**kwargs)
+            
+            structured_cv = validated_inputs.structured_cv
+            job_description_data = validated_inputs.job_description_data
+            current_item_id = validated_inputs.current_item_id
+            research_findings = validated_inputs.research_findings
 
-        self.update_progress(
-            AgentConstants.PROGRESS_MAIN_PROCESSING, f"Generating Projects content for item {current_item_id}."
-        )
-
-        # Get the specific project item to be enhanced
-        project_item = get_item_by_id(structured_cv, current_item_id)
-        if (
-            not project_item
-            or project_item.item_type != ItemType.PROJECT_DESCRIPTION_BULLET
-        ):
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"Item with ID '{current_item_id}' not found or is not a project experience item.",
+            self.update_progress(
+                AgentConstants.PROGRESS_MAIN_PROCESSING, f"Generating Projects content for item {current_item_id}."
             )
 
-        generated_content = await self._generate_project_content(
-            structured_cv, job_description_data, project_item, research_findings
-        )
+            # Get the specific project item to be enhanced
+            project_item = get_item_by_id(structured_cv, current_item_id)
+            if (
+                not project_item
+                or project_item.item_type != ItemType.PROJECT_DESCRIPTION_BULLET
+            ):
+                return {"error_messages": [f"Item with ID '{current_item_id}' not found or is not a project experience item."]}
 
-        self.update_progress(
-            AgentConstants.PROGRESS_POST_PROCESSING, f"Updating CV with generated Projects for item {current_item_id}."
-        )
+            generated_content = await self._generate_project_content(
+                structured_cv, job_description_data, project_item, research_findings
+            )
 
-        # Update the specific item with the generated content
-        updated_cv = update_item_by_id(
-            structured_cv,
-            current_item_id,
-            {"content": generated_content, "status": ItemStatus.GENERATED},
-        )
+            self.update_progress(
+                AgentConstants.PROGRESS_POST_PROCESSING, f"Updating CV with generated Projects for item {current_item_id}."
+            )
 
-        output_data = EnhancedContentWriterOutput(
-            updated_structured_cv=updated_cv,
-            item_id=current_item_id,
-            generated_content=generated_content,
-        )
+            # Update the specific item with the generated content
+            updated_cv = update_item_by_id(
+                structured_cv,
+                current_item_id,
+                {"content": generated_content, "status": ItemStatus.GENERATED},
+            )
 
-        self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Projects generation completed successfully.")
-        return AgentResult(
-            success=True,
-            output_data=output_data,
-            metadata={
-                "agent_name": self.name,
-                "message": f"Successfully generated Projects for item '{current_item_id}'.",
-            },
-        )
+            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Projects generation completed successfully.")
+            return {
+                "updated_structured_cv": updated_cv,
+                "item_id": current_item_id,
+                "generated_content": generated_content
+            }
+        except AgentExecutionError as e:
+            logger.error(f"Agent execution error in {self.name}: {str(e)}")
+            return {"error_messages": [str(e)]}
+        except Exception as e:
+            logger.error(f"Unexpected error in {self.name}: {str(e)}", exc_info=True)
+            return {"error_messages": [f"Unexpected error during Projects generation: {str(e)}"]}
 
     async def _generate_project_content(
         self,

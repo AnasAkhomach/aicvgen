@@ -48,6 +48,11 @@ def on_start_generation():
 
         # Get initial state and trigger first workflow step
         initial_state = manager.get_workflow_status(session_id)
+        if initial_state is None:
+            logger.error(f"Failed to get initial state for session: {session_id}")
+            st.error("Failed to initialize workflow. Please try again.")
+            return
+            
         asyncio.run(manager.trigger_workflow_step(session_id, initial_state))
 
         logger.info(f"Started workflow with session_id: {session_id}")
@@ -185,6 +190,11 @@ def main():
     """Main application entry point with workflow-driven UI."""
     # Initialize application
     StateManager()
+
+    # Check for UI refresh signal from background thread
+    if st.session_state.get("needs_rerun", False):
+        st.session_state.needs_rerun = False
+        st.rerun()
 
     # Display header
     st.title("🤖 AI CV Generator")

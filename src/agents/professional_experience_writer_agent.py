@@ -9,7 +9,7 @@ from src.config.logging_config import get_structured_logger
 from src.constants.agent_constants import AgentConstants
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import EnhancedContentWriterOutput
 from src.models.cv_models import ItemStatus, ItemType
 from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
@@ -70,7 +70,7 @@ class ProfessionalExperienceWriterAgent(AgentBase):
                 **input_data["job_description_data"]
             )
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core content generation logic for Professional Experience."""
         try:
             # Validate and convert inputs in place
@@ -93,10 +93,7 @@ class ProfessionalExperienceWriterAgent(AgentBase):
                 not experience_item
                 or experience_item.item_type != ItemType.EXPERIENCE_ROLE_TITLE
             ):
-                raise AgentExecutionError(
-                    agent_name=self.name,
-                    message=f"Item with ID '{current_item_id}' not found or is not a professional experience item.",
-                )
+                return {"error_messages": [f"Item with ID '{current_item_id}' not found or is not a professional experience item."]}
 
             generated_content = await self._generate_professional_experience_content(
                 structured_cv, job_description_data, experience_item, research_findings
@@ -114,39 +111,23 @@ class ProfessionalExperienceWriterAgent(AgentBase):
                 {"content": generated_content, "status": ItemStatus.GENERATED},
             )
 
-            output_data = EnhancedContentWriterOutput(
-                updated_structured_cv=updated_cv,
-                item_id=current_item_id,
-                generated_content=generated_content,
-            )
-
             self.update_progress(
                 AgentConstants.PROGRESS_COMPLETE, "Professional Experience generation completed successfully."
             )
-            return AgentResult(
-                success=True,
-                output_data=output_data,
-                metadata={
-                    "agent_name": self.name,
-                    "message": f"Successfully generated Professional Experience for item '{current_item_id}'.",
-                },
-            )
-        except AgentExecutionError:
-            # Re-raise AgentExecutionError to maintain error context
-            raise
+            return {
+                "updated_structured_cv": updated_cv,
+                "item_id": current_item_id,
+                "generated_content": generated_content
+            }
+        except AgentExecutionError as e:
+            logger.error(f"Agent execution error in {self.name}: {str(e)}")
+            return {"error_messages": [str(e)]}
         except (AttributeError, TypeError, ValueError, KeyError) as e:
-            # Handle common exceptions with proper context
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"Error processing Professional Experience data: {str(e)}",
-            ) from e
+            logger.error(f"Error processing Professional Experience data: {str(e)}")
+            return {"error_messages": [f"Error processing Professional Experience data: {str(e)}"]}
         except Exception as e:
-            # Handle any other unexpected exceptions with proper context
             logger.error(f"Unexpected error in {self.name}: {str(e)}", exc_info=True)
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"Unexpected error during Professional Experience generation: {str(e)}",
-            ) from e
+            return {"error_messages": [f"Unexpected error during Professional Experience generation: {str(e)}"]}
 
     async def _generate_professional_experience_content(
         self,

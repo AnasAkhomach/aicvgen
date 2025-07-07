@@ -147,8 +147,8 @@ class VectorStoreService:
     ) -> str:
         """Add an item to the vector store with transaction-like consistency."""
         try:
-            item_id = self._generate_id(content)
             meta = metadata or {}
+            item_id = self._generate_id(content, meta)
             if hasattr(item, "__dict__"):
                 meta.update(
                     {
@@ -223,9 +223,22 @@ class VectorStoreService:
             logger.error("Failed to search vector store: %s", e)
             return []
 
-    def _generate_id(self, content: str) -> str:
-        """Generate a unique ID for content based on its hash."""
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
+    def _generate_id(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        """Generate a unique ID for content based on its hash and metadata."""
+        # Include metadata context to ensure uniqueness
+        id_components = [content]
+        if metadata:
+            # Add relevant metadata to make ID unique
+            for key in sorted(metadata.keys()):
+                if key in ['cv_id', 'section', 'subsection', 'type', 'item_type']:
+                    id_components.append(f"{key}:{metadata[key]}")
+        
+        # Add timestamp component for additional uniqueness
+        import time
+        id_components.append(str(int(time.time() * 1000000)))
+        
+        combined_content = "|".join(id_components)
+        return hashlib.md5(combined_content.encode("utf-8")).hexdigest()
 
     def verify_persistence_integrity(self) -> bool:
         """Verify the integrity of the persistent vector store."""
@@ -271,8 +284,8 @@ class VectorStoreService:
             ids = []
 
             for item, content, metadata in items_data:
-                item_id = self._generate_id(content)
                 meta = metadata or {}
+                item_id = self._generate_id(content, meta)
                 if hasattr(item, "__dict__"):
                     meta.update(
                         {
@@ -309,6 +322,50 @@ class VectorStoreService:
         except (chromadb.errors.ChromaError, TypeError) as e:
             logger.error("Failed to batch add items to vector store: %s", e)
             raise VectorStoreError("Failed to batch add items to vector store") from e
+
+    async def add_structured_cv(self, structured_cv):
+        """Add a structured CV to the vector store."""
+        try:
+            items_data = []
+            
+            # Add CV summary/overview
+            if hasattr(structured_cv, 'cv_text') and structured_cv.cv_text:
+                items_data.append((
+                    structured_cv,
+                    structured_cv.cv_text,
+                    {"type": "cv_full_text", "cv_id": str(structured_cv.id)}
+                ))
+            
+            # Add each section's content
+            for section in structured_cv.sections:
+                if section.subsections:
+                    for subsection in section.subsections:
+                        if subsection.items:
+                            for item in subsection.items:
+                                if item.content:
+                                    items_data.append((
+                                        item,
+                                        item.content,
+                                        {
+                                            "type": "cv_item",
+                                            "cv_id": str(structured_cv.id),
+                                            "section": section.name,
+                                            "subsection": subsection.name,
+                                            "item_type": str(item.item_type) if hasattr(item, 'item_type') else "unknown"
+                                        }
+                                    ))
+            
+            if items_data:
+                item_ids = self.batch_add_items(items_data)
+                logger.info(f"Successfully stored {len(item_ids)} CV items in vector store")
+                return item_ids
+            else:
+                logger.warning("No content found in structured CV to store")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Failed to add structured CV to vector store: {e}")
+            raise VectorStoreError(f"Failed to add structured CV to vector store: {e}") from e
 
 
 _vector_store_instance = None
@@ -368,3 +425,8 @@ class MockVectorStoreService:
     ) -> list[str]:
         """Mock batch add items implementation."""
         return [f"mock_id_{i}" for i in range(len(items_data))]
+
+    async def add_structured_cv(self, structured_cv):
+        """Mock add_structured_cv implementation."""
+        logger.debug("Mock add_structured_cv called")
+        return ["mock_cv_id"]

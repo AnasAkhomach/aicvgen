@@ -9,7 +9,7 @@ from src.config.logging_config import get_structured_logger
 from src.constants.agent_constants import AgentConstants
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import EnhancedContentWriterOutput
 from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
 from src.services.llm_service_interface import LLMServiceInterface
@@ -50,7 +50,7 @@ class EnhancedContentWriterAgent(AgentBase):
         # rather than through input_data, so this method is intentionally minimal
         return
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core content generation logic."""
         # Extract parameters from kwargs
         structured_cv = kwargs.get("structured_cv")
@@ -90,14 +90,11 @@ class EnhancedContentWriterAgent(AgentBase):
         )
 
         self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Content generation completed successfully")
-        return AgentResult(
-            success=True,
-            output_data=output_data,
-            metadata={
-                "agent_name": self.name,
-                "message": f"Successfully generated content for item '{item_id}'.",
-            },
-        )
+        return {
+            "updated_structured_cv": updated_cv,
+            "item_id": item_id,
+            "generated_content": enhanced_content
+        }
 
     async def _generate_enhanced_content(
         self,

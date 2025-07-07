@@ -5,7 +5,7 @@ from typing import Any, List, Tuple
 from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
 from src.constants.agent_constants import AgentConstants
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import CleaningAgentOutput
 from src.services.llm_service_interface import LLMServiceInterface
 from src.templates.content_templates import ContentTemplateManager
@@ -33,7 +33,7 @@ class CleaningAgent(AgentBase):
         self.llm_service = llm_service
         self.template_manager = template_manager
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core cleaning logic."""
         input_data = kwargs.get("input_data")
 
@@ -68,7 +68,12 @@ class CleaningAgent(AgentBase):
         )
 
         self.update_progress(100, "Cleaning process completed")
-        return AgentResult(success=True, output_data=output)
+        return {
+            "cleaned_data": cleaned_data,
+            "raw_output": raw_output_for_model,
+            "output_type": output_type_for_model,
+            "modifications_made": modifications
+        }
 
     def _clean_generic_output(self, raw_output: str) -> Tuple[str, List[str]]:
         """Cleans generic text output by removing unnecessary formatting."""

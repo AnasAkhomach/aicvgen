@@ -559,6 +559,20 @@ class TestCVWorkflowGraphIntegration:
         from src.models.agent_output_models import ResearchFindings, CVAnalysisResult, ResearchStatus
         from datetime import datetime
         
+        # Get the actual item IDs from the structured CV
+        key_qualifications_section = next(
+            (s for s in sample_structured_cv.sections if s.name == "key_qualifications"), 
+            None
+        )
+        
+        if key_qualifications_section and key_qualifications_section.items:
+            # Use actual item IDs from the structured CV
+            item_ids = [str(item.id) for item in key_qualifications_section.items]
+            current_item_id = item_ids[0] if item_ids else None
+        else:
+            item_ids = []
+            current_item_id = None
+        
         return AgentState(
             session_id="test_session_123",
             trace_id="test_trace_456",
@@ -578,12 +592,13 @@ class TestCVWorkflowGraphIntegration:
             ),
             current_section_key="key_qualifications",
             current_section_index=0,
-            items_to_process_queue=["qual_1", "qual_2"],
-            current_item_id="qual_1",
+            items_to_process_queue=item_ids,
+            current_item_id=current_item_id,
             current_content_type=ContentType.QUALIFICATION,
             is_initial_generation=True,
             error_messages=[],
-            node_execution_metadata={}
+            node_execution_metadata={},
+            automated_mode=True  # Enable automated mode for testing
         )
 
     @pytest.fixture
@@ -618,22 +633,22 @@ class TestCVWorkflowGraphIntegration:
     @pytest.mark.asyncio
     async def test_full_workflow_success_path(self, initial_agent_state, mock_agents, mock_error_recovery_service):
         """Test Case 1: Verify entire workflow executes successfully from start to finish."""
-        # Arrange - Configure successful agent responses
-        mock_agents['jd_parser_agent'].run_as_node.return_value = initial_agent_state.model_copy(
-            update={"job_description_data": initial_agent_state.job_description_data}
-        )
+        # Arrange - Configure successful agent responses (return dictionaries as per LG-FIX-02)
+        mock_agents['jd_parser_agent'].run_as_node.return_value = {
+            "job_description_data": initial_agent_state.job_description_data
+        }
         
-        mock_agents['cv_parser_agent'].run_as_node.return_value = initial_agent_state.model_copy(
-            update={"structured_cv": initial_agent_state.structured_cv}
-        )
+        mock_agents['cv_parser_agent'].run_as_node.return_value = {
+            "structured_cv": initial_agent_state.structured_cv
+        }
         
-        mock_agents['research_agent'].run_as_node.return_value = initial_agent_state.model_copy(
-            update={"research_findings": "Research completed successfully"}
-        )
+        mock_agents['research_agent'].run_as_node.return_value = {
+            "research_findings": "Research completed successfully"
+        }
         
-        mock_agents['cv_analyzer_agent'].run_as_node.return_value = initial_agent_state.model_copy(
-            update={"cv_analysis_results": "Analysis completed"}
-        )
+        mock_agents['cv_analyzer_agent'].run_as_node.return_value = {
+            "cv_analysis_results": "Analysis completed"
+        }
         
         # Configure writer agents to mark items as completed
         updated_cv = initial_agent_state.structured_cv.model_copy(deep=True)
@@ -644,17 +659,17 @@ class TestCVWorkflowGraphIntegration:
         
         for writer_agent in ['key_qualifications_writer_agent', 'professional_experience_writer_agent', 
                            'projects_writer_agent', 'executive_summary_writer_agent']:
-            mock_agents[writer_agent].run_as_node.return_value = initial_agent_state.model_copy(
-                update={"structured_cv": updated_cv}
-            )
+            mock_agents[writer_agent].run_as_node.return_value = {
+                "structured_cv": updated_cv
+            }
         
-        mock_agents['qa_agent'].run_as_node.return_value = initial_agent_state.model_copy(
-            update={"quality_check_results": "Quality check passed"}
-        )
+        mock_agents['qa_agent'].run_as_node.return_value = {
+            "quality_check_results": "Quality check passed"
+        }
         
-        mock_agents['formatter_agent'].run_as_node.return_value = initial_agent_state.model_copy(
-            update={"final_output_path": "/path/to/generated_cv.pdf"}
-        )
+        mock_agents['formatter_agent'].run_as_node.return_value = {
+            "final_output_path": "/path/to/generated_cv.pdf"
+        }
         
         # Mock the container's agent providers
         container = ContainerSingleton.get_instance()
@@ -687,14 +702,19 @@ class TestCVWorkflowGraphIntegration:
             # Act
             print(f"\n=== Starting test with initial state ===")
             print(f"Initial section index: {initial_agent_state.current_section_index}")
+            print(f"Initial current_item_id: {initial_agent_state.current_item_id}")
             print(f"Initial metadata: {initial_agent_state.node_execution_metadata}")
+            print(f"Initial workflow_status: {getattr(initial_agent_state, 'workflow_status', 'None')}")
             
             final_state_dict = await cv_workflow_graph.app.ainvoke(initial_agent_state)
             final_state = AgentState.model_validate(final_state_dict)
             
             print(f"\n=== Final state ===")
             print(f"Final section index: {final_state.current_section_index}")
+            print(f"Final current_item_id: {final_state.current_item_id}")
             print(f"Final metadata: {final_state.node_execution_metadata}")
+            print(f"Final workflow_status: {getattr(final_state, 'workflow_status', 'None')}")
+            print(f"Final output path: {final_state.final_output_path}")
             print(f"Key qualifications writer call count: {mock_agents['key_qualifications_writer_agent'].run_as_node.call_count}")
             
             # Assert
@@ -719,9 +739,9 @@ class TestCVWorkflowGraphIntegration:
         # Configure other agents for success (in case workflow continues)
         for agent_name, agent in mock_agents.items():
             if agent_name != 'jd_parser_agent':
-                agent.run_as_node.return_value = initial_agent_state.model_copy(
-                    update={"node_execution_metadata": {agent_name: "success"}}
-                )
+                agent.run_as_node.return_value = {
+                    "node_execution_metadata": {agent_name: "success"}
+                }
         
         # Configure error recovery service
         mock_error_recovery_service.handle_error.return_value = "skip_item"
@@ -786,9 +806,9 @@ class TestCVWorkflowGraphIntegration:
         # Arrange - Configure agents for success
         for agent_name, agent in mock_agents.items():
             if agent_name != 'key_qualifications_writer_agent':
-                agent.run_as_node.return_value = initial_agent_state.model_copy(
-                    update={"node_execution_metadata": {agent_name: "success"}}
-                )
+                agent.run_as_node.return_value = {
+                    "node_execution_metadata": {agent_name: "success"}
+                }
         
         # Configure key_qualifications_writer_agent for regeneration scenario
         call_count = 0
@@ -802,13 +822,13 @@ class TestCVWorkflowGraphIntegration:
                 qual_section = next((s for s in state.structured_cv.sections if s.name == "key_qualifications"), None)
                 target_item_id = qual_section.items[0].id if qual_section and qual_section.items else "qual_1"
                 
-                return state.model_copy(update={
+                return {
                     "user_feedback": UserFeedback(
                         action=UserAction.REGENERATE,
                         content="Please regenerate this content",
                         target_item_id=target_item_id
                     )
-                })
+                }
             else:
                 # Subsequent calls - successful regeneration
                 updated_cv = state.structured_cv.model_copy(deep=True)
@@ -820,10 +840,10 @@ class TestCVWorkflowGraphIntegration:
                             section.items[0].status = ItemStatus.COMPLETED
                         break
                 
-                return state.model_copy(update={
+                return {
                     "structured_cv": updated_cv,
                     "user_feedback": None  # Clear feedback after processing
-                })
+                }
         
         mock_agents['key_qualifications_writer_agent'].run_as_node.side_effect = mock_writer_side_effect
         

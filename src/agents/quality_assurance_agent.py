@@ -8,7 +8,7 @@ from src.config.logging_config import get_structured_logger
 from src.constants.agent_constants import AgentConstants
 from src.constants.qa_constants import QAConstants
 from src.error_handling.exceptions import AgentExecutionError
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import ItemQualityResultModel, OverallQualityCheckResultModel, QualityAssuranceAgentOutput, SectionQualityResultModel
 from src.models.data_models import Item, Section, StructuredCV
 from src.services.llm_service_interface import LLMServiceInterface
@@ -47,7 +47,7 @@ class QualityAssuranceAgent(AgentBase):
         self.llm_service = llm_service
         self.template_manager = template_manager
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """
         Runs the quality assurance agent to evaluate generated CV content.
         """
@@ -86,26 +86,24 @@ class QualityAssuranceAgent(AgentBase):
             logger.info("Quality Assurance Agent: Execution completed successfully.")
             self.update_progress(AgentConstants.PROGRESS_COMPLETE, "QA checks completed.")
 
-            return AgentResult(success=True, output_data=qa_results)
+            return {
+                "qa_results": qa_results
+            }
 
-        except (ValidationError, KeyError, TypeError, AgentExecutionError) as e:
+        except AgentExecutionError as e:
             error_message = f"{self.name} failed: {str(e)}"
             logger.error(error_message, exc_info=True)
-            return AgentResult(
-                success=False,
-                error_message=error_message,
-                output_data=QualityAssuranceAgentOutput(),
-            )
-        except (AttributeError, ValueError) as e:
-            error_message = (
-                f"An unexpected data error occurred in {self.name}: {str(e)}"
-            )
+            return {
+                "error": error_message,
+                "qa_results": QualityAssuranceAgentOutput()
+            }
+        except Exception as e:
+            error_message = f"An unexpected error occurred in {self.name}: {str(e)}"
             logger.error(error_message, exc_info=True)
-            return AgentResult(
-                success=False,
-                error_message=error_message,
-                output_data=QualityAssuranceAgentOutput(),
-            )
+            return {
+                "error": error_message,
+                "qa_results": QualityAssuranceAgentOutput()
+            }
 
     def _check_section(self, section: Section) -> SectionQualityResultModel:
         """

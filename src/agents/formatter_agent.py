@@ -8,7 +8,7 @@ from typing import Any, Optional
 from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import (AgentExecutionError, DependencyError, TemplateError)
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import FormatterAgentOutput
 from src.constants.agent_constants import AgentConstants
 from src.models.data_models import StructuredCV
@@ -71,7 +71,7 @@ class FormatterAgent(AgentBase):
                 "PDF generation requires WeasyPrint, but it is not installed or failed to load."
             )
 
-    async def _execute(self, **kwargs: Any) -> AgentResult[FormatterAgentOutput]:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Formats a StructuredCV into a file and returns the path."""
         input_data = kwargs.get("input_data", {})
         structured_cv: Optional[StructuredCV] = input_data.get("structured_cv")
@@ -96,16 +96,10 @@ class FormatterAgent(AgentBase):
                 self.update_progress(AgentConstants.PROGRESS_HTML_GENERATION, "Generating HTML file")
                 self._generate_html(html_content, final_output_path)
 
-            output_data = FormatterAgentOutput(
-                output_path=str(final_output_path.resolve())
-            )
             self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Formatting completed successfully")
-            return AgentResult(
-                status="success",
-                agent_name=self.name,
-                output_data=output_data,
-                message="CV formatting completed successfully.",
-            )
+            return {
+                "output_path": str(final_output_path.resolve())
+            }
         except AgentExecutionError:
             # Re-raise without modification to preserve original error context
             raise

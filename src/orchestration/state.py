@@ -28,7 +28,7 @@ class AgentState(BaseModel):
     trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
     # Core Data Models
-    structured_cv: StructuredCV
+    structured_cv: Optional[StructuredCV] = None
     job_description_data: Optional[JobDescriptionData] = None
     cv_text: str  # The raw text of the user's CV
 
@@ -36,7 +36,7 @@ class AgentState(BaseModel):
     # The key of the section currently being processed (e.g., "professional_experience")
     current_section_key: Optional[str] = None
     # Index to track the current position in the WORKFLOW_SEQUENCE
-    current_section_index: int = 0
+    current_section_index: Optional[int] = None
     # A queue of item IDs (subsections) for the current section to be processed one by one.
     items_to_process_queue: List[str] = Field(default_factory=list)
     # The ID of the specific role, project, or item currently being processed by an agent.
@@ -78,6 +78,9 @@ class AgentState(BaseModel):
         default_factory=dict,
         description="Data to be displayed in the UI for user feedback",
     )
+    
+    # Automated mode flag for testing (bypasses user feedback requirements)
+    automated_mode: bool = Field(default=False)
 
     class Config:
         arbitrary_types_allowed = True
@@ -253,7 +256,9 @@ class AgentState(BaseModel):
         valid_statuses = {"PROCESSING", "AWAITING_FEEDBACK", "COMPLETED", "ERROR"}
         if not isinstance(status, str) or status not in valid_statuses:
             raise ValueError(f"status must be one of {valid_statuses}")
-        return self.model_copy(update={"workflow_status": status})
+        # Update the current instance instead of creating a new one
+        self.workflow_status = status
+        return self
 
     def set_ui_display_data(self, data: Dict[str, Any]) -> "AgentState":
         """Set UI display data with validation.
@@ -266,7 +271,9 @@ class AgentState(BaseModel):
         """
         if not isinstance(data, dict):
             raise ValueError("data must be a dictionary")
-        return self.model_copy(update={"ui_display_data": data.copy()})
+        # Update the current instance instead of creating a new one
+        self.ui_display_data = data.copy()
+        return self
 
     def update_ui_display_data(self, key: str, value: Any) -> "AgentState":
         """Update specific UI display data field.
@@ -283,7 +290,9 @@ class AgentState(BaseModel):
         # pylint: disable=no-member
         updated_data = self.ui_display_data.copy()
         updated_data[key.strip()] = value
-        return self.model_copy(update={"ui_display_data": updated_data})
+        # Update the current instance instead of creating a new one
+        self.ui_display_data = updated_data
+        return self
 
     # Field validators
     @field_validator("error_messages")
@@ -301,6 +310,6 @@ class AgentState(BaseModel):
     @classmethod
     def validate_section_index(cls, v):
         """Validate section index is non-negative."""
-        if v < 0:
+        if v is not None and v < 0:
             raise ValueError("current_section_index must be non-negative")
         return v

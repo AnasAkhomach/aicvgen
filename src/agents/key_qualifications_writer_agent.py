@@ -9,7 +9,7 @@ from src.config.logging_config import get_structured_logger
 from src.constants.agent_constants import AgentConstants
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import EnhancedContentWriterOutput
 from src.models.cv_models import Item, ItemStatus, ItemType
 from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
@@ -64,7 +64,7 @@ class KeyQualificationsWriterAgent(AgentBase):
                 **input_data["job_description_data"]
             )
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core content generation logic for Key Qualifications."""
         try:
             # Validate and convert inputs in place
@@ -89,13 +89,7 @@ class KeyQualificationsWriterAgent(AgentBase):
                     break
 
             if not qual_section:
-                # If section doesn't exist, create a placeholder. This might need refinement
-                # based on how structured_cv is initialized.
-                # For now, we'll assume it exists or is handled upstream.
-                raise AgentExecutionError(
-                    agent_name=self.name,
-                    message="Key Qualifications section not found in structured_cv. It should be pre-initialized.",
-                )
+                return {"error_messages": ["Key Qualifications section not found in structured_cv. It should be pre-initialized."]}
 
             # Clear existing items and add new ones
             qual_section.items = [
@@ -107,39 +101,23 @@ class KeyQualificationsWriterAgent(AgentBase):
                 for qual in generated_qualifications
             ]
 
-            output_data = EnhancedContentWriterOutput(
-                updated_structured_cv=structured_cv,
-                item_id="key_qualifications_section",  # Placeholder ID for the section
-                generated_content="; ".join(generated_qualifications),
-            )
-
             self.update_progress(
                 AgentConstants.PROGRESS_COMPLETE, "Key Qualifications generation completed successfully."
             )
-            return AgentResult(
-                success=True,
-                output_data=output_data,
-                metadata={
-                    "agent_name": self.name,
-                    "message": "Successfully generated Key Qualifications.",
-                },
-            )
-        except AgentExecutionError:
-            # Re-raise AgentExecutionError to maintain error context
-            raise
+            return {
+                "updated_structured_cv": structured_cv,
+                "item_id": "key_qualifications_section",
+                "generated_content": "; ".join(generated_qualifications)
+            }
+        except AgentExecutionError as e:
+            logger.error(f"Agent execution error in {self.name}: {str(e)}")
+            return {"error_messages": [str(e)]}
         except (AttributeError, TypeError, ValueError, KeyError) as e:
-            # Handle common exceptions with proper context
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"Error processing Key Qualifications data: {str(e)}",
-            ) from e
+            logger.error(f"Error processing Key Qualifications data: {str(e)}")
+            return {"error_messages": [f"Error processing Key Qualifications data: {str(e)}"]}
         except Exception as e:
-            # Handle any other unexpected exceptions with proper context
             logger.error(f"Unexpected error in {self.name}: {str(e)}", exc_info=True)
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"Unexpected error during Key Qualifications generation: {str(e)}",
-            ) from e
+            return {"error_messages": [f"Unexpected error during Key Qualifications generation: {str(e)}"]}
 
     async def _generate_key_qualifications(
         self,

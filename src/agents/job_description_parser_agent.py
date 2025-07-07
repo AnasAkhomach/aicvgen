@@ -7,7 +7,7 @@ from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
 from src.constants.agent_constants import AgentConstants
 from src.error_handling.exceptions import (AgentExecutionError, LLMResponseParsingError)
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import ParserAgentOutput
 from src.models.data_models import JobDescriptionData
 from src.services.llm_cv_parser_service import LLMCVParserService
@@ -38,18 +38,16 @@ class JobDescriptionParserAgent(AgentBase):
             llm_service, settings, template_manager
         )
 
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core parsing logic."""
         input_data = kwargs.get("input_data", {})
         raw_text = input_data.get("raw_text")
 
-        output = ParserAgentOutput()
         self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Parsing job description")
         parsed_data = await self.parse_job_description(raw_text)
-        output.job_description_data = parsed_data
 
         self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Parsing completed")
-        return AgentResult(success=True, output_data=output)
+        return {"job_description_data": parsed_data}
 
     async def parse_job_description(self, raw_text: str) -> JobDescriptionData:
         """Parses a raw job description using an LLM."""

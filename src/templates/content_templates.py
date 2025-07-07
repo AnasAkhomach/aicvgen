@@ -156,6 +156,12 @@ class ContentTemplateManager:
         category: TemplateCategory = TemplateCategory.PROMPT,
     ) -> Optional[ContentTemplate]:
         """Get a specific template."""
+        # First try simple name lookup (how templates are actually stored in _load_template_file)
+        template = self.templates.get(name)
+        if template and template.content_type == content_type:
+            return template
+        
+        # Fallback to composite key lookup (for templates registered via register_template)
         template_key = f"{content_type.value}_{category.value}_{name}"
         return self.templates.get(template_key)
 

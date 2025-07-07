@@ -113,9 +113,8 @@ class TestUserCVParserAgentRequiredSections:
         
         education_section = next((s for s in structured_cv.sections if s.name == "Education"), None)
         assert education_section is not None
-        # Should have subsections with items from the LLM response (items are stored in "Main" subsection)
-        assert len(education_section.subsections) > 0
-        assert len(education_section.subsections[0].items) > 0
+        # Should have items directly in the section (no "Main" subsection created)
+        assert len(education_section.items) > 0
         
         # Verify that missing sections were added as empty
         key_qual_section = next((s for s in structured_cv.sections if s.name == "Key Qualifications"), None)
@@ -174,20 +173,20 @@ class TestUserCVParserAgentRequiredSections:
         # Should have exactly 5 sections (no duplicates added)
         assert len(structured_cv.sections) == 5, f"Expected exactly 5 sections, got {len(structured_cv.sections)}: {section_names}"
         
-        # Verify content is preserved - items are stored in subsections
+        # Verify content is preserved - items are stored directly in sections
         exec_summary = next((s for s in structured_cv.sections if s.name == "Executive Summary"), None)
         assert exec_summary is not None
-        print(f"Executive Summary subsections: {len(exec_summary.subsections)}")
-        if exec_summary.subsections:
-            print(f"Executive Summary items: {[item.content for item in exec_summary.subsections[0].items]}")
-            assert any("Experienced software engineer" in item.content for item in exec_summary.subsections[0].items)
+        print(f"Executive Summary items: {len(exec_summary.items)}")
+        print(f"Executive Summary item contents: {[item.content for item in exec_summary.items]}")
+        assert len(exec_summary.items) > 0
+        assert any("Experienced software engineer" in item.content for item in exec_summary.items)
         
         key_quals = next((s for s in structured_cv.sections if s.name == "Key Qualifications"), None)
         assert key_quals is not None
-        print(f"Key Qualifications subsections: {len(key_quals.subsections)}")
-        if key_quals.subsections:
-            print(f"Key Qualifications items: {[item.content for item in key_quals.subsections[0].items]}")
-            items_content = [item.content for item in key_quals.subsections[0].items]
-            assert any("Python" in content for content in items_content)
-            assert any("JavaScript" in content for content in items_content)
-            assert any("React" in content for content in items_content)
+        print(f"Key Qualifications items: {len(key_quals.items)}")
+        print(f"Key Qualifications item contents: {[item.content for item in key_quals.items]}")
+        assert len(key_quals.items) > 0
+        items_content = [item.content for item in key_quals.items]
+        assert any("Python" in content for content in items_content)
+        assert any("JavaScript" in content for content in items_content)
+        assert any("React" in content for content in items_content)

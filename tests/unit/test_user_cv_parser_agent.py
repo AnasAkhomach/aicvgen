@@ -163,8 +163,8 @@ class TestUserCVParserAgent:
         # Mock the LLM CV parser service
         user_cv_parser_agent.llm_cv_parser_service.parse_cv_with_llm = AsyncMock(return_value=sample_parsing_result)
         
-        input_data = {"input_data": {"raw_text": sample_cv_text}}
-        result = await user_cv_parser_agent._execute(**input_data)
+        # Pass cv_text directly as expected by _execute method
+        result = await user_cv_parser_agent._execute(cv_text=sample_cv_text)
         
         # Verify the result
         assert isinstance(result, AgentResult)
@@ -256,16 +256,80 @@ class TestUserCVParserAgent:
         # Find the Skills section
         skills_section = next(s for s in structured_cv.sections if s.name == "Skills")
         
-        # Should have one subsection named "Main" with the direct items
-        assert len(skills_section.subsections) == 1
-        assert skills_section.subsections[0].name == "Main"
-        assert len(skills_section.subsections[0].items) == 3
+        # Should have items directly in the section, not in a "Main" subsection
+        assert len(skills_section.items) == 3
+        assert len(skills_section.subsections) == 0  # No subsections should be created
         
         # Verify item contents
-        item_contents = [item.content for item in skills_section.subsections[0].items]
+        item_contents = [item.content for item in skills_section.items]
         assert "Python" in item_contents
         assert "JavaScript" in item_contents
         assert "React" in item_contents
+        
+        # Verify items have correct status and type
+        for item in skills_section.items:
+            assert item.status == ItemStatus.GENERATED
+            assert item.item_type is not None
+
+    def test_convert_cv_parsing_result_direct_item_placement(self, user_cv_parser_agent, sample_cv_text):
+        """Test that _convert_cv_parsing_result_to_structured_cv correctly places direct items in Section.items list."""
+        # Create a parsing result with sections containing direct items
+        parsing_result = CVParsingResult(
+            personal_info=CVParsingPersonalInfo(
+                name="Test User",
+                email="test@example.com",
+                phone="555-000-0000"
+            ),
+            sections=[
+                CVParsingSection(
+                    name="Key Qualifications",
+                    items=["Strong leadership skills", "Expert in Python programming", "5+ years experience"],
+                    subsections=[]
+                ),
+                CVParsingSection(
+                    name="Technical Skills",
+                    items=["Python", "JavaScript", "Docker", "AWS"],
+                    subsections=[]
+                )
+            ]
+        )
+        
+        # Execute the method under test
+        structured_cv = user_cv_parser_agent._convert_cv_parsing_result_to_structured_cv(
+            parsing_result, sample_cv_text
+        )
+        
+        # Verify Key Qualifications section
+        key_qual_section = next(s for s in structured_cv.sections if s.name == "Key Qualifications")
+        assert len(key_qual_section.items) == 3, "Key Qualifications should have 3 direct items"
+        assert len(key_qual_section.subsections) == 0, "No subsections should be created for direct items"
+        
+        # Verify item contents in Key Qualifications
+        key_qual_contents = [item.content for item in key_qual_section.items]
+        assert "Strong leadership skills" in key_qual_contents
+        assert "Expert in Python programming" in key_qual_contents
+        assert "5+ years experience" in key_qual_contents
+        
+        # Verify Technical Skills section
+        tech_skills_section = next(s for s in structured_cv.sections if s.name == "Technical Skills")
+        assert len(tech_skills_section.items) == 4, "Technical Skills should have 4 direct items"
+        assert len(tech_skills_section.subsections) == 0, "No subsections should be created for direct items"
+        
+        # Verify item contents in Technical Skills
+        tech_skills_contents = [item.content for item in tech_skills_section.items]
+        assert "Python" in tech_skills_contents
+        assert "JavaScript" in tech_skills_contents
+        assert "Docker" in tech_skills_contents
+        assert "AWS" in tech_skills_contents
+        
+        # Verify all items have correct properties
+        all_items = key_qual_section.items + tech_skills_section.items
+        for item in all_items:
+            assert item.status == ItemStatus.GENERATED, "All items should have GENERATED status"
+            assert item.item_type is not None, "All items should have a valid item_type"
+            assert item.id is not None, "All items should have a valid UUID"
+            assert isinstance(item.content, str), "All items should have string content"
+            assert len(item.content.strip()) > 0, "All items should have non-empty content"
 
     @pytest.mark.asyncio
     async def test_vector_store_integration(self, user_cv_parser_agent, sample_cv_text, sample_parsing_result):

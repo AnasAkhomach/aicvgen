@@ -101,7 +101,11 @@ def validate_node_output(node_func):
                     exc_info=True,
                 )
                 try:
-                    return state.model_copy(update=output_dict)
+                    # Update state fields directly instead of using model_copy
+                    for key, value in output_dict.items():
+                        if hasattr(state, key):
+                            setattr(state, key, value)
+                    return state
                 except (ValidationError, TypeError) as copy_exc:
                     logger.error(
                         "Failed to even update state copy in '%s': %s",

@@ -10,7 +10,7 @@ from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError, LLMResponseParsingError
-from src.models.agent_models import AgentResult
+
 from src.models.agent_output_models import (
     CompanyInsight,
     IndustryInsight,
@@ -52,7 +52,7 @@ class ResearchAgent(AgentBase):
         self.vector_store_service = vector_store_service
         self.template_manager = template_manager
 
-    async def _execute(self, **kwargs: Any) -> AgentResult[ResearchAgentOutput]:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """
         Executes the research agent asynchronously.
         """
@@ -67,10 +67,7 @@ class ResearchAgent(AgentBase):
             # Input validation
             if not job_description_data:
                 logger.error("Missing job_description_data in ResearchAgent input")
-                return AgentResult.create_failure(
-                    agent_name=self.name,
-                    error_message="Missing required job description data",
-                )
+                return {"error_messages": ["Missing required job description data"]}
 
             self.update_progress(
                 AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation passed."
@@ -87,38 +84,25 @@ class ResearchAgent(AgentBase):
             # Validate research findings result
             if not research_findings:
                 logger.error("Research analysis returned None")
-                return AgentResult.create_failure(
-                    agent_name=self.name,
-                    error_message="Research analysis failed to return any results",
-                )
+                return {"error_messages": ["Research analysis failed to return any results"]}
 
             if research_findings.status == ResearchStatus.FAILED:
                 # Research failed but we have error details
                 logger.warning(
                     f"Research analysis failed: {research_findings.error_message}"
                 )
-                output = ResearchAgentOutput(research_findings=research_findings)
                 self.update_progress(
                     AgentConstants.PROGRESS_COMPLETE,
                     "Research analysis failed but returning error details.",
                 )
-                return AgentResult.create_failure(
-                    agent_name=self.name,
-                    error_message=research_findings.error_message
-                    or "Research analysis failed",
-                )
+                return {"error_messages": [research_findings.error_message or "Research analysis failed"]}
 
             # Success case
-            output = ResearchAgentOutput(research_findings=research_findings)
             self.update_progress(
                 AgentConstants.PROGRESS_COMPLETE,
                 "Research analysis completed successfully.",
             )
-            return AgentResult.create_success(
-                agent_name=self.name,
-                output_data=output,
-                message="Research analysis completed successfully.",
-            )
+            return {"research_findings": research_findings}
 
         except LLMResponseParsingError as e:
             logger.error("LLM response parsing failed in ResearchAgent: %s", str(e))
@@ -126,19 +110,14 @@ class ResearchAgent(AgentBase):
                 AgentConstants.PROGRESS_COMPLETE,
                 "Research analysis failed due to parsing error.",
             )
-            return AgentResult.create_failure(
-                agent_name=self.name,
-                error_message=f"Failed to parse LLM response: {str(e)}",
-            )
+            return {"error_messages": [f"Failed to parse LLM response: {str(e)}"]}
         except AgentExecutionError as e:
             logger.error("Agent execution error in ResearchAgent: %s", str(e))
             self.update_progress(
                 AgentConstants.PROGRESS_COMPLETE,
                 "Research analysis failed due to execution error.",
             )
-            return AgentResult.create_failure(
-                agent_name=self.name, error_message=str(e)
-            )
+            return {"error_messages": [str(e)]}
         except (ValueError, TypeError, AttributeError) as e:
             logger.error(
                 "Validation or type error in ResearchAgent", error=str(e), exc_info=True
@@ -147,10 +126,7 @@ class ResearchAgent(AgentBase):
                 AgentConstants.PROGRESS_COMPLETE,
                 "Research analysis failed due to validation error.",
             )
-            return AgentResult.create_failure(
-                agent_name=self.name,
-                error_message=f"A validation error occurred during research: {e}",
-            )
+            return {"error_messages": [f"A validation error occurred during research: {e}"]}
 
     async def _perform_research_analysis(
         self, job_desc_data: Union[JobDescriptionData, dict]

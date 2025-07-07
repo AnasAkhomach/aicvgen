@@ -1,7 +1,7 @@
 """Pydantic output models for agent results.
 
-This module defines the output data models that agents return in their
-AgentResult.output_data field. These models ensure type safety and data
+This module defines the output data models that agents can use to structure
+their dictionary return values. These models ensure type safety and data
 validation for agent outputs according to Task C-03.
 """
 
@@ -446,6 +446,20 @@ class ResearchFindings(BaseModel):
 
     # Legacy compatibility
     metadata: ResearchMetadataModel = Field(default_factory=ResearchMetadataModel)
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def validate_metadata(cls, v):
+        """Convert dict to ResearchMetadataModel if needed."""
+        if v is None:
+            return ResearchMetadataModel()
+        if isinstance(v, dict):
+            return ResearchMetadataModel.from_dict(v)
+        if isinstance(v, ResearchMetadataModel):
+            return v
+        raise ValueError(
+            f"metadata must be a dict or ResearchMetadataModel instance, got {type(v)}"
+        )
 
     class Config:
         arbitrary_types_allowed = True

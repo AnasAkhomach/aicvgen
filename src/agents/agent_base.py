@@ -6,7 +6,7 @@ from typing import Any
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import AgentExecutionError
 from src.models.agent_input_models import extract_agent_inputs
-from src.models.agent_models import AgentResult
+
 from src.orchestration.state import AgentState
 from src.services.progress_tracker import ProgressTracker
 
@@ -42,7 +42,7 @@ class AgentBase(ABC):
             self.progress_tracker.update_progress(self.name, progress, message)
         self.logger.info(f"Progress for {self.name}: {progress}% - {message}")
 
-    async def run(self, **kwargs: Any) -> AgentResult:
+    async def run(self, **kwargs: Any) -> dict[str, Any]:
         """
         Template method for agent execution with standardized validation and error handling.
 
@@ -50,7 +50,7 @@ class AgentBase(ABC):
             **kwargs: The input data for the agent, passed as keyword arguments.
 
         Returns:
-            The result of the agent's task as an AgentResult object.
+            A dictionary containing the agent's output data or error information.
         """
         self.update_progress(0, f"Starting {self.name} execution.")
         input_data = kwargs  # Use kwargs directly as input_data
@@ -61,20 +61,18 @@ class AgentBase(ABC):
             self.logger.error(
                 f"Agent execution error in {self.name}: {e}", exc_info=True
             )
-            return AgentResult.create_failure(agent_name=self.name, error_message=str(e))
+            return {"error_messages": [str(e)]}
         except (AttributeError, TypeError, ValueError, KeyError) as e:
             self.logger.error(
                 f"An unexpected error occurred in {self.name}: {e}", exc_info=True
             )
-            return AgentResult.create_failure(
-                agent_name=self.name, error_message=f"An unexpected error occurred: {e}"
-            )
+            return {"error_messages": [f"An unexpected error occurred: {e}"]}
 
-    async def run_as_node(self, state: AgentState) -> AgentState:
+    async def run_as_node(self, state: AgentState) -> dict[str, Any]:
         """
-        Executes the agent as a LangGraph node, updating the state.
+        Executes the agent as a LangGraph node, returning a dictionary for state updates.
         This method extracts necessary inputs from the AgentState using explicit
-        input mapping, runs the agent, and updates the AgentState with the results or errors.
+        input mapping, runs the agent, and returns the results or errors as a dictionary.
         """
         self.session_id = (
             state.session_id
@@ -88,51 +86,17 @@ class AgentBase(ABC):
             # This reduces coupling between agents and the global state
             agent_input_kwargs = extract_agent_inputs(self.name, state)
         except ValueError as e:
-            # If input extraction fails, log error and return state with error
+            # If input extraction fails, log error and return error dictionary
             self.logger.error(f"Input extraction failed for {self.name}: {e}")
-            error_messages = state.error_messages + [f"Input extraction failed: {e}"]
-            return state.model_copy(update={"error_messages": error_messages})
+            error_messages = list(state.error_messages) if state.error_messages else []
+            error_messages.append(f"Input extraction failed: {e}")
+            return {"error_messages": error_messages}
 
         # Call the agent's core run method with validated inputs
-        agent_result = await self.run(**agent_input_kwargs)
-
-        # Update the AgentState based on the agent's result
-        if agent_result.was_successful():
-            # Assuming output_data is a Pydantic model that can be merged into AgentState
-            if agent_result.output_data:
-                # Handle specific field mappings for different agent output types
-                # For EnhancedContentWriterOutput, we need to preserve the StructuredCV object
-                if hasattr(agent_result.output_data, "updated_structured_cv"):
-                    # Directly use the StructuredCV object without converting to dict
-                    return state.model_copy(
-                        update={
-                            "structured_cv": agent_result.output_data.updated_structured_cv
-                        }
-                    )
-                else:
-                    # For other output types, preserve Pydantic models for specific fields
-                    updated_state_data = {}
-                    
-                    # Convert to dict but preserve specific Pydantic model fields
-                    output_dict = agent_result.output_data.model_dump(exclude_unset=True)
-                    
-                    for key, value in output_dict.items():
-                        # Preserve JobDescriptionData and StructuredCV as Pydantic models
-                        if key == "job_description_data" and hasattr(agent_result.output_data, "job_description_data"):
-                            updated_state_data[key] = agent_result.output_data.job_description_data
-                        elif key == "structured_cv" and hasattr(agent_result.output_data, "structured_cv"):
-                            updated_state_data[key] = agent_result.output_data.structured_cv
-                        else:
-                            updated_state_data[key] = value
-                    
-                    return state.model_copy(update=updated_state_data)
-            return state  # No output data, return original state
-        else:
-            # If agent failed, add error message to state
-            error_messages = state.error_messages + [agent_result.get_error_message()]
-            return state.model_copy(update={"error_messages": error_messages})
+        # The run method now returns a dictionary directly
+        return await self.run(**agent_input_kwargs)
 
     @abstractmethod
-    async def _execute(self, **kwargs: Any) -> AgentResult:
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Hook for subclasses to implement the core agent logic."""
         raise NotImplementedError

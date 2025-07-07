@@ -117,7 +117,7 @@ class ContentAggregator:
             True if content was successfully processed, False otherwise
         """
         try:
-            # Extract content from AgentResult.output_data structure
+            # Extract content from agent result dictionary
             agent_content = result.get("content", {})
 
             if isinstance(agent_content, dict) and "content" in agent_content:
