@@ -105,9 +105,8 @@ class KeyQualificationsWriterAgent(AgentBase):
                 AgentConstants.PROGRESS_COMPLETE, "Key Qualifications generation completed successfully."
             )
             return {
-                "updated_structured_cv": structured_cv,
-                "item_id": "key_qualifications_section",
-                "generated_content": "; ".join(generated_qualifications)
+                "structured_cv": structured_cv,
+                "current_item_id": "key_qualifications_section"
             }
         except AgentExecutionError as e:
             logger.error(f"Agent execution error in {self.name}: {str(e)}")
@@ -147,9 +146,8 @@ class KeyQualificationsWriterAgent(AgentBase):
         prompt = self.template_manager.format_template(
             prompt_template,
             {
-                "job_description": job_data.model_dump_json(indent=2),
-                "cv_summary": cv_summary,
-                "research_findings": research_findings,
+                "main_job_description_raw": job_data.raw_text or job_data.model_dump_json(indent=2),
+                "my_talents": cv_summary or "No CV summary available",
             },
         )
 

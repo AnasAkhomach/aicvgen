@@ -1,0 +1,56 @@
+flowchart TD
+    subgraph MainWorkflow ["🔄 Main Workflow Graph"]
+        ENTRY_ROUTER("📍 ENTRY<br/>ROUTER"):::router --> JD_PARSER("📄 Job Description<br/>Parser"):::processor
+        ENTRY_ROUTER --> SUPERVISOR
+
+        JD_PARSER --> CV_PARSER("📋 CV Parser"):::processor
+        CV_PARSER --> RESEARCH("🔍 Research<br/>Engine"):::processor
+        RESEARCH --> CV_ANALYZER("📊 CV Analyzer"):::processor
+        CV_ANALYZER --> SUPERVISOR{"🎯 Supervisor<br/>Router"}:::router
+
+        subgraph ContentLoop ["📝 Content Generation Pipeline"]
+            KEY_QUALIFICATIONS_SUBGRAPH("🌟 Key Qualifications<br/>Generator"):::subgraphNode
+            PROFESSIONAL_EXPERIENCE_SUBGRAPH("💼 Experience<br/>Generator"):::subgraphNode
+            PROJECTS_SUBGRAPH("🚀 Projects<br/>Generator"):::subgraphNode
+            EXECUTIVE_SUMMARY_SUBGRAPH("📜 Summary<br/>Generator"):::subgraphNode
+        end
+
+        SUPERVISOR -->|"⚡ Route"| KEY_QUALIFICATIONS_SUBGRAPH
+        KEY_QUALIFICATIONS_SUBGRAPH -->|"✅ Ready"| SUPERVISOR
+
+        SUPERVISOR -->|"⚡ Route"| PROFESSIONAL_EXPERIENCE_SUBGRAPH
+        PROFESSIONAL_EXPERIENCE_SUBGRAPH -->|"✅ Ready"| SUPERVISOR
+
+        SUPERVISOR -->|"⚡ Route"| PROJECTS_SUBGRAPH
+        PROJECTS_SUBGRAPH -->|"✅ Ready"| SUPERVISOR
+
+        SUPERVISOR -->|"⚡ Route"| EXECUTIVE_SUMMARY_SUBGRAPH
+        EXECUTIVE_SUMMARY_SUBGRAPH -->|"✅ Ready"| SUPERVISOR
+
+        SUPERVISOR -->|"🏁 Complete"| FORMATTER("📑 Final CV<br/>Formatter"):::formatter
+        FORMATTER --> END_NODE([🎉 SUCCESS]):::success
+
+        SUPERVISOR -->|"❌ Error"| ERROR_HANDLER("⚠️ Error Handler"):::error
+        ERROR_HANDLER --> END_ERROR([💥 ERROR]):::failure
+    end
+
+    subgraph RepresentativeSubgraph ["⚙️ Section Generation Process"]
+        subgraph_entry([🚀 START]):::success --> GENERATE("✍️ Content Writer<br/>Agent"):::agent
+        GENERATE --> QA("🔍 Quality Assurance<br/>Agent"):::agent
+        QA --> HANDLE_FEEDBACK{"🤔 Feedback<br/>Handler"}:::router
+
+        HANDLE_FEEDBACK -->|"🔄 Regenerate"| GENERATE
+        HANDLE_FEEDBACK -->|"👍 Approve"| MARK_COMPLETION("✅ Mark as<br/>Complete"):::processor
+        HANDLE_FEEDBACK -->|"❌ Error"| subgraph_end_error([💥 ERROR]):::failure
+
+        MARK_COMPLETION --> subgraph_end_ok([🎯 COMPLETE]):::success
+    end
+
+    classDef router fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef processor fill:#7ED321,stroke:#5BA816,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef subgraphNode fill:#F5A623,stroke:#D1890B,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef agent fill:#9013FE,stroke:#6A0DAD,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef formatter fill:#FF6B6B,stroke:#E55A5A,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef success fill:#50E3C2,stroke:#3AC9A6,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef failure fill:#FF4757,stroke:#FF3742,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef error fill:#FFA502,stroke:#FF8C00,stroke-width:2px,color:#ffffff,font-weight:bold

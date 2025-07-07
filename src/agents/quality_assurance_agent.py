@@ -87,22 +87,22 @@ class QualityAssuranceAgent(AgentBase):
             self.update_progress(AgentConstants.PROGRESS_COMPLETE, "QA checks completed.")
 
             return {
-                "qa_results": qa_results
+                "quality_check_results": qa_results
             }
 
         except AgentExecutionError as e:
             error_message = f"{self.name} failed: {str(e)}"
             logger.error(error_message, exc_info=True)
             return {
-                "error": error_message,
-                "qa_results": QualityAssuranceAgentOutput()
+                "error_messages": [error_message],
+                "quality_check_results": QualityAssuranceAgentOutput()
             }
         except Exception as e:
             error_message = f"An unexpected error occurred in {self.name}: {str(e)}"
             logger.error(error_message, exc_info=True)
             return {
-                "error": error_message,
-                "qa_results": QualityAssuranceAgentOutput()
+                "error_messages": [error_message],
+                "quality_check_results": QualityAssuranceAgentOutput()
             }
 
     def _check_section(self, section: Section) -> SectionQualityResultModel:

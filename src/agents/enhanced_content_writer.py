@@ -91,9 +91,8 @@ class EnhancedContentWriterAgent(AgentBase):
 
         self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Content generation completed successfully")
         return {
-            "updated_structured_cv": updated_cv,
-            "item_id": item_id,
-            "generated_content": enhanced_content
+            "structured_cv": updated_cv,
+            "current_item_id": item_id
         }
 
     async def _generate_enhanced_content(

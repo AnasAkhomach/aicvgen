@@ -102,9 +102,8 @@ class ProjectsWriterAgent(AgentBase):
 
             self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Projects generation completed successfully.")
             return {
-                "updated_structured_cv": updated_cv,
-                "item_id": current_item_id,
-                "generated_content": generated_content
+                "structured_cv": updated_cv,
+                "current_item_id": current_item_id
             }
         except AgentExecutionError as e:
             logger.error(f"Agent execution error in {self.name}: {str(e)}")

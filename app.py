@@ -133,11 +133,28 @@ def render_awaiting_feedback_ui(state):
     st.subheader("Please Review This Section")
 
     # Display content from state.ui_display_data
-    content_to_review = state.ui_display_data.get("content", "Nothing to display.")
-    section_name = state.ui_display_data.get("section_name", "Current Section")
-
-    st.write(f"**Section:** {section_name}")
-    st.text_area("Generated Content", value=content_to_review, height=300, disabled=True)
+    ui_data = state.ui_display_data or {}
+    section_name = ui_data.get("section", "Current Section")
+    content_preview = ui_data.get("content_preview")
+    
+    st.write(f"**Section:** {section_name.replace('_', ' ').title()}")
+    
+    if content_preview and isinstance(content_preview, dict):
+        # Display section preview with items
+        section_display_name = content_preview.get("section_name", section_name)
+        items_count = content_preview.get("items_count", 0)
+        items = content_preview.get("items", [])
+        
+        st.write(f"**Generated {items_count} items for {section_display_name}:**")
+        
+        # Display each item
+        for i, item in enumerate(items, 1):
+            with st.expander(f"Item {i} (ID: {item.get('id', 'unknown')})", expanded=True):
+                st.write(item.get('content', 'No content available'))
+    else:
+        # Fallback display
+        content_to_review = ui_data.get("content", "Nothing to display.")
+        st.text_area("Generated Content", value=content_to_review, height=300, disabled=True)
 
     # Feedback buttons
     col1, col2 = st.columns(2)

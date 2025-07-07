@@ -126,9 +126,8 @@ class ExecutiveSummaryWriterAgent(AgentBase):
                 AgentConstants.PROGRESS_COMPLETE, "Executive Summary generation completed successfully."
             )
             return {
-                "updated_structured_cv": structured_cv,
-                "item_id": item_id,
-                "generated_content": generated_summary
+                "structured_cv": structured_cv,
+                "current_item_id": item_id
             }
         except AgentExecutionError as e:
             logger.error(f"Agent execution error in {self.name}: {str(e)}")

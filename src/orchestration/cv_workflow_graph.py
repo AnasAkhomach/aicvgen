@@ -539,21 +539,33 @@ class CVWorkflowGraph:
         if state.structured_cv and state.structured_cv.sections:
             sections = state.structured_cv.sections
             
-            # Find the first section that has items
-            for section_index, section in enumerate(sections):
-                if section.items:
-                    # Retrieve the ID of the first item in this section
-                    first_item_id = str(section.items[0].id)
-                    
-                    # Set supervisor state variables
-                    updates = {
-                        "current_section_index": section_index,
-                        "current_item_id": first_item_id
-                    }
-                    logger.info(
-                        f"Initialized supervisor state: section_index={section_index}, item_id={first_item_id}"
-                    )
-                    return updates
+            # Map WORKFLOW_SEQUENCE section names to actual section names in structured_cv
+            workflow_to_section_mapping = {
+                WorkflowNodes.KEY_QUALIFICATIONS.value: "Key Qualifications",
+                WorkflowNodes.PROFESSIONAL_EXPERIENCE.value: "Professional Experience", 
+                WorkflowNodes.PROJECT_EXPERIENCE.value: "Project Experience",
+                WorkflowNodes.EXECUTIVE_SUMMARY.value: "Executive Summary"
+            }
+            
+            # Start from the first workflow sequence item
+            for workflow_index, workflow_section_key in enumerate(WORKFLOW_SEQUENCE):
+                expected_section_name = workflow_to_section_mapping.get(workflow_section_key)
+                
+                # Find the corresponding section in structured_cv
+                for section in sections:
+                    if section.name == expected_section_name and section.items:
+                        # Get the first item from this section
+                        first_item_id = str(section.items[0].id)
+                        
+                        # Set supervisor state variables
+                        updates = {
+                            "current_section_index": workflow_index,
+                            "current_item_id": first_item_id
+                        }
+                        logger.info(
+                            f"Initialized supervisor state: workflow_index={workflow_index}, section_name={expected_section_name}, item_id={first_item_id}"
+                        )
+                        return updates
             
             # If no sections have items, log warning
             logger.warning(
@@ -579,14 +591,45 @@ class CVWorkflowGraph:
             # Initialize current_section_index to 0 if not set
             current_section_index = 0 if state.current_section_index is None else state.current_section_index
             
-            # Initialize current_item_id based on the first section's first item
+            # Initialize current_item_id based on the correct section for the workflow sequence
             current_item_id = None
             if state.structured_cv and state.structured_cv.sections:
-                # Get the first section that has items
+                # Map WORKFLOW_SEQUENCE section names to actual section names in structured_cv
+                workflow_to_section_mapping = {
+                    WorkflowNodes.KEY_QUALIFICATIONS.value: "Key Qualifications",
+                    WorkflowNodes.PROFESSIONAL_EXPERIENCE.value: "Professional Experience", 
+                    WorkflowNodes.PROJECT_EXPERIENCE.value: "Project Experience",
+                    WorkflowNodes.EXECUTIVE_SUMMARY.value: "Executive Summary"
+                }
+                
+                # Always start with the first section in WORKFLOW_SEQUENCE (Key Qualifications)
+                # The workflow should process sections in the defined order, not skip to sections with existing content
+                workflow_section_key = WORKFLOW_SEQUENCE[current_section_index]
+                expected_section_name = workflow_to_section_mapping.get(workflow_section_key)
+                
+                # Find the corresponding section in structured_cv
                 for section in state.structured_cv.sections:
-                    if section.items:
-                        current_item_id = str(section.items[0].id)
-                        break
+                    if section.name == expected_section_name:
+                        # Check if section has direct items
+                        if section.items:
+                            current_item_id = str(section.items[0].id)
+                            logger.info(f"Found section with direct items: {expected_section_name} at index {current_section_index}")
+                            break
+                        # Check if section has subsections with items
+                        elif hasattr(section, 'subsections') and section.subsections:
+                            for subsection in section.subsections:
+                                if hasattr(subsection, 'items') and subsection.items:
+                                    current_item_id = str(subsection.items[0].id)
+                                    logger.info(f"Found section with subsection items: {expected_section_name} at index {current_section_index}")
+                                    break
+                            if current_item_id:
+                                break
+                        # If section exists but has no items, we'll still process it (content will be generated)
+                        else:
+                            logger.info(f"Section {expected_section_name} exists but has no items - will generate content")
+                            # Set a placeholder item_id that indicates content needs to be generated
+                            current_item_id = "generate_new_content"
+                            break
             
             logger.info(f"Initialized supervisor state: section_index={current_section_index}, item_id={current_item_id}")
             
@@ -644,6 +687,7 @@ class CVWorkflowGraph:
             # If the last executed node was a subgraph, increment the section index
             last_node = state.node_execution_metadata.get("last_executed_node")
             current_index = state.current_section_index
+            updated_item_id = state.current_item_id
 
             if last_node and last_node.endswith("_subgraph") and not state.user_feedback:
                 # A subgraph completed successfully, move to next section
@@ -652,6 +696,51 @@ class CVWorkflowGraph:
                     f"Subgraph {last_node} completed, incrementing section index to {current_index}"
                 )
                 print(f"Incrementing section index from {state.current_section_index} to {current_index}")
+                
+                # Update current_item_id to the first item of the new section
+                # Skip empty sections and find the next section with items
+                if current_index < len(WORKFLOW_SEQUENCE) and state.structured_cv and state.structured_cv.sections:
+                    workflow_to_section_mapping = {
+                        WorkflowNodes.KEY_QUALIFICATIONS.value: "Key Qualifications",
+                        WorkflowNodes.PROFESSIONAL_EXPERIENCE.value: "Professional Experience", 
+                        WorkflowNodes.PROJECT_EXPERIENCE.value: "Project Experience",
+                        WorkflowNodes.EXECUTIVE_SUMMARY.value: "Executive Summary"
+                    }
+                    
+                    # Find the next section with items starting from current_index
+                    for i in range(current_index, len(WORKFLOW_SEQUENCE)):
+                        workflow_section_key = WORKFLOW_SEQUENCE[i]
+                        expected_section_name = workflow_to_section_mapping.get(workflow_section_key)
+                        
+                        # Find the corresponding section in structured_cv
+                        for section in state.structured_cv.sections:
+                            if section.name == expected_section_name:
+                                # Check if section has direct items
+                                if section.items:
+                                    updated_item_id = str(section.items[0].id)
+                                    current_index = i
+                                    logger.info(
+                                        f"Updated current_item_id to {updated_item_id} for section {expected_section_name} at index {i}"
+                                    )
+                                    print(f"Updated current_item_id to {updated_item_id} for section {expected_section_name} at index {i}")
+                                    break
+                                # Check if section has subsections with items
+                                elif hasattr(section, 'subsections') and section.subsections:
+                                    for subsection in section.subsections:
+                                        if hasattr(subsection, 'items') and subsection.items:
+                                            updated_item_id = str(subsection.items[0].id)
+                                            current_index = i
+                                            logger.info(
+                                                f"Updated current_item_id to {updated_item_id} for section {expected_section_name} (subsection) at index {i}"
+                                            )
+                                            print(f"Updated current_item_id to {updated_item_id} for section {expected_section_name} (subsection) at index {i}")
+                                            break
+                                    if updated_item_id != state.current_item_id:
+                                        break
+                        
+                        # If we found a section with items, break out of the outer loop
+                        if updated_item_id != state.current_item_id:
+                            break
 
             print(f"Current index after increment check: {current_index}")
             print(f"Checking if {current_index} >= {len(WORKFLOW_SEQUENCE)}")
@@ -708,6 +797,7 @@ class CVWorkflowGraph:
             return {
                 "node_execution_metadata": updated_metadata,
                 "current_section_index": current_index,
+                "current_item_id": updated_item_id,
             }
             
         except Exception as e:
@@ -772,12 +862,36 @@ class CVWorkflowGraph:
 
                 # Add section-specific content to UI data
                 if hasattr(state, "structured_cv") and state.structured_cv:
+                    # Create mapping between workflow keys and section names
+                    section_name_mapping = {
+                        "key_qualifications": "Key Qualifications",
+                        "professional_experience": "Professional Experience",
+                        "project_experience": "Project Experience", 
+                        "executive_summary": "Executive Summary"
+                    }
+                    
+                    # Get the actual section name from mapping
+                    actual_section_name = section_name_mapping.get(current_section, current_section)
+                    
                     # Find the relevant section content for display
                     for section in state.structured_cv.sections:
-                        if section.name == current_section:
+                        if section.name == actual_section_name:
+                            # Collect all items from both direct section items and subsection items
+                            all_items = []
+                            
+                            # Add direct section items
+                            if section.items:
+                                all_items.extend(section.items)
+                            
+                            # Add items from subsections
+                            if hasattr(section, 'subsections') and section.subsections:
+                                for subsection in section.subsections:
+                                    if hasattr(subsection, 'items') and subsection.items:
+                                        all_items.extend(subsection.items)
+                            
                             ui_data["content_preview"] = {
                                 "section_name": section.name,
-                                "items_count": len(section.items),
+                                "items_count": len(all_items),
                                 "items": [
                                     {
                                         "id": item.id,
@@ -787,8 +901,8 @@ class CVWorkflowGraph:
                                             else item.content
                                         ),
                                     }
-                                    for item in section.items[:3]
-                                ],  # Show first 3 items as preview
+                                    for item in all_items
+                                ],  # Show all items from section and subsections
                             }
                             break
 
@@ -849,7 +963,7 @@ class CVWorkflowGraph:
     def _route_after_content_generation(self, state: Dict[str, Any]) -> str:
         """
         Router function for subgraphs after content generation and QA.
-        Determines if content needs regeneration or if the subgraph should end.
+        Determines if content needs regeneration, awaits feedback, or if the subgraph should end.
         """
         agent_state = AgentState.model_validate(state)
 
@@ -865,6 +979,11 @@ class CVWorkflowGraph:
         ):
             logger.info("User requested regeneration, looping back within subgraph.")
             return WorkflowNodes.REGENERATE.value
+
+        # Check if workflow is awaiting user feedback
+        if agent_state.workflow_status == "AWAITING_FEEDBACK":
+            logger.info("Workflow is awaiting user feedback, pausing subgraph execution.")
+            return "AWAITING_FEEDBACK"
 
         # If no regeneration requested and no errors, route to completion marker
         logger.info(
@@ -952,6 +1071,7 @@ class CVWorkflowGraph:
             {
                 WorkflowNodes.REGENERATE.value: WorkflowNodes.GENERATE.value,
                 "MARK_COMPLETION": "MARK_COMPLETION",
+                "AWAITING_FEEDBACK": END,
                 WorkflowNodes.ERROR.value: END,
             },
         )
@@ -980,6 +1100,7 @@ class CVWorkflowGraph:
             {
                 WorkflowNodes.REGENERATE.value: WorkflowNodes.GENERATE.value,
                 "MARK_COMPLETION": "MARK_COMPLETION",
+                "AWAITING_FEEDBACK": END,
                 WorkflowNodes.ERROR.value: END,
             },
         )
@@ -1006,6 +1127,7 @@ class CVWorkflowGraph:
             {
                 WorkflowNodes.REGENERATE.value: WorkflowNodes.GENERATE.value,
                 "MARK_COMPLETION": "MARK_COMPLETION",
+                "AWAITING_FEEDBACK": END,
                 WorkflowNodes.ERROR.value: END,
             },
         )
@@ -1034,6 +1156,7 @@ class CVWorkflowGraph:
             {
                 WorkflowNodes.REGENERATE.value: WorkflowNodes.GENERATE.value,
                 "MARK_COMPLETION": "MARK_COMPLETION",
+                "AWAITING_FEEDBACK": END,
                 WorkflowNodes.ERROR.value: END,
             },
         )
