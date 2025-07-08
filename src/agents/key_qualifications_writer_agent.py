@@ -69,7 +69,7 @@ class KeyQualificationsWriterAgent(AgentBase):
         try:
             # Validate and convert inputs in place
             self._validate_inputs(kwargs)
-            
+
             structured_cv: StructuredCV = kwargs.get("structured_cv")
             job_description_data: JobDescriptionData = kwargs.get("job_description_data")
             research_findings = kwargs.get("research_findings")

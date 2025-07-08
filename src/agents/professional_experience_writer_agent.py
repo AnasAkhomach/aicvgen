@@ -75,7 +75,7 @@ class ProfessionalExperienceWriterAgent(AgentBase):
         try:
             # Validate and convert inputs in place
             self._validate_inputs(kwargs)
-            
+
             # Extract validated inputs (already converted by _validate_inputs)
             structured_cv: StructuredCV = kwargs.get("structured_cv")
             job_description_data: JobDescriptionData = kwargs.get("job_description_data")

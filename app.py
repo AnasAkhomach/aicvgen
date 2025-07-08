@@ -5,12 +5,19 @@ This file implements the Interactive UI Loop driven by workflow status.
 """
 import time
 import asyncio
+import threading
 import streamlit as st
 from src.core.application_startup import get_container
 from src.models.workflow_models import UserFeedback, UserAction
 from src.frontend.ui_components import display_sidebar, display_input_form
 from src.core.state_manager import StateManager
 from src.error_handling.boundaries import safe_streamlit_component
+from src.error_handling.exceptions import (
+    CATCHABLE_EXCEPTIONS,
+    WorkflowError,
+    StateManagerError,
+    ConfigurationError
+)
 from src.config.logging_config import get_logger, setup_logging
 
 # Initialize logging first
@@ -25,6 +32,36 @@ st.set_page_config(
 )
 
 logger = get_logger(__name__)
+
+
+def run_async_workflow_in_thread(workflow_func, *args, **kwargs):
+    """Run an async workflow function in a separate thread with its own event loop.
+    
+    This is necessary to avoid 'Event loop is closed' errors in Streamlit,
+    which already runs in an event loop context.
+    
+    Args:
+        workflow_func: The async function to run
+        *args: Positional arguments for the workflow function
+        **kwargs: Keyword arguments for the workflow function
+    """
+    def run_in_thread():
+        """Run the workflow in a separate thread with its own event loop."""
+        try:
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(workflow_func(*args, **kwargs))
+            finally:
+                loop.close()
+        except CATCHABLE_EXCEPTIONS as e:
+            logger.error("Error in workflow thread: %s", e)
+    
+    # Start workflow in background thread
+    workflow_thread = threading.Thread(target=run_in_thread, daemon=True)
+    workflow_thread.start()
+    return workflow_thread
 
 
 def on_start_generation():
@@ -49,16 +86,24 @@ def on_start_generation():
         # Get initial state and trigger first workflow step
         initial_state = manager.get_workflow_status(session_id)
         if initial_state is None:
-            logger.error(f"Failed to get initial state for session: {session_id}")
+            logger.error("Failed to get initial state for session: %s", session_id)
             st.error("Failed to initialize workflow. Please try again.")
             return
             
-        asyncio.run(manager.trigger_workflow_step(session_id, initial_state))
+        # Use thread-based approach to avoid "Event loop is closed" error in Streamlit
+        run_async_workflow_in_thread(manager.trigger_workflow_step, session_id, initial_state)
+        
+        st.info("⏳ Starting workflow processing...")
+        time.sleep(1)  # Brief pause to let thread start
+        
+        logger.info("Started workflow with session_id: %s", session_id)
+        st.rerun()
 
-        logger.info(f"Started workflow with session_id: {session_id}")
-
-    except Exception as e:
-        logger.error(f"Error starting generation: {e}")
+    except (WorkflowError, StateManagerError, ConfigurationError) as e:
+        logger.error("Workflow error starting generation: %s", e)
+        st.error(f"Failed to start generation: {e}")
+    except CATCHABLE_EXCEPTIONS as e:
+        logger.error("Error starting generation: %s", e)
         st.error(f"Failed to start generation: {e}")
 
 
@@ -84,14 +129,20 @@ def on_approve():
         manager.send_feedback(session_id, user_feedback)
         updated_state = manager.get_workflow_status(session_id)
 
-        # Resume workflow
-        asyncio.run(manager.trigger_workflow_step(session_id, updated_state))
-
+        # Resume workflow - use thread-based approach for Streamlit
+        run_async_workflow_in_thread(manager.trigger_workflow_step, session_id, updated_state)
+        
+        st.info("⏳ Processing approval...")
+        time.sleep(1)  # Brief pause to let thread start
         st.success("✅ Content approved and workflow resumed.")
-        logger.info(f"Approved content for session: {session_id}")
+        logger.info("Approved content for session: %s", session_id)
+        st.rerun()
 
-    except Exception as e:
-        logger.error(f"Error in approve action: {e}")
+    except (WorkflowError, StateManagerError) as e:
+        logger.error("Workflow error in approve action: %s", e)
+        st.error(f"Failed to approve content: {e}")
+    except CATCHABLE_EXCEPTIONS as e:
+        logger.error("Error in approve action: %s", e)
         st.error(f"Failed to approve content: {e}")
 
 
@@ -117,14 +168,20 @@ def on_regenerate():
         manager.send_feedback(session_id, user_feedback)
         updated_state = manager.get_workflow_status(session_id)
 
-        # Resume workflow
-        asyncio.run(manager.trigger_workflow_step(session_id, updated_state))
-
+        # Resume workflow - use thread-based approach for Streamlit
+        run_async_workflow_in_thread(manager.trigger_workflow_step, session_id, updated_state)
+        
+        st.info("⏳ Processing regeneration...")
+        time.sleep(1)  # Brief pause to let thread start
         st.info("🔄 Content regeneration requested and workflow resumed.")
-        logger.info(f"Regenerate requested for session: {session_id}")
+        logger.info("Regenerate requested for session: %s", session_id)
+        st.rerun()
 
-    except Exception as e:
-        logger.error(f"Error in regenerate action: {e}")
+    except (WorkflowError, StateManagerError) as e:
+        logger.error("Workflow error in regenerate action: %s", e)
+        st.error(f"Failed to regenerate content: {e}")
+    except CATCHABLE_EXCEPTIONS as e:
+        logger.error("Error in regenerate action: %s", e)
         st.error(f"Failed to regenerate content: {e}")
 
 
@@ -179,8 +236,8 @@ def render_completed_ui(state):
                     file_name="generated_cv.pdf",
                     mime="application/pdf"
                 )
-        except Exception as e:
-            logger.error(f"Error reading final output file: {e}")
+        except (IOError, OSError, FileNotFoundError) as e:
+            logger.error("Error reading final output file: %s", e)
             st.error("Generated CV file not found or cannot be read.")
     else:
         st.info("CV generation completed but download file is not available.")
@@ -268,8 +325,15 @@ def main():
             else:
                 st.warning(f"Unknown workflow status: {state.workflow_status}")
 
-        except Exception as e:
-            logger.error(f"Error getting workflow status: {e}")
+        except (WorkflowError, StateManagerError) as e:
+            logger.error("Workflow error getting status: %s", e)
+            st.error(f"Failed to get workflow status: {e}")
+            if st.button("🔄 Start New Generation"):
+                if "session_id" in st.session_state:
+                    del st.session_state.session_id
+                st.rerun()
+        except CATCHABLE_EXCEPTIONS as e:
+            logger.error("Error getting workflow status: %s", e)
             st.error(f"Failed to get workflow status: {e}")
             if st.button("🔄 Start New Generation"):
                 if "session_id" in st.session_state:

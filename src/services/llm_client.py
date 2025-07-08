@@ -1,21 +1,52 @@
+import threading
 from typing import Any, List
 
 import google.generativeai as genai
 
 
 class LLMClient:
-    """Handles the direct API call to the LLM provider (Gemini)."""
+    """Handles the direct API call to the LLM provider (Gemini).
+    
+    This class is thread-safe and creates a new GenerativeModel instance
+    for each thread to avoid 'Event loop is closed' errors.
+    """
 
     def __init__(self, llm_model: genai.GenerativeModel):
-        self.llm = llm_model
+        # Store the model configuration instead of the model instance
+        self._api_key = None
+        self._model_name = llm_model.model_name
+        self._thread_local = threading.local()
+        
+        # Extract API key from the global configuration
+        # This is a workaround since genai doesn't expose the configured API key
+        try:
+            # Try to get the API key from environment or global config
+            import os
+            self._api_key = os.getenv('GEMINI_API_KEY')
+        except Exception:
+            # Fallback: we'll configure when needed
+            pass
+
+    def _get_thread_local_model(self) -> genai.GenerativeModel:
+        """Get or create a thread-local GenerativeModel instance."""
+        if not hasattr(self._thread_local, 'model'):
+            # Configure the API key for this thread
+            if self._api_key:
+                genai.configure(api_key=self._api_key)
+            
+            # Create a new model instance for this thread
+            self._thread_local.model = genai.GenerativeModel(self._model_name)
+        
+        return self._thread_local.model
 
     async def generate_content(self, prompt: str, **kwargs) -> Any:
         """Directly call the LLM provider's API asynchronously."""
-        if self.llm is None:
+        model = self._get_thread_local_model()
+        if model is None:
             raise ValueError("LLM model is not initialized.")
         # Note: kwargs like max_tokens, temperature are ignored as Gemini API
         # only accepts prompt parameter through generate_content_async
-        return await self.llm.generate_content_async(prompt)
+        return await model.generate_content_async(prompt)
 
     async def list_models(self) -> List[Any]:
         """List available models for API key validation."""
@@ -28,6 +59,10 @@ class LLMClient:
 
     def reconfigure(self, api_key: str) -> None:
         """Reconfigure the client with a new API key."""
+        self._api_key = api_key
         genai.configure(api_key=api_key)
-        # Note: The llm_model itself doesn't need to be recreated
-        # as it will use the newly configured API key
+        
+        # Clear any existing thread-local models so they get recreated
+        # with the new API key when accessed
+        if hasattr(self._thread_local, 'model'):
+            delattr(self._thread_local, 'model')

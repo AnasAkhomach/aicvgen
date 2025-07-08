@@ -21,20 +21,32 @@ description: "Generates tailored CV content for professional experience and role
 
 **What to Do for EACH Role:**
 1. Create a concise **Organization Description** (<200 characters)
-2. Create a clear **Role Description** (<200 characters)  
+2. Create a clear **Role Description** (<200 characters)
 3. For each skill, analyze alignment with accomplishments (1–5) and write bullet points
 
 ---
 
 <skills>
-{{Target Skills}}
+{{key_qualifications}}
 </skills>
 
 ---
 
-**Input Roles:**
+**Input Role:**
 
-{{batched_structured_output}}
+{{experience_item}}
+
+---
+
+**Job Description:**
+
+{{job_description}}
+
+---
+
+**Research Findings:**
+
+{{research_findings}}
 
 ---
 

@@ -1289,64 +1289,75 @@ class CVWorkflowGraph:
             # Convert state to dict for workflow invocation
             state_dict = state.model_dump()
 
-            # Stream through workflow steps
-            async for step in self.app.astream(
+            # Stream through workflow steps with proper async generator cleanup
+            stream = self.app.astream(
                 state_dict, config={"configurable": {"thread_id": self.session_id}}
-            ):
-                # Update state from step result
-                if isinstance(step, dict):
-                    # Extract the actual state from the step result
-                    # LangGraph astream yields {node_name: result} format
-                    for node_name, node_result in step.items():
-                        if isinstance(node_result, dict):
-                            # Only update state if node_result has content
-                            # Empty dictionaries should not modify the state
-                            if node_result:
-                                try:
-                                    # Use model_copy with update pattern for correct state management
-                                    updated_state = state.model_copy(update=node_result)
-                                    if updated_state is not None:
-                                        state = updated_state
-                                        logger.debug(f"Updated state from node {node_name} with keys: {list(node_result.keys())}")
-                                    else:
-                                        logger.warning(f"Node {node_name} model_copy returned None, keeping original state")
-                                except Exception as copy_error:
-                                    logger.error(f"Error updating state from node {node_name}: {copy_error}")
-                                    # Keep the original state if model_copy fails
-                            else:
-                                logger.debug(f"Node {node_name} returned empty dict, no state update needed")
-                        elif hasattr(node_result, "model_dump"):
-                            state = node_result
-                        else:
-                            # Only assign if node_result is a valid AgentState-like object
-                            # Prevent None or invalid objects from becoming the state
-                            if node_result is not None and hasattr(node_result, 'workflow_status'):
+            )
+            
+            try:
+                async for step in stream:
+                    # Update state from step result
+                    if isinstance(step, dict):
+                        # Extract the actual state from the step result
+                        # LangGraph astream yields {node_name: result} format
+                        for node_name, node_result in step.items():
+                            if isinstance(node_result, dict):
+                                # Only update state if node_result has content
+                                # Empty dictionaries should not modify the state
+                                if node_result:
+                                    try:
+                                        # Use model_copy with update pattern for correct state management
+                                        updated_state = state.model_copy(update=node_result)
+                                        if updated_state is not None:
+                                            state = updated_state
+                                            logger.debug(f"Updated state from node {node_name} with keys: {list(node_result.keys())}")
+                                        else:
+                                            logger.warning(f"Node {node_name} model_copy returned None, keeping original state")
+                                    except Exception as copy_error:
+                                        logger.error(f"Error updating state from node {node_name}: {copy_error}")
+                                        # Keep the original state if model_copy fails
+                                else:
+                                    logger.debug(f"Node {node_name} returned empty dict, no state update needed")
+                            elif hasattr(node_result, "model_dump"):
                                 state = node_result
                             else:
-                                logger.warning(f"Node {node_name} returned invalid result type {type(node_result)}, keeping original state")
-                        break  # Take the first (and typically only) result
+                                # Only assign if node_result is a valid AgentState-like object
+                                # Prevent None or invalid objects from becoming the state
+                                if node_result is not None and hasattr(node_result, 'workflow_status'):
+                                    state = node_result
+                                else:
+                                    logger.warning(f"Node {node_name} returned invalid result type {type(node_result)}, keeping original state")
+                            break  # Take the first (and typically only) result
 
-                # Save state to JSON file after each step
-                self._save_state_to_file(state)
+                    # Save state to JSON file after each step
+                    self._save_state_to_file(state)
 
-                # Safety check before accessing state attributes
-                if state is None:
-                    logger.error("State became None during workflow execution")
-                    break
+                    # Safety check before accessing state attributes
+                    if state is None:
+                        logger.error("State became None during workflow execution")
+                        break
 
-                # Check if we should pause for user feedback
-                if hasattr(state, 'workflow_status') and state.workflow_status == "AWAITING_FEEDBACK":
-                    logger.info(
-                        f"Workflow paused for feedback in session {self.session_id}"
-                    )
-                    break
+                    # Check if we should pause for user feedback
+                    if hasattr(state, 'workflow_status') and state.workflow_status == "AWAITING_FEEDBACK":
+                        logger.info(
+                            f"Workflow paused for feedback in session {self.session_id}"
+                        )
+                        break
 
-                # Check if workflow completed or errored
-                if hasattr(state, 'workflow_status') and state.workflow_status in ["COMPLETED", "ERROR"]:
-                    logger.info(
-                        f"Workflow finished with status {state.workflow_status} in session {self.session_id}"
-                    )
-                    break
+                    # Check if workflow completed or errored
+                    if hasattr(state, 'workflow_status') and state.workflow_status in ["COMPLETED", "ERROR"]:
+                        logger.info(
+                            f"Workflow finished with status {state.workflow_status} in session {self.session_id}"
+                        )
+                        break
+            finally:
+                # Ensure the async generator is properly closed
+                if hasattr(stream, 'aclose'):
+                    try:
+                        await stream.aclose()
+                        logger.debug("Successfully closed astream generator")
+                    except Exception as close_error:
+                        logger.warning(f"Error closing astream generator: {close_error}")
 
             return state
 
