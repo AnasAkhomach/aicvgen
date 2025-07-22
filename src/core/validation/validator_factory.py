@@ -20,6 +20,7 @@ from src.models.agent_input_models import (
     ExecutiveSummaryWriterAgentInput,
     ProfessionalExperienceWriterAgentInput,
     KeyQualificationsWriterAgentInput,
+    KeyQualificationsUpdaterAgentInput,
     ProjectsWriterAgentInput,
 )
 from src.models.validation_schemas import (
@@ -54,6 +55,7 @@ class ValidatorFactory:
         "ExecutiveSummaryWriter": ExecutiveSummaryWriterAgentInput,
         "ProfessionalExperienceWriter": ProfessionalExperienceWriterAgentInput,
         "KeyQualificationsWriter": KeyQualificationsWriterAgentInput,
+        "KeyQualificationsUpdaterAgent": KeyQualificationsUpdaterAgentInput,
         "ProjectsWriter": ProjectsWriterAgentInput,
         "CleaningAgent": CleaningAgentInput,
     }

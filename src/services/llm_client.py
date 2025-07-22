@@ -39,14 +39,34 @@ class LLMClient:
         
         return self._thread_local.model
 
-    async def generate_content(self, prompt: str, **kwargs) -> Any:
+    async def generate_content(self, prompt: str, system_instruction: str = None, **kwargs) -> Any:
         """Directly call the LLM provider's API asynchronously."""
         model = self._get_thread_local_model()
         if model is None:
             raise ValueError("LLM model is not initialized.")
-        # Note: kwargs like max_tokens, temperature are ignored as Gemini API
-        # only accepts prompt parameter through generate_content_async
-        return await model.generate_content_async(prompt)
+        
+        # Prepare the content for the API call
+        contents = [prompt]
+        
+        # If system instruction is provided, we need to use the new API format
+        if system_instruction:
+            # For the new Google GenAI SDK, we need to pass system_instruction as a parameter
+            # Note: This requires updating to the new google-genai package
+            try:
+                # Try the new API format first
+                return await model.generate_content_async(
+                    contents=contents,
+                    system_instruction=system_instruction,
+                    **kwargs
+                )
+            except TypeError:
+                # Fallback to old format if new API not available
+                # Prepend system instruction to the prompt as a workaround
+                enhanced_prompt = f"System: {system_instruction}\n\nUser: {prompt}"
+                return await model.generate_content_async(enhanced_prompt)
+        else:
+            # Standard call without system instruction
+            return await model.generate_content_async(prompt)
 
     async def list_models(self) -> List[Any]:
         """List available models for API key validation."""

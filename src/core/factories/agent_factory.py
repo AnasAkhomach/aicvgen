@@ -8,6 +8,7 @@ from src.agents.executive_summary_writer_agent import ExecutiveSummaryWriterAgen
 from src.agents.formatter_agent import FormatterAgent
 from src.agents.job_description_parser_agent import JobDescriptionParserAgent
 from src.agents.key_qualifications_writer_agent import KeyQualificationsWriterAgent
+from src.agents.key_qualifications_updater_agent import KeyQualificationsUpdaterAgent
 from src.agents.professional_experience_writer_agent import (
     ProfessionalExperienceWriterAgent,
 )
@@ -55,6 +56,16 @@ class AgentFactory:
             template_manager=self._template_manager,
             settings=settings or {},
             session_id=session_id,
+        )
+
+    def create_key_qualifications_updater_agent(
+        self, session_id: Optional[str] = None
+    ) -> KeyQualificationsUpdaterAgent:
+        """Create a key qualifications updater agent instance."""
+        if session_id is None:
+            session_id = self._session_id_provider()
+        return KeyQualificationsUpdaterAgent(
+            name="KeyQualificationsUpdaterAgent"
         )
 
     def create_professional_experience_writer_agent(

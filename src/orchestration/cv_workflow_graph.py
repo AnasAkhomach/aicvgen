@@ -77,6 +77,7 @@ class CVWorkflowGraph:
         research_agent: Optional[AgentBase] = None,
         cv_analyzer_agent: Optional[AgentBase] = None,
         key_qualifications_writer_agent: Optional[AgentBase] = None,
+        key_qualifications_updater_agent: Optional[AgentBase] = None,
         professional_experience_writer_agent: Optional[AgentBase] = None,
         projects_writer_agent: Optional[AgentBase] = None,
         executive_summary_writer_agent: Optional[AgentBase] = None,
@@ -91,6 +92,7 @@ class CVWorkflowGraph:
         self.research_agent = research_agent
         self.cv_analyzer_agent = cv_analyzer_agent
         self.key_qualifications_writer_agent = key_qualifications_writer_agent
+        self.key_qualifications_updater_agent = key_qualifications_updater_agent
         self.professional_experience_writer_agent = professional_experience_writer_agent
         self.projects_writer_agent = projects_writer_agent
         self.executive_summary_writer_agent = executive_summary_writer_agent
@@ -332,6 +334,27 @@ class CVWorkflowGraph:
         except Exception as e:
             logger.error(f"KeyQualificationsWriterAgent failed: {e}")
             return {"error_messages": [f"KeyQualificationsWriterAgent failed: {e}"]}
+
+    @validate_node_output
+    async def key_qualifications_updater_node(
+        self, state: AgentState, config: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Execute key qualifications updater node."""
+        logger.info(f"Executing key_qualifications_updater_node")
+        if not self.key_qualifications_updater_agent:
+            return {"error_messages": ["KeyQualificationsUpdaterAgent not injected"]}
+        
+        try:
+            result = await self.key_qualifications_updater_agent.run_as_node(state)
+            if isinstance(result, dict):
+                return result
+            elif hasattr(result, 'model_dump'):
+                return result.model_dump()
+            else:
+                return {}
+        except Exception as e:
+            logger.error(f"KeyQualificationsUpdaterAgent failed: {e}")
+            return {"error_messages": [f"KeyQualificationsUpdaterAgent failed: {e}"]}
 
     @validate_node_output
     async def professional_experience_writer_node(

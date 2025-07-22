@@ -5,7 +5,8 @@ between agents and the global AgentState. Each model explicitly declares
 the required inputs for its corresponding agent.
 """
 
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 from src.models.agent_output_models import ResearchFindings
@@ -81,6 +82,16 @@ class ProjectsWriterAgentInput(BaseModel):
     session_id: str = Field(description="Session identifier")
 
 
+class KeyQualificationsUpdaterAgentInput(BaseModel):
+    """Input model for KeyQualificationsUpdaterAgent."""
+
+    structured_cv: StructuredCV = Field(description="The structured CV data")
+    generated_key_qualifications: List[str] = Field(
+        description="List of generated key qualifications to update the CV with"
+    )
+    session_id: str = Field(description="Session identifier")
+
+
 class ResearchAgentInput(BaseModel):
     """Input model for ResearchAgent."""
 
@@ -136,6 +147,7 @@ AGENT_INPUT_MODELS = {
     "ExecutiveSummaryWriter": ExecutiveSummaryWriterAgentInput,
     "ProfessionalExperienceWriter": ProfessionalExperienceWriterAgentInput,
     "KeyQualificationsWriter": KeyQualificationsWriterAgentInput,
+    "KeyQualificationsUpdaterAgent": KeyQualificationsUpdaterAgentInput,
     "ProjectsWriter": ProjectsWriterAgentInput,
     "ResearchAgent": ResearchAgentInput,
     "FormatterAgent": FormatterAgentInput,
@@ -209,6 +221,9 @@ def extract_agent_inputs(agent_name: str, state: "AgentState") -> Dict[str, Any]
 
     if "user_feedback" in model_fields:
         agent_inputs["user_feedback"] = getattr(state, "user_feedback", None)
+
+    if "generated_key_qualifications" in model_fields:
+        agent_inputs["generated_key_qualifications"] = getattr(state, "generated_key_qualifications", None)
 
     # For cleaning agent, handle raw_data and data_type specially
     if agent_name == "CleaningAgent":

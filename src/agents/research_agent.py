@@ -147,6 +147,11 @@ class ResearchAgent(AgentBase):
                 AgentConstants.PROGRESS_MAIN_PROCESSING,
                 "Querying LLM for research insights.",
             )
+            # Extract system instruction from settings
+            system_instruction = None
+            if self.settings and isinstance(self.settings, dict):
+                system_instruction = self.settings.get('research_agent_system_instruction')
+            
             llm_response = await self.llm_service.generate_content(
                 prompt=prompt,
                 max_tokens=self.settings.get(
@@ -155,6 +160,8 @@ class ResearchAgent(AgentBase):
                 temperature=self.settings.get(
                     "temperature_analysis", LLMConstants.TEMPERATURE_BALANCED
                 ),
+                system_instruction=system_instruction,
+                session_id=self.session_id
             )
 
             # Debug logging: Log the raw LLM response

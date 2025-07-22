@@ -65,7 +65,11 @@ class KeyQualificationsWriterAgent(AgentBase):
             )
 
     async def _execute(self, **kwargs: Any) -> dict[str, Any]:
-        """Execute the core content generation logic for Key Qualifications."""
+        """Execute the core content generation logic for Key Qualifications.
+        
+        Returns only the generated list of qualifications for the next agent to consume.
+        Following LangGraph pattern of minimal state updates per node.
+        """
         try:
             # Validate and convert inputs in place
             self._validate_inputs(kwargs)
@@ -79,33 +83,14 @@ class KeyQualificationsWriterAgent(AgentBase):
                 structured_cv, job_description_data, research_findings
             )
 
-            self.update_progress(AgentConstants.PROGRESS_POST_PROCESSING, "Updating CV with generated Key Qualifications.")
-
-            # Find the Key Qualifications section or create it if it doesn't exist
-            qual_section = None
-            for section in structured_cv.sections:
-                if section.name == "Key Qualifications":
-                    qual_section = section
-                    break
-
-            if not qual_section:
-                return {"error_messages": ["Key Qualifications section not found in structured_cv. It should be pre-initialized."]}
-
-            # Clear existing items and add new ones
-            qual_section.items = [
-                Item(
-                    content=qual,
-                    status=ItemStatus.GENERATED,
-                    item_type=ItemType.KEY_QUALIFICATION,
-                )
-                for qual in generated_qualifications
-            ]
-
             self.update_progress(
                 AgentConstants.PROGRESS_COMPLETE, "Key Qualifications generation completed successfully."
             )
+            
+            # Return only the generated qualifications list for the next agent
+            # Following LangGraph pattern: each node returns only what it produces
             return {
-                "structured_cv": structured_cv,
+                "generated_key_qualifications": generated_qualifications,
                 "current_item_id": "key_qualifications_section"
             }
         except AgentExecutionError as e:
@@ -151,11 +136,18 @@ class KeyQualificationsWriterAgent(AgentBase):
             },
         )
 
+        # Extract system instruction from settings
+        system_instruction = None
+        if self.settings and isinstance(self.settings, dict):
+            system_instruction = self.settings.get('writer_agent_system_instruction')
+        
         response = await self.llm_service.generate_content(
             prompt=prompt,
             content_type=ContentType.QUALIFICATION,
             max_tokens=self.settings.get("max_tokens_content_generation", LLMConstants.DEFAULT_MAX_TOKENS),
             temperature=self.settings.get("temperature_content_generation", LLMConstants.TEMPERATURE_BALANCED),
+            system_instruction=system_instruction,
+            session_id=self.session_id
         )
 
         if not response or not response.content:

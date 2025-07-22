@@ -59,6 +59,8 @@ class AgentState(BaseModel):
     quality_check_results: Optional[QualityAssuranceAgentOutput] = None
     # CV analysis results from the CVAnalysisAgent
     cv_analysis_results: Optional[CVAnalysisResult] = None
+    # Generated key qualifications from KeyQualificationsWriterAgent
+    generated_key_qualifications: Optional[List[str]] = None
     # Path to the final generated PDF file.
     final_output_path: Optional[str] = None
     # Accumulated error messages from the workflow.

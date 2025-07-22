@@ -21,11 +21,12 @@ logger = get_structured_logger("cv_analyzer_agent")
 class CVAnalyzerAgent(AgentBase):
     """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
 
-    def __init__(self, llm_service: LLMServiceInterface, session_id: str = "default"):
+    def __init__(self, llm_service: LLMServiceInterface, session_id: str = "default", settings: dict = None):
         super().__init__(
             name="CVAnalyzerAgent",
             description="Analyzes CV content and job requirements to provide optimization recommendations",
             session_id=session_id,
+            settings=settings
         )
         self.llm_service = llm_service
         self.settings = get_config()
@@ -95,11 +96,24 @@ class CVAnalyzerAgent(AgentBase):
         analysis = self._AnalysisResult()
         cv_skills = getattr(cv_data, "big_10_skills", [])
         job_requirements = getattr(job_description, "skills", [])
+        
+        # Extract system instruction from settings
+        system_instruction = None
+        if self.settings and hasattr(self.settings, 'agent_settings'):
+            system_instruction = getattr(self.settings.agent_settings, 'cv_analyzer_system_instruction', None)
+        elif self.settings and isinstance(self.settings, dict):
+            system_instruction = self.settings.get('cv_analyzer_system_instruction')
+        
+        # Basic skill matching logic
         if cv_skills and job_requirements:
             for skill in cv_skills:
                 for req in job_requirements:
                     if skill.lower() in req.lower():
                         analysis.skill_matches.append(skill)
+        
+        # TODO: Enhance with LLM-based analysis using system instruction
+        # This would involve calling self.llm_service.generate_content with system_instruction
+        
         return analysis
 
     async def _generate_recommendations(

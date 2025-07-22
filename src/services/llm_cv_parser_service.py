@@ -43,6 +43,7 @@ class LLMCVParserService:
         cv_text: str,
         session_id: Optional[str] = None,
         trace_id: Optional[str] = None,
+        system_instruction: Optional[str] = None,
     ) -> CVParsingResult:
         """Parse a CV using the LLM.
 
@@ -72,6 +73,7 @@ class LLMCVParserService:
             prompt=prompt,
             session_id=session_id,
             trace_id=trace_id,
+            system_instruction=system_instruction,
         )
         return CVParsingResult(**parsing_data)
 
@@ -80,6 +82,7 @@ class LLMCVParserService:
         raw_text: str,
         session_id: Optional[str] = None,
         trace_id: Optional[str] = None,
+        system_instruction: Optional[str] = None,
     ) -> JobDescriptionData:
         """Parse a job description using the LLM.
 
@@ -108,12 +111,13 @@ class LLMCVParserService:
             prompt=prompt,
             session_id=session_id,
             trace_id=trace_id,
+            system_instruction=system_instruction,
         )
         parsing_data["raw_text"] = raw_text  # Preserve original raw text
         return JobDescriptionData(**parsing_data)
 
     async def _generate_and_parse_json(
-        self, prompt: str, session_id: Optional[str], trace_id: Optional[str]
+        self, prompt: str, session_id: Optional[str], trace_id: Optional[str], system_instruction: Optional[str] = None
     ) -> Any:
         """Generates content and robustly parses the JSON output."""
         llm_response = await self.llm_service.generate_content(
@@ -121,6 +125,7 @@ class LLMCVParserService:
             content_type=ContentType.JSON,  # Assuming JSON output
             session_id=session_id,
             trace_id=trace_id,
+            system_instruction=system_instruction,
         )
 
         raw_text = llm_response.content

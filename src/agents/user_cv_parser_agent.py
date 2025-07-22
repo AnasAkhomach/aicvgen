@@ -80,7 +80,17 @@ class UserCVParserAgent(AgentBase):
             )
         try:
             self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Calling LLM for CV parsing")
-            llm_output = await self.llm_cv_parser_service.parse_cv_with_llm(raw_text)
+            
+            # Extract system instruction from settings
+            system_instruction = None
+            if self.settings and isinstance(self.settings, dict):
+                system_instruction = self.settings.get('cv_parser_system_instruction')
+            
+            llm_output = await self.llm_cv_parser_service.parse_cv_with_llm(
+                raw_text, 
+                system_instruction=system_instruction,
+                session_id=self.session_id
+            )
 
             self.update_progress(AgentConstants.PROGRESS_PARSING_COMPLETE, "Converting LLM output to structured format")
             # Create a StructuredCV directly from CVParsingResult

@@ -108,6 +108,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
         item_id: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        system_instruction: Optional[str] = None,
         **kwargs
     ) -> LLMResponse:
         """
@@ -140,6 +141,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
             "item_id": item_id,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "system_instruction": system_instruction,
             **kwargs
         }
 

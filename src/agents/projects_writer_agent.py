@@ -158,11 +158,18 @@ class ProjectsWriterAgent(AgentBase):
             },
         )
 
+        # Extract system instruction from settings
+        system_instruction = None
+        if self.settings and isinstance(self.settings, dict):
+            system_instruction = self.settings.get('writer_agent_system_instruction')
+        
         response = await self.llm_service.generate_content(
             prompt=prompt,
             content_type=ContentType.PROJECT,
             max_tokens=self.settings.get("max_tokens_content_generation", LLMConstants.DEFAULT_MAX_TOKENS),
             temperature=self.settings.get("temperature_content_generation", LLMConstants.TEMPERATURE_BALANCED),
+            system_instruction=system_instruction,
+            session_id=self.session_id
         )
 
         if not response or not response.content:

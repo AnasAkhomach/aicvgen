@@ -86,6 +86,36 @@ class AgentSettings(BaseModel):
     max_bullet_points_per_project: int = ConfigConstants.MAX_BULLET_POINTS_PER_PROJECT
     default_company_name: str = ConfigConstants.DEFAULT_COMPANY_NAME
     default_job_title: str = ConfigConstants.DEFAULT_JOB_TITLE
+    
+    # System instruction settings for different agent types
+    job_description_parser_system_instruction: str = Field(
+        default="You are an expert job description parser. Extract key information from job descriptions including requirements, responsibilities, and qualifications.",
+        description="System instruction for job description parser agent"
+    )
+    cv_parser_system_instruction: str = Field(
+        default="You are an expert CV/resume parser. Extract and structure information from CVs including experience, skills, and education.",
+        description="System instruction for CV parser agent"
+    )
+    cv_analyzer_system_instruction: str = Field(
+        default="You are an expert CV analyzer. Analyze CVs against job requirements and provide detailed insights and recommendations.",
+        description="System instruction for CV analyzer agent"
+    )
+    writer_agent_system_instruction: str = Field(
+        default="You are an expert CV writer. Create compelling and professional CV content that highlights relevant experience and skills.",
+        description="System instruction for writer agents (key qualifications, professional experience, projects, executive summary)"
+    )
+    cleaning_agent_system_instruction: str = Field(
+        default="You are an expert content cleaner. Clean and format text content while preserving important information and structure.",
+        description="System instruction for cleaning agent"
+    )
+    quality_assurance_system_instruction: str = Field(
+        default="You are an expert quality assurance reviewer. Review CV content for accuracy, consistency, and professional standards.",
+        description="System instruction for quality assurance agent"
+    )
+    research_agent_system_instruction: str = Field(
+        default="You are an expert researcher. Research and provide relevant information to enhance CV content and job matching.",
+        description="System instruction for research agent"
+    )
 
 
 @dataclass

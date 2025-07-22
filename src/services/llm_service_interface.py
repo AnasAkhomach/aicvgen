@@ -21,6 +21,7 @@ class LLMServiceInterface(ABC):
         item_id: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        system_instruction: Optional[str] = None,
         **kwargs
     ) -> LLMResponse:
         """Generate content using the LLM.
@@ -33,6 +34,7 @@ class LLMServiceInterface(ABC):
             item_id: Item identifier for tracking
             max_tokens: Maximum number of tokens to generate
             temperature: Sampling temperature for generation
+            system_instruction: System instruction to guide model behavior
             **kwargs: Additional LLM parameters
             
         Returns:

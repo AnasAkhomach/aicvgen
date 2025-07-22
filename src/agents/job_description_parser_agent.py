@@ -54,8 +54,13 @@ class JobDescriptionParserAgent(AgentBase):
         if not raw_text.strip():
             return JobDescriptionData(raw_text=raw_text)
         try:
+            # Extract system instruction from settings if available
+            system_instruction = self.settings.get("system_instruction")
+            
             return await self.llm_cv_parser_service.parse_job_description_with_llm(
-                raw_text
+                raw_text,
+                session_id=self.session_id,
+                system_instruction=system_instruction
             )
         except LLMResponseParsingError as e:
             raise AgentExecutionError(

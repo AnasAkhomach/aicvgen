@@ -222,6 +222,7 @@ class Container(
     cv_analyzer_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         CVAnalyzerAgent,
         llm_service=llm_service,
+        settings=providers.Callable(_get_agent_settings_dict),  # pylint: disable=c-extension-no-member
         session_id=providers.Callable(_get_current_session_id),  # pylint: disable=c-extension-no-member
     )
 
