@@ -188,19 +188,14 @@ class TestLLMRetryService:
     @pytest.mark.asyncio
     async def test_handle_error_with_fallback_rate_limit(self, retry_service):
         """Test error handling with rate limit error and successful fallback switch."""
-        from src.error_handling.classification import is_rate_limit_error
-
         error = RateLimitError("Rate limit exceeded")
 
-        with patch(
-            "src.error_handling.classification.is_rate_limit_error", return_value=True
-        ):
-            with pytest.raises(
-                RateLimitError
-            ):  # Should re-raise after successful switch
-                await retry_service.handle_error_with_fallback(
-                    error, ContentType.CV_ANALYSIS, 1.0, session_id="123"
-                )
+        with pytest.raises(
+            RateLimitError
+        ):  # Should re-raise after successful switch
+            await retry_service.handle_error_with_fallback(
+                error, ContentType.CV_ANALYSIS, 1.0, session_id="123"
+            )
 
         retry_service.api_key_manager.switch_to_fallback_key.assert_called_once()
 
@@ -212,13 +207,10 @@ class TestLLMRetryService:
         retry_service.api_key_manager.has_fallback_available.return_value = False
         error = RateLimitError("Rate limit exceeded")
 
-        with patch(
-            "src.error_handling.classification.is_rate_limit_error", return_value=True
-        ):
-            with pytest.raises(RateLimitError):
-                await retry_service.handle_error_with_fallback(
-                    error, ContentType.CV_ANALYSIS, 1.0
-                )
+        with pytest.raises(RateLimitError):
+            await retry_service.handle_error_with_fallback(
+                error, ContentType.CV_ANALYSIS, 1.0
+            )
 
     @pytest.mark.asyncio
     async def test_handle_error_with_fallback_content(

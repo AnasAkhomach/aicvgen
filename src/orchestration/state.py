@@ -1,12 +1,18 @@
-"""Defines the centralized state model for the LangGraph-based orchestration.
+"""State management for the CV generation workflow.
 
-NOTE: AgentState is the single source of truth for workflow execution. It is created from UI input at the start and archived at the end. No UI or persistence logic should modify AgentState during workflow execution.
+This module defines the centralized state structure used throughout the CV generation
+workflow. The state is implemented using TypedDict for immutability and composability
+across the workflow graph and its subgraphs.
 """
 
+from datetime import datetime
 import uuid
-from typing import Any, Dict, List, Optional
-
-from pydantic import BaseModel, Field, field_validator
+from typing import Any, Dict, List, Optional, Annotated
+import operator
+try:
+    from typing_extensions import TypedDict
+except ImportError:
+    from typing import TypedDict
 
 from src.models.agent_output_models import (
     CVAnalysisResult,
@@ -17,301 +23,224 @@ from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.workflow_models import ContentType, UserFeedback
 
 
-class AgentState(BaseModel):
+class GlobalState(TypedDict):
     """
-    Represents the complete, centralized state of the CV generation workflow
-    for LangGraph orchestration.
+    Global state shared across all workflow graphs and subgraphs.
+    
+    This TypedDict represents the core state that is accessible to all nodes
+    in the main workflow and its subgraphs. It contains essential data models,
+    observability information, and workflow control data.
     """
 
     # Observability
-    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str
+    trace_id: str
 
     # Core Data Models
-    structured_cv: Optional[StructuredCV] = None
-    job_description_data: Optional[JobDescriptionData] = None
+    structured_cv: Optional[StructuredCV]
+    job_description_data: Optional[JobDescriptionData]
     cv_text: str  # The raw text of the user's CV
 
     # Workflow Control & Granular Processing
     # The key of the section currently being processed (e.g., "professional_experience")
-    current_section_key: Optional[str] = None
+    current_section_key: Optional[str]
     # Index to track the current position in the WORKFLOW_SEQUENCE
-    current_section_index: Optional[int] = None
+    current_section_index: Optional[int]
     # A queue of item IDs (subsections) for the current section to be processed one by one.
-    items_to_process_queue: List[str] = Field(default_factory=list)
+    items_to_process_queue: List[str]
     # The ID of the specific role, project, or item currently being processed by an agent.
-    current_item_id: Optional[str] = None
+    current_item_id: Optional[str]
     # The type of content currently being processed (for error handling context)
-    current_content_type: Optional[ContentType] = None
+    current_content_type: Optional[ContentType]
     # Flag to indicate if this is the first pass or a user-driven regeneration.
-    is_initial_generation: bool = True
+    is_initial_generation: bool
 
     # Content Generation Queue for Explicit Loop Processing
     # Queue of item IDs that need content generation/optimization, supporting both batch and single-item processing
-    content_generation_queue: List[str] = Field(default_factory=list)
+    content_generation_queue: List[str]
 
     # User Feedback for Regeneration
     # Stores feedback from the UI to guide the next generation cycle.
-    user_feedback: Optional[UserFeedback] = None  # Agent Outputs & Finalization
+    user_feedback: Optional[UserFeedback]  # Agent Outputs & Finalization
     # Research findings from the ResearchAgent
-    research_findings: Optional[ResearchFindings] = None
+    research_findings: Optional[ResearchFindings]
     # Quality check results from the QualityAssuranceAgent
-    quality_check_results: Optional[QualityAssuranceAgentOutput] = None
+    quality_check_results: Optional[QualityAssuranceAgentOutput]
     # CV analysis results from the CVAnalysisAgent
-    cv_analysis_results: Optional[CVAnalysisResult] = None
+    cv_analysis_results: Optional[CVAnalysisResult]
     # Generated key qualifications from KeyQualificationsWriterAgent
-    generated_key_qualifications: Optional[List[str]] = None
+    generated_key_qualifications: Optional[List[str]]
     # Path to the final generated PDF file.
-    final_output_path: Optional[str] = None
+    final_output_path: Optional[str]
     # Accumulated error messages from the workflow.
-    error_messages: List[str] = Field(default_factory=list)
+    error_messages: Annotated[List[str], operator.add]
 
     # CB-02 Fix: Generic field for node-specific metadata
-    node_execution_metadata: Dict[str, Any] = Field(default_factory=dict)
+    node_execution_metadata: Dict[str, Any]
 
     # Workflow status for pausable execution
-    workflow_status: str = Field(
-        default="PROCESSING",
-        description="Current workflow status: PROCESSING, AWAITING_FEEDBACK, COMPLETED, ERROR",
-    )
+    # Current workflow status: PROCESSING, AWAITING_FEEDBACK, COMPLETED, ERROR
+    workflow_status: str
 
     # UI display data for feedback interface
-    ui_display_data: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Data to be displayed in the UI for user feedback",
-    )
+    # Data to be displayed in the UI for user feedback
+    ui_display_data: Dict[str, Any]
     
     # Automated mode flag for testing (bypasses user feedback requirements)
-    automated_mode: bool = Field(default=False)
+    automated_mode: bool
 
-    class Config:
-        arbitrary_types_allowed = True
 
-    # State mutation methods with validation
-    def set_user_feedback(self, feedback: UserFeedback) -> None:
-        """Set user feedback with validation.
-        Args:
-            feedback: UserFeedback instance with validated data
-        Raises:
-            ValueError: If feedback is invalid
-        """
-        if not isinstance(feedback, UserFeedback):
-            raise ValueError("feedback must be a UserFeedback instance")
-        self.user_feedback = feedback
+class KeyQualificationsState(GlobalState):
+    """State for Key Qualifications subgraph.
+    
+    Extends GlobalState with fields specific to key qualifications generation,
+    quality assurance, and feedback handling.
+    """
+    
+    # Key Qualifications specific fields
+    qualifications_content: Optional[str]
+    qualifications_qa_passed: bool
+    qualifications_feedback_count: int
+    qualifications_regeneration_count: int
 
-    def set_research_findings(self, findings: ResearchFindings) -> None:
-        """Set research findings with validation.
-        Args:
-            findings: ResearchFindings instance with validated data
-        Raises:
-            ValueError: If findings is invalid
-        """
-        if not isinstance(findings, ResearchFindings):
-            raise ValueError("findings must be a ResearchFindings instance")
-        self.research_findings = findings
 
-    def set_quality_check_results(self, results: QualityAssuranceAgentOutput) -> None:
-        """Set quality check results with validation.
-        Args:
-            results: QualityAssuranceAgentOutput instance with validated data
-        Raises:
-            ValueError: If results is invalid
-        """
-        if not isinstance(results, QualityAssuranceAgentOutput):
-            raise ValueError("results must be a QualityAssuranceAgentOutput instance")
-        self.quality_check_results = results
+class ProfessionalExperienceState(GlobalState):
+    """State for Professional Experience subgraph.
+    
+    Extends GlobalState with fields specific to professional experience generation,
+    quality assurance, and feedback handling.
+    """
+    
+    # Professional Experience specific fields
+    experience_content: Optional[str]
+    experience_qa_passed: bool
+    experience_feedback_count: int
+    experience_regeneration_count: int
 
-    def set_cv_analysis_results(self, results: CVAnalysisResult) -> None:
-        """Set CV analysis results with validation.
-        Args:
-            results: CVAnalysisResult instance with validated data
-        Raises:
-            ValueError: If results is invalid
-        """
-        if not isinstance(results, CVAnalysisResult):
-            raise ValueError("results must be a CVAnalysisResult instance")
-        self.cv_analysis_results = results
 
-    def add_error_message(self, message: str) -> None:
-        """Add an error message with validation.
-        Args:
-            message: Error message string
-        Raises:
-            ValueError: If message is not a valid string
-        """
-        if not isinstance(message, str) or not message.strip():
-            raise ValueError("message must be a non-empty string")
-        # pylint: disable=no-member
-        self.error_messages.append(message.strip())
+class ProjectsState(GlobalState):
+    """State for Projects subgraph.
+    
+    Extends GlobalState with fields specific to projects generation,
+    quality assurance, and feedback handling.
+    """
+    
+    # Projects specific fields
+    projects_content: Optional[str]
+    projects_qa_passed: bool
+    projects_feedback_count: int
+    projects_regeneration_count: int
 
-    def clear_error_messages(self) -> None:
-        """Clear all error messages."""
-        # pylint: disable=no-member
-        self.error_messages.clear()
 
-    def set_current_section(self, section_key: str, section_index: int) -> None:
-        """Set current section with validation.
-        Args:
-            section_key: The section key being processed
-            section_index: The index in the workflow sequence
-        Raises:
-            ValueError: If parameters are invalid
-        """
-        if not isinstance(section_key, str) or not section_key.strip():
-            raise ValueError("section_key must be a non-empty string")
-        if not isinstance(section_index, int) or section_index < 0:
-            raise ValueError("section_index must be a non-negative integer")
+class ExecutiveSummaryState(GlobalState):
+    """State for Executive Summary subgraph.
+    
+    Extends GlobalState with fields specific to executive summary generation,
+    quality assurance, and feedback handling.
+    """
+    
+    # Executive Summary specific fields
+    summary_content: Optional[str]
+    summary_qa_passed: bool
+    summary_feedback_count: int
+    summary_regeneration_count: int
 
-        self.current_section_key = section_key.strip()
-        self.current_section_index = section_index
 
-    def set_current_item(
-        self, item_id: str, content_type: Optional[ContentType] = None
-    ) -> None:
-        """Set current item being processed with validation.
-        Args:
-            item_id: The ID of the item being processed
-            content_type: Optional content type for context
-        Raises:
-            ValueError: If item_id is invalid
-        """
-        if not isinstance(item_id, str) or not item_id.strip():
-            raise ValueError("item_id must be a non-empty string")
+# Maintain backward compatibility
+AgentState = GlobalState
 
-        self.current_item_id = item_id.strip()
-        if content_type is not None:
-            self.current_content_type = content_type
 
-    def update_processing_queue(self, items: List[str]) -> None:
-        """Update the items to process queue with validation.
-        Args:
-            items: List of item IDs to process
-        Raises:
-            ValueError: If items list is invalid
-        """
-        if not isinstance(items, list):
-            raise ValueError("items must be a list")
+def create_global_state(
+    cv_text: str,
+    session_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    automated_mode: bool = False,
+    **kwargs: Any
+) -> GlobalState:
+    """Create a new GlobalState instance with default values.
+    
+    Args:
+        cv_text: The raw text of the user's CV
+        session_id: Optional session ID (generates UUID if not provided)
+        trace_id: Optional trace ID (generates UUID if not provided)
+        automated_mode: Whether to run in automated mode
+        **kwargs: Additional fields to override defaults
+        
+    Returns:
+        GlobalState instance with default values
+    """
+    return GlobalState(
+        # Observability
+        session_id=session_id or str(uuid.uuid4()),
+        trace_id=trace_id or str(uuid.uuid4()),
+        
+        # Core Data Models
+        structured_cv=kwargs.get('structured_cv'),
+        job_description_data=kwargs.get('job_description_data'),
+        cv_text=cv_text,
+        
+        # Workflow Control & Granular Processing
+        current_section_key=kwargs.get('current_section_key'),
+        current_section_index=kwargs.get('current_section_index'),
+        items_to_process_queue=kwargs.get('items_to_process_queue', []),
+        current_item_id=kwargs.get('current_item_id'),
+        current_content_type=kwargs.get('current_content_type'),
+        is_initial_generation=kwargs.get('is_initial_generation', True),
+        
+        # Content Generation Queue
+        content_generation_queue=kwargs.get('content_generation_queue', []),
+        
+        # User Feedback for Regeneration
+        user_feedback=kwargs.get('user_feedback'),
+        
+        # Agent Outputs & Finalization
+        research_findings=kwargs.get('research_findings'),
+        quality_check_results=kwargs.get('quality_check_results'),
+        cv_analysis_results=kwargs.get('cv_analysis_results'),
+        generated_key_qualifications=kwargs.get('generated_key_qualifications'),
+        final_output_path=kwargs.get('final_output_path'),
+        error_messages=kwargs.get('error_messages', []),
+        
+        # CB-02 Fix: Generic field for node-specific metadata
+        node_execution_metadata=kwargs.get('node_execution_metadata', {}),
+        
+        # Workflow status for pausable execution
+        workflow_status=kwargs.get('workflow_status', 'PROCESSING'),
+        
+        # UI display data for feedback interface
+        ui_display_data=kwargs.get('ui_display_data', {}),
+        
+        # Automated mode flag
+        automated_mode=automated_mode,
+    )
 
-        # Validate all items are non-empty strings
-        validated_items = []
-        for item in items:
-            if not isinstance(item, str) or not item.strip():
-                raise ValueError("All items must be non-empty strings")
-            validated_items.append(item.strip())
 
-        self.items_to_process_queue = validated_items
-
-    def update_content_generation_queue(self, items: List[str]) -> None:
-        """Update the content generation queue with validation.
-        Args:
-            items: List of item IDs for content generation
-        Raises:
-            ValueError: If items list is invalid
-        """
-        if not isinstance(items, list):
-            raise ValueError("items must be a list")
-
-        # Validate all items are non-empty strings
-        validated_items = []
-        for item in items:
-            if not isinstance(item, str) or not item.strip():
-                raise ValueError("All items must be non-empty strings")
-            validated_items.append(item.strip())
-
-        self.content_generation_queue = validated_items
-
-    def set_final_output_path(self, path: str) -> None:
-        """Set the final output path with validation.
-        Args:
-            path: File path to the generated output
-        Raises:
-            ValueError: If path is invalid
-        """
-        if not isinstance(path, str) or not path.strip():
-            raise ValueError("path must be a non-empty string")
-        self.final_output_path = path.strip()
-
-    def update_node_metadata(self, node_name: str, metadata: Dict[str, Any]) -> None:
-        """Update node execution metadata with validation.
-        Args:
-            node_name: Name of the node
-            metadata: Metadata dictionary
-        Raises:
-            ValueError: If parameters are invalid
-        """
-        if not isinstance(node_name, str) or not node_name.strip():
-            raise ValueError("node_name must be a non-empty string")
-        if not isinstance(metadata, dict):
-            raise ValueError("metadata must be a dictionary")
-
-        self.node_execution_metadata[node_name.strip()] = metadata.copy()
-
-    def set_workflow_status(self, status: str) -> "AgentState":
-        """Set workflow status with validation.
-        Args:
-            status: Workflow status (PROCESSING, AWAITING_FEEDBACK, COMPLETED, ERROR)
-        Returns:
-            New AgentState instance with updated workflow status
-        Raises:
-            ValueError: If status is invalid
-        """
-        valid_statuses = {"PROCESSING", "AWAITING_FEEDBACK", "COMPLETED", "ERROR"}
-        if not isinstance(status, str) or status not in valid_statuses:
-            raise ValueError(f"status must be one of {valid_statuses}")
-        # Update the current instance instead of creating a new one
-        self.workflow_status = status
-        return self
-
-    def set_ui_display_data(self, data: Dict[str, Any]) -> "AgentState":
-        """Set UI display data with validation.
-        Args:
-            data: Dictionary containing UI display data
-        Returns:
-            New AgentState instance with updated UI display data
-        Raises:
-            ValueError: If data is invalid
-        """
-        if not isinstance(data, dict):
-            raise ValueError("data must be a dictionary")
-        # Update the current instance instead of creating a new one
-        self.ui_display_data = data.copy()
-        return self
-
-    def update_ui_display_data(self, key: str, value: Any) -> "AgentState":
-        """Update specific UI display data field.
-        Args:
-            key: The key to update
-            value: The value to set
-        Returns:
-            New AgentState instance with updated UI display data
-        Raises:
-            ValueError: If key is invalid
-        """
-        if not isinstance(key, str) or not key.strip():
-            raise ValueError("key must be a non-empty string")
-        # pylint: disable=no-member
-        updated_data = self.ui_display_data.copy()
-        updated_data[key.strip()] = value
-        # Update the current instance instead of creating a new one
-        self.ui_display_data = updated_data
-        return self
-
-    # Field validators
-    @field_validator("error_messages")
-    @classmethod
-    def validate_error_messages(cls, v):
-        """Validate error messages list."""
-        if not isinstance(v, list):
-            raise ValueError("error_messages must be a list")
-        for msg in v:
-            if not isinstance(msg, str):
-                raise ValueError("All error messages must be strings")
-        return v
-
-    @field_validator("current_section_index")
-    @classmethod
-    def validate_section_index(cls, v):
-        """Validate section index is non-negative."""
-        if v is not None and v < 0:
-            raise ValueError("current_section_index must be non-negative")
-        return v
+# Maintain backward compatibility
+def create_agent_state(
+    cv_text: str,
+    session_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    automated_mode: bool = False,
+    **kwargs: Any
+) -> AgentState:
+    """Create a new AgentState instance with default values.
+    
+    Deprecated: Use create_global_state instead.
+    
+    Args:
+        cv_text: The raw text of the user's CV
+        session_id: Optional session ID (generates UUID if not provided)
+        trace_id: Optional trace ID (generates UUID if not provided)
+        automated_mode: Whether to run in automated mode
+        **kwargs: Additional fields to override defaults
+        
+    Returns:
+        AgentState instance with default values
+    """
+    return create_global_state(
+        cv_text=cv_text,
+        session_id=session_id,
+        trace_id=trace_id,
+        automated_mode=automated_mode,
+        **kwargs
+    )

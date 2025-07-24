@@ -12,16 +12,22 @@ from src.agents.executive_summary_writer_agent import ExecutiveSummaryWriterAgen
 from src.agents.formatter_agent import FormatterAgent
 from src.agents.job_description_parser_agent import JobDescriptionParserAgent
 from src.agents.key_qualifications_writer_agent import KeyQualificationsWriterAgent
-from src.agents.professional_experience_writer_agent import ProfessionalExperienceWriterAgent
+from src.agents.professional_experience_writer_agent import (
+    ProfessionalExperienceWriterAgent,
+)
 from src.agents.projects_writer_agent import ProjectsWriterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.user_cv_parser_agent import UserCVParserAgent
+
 from src.config.logging_config import get_logger
 from src.config.settings import get_config
 from src.core.factories import AgentFactory, ServiceFactory, create_configured_llm_model
 from src.core.workflow_manager import WorkflowManager
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph
+from src.services.llm_caching_service import LLMCachingService
+from src.services.rate_limiter import RateLimiter
+# Workflow graph creation is now handled directly in WorkflowManager
+# from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
 from src.templates.content_templates import ContentTemplateManager
 
 logger = get_logger(__name__)
@@ -171,9 +177,17 @@ class Container(
         llm_client=llm_client,
     )
 
-    advanced_cache = providers.Singleton(ServiceFactory.get_caching_service)
+    advanced_cache = providers.Singleton(
+        LLMCachingService,
+        max_size=1000,
+        default_ttl_hours=24,
+        persist_file=None,
+    )
 
-    rate_limiter = providers.Singleton(ServiceFactory.get_rate_limiter)
+    rate_limiter = providers.Singleton(
+        RateLimiter,
+        config=None,
+    )
 
     # Lazy initialization for interdependent services
     llm_api_key_manager = providers.Singleton(
@@ -205,7 +219,7 @@ class Container(
         ServiceFactory.create_vector_store_service, vector_config=config.provided.vector_db
     )
 
-    progress_tracker = providers.Singleton(  # pylint: disable=c-extension-no-member
+    progress_tracker = providers.Factory(  # pylint: disable=c-extension-no-member
         ServiceFactory.create_progress_tracker
     )
 
@@ -295,7 +309,7 @@ class Container(
         llm_service=llm_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id)
+        session_id=providers.Callable(_get_current_session_id),
     )
 
     user_cv_parser_agent = providers.Factory(
@@ -304,29 +318,16 @@ class Container(
         vector_store_service=vector_store_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id)
-    )
-
-    # CVWorkflowGraph Factory
-    cv_workflow_graph = providers.Factory(
-        CVWorkflowGraph,
         session_id=providers.Callable(_get_current_session_id),
-        job_description_parser_agent=job_description_parser_agent,
-        user_cv_parser_agent=user_cv_parser_agent,
-        research_agent=research_agent,
-        cv_analyzer_agent=cv_analyzer_agent,
-        key_qualifications_writer_agent=key_qualifications_writer_agent,
-        professional_experience_writer_agent=professional_experience_writer_agent,
-        projects_writer_agent=projects_writer_agent,
-        executive_summary_writer_agent=executive_summary_writer_agent,
-        qa_agent=quality_assurance_agent,
-        formatter_agent=formatter_agent,
     )
 
-    # WorkflowManager Singleton
+    # Add alias for qa_agent to match expected naming
+    qa_agent = quality_assurance_agent
+
+    # WorkflowManager Singleton - now uses DI container directly
     workflow_manager = providers.Singleton(
         WorkflowManager,
-        cv_workflow_graph=cv_workflow_graph,
+        container=providers.Self(),
     )
 
 

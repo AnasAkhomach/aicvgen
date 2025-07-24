@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
-from config.shared_configs import PerformanceConfig, DatabaseConfig
-from constants.config_constants import ConfigConstants
-from src.utils.import_fallbacks import get_dotenv
+from .shared_configs import PerformanceConfig, DatabaseConfig
+from ..constants.config_constants import ConfigConstants
+from ..utils.import_fallbacks import get_dotenv
 
 # Try to import python-dotenv, but don't fail if it's not available
 # Load environment variables with standardized fallback handling
@@ -242,6 +242,38 @@ class SessionSettings:
 
 
 @dataclass
+class LangSmithConfig:
+    """Configuration for LangSmith observability and tracing."""
+
+    # LangSmith Tracing Configuration
+    tracing_enabled: bool = field(
+        default_factory=lambda: os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+    )
+    api_key: str = field(
+        default_factory=lambda: os.getenv("LANGSMITH_API_KEY", "")
+    )
+    project: str = field(
+        default_factory=lambda: os.getenv("LANGSMITH_PROJECT", "aicvgen-observability")
+    )
+    endpoint: str = field(
+        default_factory=lambda: os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
+    )
+
+    def __post_init__(self):
+        """Validate LangSmith configuration after initialization."""
+        if self.tracing_enabled and not self.api_key:
+            print("Warning: LangSmith tracing is enabled but no API key is provided")
+        
+        # Set environment variables for LangChain/LangSmith integration
+        if self.tracing_enabled:
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+            if self.api_key:
+                os.environ["LANGCHAIN_API_KEY"] = self.api_key
+            os.environ["LANGCHAIN_PROJECT"] = self.project
+            os.environ["LANGCHAIN_ENDPOINT"] = self.endpoint
+
+
+@dataclass
 class OutputConfig:
     """Configuration for output generation settings."""
 
@@ -399,6 +431,7 @@ class AppConfig:
     paths: PathsConfig = field(default_factory=PathsConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    langsmith: LangSmithConfig = field(default_factory=LangSmithConfig)
 
 
 

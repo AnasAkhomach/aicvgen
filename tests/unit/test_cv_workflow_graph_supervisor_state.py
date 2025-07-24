@@ -8,7 +8,7 @@ based on the structured_cv content.
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from src.orchestration.cv_workflow_graph import CVWorkflowGraph
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState
 from src.models.cv_models import StructuredCV, Section, Item
 from src.models.data_models import JobDescriptionData
 
@@ -79,70 +79,142 @@ class TestCVWorkflowGraphSupervisorState:
     def test_initialize_supervisor_state_with_valid_cv(self, workflow_graph, structured_cv_with_items):
         """Test _initialize_supervisor_state with a valid structured CV."""
         # Create state with structured CV
-        state = AgentState(
+        state = GlobalState(
             cv_text="Sample CV text",
             structured_cv=structured_cv_with_items,
-            node_execution_metadata={}
+            session_id="test-session",
+            trace_id="test-trace",
+            items_to_process_queue=[],
+            content_generation_queue=[],
+            is_initial_generation=True,
+            current_section_key=None,
+            current_section_index=None,
+            current_item_id=None,
+            current_content_type=None,
+            user_feedback=None,
+            research_findings=None,
+            cv_analysis_results=None,
+            qa_results=None,
+            final_cv_content=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the method
         updated_state = workflow_graph._initialize_supervisor_state(state)
         
         # Verify supervisor state is correctly initialized
-        assert updated_state.current_section_index == 0
-        assert updated_state.current_item_id == "item-1"
+        assert updated_state["current_section_index"] == 0
+        assert updated_state["current_item_id"] == "item-1"
         
         # Verify original state is not modified (immutability)
-        assert state.current_section_index is None
-        assert state.current_item_id is None
+        assert state["current_section_index"] is None
+        assert state["current_item_id"] is None
 
     def test_initialize_supervisor_state_with_none_cv(self, workflow_graph):
         """Test _initialize_supervisor_state with None structured_cv."""
         # Create state without structured CV
-        state = AgentState(
+        state = GlobalState(
             cv_text="Sample CV text",
             structured_cv=None,
-            node_execution_metadata={}
+            session_id="test-session",
+            trace_id="test-trace",
+            items_to_process_queue=[],
+            content_generation_queue=[],
+            is_initial_generation=True,
+            current_section_key=None,
+            current_section_index=None,
+            current_item_id=None,
+            current_content_type=None,
+            user_feedback=None,
+            research_findings=None,
+            cv_analysis_results=None,
+            qa_results=None,
+            final_cv_content=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the method
         updated_state = workflow_graph._initialize_supervisor_state(state)
         
         # Verify supervisor state remains None
-        assert updated_state.current_section_index is None
-        assert updated_state.current_item_id is None
+        assert updated_state["current_section_index"] is None
+        assert updated_state["current_item_id"] is None
 
     def test_initialize_supervisor_state_with_empty_cv(self, workflow_graph, empty_structured_cv):
         """Test _initialize_supervisor_state with empty structured CV."""
         # Create state with empty structured CV
-        state = AgentState(
+        state = GlobalState(
             cv_text="Sample CV text",
             structured_cv=empty_structured_cv,
-            node_execution_metadata={}
+            session_id="test-session",
+            trace_id="test-trace",
+            items_to_process_queue=[],
+            content_generation_queue=[],
+            is_initial_generation=True,
+            current_section_key=None,
+            current_section_index=None,
+            current_item_id=None,
+            current_content_type=None,
+            user_feedback=None,
+            research_findings=None,
+            cv_analysis_results=None,
+            qa_results=None,
+            final_cv_content=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the method
         updated_state = workflow_graph._initialize_supervisor_state(state)
         
         # Verify supervisor state remains None due to empty sections
-        assert updated_state.current_section_index is None
-        assert updated_state.current_item_id is None
+        assert updated_state["current_section_index"] is None
+        assert updated_state["current_item_id"] is None
 
     def test_initialize_supervisor_state_with_empty_sections(self, workflow_graph, structured_cv_empty_sections):
         """Test _initialize_supervisor_state with sections that have no items."""
         # Create state with structured CV that has sections but no items
-        state = AgentState(
+        state = GlobalState(
             cv_text="Sample CV text",
             structured_cv=structured_cv_empty_sections,
-            node_execution_metadata={}
+            session_id="test-session",
+            trace_id="test-trace",
+            items_to_process_queue=[],
+            content_generation_queue=[],
+            is_initial_generation=True,
+            current_section_key=None,
+            current_section_index=None,
+            current_item_id=None,
+            current_content_type=None,
+            user_feedback=None,
+            research_findings=None,
+            cv_analysis_results=None,
+            qa_results=None,
+            final_cv_content=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the method
         updated_state = workflow_graph._initialize_supervisor_state(state)
         
         # Verify supervisor state remains None due to no items
-        assert updated_state.current_section_index is None
-        assert updated_state.current_item_id is None
+        assert updated_state["current_section_index"] is None
+        assert updated_state["current_item_id"] is None
 
     def test_initialize_supervisor_state_finds_first_section_with_items(self, workflow_graph):
         """Test that _initialize_supervisor_state finds the first section with items."""
@@ -150,53 +222,87 @@ class TestCVWorkflowGraphSupervisorState:
         item1 = Item(content="Content in second section")
         item1.id = "item-second-1"
         
-        empty_section = Section(name="Empty Section", items=[])
-        section_with_items = Section(name="Section With Items", items=[item1])
+        empty_section = Section(name="Key Qualifications", items=[])
+        section_with_items = Section(name="Professional Experience", items=[item1])
         
         cv = StructuredCV(sections=[empty_section, section_with_items])
         
-        state = AgentState(
+        state = GlobalState(
             cv_text="Sample CV text",
             structured_cv=cv,
-            node_execution_metadata={}
+            session_id="test-session",
+            trace_id="test-trace",
+            items_to_process_queue=[],
+            content_generation_queue=[],
+            is_initial_generation=True,
+            current_section_key=None,
+            current_section_index=None,
+            current_item_id=None,
+            current_content_type=None,
+            user_feedback=None,
+            research_findings=None,
+            cv_analysis_results=None,
+            qa_results=None,
+            final_cv_content=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the method
         updated_state = workflow_graph._initialize_supervisor_state(state)
         
         # Verify supervisor state points to the first section with items (index 1)
-        assert updated_state.current_section_index == 1
-        assert updated_state.current_item_id == "item-second-1"
+        assert updated_state["current_section_index"] == 1
+        assert updated_state["current_item_id"] == "item-second-1"
 
     def test_initialize_supervisor_state_preserves_other_state_fields(self, workflow_graph, structured_cv_with_items):
         """Test that _initialize_supervisor_state preserves all other state fields."""
         # Create state with various fields
-        original_state = AgentState(
+        original_state = GlobalState(
             cv_text="Sample CV text",
             job_description_data=JobDescriptionData(
                 raw_text="Sample job description",
                 parsed_requirements=["Python", "Machine Learning"]
             ),
             structured_cv=structured_cv_with_items,
+            session_id="test-session",
+            trace_id="test-trace",
+            items_to_process_queue=[],
+            content_generation_queue=[],
+            is_initial_generation=True,
+            current_section_key=None,
+            current_section_index=None,
+            current_item_id=None,
+            current_content_type=None,
+            user_feedback=None,
+            research_findings=None,
+            cv_analysis_results=None,
+            qa_results=None,
+            final_cv_content=None,
+            error_messages=["Some error"],
             node_execution_metadata={"test_key": "test_value"},
             workflow_status="PROCESSING",
-            error_messages=["Some error"]
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the method
         updated_state = workflow_graph._initialize_supervisor_state(original_state)
         
         # Verify supervisor state is set
-        assert updated_state.current_section_index == 0
-        assert updated_state.current_item_id == "item-1"
+        assert updated_state["current_section_index"] == 0
+        assert updated_state["current_item_id"] == "item-1"
         
         # Verify all other fields are preserved
-        assert updated_state.cv_text == original_state.cv_text
-        assert updated_state.job_description_data == original_state.job_description_data
-        assert updated_state.structured_cv == original_state.structured_cv
-        assert updated_state.node_execution_metadata == original_state.node_execution_metadata
-        assert updated_state.workflow_status == original_state.workflow_status
-        assert updated_state.error_messages == original_state.error_messages
+        assert updated_state["cv_text"] == original_state["cv_text"]
+        assert updated_state["job_description_data"] == original_state["job_description_data"]
+        assert updated_state["structured_cv"] == original_state["structured_cv"]
+        assert updated_state["node_execution_metadata"] == original_state["node_execution_metadata"]
+        assert updated_state["workflow_status"] == original_state["workflow_status"]
+        assert updated_state["error_messages"] == original_state["error_messages"]
 
     def test_initialize_supervisor_state_with_single_item(self, workflow_graph):
         """Test _initialize_supervisor_state with a single item in a single section."""
@@ -204,18 +310,36 @@ class TestCVWorkflowGraphSupervisorState:
         item = Item(content="Single item content")
         item.id = "single-item-id"
         
-        section = Section(name="Single Section", items=[item])
+        section = Section(name="Key Qualifications", items=[item])
         cv = StructuredCV(sections=[section])
         
-        state = AgentState(
+        state = GlobalState(
             cv_text="Sample CV text",
             structured_cv=cv,
-            node_execution_metadata={}
+            session_id="test-session",
+            trace_id="test-trace",
+            items_to_process_queue=[],
+            content_generation_queue=[],
+            is_initial_generation=True,
+            current_section_key=None,
+            current_section_index=None,
+            current_item_id=None,
+            current_content_type=None,
+            user_feedback=None,
+            research_findings=None,
+            cv_analysis_results=None,
+            qa_results=None,
+            final_cv_content=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the method
         updated_state = workflow_graph._initialize_supervisor_state(state)
         
         # Verify supervisor state is correctly set
-        assert updated_state.current_section_index == 0
-        assert updated_state.current_item_id == "single-item-id"
+        assert updated_state["current_section_index"] == 0
+        assert updated_state["current_item_id"] == "single-item-id"

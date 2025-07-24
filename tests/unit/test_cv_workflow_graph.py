@@ -4,7 +4,7 @@ import uuid
 
 from src.orchestration.cv_workflow_graph import CVWorkflowGraph
 from src.agents.agent_base import AgentBase
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState
 from src.models.cv_models import StructuredCV, Section, Item, ItemType, ItemStatus
 from src.models.workflow_models import UserFeedback, UserAction
 
@@ -29,11 +29,32 @@ class TestCVWorkflowGraph:
         
         for agent_type in agent_types:
             mock_agent = MagicMock(spec=AgentBase)
-            # Create a valid AgentState for the mock return value
-            mock_state = AgentState(
-                structured_cv=StructuredCV(),
-                cv_text="Sample CV text"
-            )
+            # Create a valid GlobalState for the mock return value
+            mock_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
+            structured_cv=StructuredCV(),
+            cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
+        )
             mock_agent.run_as_node = AsyncMock(return_value=mock_state)
             agents[agent_type] = mock_agent
             
@@ -95,10 +116,31 @@ class TestCVWorkflowGraph:
             job_description_parser_agent=mock_agents["job_description_parser_agent"],
         )
         
-        # Create a valid AgentState with required fields
-        state = AgentState(
+        # Create a valid GlobalState with required fields
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
-            cv_text="Sample CV text"
+            cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Mock the run_as_node method to return a dict with job_description_data
@@ -136,10 +178,31 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        # Create a valid AgentState with required fields
-        state = AgentState(
+        # Create a valid GlobalState with required fields
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
-            cv_text="Sample CV text"
+            cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Test that the node handles missing agent gracefully by returning error messages
@@ -202,11 +265,30 @@ class TestCVWorkflowGraph:
             sections=[section1, section2]
         )
         
-        state = AgentState(
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=structured_cv,
             cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=None,
-            current_item_id=None
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.initialize_supervisor_node(state)
@@ -219,11 +301,30 @@ class TestCVWorkflowGraph:
         assert result["current_item_id"] == str(item1_id)
         
         # Test with current_section_index already set
-        state_with_index = AgentState(
+        state_with_index = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=structured_cv,
             cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=1,
-            current_item_id=None
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result2 = await graph.initialize_supervisor_node(state_with_index)
@@ -233,11 +334,30 @@ class TestCVWorkflowGraph:
         assert result2["current_item_id"] == str(item1_id)  # Still finds first item from section1
         
         # Test with empty structured_cv
-        empty_state = AgentState(
+        empty_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(sections=[]),
             cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=None,
-            current_item_id=None
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result3 = await graph.initialize_supervisor_node(empty_state)
@@ -259,15 +379,55 @@ class TestCVWorkflowGraph:
         mock_workflow.compile.return_value = mock_app
         
         # Mock astream to return multiple steps
-        step1_state = AgentState(
+        step1_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            workflow_status="PROCESSING"
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
-        step2_state = AgentState(
+        step2_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
-            cv_text="Sample CV text", 
-            workflow_status="COMPLETED"
+            cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="COMPLETED",
+            ui_display_data={},
+            automated_mode=False
         )
         
         async def mock_astream(state, config=None):
@@ -291,10 +451,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        initial_state = AgentState(
+        initial_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            workflow_status="AWAITING_FEEDBACK"
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="AWAITING_FEEDBACK",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.trigger_workflow_step(initial_state)
@@ -319,11 +499,30 @@ class TestCVWorkflowGraph:
         mock_workflow.compile.return_value = mock_app
         
         # Mock astream to return a step that requires feedback
-        feedback_state = AgentState(
+        feedback_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
             workflow_status="AWAITING_FEEDBACK",
-            ui_display_data={"section": "key_qualifications", "requires_feedback": True}
+            ui_display_data={"section": "key_qualifications", "requires_feedback": True},
+            automated_mode=False
         )
         
         async def mock_astream(state, config=None):
@@ -346,10 +545,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        initial_state = AgentState(
+        initial_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            workflow_status="PROCESSING"
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.trigger_workflow_step(initial_state)
@@ -409,12 +628,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        initial_state = AgentState(
+        initial_state = GlobalState(
+            session_id=initial_session_id,
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text=initial_cv_text,
-            session_id=initial_session_id,
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=0,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
             workflow_status="AWAITING_FEEDBACK",
-            current_section_index=0
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.trigger_workflow_step(initial_state)
@@ -470,10 +707,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        initial_state = AgentState(
+        initial_state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            workflow_status="PROCESSING"
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.trigger_workflow_step(initial_state)
@@ -518,10 +775,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        state = AgentState(
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            workflow_status="PROCESSING"
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Call the private method
@@ -557,11 +834,30 @@ class TestCVWorkflowGraph:
             item_id="test-item-123"
         )
         
-        state = AgentState(
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id="test-item-123",
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
             user_feedback=valid_feedback,
-            current_item_id="test-item-123"
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.handle_feedback_node(state)
@@ -589,10 +885,30 @@ class TestCVWorkflowGraph:
             item_id=""  # Empty string should trigger validation
         )
         
-        state = AgentState(
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            user_feedback=invalid_feedback
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=invalid_feedback,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Verify that error is returned for strict validation
@@ -619,10 +935,30 @@ class TestCVWorkflowGraph:
         invalid_feedback.action = UserAction.APPROVE
         invalid_feedback.item_id = None  # This should trigger validation
         
-        state = AgentState(
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            user_feedback=invalid_feedback
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=None,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=invalid_feedback,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Verify that error is returned for strict validation
@@ -643,11 +979,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        state = AgentState(
+        state = GlobalState(
+            session_id="test-session",
+            trace_id="test-trace",
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            user_feedback=None,  # No feedback
-            current_section_index=0
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=0,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="PROCESSING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.handle_feedback_node(state)
@@ -676,10 +1031,30 @@ class TestCVWorkflowGraph:
             item_id="   "  # Whitespace-only should trigger validation
         )
         
-        state = AgentState(
+        state = GlobalState(
+            session_id=session_id,
+            trace_id=str(uuid.uuid4()),
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            user_feedback=invalid_feedback
+            job_description_data=None,
+            current_section_key=None,
+            current_section_index=0,
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=invalid_feedback,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="RUNNING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         # Verify that error is returned for strict validation
@@ -700,12 +1075,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        state = AgentState(
+        state = GlobalState(
+            session_id=session_id,
+            trace_id=str(uuid.uuid4()),
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            current_item_id="valid-item-123",
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=0,
-            node_execution_metadata={}
+            items_to_process_queue=[],
+            current_item_id="valid-item-123",
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="RUNNING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.supervisor_node(state)
@@ -727,12 +1120,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        state = AgentState(
+        state = GlobalState(
+            session_id=session_id,
+            trace_id=str(uuid.uuid4()),
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=0,
-            node_execution_metadata={}
-            # current_item_id is missing
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="RUNNING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.supervisor_node(state)
@@ -746,18 +1157,15 @@ class TestCVWorkflowGraph:
 
     @pytest.mark.asyncio
     @patch.object(CVWorkflowGraph, '_build_graph')
-    async def test_cv_parser_node_returns_structured_cv(self, mock_build_graph, mock_agents):
-        """Test that cv_parser_node returns structured_cv in dict format."""
+    async def test_initialize_supervisor_node_returns_state_dict(self, mock_build_graph):
+        """Test that initialize_supervisor_node returns state dict format."""
         # Mock the graph building
         mock_workflow = MagicMock()
         mock_build_graph.return_value = mock_workflow
         mock_workflow.compile.return_value = MagicMock()
         
         session_id = str(uuid.uuid4())
-        graph = CVWorkflowGraph(
-            session_id=session_id,
-            user_cv_parser_agent=mock_agents["user_cv_parser_agent"]
-        )
+        graph = CVWorkflowGraph(session_id=session_id)
         
         # Create a structured CV with sections and items
         test_item = Item(
@@ -766,34 +1174,45 @@ class TestCVWorkflowGraph:
             status=ItemStatus.PENDING
         )
         test_section = Section(
-            name="Experience",
+            name="Key Qualifications",
             items=[test_item]
         )
         structured_cv = StructuredCV(sections=[test_section])
         
-        # Mock the user_cv_parser_agent to return a dict with the structured CV
-        mock_agents["user_cv_parser_agent"].run_as_node.return_value = {
-            "structured_cv": structured_cv
-        }
-        
-        state = AgentState(
+        state = GlobalState(
+            session_id=session_id,
+            trace_id=str(uuid.uuid4()),
+            structured_cv=structured_cv,
             cv_text="Sample CV text",
-            structured_cv=StructuredCV(),  # Empty initially
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=0,
-            current_item_id=None
+            items_to_process_queue=[],
+            current_item_id=None,
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="RUNNING",
+            ui_display_data={},
+            automated_mode=False
         )
         
-        result = await graph.cv_parser_node(state)
+        result = await graph.initialize_supervisor_node(state)
         
-        # Verify the result is a dict with structured_cv
+        # Verify the result is a dict with supervisor state
         assert isinstance(result, dict)
-        assert "structured_cv" in result
-        assert result["structured_cv"] is not None
-        assert len(result["structured_cv"].sections) == 1
-        assert len(result["structured_cv"].sections[0].items) == 1
-        
-        # Verify the agent was called
-        mock_agents["user_cv_parser_agent"].run_as_node.assert_called_once_with(state)
+        assert "current_section_index" in result
+        assert "current_item_id" in result
+        assert result["current_section_index"] == 0
+        assert result["current_item_id"] == str(test_item.id)
 
     @pytest.mark.asyncio
     @patch.object(CVWorkflowGraph, '_build_graph')
@@ -828,11 +1247,30 @@ class TestCVWorkflowGraph:
             "cv_analysis_results": mock_analysis_results
         }
         
-        state = AgentState(
-            cv_text="Sample CV text",
+        state = GlobalState(
+            session_id=session_id,
+            trace_id=str(uuid.uuid4()),
             structured_cv=structured_cv,
+            cv_text="Sample CV text",
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=0,
-            current_item_id=str(test_item.id)
+            items_to_process_queue=[],
+            current_item_id=str(test_item.id),
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="RUNNING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.cv_analyzer_node(state)
@@ -857,12 +1295,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        state = AgentState(
+        state = GlobalState(
+            session_id=session_id,
+            trace_id=str(uuid.uuid4()),
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            current_item_id="",  # Empty string
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=0,
-            node_execution_metadata={}
+            items_to_process_queue=[],
+            current_item_id="",
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="RUNNING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.supervisor_node(state)
@@ -886,12 +1342,30 @@ class TestCVWorkflowGraph:
         session_id = str(uuid.uuid4())
         graph = CVWorkflowGraph(session_id=session_id)
         
-        state = AgentState(
+        state = GlobalState(
+            session_id=session_id,
+            trace_id=str(uuid.uuid4()),
             structured_cv=StructuredCV(),
             cv_text="Sample CV text",
-            current_item_id="   \t\n  ",  # Whitespace-only
+            job_description_data=None,
+            current_section_key=None,
             current_section_index=0,
-            node_execution_metadata={}
+            items_to_process_queue=[],
+            current_item_id="   \t\n  ",
+            current_content_type=None,
+            is_initial_generation=True,
+            content_generation_queue=[],
+            user_feedback=None,
+            research_findings=None,
+            quality_check_results=None,
+            cv_analysis_results=None,
+            generated_key_qualifications=None,
+            final_output_path=None,
+            error_messages=[],
+            node_execution_metadata={},
+            workflow_status="RUNNING",
+            ui_display_data={},
+            automated_mode=False
         )
         
         result = await graph.supervisor_node(state)

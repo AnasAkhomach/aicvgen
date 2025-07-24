@@ -237,10 +237,8 @@ class RateLimiter:
                 raise NetworkError(f"API call failed: {str(e)}") from e
 
     def _is_rate_limit_error(self, error: Exception) -> bool:
-        """Check if an error is a rate limit error using centralized utility."""
-        from ..error_handling.classification import is_rate_limit_error
-
-        return is_rate_limit_error(error)
+        """Check if an error is a rate limit error using direct type check."""
+        return isinstance(error, RateLimitError)
 
     def _extract_retry_after(self, error: Exception) -> float:
         """Extract retry-after time from error, or use default backoff."""

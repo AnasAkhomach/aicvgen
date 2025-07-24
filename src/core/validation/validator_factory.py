@@ -29,7 +29,7 @@ from src.models.validation_schemas import (
 )
 
 if TYPE_CHECKING:
-    from src.orchestration.state import AgentState
+    from src.orchestration.state import GlobalState
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class ValidatorFactory:
     }
 
     @classmethod
-    def validate_agent_input(cls, agent_type: str, state: "AgentState") -> Any:
+    def validate_agent_input(cls, agent_type: str, state: "GlobalState") -> Any:
         """Validate agent input data against the appropriate Pydantic model.
         
         Args:
@@ -86,7 +86,7 @@ class ValidatorFactory:
             raise ValueError(f"Input validation failed for {agent_type}: {e}") from e
     
     @classmethod
-    def _create_validator_instance(cls, validator_class: Type[BaseModel], agent_type: str, state: "AgentState") -> BaseModel:
+    def _create_validator_instance(cls, validator_class: Type[BaseModel], agent_type: str, state: "GlobalState") -> BaseModel:
         """Create a validator instance based on the agent type.
         
         Args:
@@ -99,38 +99,38 @@ class ValidatorFactory:
         """
         if agent_type == "parser":
             return validator_class(
-                cv_text=state.cv_text,
-                job_description_data=state.job_description_data,
+                cv_text=state.get("cv_text"),
+                job_description_data=state.get("job_description_data"),
             )
         elif agent_type == "content_writer":
             return validator_class(
-                structured_cv=state.structured_cv,
-                research_findings=getattr(state, "research_findings", None),
-                current_item_id=state.current_item_id,
+                structured_cv=state.get("structured_cv"),
+                research_findings=state.get("research_findings"),
+                current_item_id=state.get("current_item_id"),
             )
         elif agent_type == "research":
             return validator_class(
-                job_description_data=state.job_description_data,
-                structured_cv=state.structured_cv,
+                job_description_data=state.get("job_description_data"),
+                structured_cv=state.get("structured_cv"),
             )
         elif agent_type == "qa":
             return validator_class(
-                structured_cv=state.structured_cv,
-                current_item_id=state.current_item_id,
+                structured_cv=state.get("structured_cv"),
+                current_item_id=state.get("current_item_id"),
             )
         elif agent_type == "formatter":
             return validator_class(
-                structured_cv=state.structured_cv,
-                job_description_data=getattr(state, "job_description_data", None),
+                structured_cv=state.get("structured_cv"),
+                job_description_data=state.get("job_description_data"),
             )
         elif agent_type == "cv_analyzer":
             return validator_class(
-                cv_text=state.cv_text,
-                job_description_data=state.job_description_data,
+                cv_text=state.get("cv_text"),
+                job_description_data=state.get("job_description_data"),
             )
         elif agent_type == "cleaning":
             return validator_class(
-                structured_cv=state.structured_cv,
+                structured_cv=state.get("structured_cv"),
             )
         else:
             # This should not happen due to registry check, but included for safety

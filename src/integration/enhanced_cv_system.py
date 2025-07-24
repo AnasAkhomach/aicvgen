@@ -20,7 +20,7 @@ from src.integration.cv_vector_store_facade import CVVectorStoreFacade
 from src.integration.cv_workflow_executor import CVWorkflowExecutor, WorkflowDependencies
 from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.workflow_models import ContentType, WorkflowType
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState, create_global_state
 from src.services.error_recovery import ErrorRecoveryService
 
 
@@ -190,12 +190,12 @@ class EnhancedCVIntegration:
         **kwargs,
     ) -> Dict[str, Any]:
         """Generate a basic CV."""
-        # Create AgentState from the provided data
+        # Create GlobalState from the provided data
 
         structured_cv = StructuredCV.create_empty()
         # You might want to populate structured_cv with personal_info, experience, education here
 
-        agent_state = AgentState(
+        agent_state = create_global_state(
             structured_cv=structured_cv,
             session_metadata={
                 "personal_info": personal_info,
@@ -230,7 +230,7 @@ class EnhancedCVIntegration:
         else:
             job_desc_dict = job_description
 
-        # Create AgentState from the provided data
+        # Create GlobalState from the provided data
 
         structured_cv = StructuredCV.create_empty()
 
@@ -243,7 +243,7 @@ class EnhancedCVIntegration:
             company_info=job_desc_dict.get("company_info", {}),
         )
 
-        agent_state = AgentState(
+        agent_state = create_global_state(
             structured_cv=structured_cv,
             job_description_data=job_description_data,
             session_metadata={
@@ -263,7 +263,7 @@ class EnhancedCVIntegration:
         self, existing_cv: Dict[str, Any], session_id: Optional[str] = None, **kwargs
     ) -> Dict[str, Any]:
         """Optimize an existing CV."""
-        # Create AgentState from existing CV data
+        # Create GlobalState from existing CV data
 
         # Try to convert existing_cv to StructuredCV if it's not already
         if isinstance(existing_cv, dict):
@@ -271,7 +271,7 @@ class EnhancedCVIntegration:
         else:
             structured_cv = existing_cv
 
-        agent_state = AgentState(
+        agent_state = create_global_state(
             structured_cv=structured_cv,
             session_metadata={"optimization_request": True, **kwargs},
         )
@@ -286,7 +286,7 @@ class EnhancedCVIntegration:
         self, cv_content: Dict[str, Any], session_id: Optional[str] = None, **kwargs
     ) -> Dict[str, Any]:
         """Perform quality assurance on CV content."""
-        # Create AgentState from CV content
+        # Create GlobalState from CV content
 
         # Try to convert cv_content to StructuredCV if it's not already
         if isinstance(cv_content, dict):
@@ -294,7 +294,7 @@ class EnhancedCVIntegration:
         else:
             structured_cv = cv_content
 
-        agent_state = AgentState(
+        agent_state = create_global_state(
             structured_cv=structured_cv,
             session_metadata={"quality_check_request": True, **kwargs},
         )
@@ -360,17 +360,17 @@ def reset_enhanced_cv_integration():
 # Convenience functions
 async def generate_cv(
     workflow_type: Union[WorkflowType, str],
-    input_data: Union[AgentState, Dict[str, Any]],
+    input_data: Union[GlobalState, Dict[str, Any]],
     session_id: Optional[str] = None,
     config: Optional[EnhancedCVConfig] = None,
 ) -> Dict[str, Any]:
     """Generate a CV using the specified workflow."""
     integration = get_enhanced_cv_integration(config)
 
-    # Convert dict input to AgentState if needed
+    # Convert dict input to GlobalState if needed
     if isinstance(input_data, dict):
-        # Create AgentState from dictionary
-        agent_state = AgentState(
+        # Create GlobalState from dictionary
+        agent_state = create_global_state(
             structured_cv=input_data.get("structured_cv"),
             job_description_data=input_data.get("job_description_data"),
             error_messages=input_data.get("error_messages", []),

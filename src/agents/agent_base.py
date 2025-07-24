@@ -7,7 +7,7 @@ from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import AgentExecutionError
 from src.models.agent_input_models import extract_agent_inputs
 
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState
 from src.services.progress_tracker import ProgressTracker
 
 
@@ -68,14 +68,14 @@ class AgentBase(ABC):
             )
             return {"error_messages": [f"An unexpected error occurred: {e}"]}
 
-    async def run_as_node(self, state: AgentState) -> dict[str, Any]:
+    async def run_as_node(self, state: GlobalState) -> dict[str, Any]:
         """
         Executes the agent as a LangGraph node, returning a dictionary for state updates.
-        This method extracts necessary inputs from the AgentState using explicit
+        This method extracts necessary inputs from the GlobalState using explicit
         input mapping, runs the agent, and returns the results or errors as a dictionary.
         """
         self.session_id = (
-            state.session_id
+            state.get("session_id", "")
         )  # Ensure agent uses current session ID from state
         self.logger = get_structured_logger(
             f"{self.name}:{self.session_id}"
@@ -88,7 +88,7 @@ class AgentBase(ABC):
         except ValueError as e:
             # If input extraction fails, log error and return error dictionary
             self.logger.error(f"Input extraction failed for {self.name}: {e}")
-            error_messages = list(state.error_messages) if state.error_messages else []
+            error_messages = list(state.get("error_messages", []))
             error_messages.append(f"Input extraction failed: {e}")
             return {"error_messages": error_messages}
 

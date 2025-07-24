@@ -11,7 +11,7 @@ from src.core.container import get_container
 from src.core.performance_optimizer import PerformanceOptimizer
 from src.integration.config import EnhancedCVConfig
 from src.orchestration.cv_workflow_graph import CVWorkflowGraph
-from src.services.vector_store_service import get_vector_store_service
+
 from src.templates.content_templates import ContentTemplateManager
 from src.utils.security_utils import redact_sensitive_data
 
@@ -47,7 +47,8 @@ class CVComponentInitializer:
                 self.logger.info("Template manager initialized")
 
             if self.config.enable_vector_db:
-                self.vector_db = get_vector_store_service()
+                container = get_container()
+                self.vector_db = container.vector_store_service()
                 self.logger.info("Vector database initialized")
 
             if self.config.enable_specialized_agents:
@@ -90,7 +91,6 @@ class CVComponentInitializer:
                 "cleaning": container.cleaning_agent,
                 "enhanced_content_writer": container.enhanced_content_writer_agent,
                 "job_description_parser": container.job_description_parser_agent,
-                "user_cv_parser": container.user_cv_parser_agent,
                 "key_qualifications_writer": container.key_qualifications_writer_agent,
                 "professional_experience_writer": container.professional_experience_writer_agent,
                 "projects_writer": container.projects_writer_agent,

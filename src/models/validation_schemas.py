@@ -12,7 +12,7 @@ from src.models.cv_models import JobDescriptionData, StructuredCV
 
 if TYPE_CHECKING:
     from src.models.agent_output_models import ResearchFindings
-    from src.orchestration.state import AgentState
+    from src.orchestration.state import GlobalState
 
 logger = logging.getLogger(__name__)
 

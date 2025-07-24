@@ -15,6 +15,181 @@ from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.llm_data_models import BasicCVInfo
 
 
+class ExecutiveSummaryLLMOutput(BaseModel):
+    """Pydantic model for structured LLM output of executive summary."""
+    
+    executive_summary: str = Field(
+        description="Generated executive summary content for the CV",
+        min_length=100,
+        max_length=2000
+    )
+    
+    @field_validator('executive_summary')
+    @classmethod
+    def validate_executive_summary(cls, v):
+        """Validate that executive summary content is meaningful."""
+        if not v or not v.strip():
+            raise ValueError("Executive summary content cannot be empty")
+        if len(v.strip()) < 100:
+            raise ValueError("Executive summary content must be at least 100 characters long")
+        if len(v.strip()) > 2000:
+            raise ValueError("Executive summary content must not exceed 2000 characters")
+        return v.strip()
+
+
+class KeyQualificationsLLMOutput(BaseModel):
+    """Pydantic model for structured LLM output of key qualifications."""
+    
+    qualifications: List[str] = Field(
+        description="List of key qualifications tailored to the job description",
+        min_items=3,
+        max_items=8
+    )
+    
+    @field_validator('qualifications')
+    @classmethod
+    def validate_qualifications(cls, v):
+        """Validate that qualifications are not empty and properly formatted."""
+        if not v:
+            raise ValueError("At least one qualification must be provided")
+        
+        cleaned_qualifications = []
+        for qual in v:
+            # Clean up common prefixes and ensure proper formatting
+            cleaned = qual.strip().lstrip("- •*").strip()
+            if cleaned and len(cleaned) > 5:  # Minimum meaningful length
+                cleaned_qualifications.append(cleaned)
+        
+        if not cleaned_qualifications:
+            raise ValueError("No valid qualifications found after cleaning")
+            
+        return cleaned_qualifications
+
+
+class ProfessionalExperienceLLMOutput(BaseModel):
+    """Model for LLM output when generating professional experience content."""
+
+    professional_experience: str = Field(
+        description="Generated professional experience content for the CV",
+        min_length=50,
+    )
+
+    @field_validator("professional_experience")
+    @classmethod
+    def validate_experience_content(cls, v):
+        """Validate that professional experience content is meaningful."""
+        if not v or not v.strip():
+            raise ValueError("Professional experience content cannot be empty")
+        if len(v.strip()) < 50:
+            raise ValueError("Professional experience content must be at least 50 characters long")
+        return v.strip()
+
+
+class ProjectLLMOutput(BaseModel):
+    """Pydantic model for structured LLM output of project content."""
+    
+    project_description: Optional[str] = Field(
+        default=None,
+        description="A brief description of the project"
+    )
+    technologies_used: List[str] = Field(
+        default_factory=list,
+        description="List of technologies and tools used in the project"
+    )
+    achievements: List[str] = Field(
+        default_factory=list,
+        description="List of key achievements and outcomes from the project"
+    )
+    bullet_points: List[str] = Field(
+        description="A list of 3-5 generated project bullet points",
+        min_items=1,
+        max_items=8
+    )
+    
+    @field_validator('bullet_points')
+    @classmethod
+    def validate_bullet_points(cls, v):
+        """Validate that bullet points are not empty and properly formatted."""
+        if not v:
+            raise ValueError("At least one bullet point must be provided")
+        
+        cleaned_bullets = []
+        for bullet in v:
+            # Clean up common prefixes and ensure proper formatting
+            cleaned = bullet.strip().lstrip("- •*").strip()
+            if cleaned and len(cleaned) > 10:  # Minimum meaningful length
+                cleaned_bullets.append(cleaned)
+        
+        if not cleaned_bullets:
+            raise ValueError("No valid bullet points found after cleaning")
+            
+        return cleaned_bullets
+
+
+class KeyQualificationsAgentOutput(BaseModel):
+    """Output model for KeyQualificationsAgent run_async method."""
+
+    updated_structured_cv: StructuredCV = Field(
+        description="The full CV data structure with the key qualifications section updated."
+    )
+    generated_qualifications: List[str] = Field(
+        default_factory=list,
+        description="The newly generated key qualifications."
+    )
+    qualification_count: int = Field(
+        default=0,
+        description="Number of qualifications generated."
+    )
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "KeyQualificationsAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
+
+class ProfessionalExperienceWriterOutput(BaseModel):
+    """Output model for ProfessionalExperienceWriterAgent run_async method."""
+
+    professional_experience: str = Field(
+        description="Generated professional experience content"
+    )
+    structured_cv: Optional[StructuredCV] = Field(
+        default=None, description="Updated structured CV with professional experience"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict, description="Additional metadata about the generation"
+    )
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProfessionalExperienceWriterOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
+
 class ParserAgentOutput(BaseModel):
     """Output model for ParserAgent run_async method."""
 

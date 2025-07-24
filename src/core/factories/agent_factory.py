@@ -1,6 +1,10 @@
 """Factory module for creating agent instances."""
 
 from typing import Any, Callable, Dict, Optional
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import BaseOutputParser, PydanticOutputParser
+from langchain_core.language_models import BaseLanguageModel
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from src.agents.cleaning_agent import CleaningAgent
 from src.agents.cv_analyzer_agent import CVAnalyzerAgent
@@ -16,6 +20,8 @@ from src.agents.projects_writer_agent import ProjectsWriterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.user_cv_parser_agent import UserCVParserAgent
+from src.models.agent_output_models import KeyQualificationsLLMOutput, ProfessionalExperienceLLMOutput, ProjectLLMOutput, ExecutiveSummaryLLMOutput
+from src.config.logging_config import get_logger
 
 
 class AgentFactory:
@@ -51,9 +57,20 @@ class AgentFactory:
         """Create a key qualifications writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
+        
+        # Get the LLM model from the service
+        llm = self._get_llm_model()
+        
+        # Get the prompt template
+        prompt = self._get_prompt_template("key_qualifications_prompt")
+        
+        # Get the parser
+        parser = self._get_output_parser("KeyQualificationsLLMOutput")
+        
         return KeyQualificationsWriterAgent(
-            llm_service=self._llm_service,
-            template_manager=self._template_manager,
+            llm=llm,
+            prompt=prompt,
+            parser=parser,
             settings=settings or {},
             session_id=session_id,
         )
@@ -74,9 +91,20 @@ class AgentFactory:
         """Create a professional experience writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
+        
+        # Get the LLM model from the service
+        llm = self._get_llm_model()
+        
+        # Get the prompt template
+        prompt = self._get_prompt_template("professional_experience_prompt")
+        
+        # Get the parser
+        parser = self._get_output_parser("ProfessionalExperienceLLMOutput")
+        
         return ProfessionalExperienceWriterAgent(
-            llm_service=self._llm_service,
-            template_manager=self._template_manager,
+            llm=llm,
+            prompt=prompt,
+            parser=parser,
             settings=settings or {},
             session_id=session_id,
         )
@@ -87,9 +115,20 @@ class AgentFactory:
         """Create a projects writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
+        
+        # Get the LLM model from the service
+        llm = self._get_llm_model()
+        
+        # Get the prompt template
+        prompt = self._get_prompt_template("projects_prompt")
+        
+        # Get the parser
+        parser = self._get_output_parser("ProjectsLLMOutput")
+        
         return ProjectsWriterAgent(
-            llm_service=self._llm_service,
-            template_manager=self._template_manager,
+            llm=llm,
+            prompt=prompt,
+            parser=parser,
             settings=settings or {},
             session_id=session_id,
         )
@@ -100,9 +139,20 @@ class AgentFactory:
         """Create an executive summary writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
+        
+        # Get the LLM model from the service
+        llm = self._get_llm_model()
+        
+        # Get the prompt template
+        prompt = self._get_prompt_template("executive_summary_prompt")
+        
+        # Get the parser
+        parser = self._get_output_parser("ExecutiveSummaryLLMOutput")
+        
         return ExecutiveSummaryWriterAgent(
-            llm_service=self._llm_service,
-            template_manager=self._template_manager,
+            llm=llm,
+            prompt=prompt,
+            parser=parser,
             settings=settings or {},
             session_id=session_id,
         )
@@ -185,3 +235,43 @@ class AgentFactory:
             settings=settings or {},
             session_id=session_id,
         )
+
+    def _get_llm_model(self) -> BaseLanguageModel:
+        """Get the LLM model from the service."""
+        return self._llm_service.get_llm()
+
+    def _get_prompt_template(self, template_name: str) -> ChatPromptTemplate:
+         """Get a prompt template by name and convert to ChatPromptTemplate."""
+         # Map template names to content types
+         content_type_map = {
+             "key_qualifications_prompt": "KEY_QUALIFICATIONS",
+             "professional_experience_prompt": "PROFESSIONAL_EXPERIENCE",
+             "projects_prompt": "PROJECTS",
+             "executive_summary_prompt": "EXECUTIVE_SUMMARY"
+         }
+         
+         from src.models.workflow_models import ContentType
+         content_type_str = content_type_map.get(template_name, "CV_ANALYSIS")
+         content_type = ContentType[content_type_str]
+         
+         # Get the template from the manager
+         template = self._template_manager.get_template_by_type(content_type)
+         
+         if template is None:
+             raise ValueError(f"Template not found for {template_name}")
+         
+         # Convert to ChatPromptTemplate
+         return ChatPromptTemplate.from_template(template.template)
+
+    def _get_output_parser(self, output_model_name: str) -> BaseOutputParser:
+        """Get an output parser for the specified model."""
+        if output_model_name == "KeyQualificationsLLMOutput":
+            return PydanticOutputParser(pydantic_object=KeyQualificationsLLMOutput)
+        elif output_model_name == "ProfessionalExperienceLLMOutput":
+            return PydanticOutputParser(pydantic_object=ProfessionalExperienceLLMOutput)
+        elif output_model_name == "ProjectsLLMOutput":
+             return PydanticOutputParser(pydantic_object=ProjectLLMOutput)
+        elif output_model_name == "ExecutiveSummaryLLMOutput":
+            return PydanticOutputParser(pydantic_object=ExecutiveSummaryLLMOutput)
+        else:
+            raise ValueError(f"Unknown output model: {output_model_name}")

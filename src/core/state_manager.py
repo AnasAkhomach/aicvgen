@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 import streamlit as st
 
 from src.config.logging_config import get_logger
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState
 
 logger = get_logger(__name__)
 
@@ -94,13 +94,13 @@ class StateManager:
     # Properties for type-safe access to common state variables
 
     @property
-    def agent_state(self) -> Optional[AgentState]:
-        """Get the current AgentState."""
+    def agent_state(self) -> Optional[GlobalState]:
+        """Get the current GlobalState."""
         return self.get("agent_state")
 
     @agent_state.setter
-    def agent_state(self, state: Optional[AgentState]) -> None:
-        """Set the AgentState."""
+    def agent_state(self, state: Optional[GlobalState]) -> None:
+        """Set the GlobalState."""
         self.set("agent_state", state)
 
     @property

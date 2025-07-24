@@ -6,7 +6,7 @@ from typing import Any, Optional
 from src.utils.import_fallbacks import get_google_exceptions
 from src.config.logging_config import get_structured_logger
 from src.constants.llm_constants import LLMConstants
-from src.error_handling.classification import is_rate_limit_error
+
 from src.error_handling.exceptions import (ConfigurationError, NetworkError, OperationTimeoutError, RateLimitError)
 from src.models.llm_data_models import LLMResponse
 from src.models.workflow_models import ContentType
@@ -166,7 +166,7 @@ class LLMRetryService:
         item_id = kwargs.get("item_id")
 
         # Check if this is a rate limit error and try fallback key
-        if is_rate_limit_error(error) and self.api_key_manager.has_fallback_available():
+        if isinstance(error, RateLimitError) and self.api_key_manager.has_fallback_available():
             logger.warning(
                 "Rate limit detected, attempting to switch to fallback API key",
                 error=str(error),

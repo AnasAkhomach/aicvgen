@@ -14,7 +14,7 @@ from src.core.performance_optimizer import PerformanceOptimizer
 from src.error_handling.exceptions import AgentExecutionError, WorkflowError
 from src.models.workflow_models import ContentType, WorkflowType
 from src.orchestration.cv_workflow_graph import CVWorkflowGraph
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState, create_agent_state
 from src.services.error_recovery import ErrorRecoveryService, RecoveryStrategy
 
 
@@ -74,7 +74,7 @@ class CVWorkflowExecutor:
     async def _handle_caching_logic(
         self,
         workflow_type: Union[WorkflowType, str],
-        input_data: AgentState,
+        input_data: GlobalState,
         custom_options: Optional[Dict[str, Any]],
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         cache_key = None
@@ -86,7 +86,7 @@ class CVWorkflowExecutor:
                     if hasattr(workflow_type, "value")
                     else str(workflow_type)
                 ),
-                "input_data": input_data.model_dump(),
+                "input_data": dict(input_data),
                 "custom_options": custom_options or {},
             }
             cache_key = hashlib.md5(str(cache_data).encode()).hexdigest()
@@ -103,7 +103,7 @@ class CVWorkflowExecutor:
     def _prepare_workflow_inputs(
         self,
         workflow_type: Union[WorkflowType, str],
-        initial_agent_state: AgentState,
+        initial_agent_state: GlobalState,
         session_id: Optional[str],
     ) -> Dict[str, Any]:
         """Prepare workflow inputs based on workflow type and agent state."""
@@ -115,57 +115,62 @@ class CVWorkflowExecutor:
             WorkflowType.JOB_TAILORED_CV,
             WorkflowType.COMPREHENSIVE_CV,
         ]:
-            if initial_agent_state.structured_cv:
+            structured_cv = initial_agent_state.get("structured_cv")
+            if structured_cv:
                 self.logger.info("Using StructuredCV data for workflow")
 
                 workflow_inputs = {
-                    "structured_cv": initial_agent_state.structured_cv,
-                    "cv_text": initial_agent_state.structured_cv.to_raw_text(),
+                    "structured_cv": structured_cv,
+                    "cv_text": structured_cv.to_raw_text(),
                     "session_id": session_id or self._session_id,
                     "workflow_type": workflow_type.value,
                 }
 
-                if initial_agent_state.job_description_data:
-                    workflow_inputs["job_description_data"] = (
-                        initial_agent_state.job_description_data
-                    )
+                job_description_data = initial_agent_state.get("job_description_data")
+                if job_description_data:
+                    workflow_inputs["job_description_data"] = job_description_data
                     self.logger.info("Job description data added to workflow inputs")
                 else:
-                    self.logger.warning("Job description data missing in AgentState")
+                    self.logger.warning("Job description data missing in GlobalState")
 
                 self.logger.info("Workflow inputs prepared")
                 return workflow_inputs
             else:
                 self.logger.warning(
-                    f"Workflow type {workflow_type.value} requires StructuredCV data in AgentState"
+                    f"Workflow type {workflow_type.value} requires StructuredCV data in GlobalState"
                 )
                 raise ValueError("Missing StructuredCV data in input")
         else:
             self.logger.warning(
-                f"Workflow type {workflow_type.value} not fully implemented for AgentState input or not recognized."
+                f"Workflow type {workflow_type.value} not fully implemented for GlobalState input or not recognized."
             )
             raise ValueError("Unrecognized or unimplemented workflow type")
 
     def _process_workflow_result(
-        self, workflow_result: Dict[str, Any], initial_agent_state: AgentState
-    ) -> Tuple[AgentState, bool]:
-        """Process the raw workflow result into an AgentState and determine success."""
+        self, workflow_result: Dict[str, Any], initial_agent_state: GlobalState
+    ) -> Tuple[GlobalState, bool]:
+        """Process the raw workflow result into a GlobalState and determine success."""
         if isinstance(workflow_result, dict) and "structured_cv" in workflow_result:
-            result_state = AgentState(
-                structured_cv=workflow_result.get("structured_cv"),
-                cv_text=workflow_result.get("structured_cv").to_raw_text(),
+            structured_cv = workflow_result.get("structured_cv")
+            result_state = create_agent_state(
+                cv_text=structured_cv.to_raw_text() if structured_cv else initial_agent_state["cv_text"],
+                structured_cv=structured_cv,
                 job_description_data=workflow_result.get("job_description_data"),
                 error_messages=workflow_result.get("error_messages", []),
-                user_action=workflow_result.get("user_action"),
-                session_metadata=workflow_result.get("session_metadata", {}),
+                session_id=initial_agent_state["session_id"],
+                trace_id=initial_agent_state["trace_id"],
+                automated_mode=initial_agent_state["automated_mode"],
             )
         else:
-            result_state = initial_agent_state
-            result_state.add_error_message(
-                "Workflow execution did not return expected results"
-            )
+            # Create a new state with the error message added
+            error_messages = list(initial_agent_state["error_messages"])
+            error_messages.append("Workflow execution did not return expected results")
+            result_state = {
+                **initial_agent_state,
+                "error_messages": error_messages
+            }
 
-        success = not bool(result_state.error_messages if result_state else True)
+        success = not bool(result_state["error_messages"] if result_state else True)
         self.logger.info("Workflow success", extra={"success": success})
         return result_state, success
 
@@ -175,7 +180,7 @@ class CVWorkflowExecutor:
         workflow_type: Union[WorkflowType, str],
         session_id: Optional[str],
         success: bool,
-        result_state: Optional[AgentState],
+        result_state: Optional[GlobalState],
         cache_key: Optional[str],
     ) -> None:
         """Update performance statistics and cache successful results."""
@@ -196,7 +201,7 @@ class CVWorkflowExecutor:
         if success and result_state and cache_key and self.intelligent_cache:
             workflow_result_to_cache = {
                 "success": success,
-                "result_state": result_state.model_dump(),  # Store as dict for caching
+                "result_state": dict(result_state),  # Store as dict for caching
                 "processing_time": processing_time,
                 "session_id": session_id,
             }
@@ -216,7 +221,7 @@ class CVWorkflowExecutor:
         start_time: datetime,
         workflow_type: Union[WorkflowType, str],
         session_id: Optional[str],
-        input_data: AgentState,
+        input_data: GlobalState,
         custom_options: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Handle workflow execution errors with recovery logic."""
@@ -271,7 +276,7 @@ class CVWorkflowExecutor:
     async def execute_workflow(
         self,
         workflow_type: Union[WorkflowType, str],
-        input_data: AgentState,
+        input_data: GlobalState,
         session_id: Optional[str] = None,
         custom_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -279,7 +284,7 @@ class CVWorkflowExecutor:
 
         Args:
             workflow_type: The type of workflow to execute.
-            input_data: The AgentState object containing all necessary workflow data.
+            input_data: The GlobalState object containing all necessary workflow data.
             session_id: Optional session ID for state management.
             custom_options: Optional custom options for the workflow.
 
@@ -310,7 +315,7 @@ class CVWorkflowExecutor:
                     extra={
                         "workflow_type": workflow_type.value,
                         "session_id": session_id,
-                        "input_data_type": "AgentState",
+                        "input_data_type": "GlobalState",
                     },
                 )
 
@@ -329,14 +334,14 @@ class CVWorkflowExecutor:
                     start_time, workflow_type, session_id, success, result_state, cache_key
                 )
 
-                final_errors = result_state.error_messages if result_state else []
+                final_errors = result_state.get("error_messages", []) if result_state else []
                 self.logger.info(
                     f"Final return structure - success: {success}, errors: {final_errors}"
                 )
 
                 return {
                     "success": success,
-                    "results": result_state.model_dump() if result_state else {},
+                    "results": dict(result_state) if result_state else {},
                     "metadata": {
                         "workflow_type": workflow_type.value,
                         "session_id": session_id,

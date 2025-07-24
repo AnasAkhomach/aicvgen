@@ -11,10 +11,11 @@ from typing import Optional
 
 from src.config.logging_config import get_structured_logger
 from src.models.workflow_models import WorkflowStage, UserFeedback
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph
-from src.orchestration.state import AgentState
+from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
+from src.orchestration.state import GlobalState, create_global_state
 from src.models.cv_models import StructuredCV
 from src.models.cv_models import JobDescriptionData
+from src.services.cv_template_loader_service import CVTemplateLoaderService
 
 
 
@@ -28,17 +29,18 @@ class WorkflowManager:
     and monitoring CV generation workflows using the CVWorkflowGraph.
     """
 
-    def __init__(self, cv_workflow_graph: CVWorkflowGraph):
+    def __init__(self, container):
         """Initialize the WorkflowManager.
 
         Args:
-            cv_workflow_graph: The CV workflow graph instance
+            container: The dependency injection container
         """
-        self.cv_workflow_graph = cv_workflow_graph
+        self.container = container
         self.logger = logger
         self.sessions_dir = Path("instance/sessions")
+        self._workflow_graphs = {}  # Cache for workflow graphs by session
 
-        logger.info("WorkflowManager initialized")
+        logger.info("WorkflowManager initialized with DI container")
 
     def create_new_workflow(
         self,
@@ -70,23 +72,37 @@ class WorkflowManager:
         if session_file.exists():
             raise ValueError(f"Workflow with session_id {session_id} already exists")
 
-        # Create initial AgentState object
+        # Load template and create structured CV skeleton
+        try:
+            template_path = "src/templates/default_cv_template.md"
+            structured_cv = CVTemplateLoaderService.load_from_markdown(template_path)
+            # Set the original CV text for reference
+            structured_cv.cv_text = cv_text
+        except (FileNotFoundError, ValueError) as e:
+            logger.warning(
+                "Failed to load CV template, falling back to empty structure",
+                extra={"error": str(e), "template_path": template_path}
+            )
+            # Fallback to empty structure if template loading fails
+            structured_cv = StructuredCV.create_empty(cv_text=cv_text)
+
+        # Create initial GlobalState object
         if session_id:
-            agent_state = AgentState(
+            agent_state = create_global_state(
                 session_id=session_id,
-                structured_cv=StructuredCV.create_empty(cv_text=cv_text),
+                structured_cv=structured_cv,
                 cv_text=cv_text
             )
         else:
-            agent_state = AgentState(
-                structured_cv=StructuredCV.create_empty(cv_text=cv_text),
+            agent_state = create_global_state(
+                structured_cv=structured_cv,
                 cv_text=cv_text
             )
-            session_id = agent_state.session_id  # Use the auto-generated session_id
+            session_id = agent_state["session_id"]  # Use the auto-generated session_id
 
         # Set job description data if provided
         if jd_text:
-            agent_state.job_description_data = JobDescriptionData(raw_text=jd_text)
+            agent_state["job_description_data"] = JobDescriptionData(raw_text=jd_text)
 
         # Create sessions directory if it doesn't exist
         try:
@@ -98,11 +114,11 @@ class WorkflowManager:
             )
             raise OSError(f"Failed to create sessions directory: {str(e)}") from e
 
-        # Serialize AgentState to JSON file
+        # Serialize GlobalState to JSON file
         session_file = self.sessions_dir / f"{session_id}.json"
         try:
             with open(session_file, 'w', encoding='utf-8') as f:
-                f.write(agent_state.model_dump_json(indent=2))
+                json.dump(agent_state, f, indent=2, default=str)
         except (OSError, IOError) as e:
             logger.error(
                 "Failed to save session file",
@@ -125,8 +141,8 @@ class WorkflowManager:
     async def trigger_workflow_step(
         self,
         session_id: str,
-        agent_state: AgentState
-    ) -> AgentState:
+        agent_state: GlobalState
+    ) -> GlobalState:
         """Trigger the next step in the workflow.
 
         Args:
@@ -134,7 +150,7 @@ class WorkflowManager:
             agent_state: The current agent state
 
         Returns:
-            AgentState: The updated agent state after workflow execution
+            GlobalState: The updated agent state after workflow execution
 
         Raises:
             ValueError: If no active workflow found for the session
@@ -154,8 +170,11 @@ class WorkflowManager:
         )
 
         try:
+            # Get or create workflow graph for this session
+            cv_workflow_graph = self._get_workflow_graph(session_id)
+            
             # Use the CVWorkflowGraph's trigger_workflow_step method which includes pause mechanism
-            updated_state = await self.cv_workflow_graph.trigger_workflow_step(agent_state)
+            updated_state = await cv_workflow_graph.trigger_workflow_step(agent_state)
 
             # Save updated state to file
             self._save_state(session_id, updated_state)
@@ -174,9 +193,9 @@ class WorkflowManager:
 
         except (RuntimeError, ValueError, OSError, IOError) as e:
             # Add error to agent state and save
-            if agent_state.error_messages is None:
-                agent_state.error_messages = []
-            agent_state.error_messages.append(str(e))
+            if agent_state.get("error_messages") is None:
+                agent_state["error_messages"] = []
+            agent_state["error_messages"].append(str(e))
 
             # Save error state to file
             try:
@@ -196,28 +215,27 @@ class WorkflowManager:
             )
             raise RuntimeError(f"Workflow execution failed: {str(e)}") from e
 
-    def get_workflow_status(self, session_id: str) -> Optional[AgentState]:
+    def get_workflow_status(self, session_id: str) -> Optional[GlobalState]:
         """Get the current status of a workflow by reading from the session file.
 
         Args:
             session_id: The session ID of the workflow
 
         Returns:
-            Optional[AgentState]: The agent state if found, None otherwise
+            Optional[GlobalState]: The agent state if found, None otherwise
         """
         session_file = self.sessions_dir / f"{session_id}.json"
 
         try:
             with open(session_file, 'r', encoding='utf-8') as f:
-                json_data = f.read()
-                agent_state = AgentState.model_validate_json(json_data)
+                agent_state = json.load(f)
 
             logger.debug(
                 "Retrieved workflow status from file",
                 extra={
                     "session_id": session_id,
                     "session_file": str(session_file),
-                    "trace_id": agent_state.trace_id
+                    "trace_id": agent_state.get("trace_id")
                 }
             )
             return agent_state
@@ -275,7 +293,7 @@ class WorkflowManager:
             return False
 
         # Set user feedback
-        agent_state.user_feedback = feedback
+        agent_state["user_feedback"] = feedback
 
         # Save updated state back to file
         try:
@@ -322,7 +340,7 @@ class WorkflowManager:
 
         return stage_progression.get(current_stage)
 
-    def _save_state(self, session_id: str, agent_state: AgentState) -> None:
+    def _save_state(self, session_id: str, agent_state: GlobalState) -> None:
         """Save agent state to session file.
 
         Args:
@@ -336,7 +354,7 @@ class WorkflowManager:
 
         try:
             with open(session_file, 'w', encoding='utf-8') as f:
-                f.write(agent_state.model_dump_json(indent=2))
+                json.dump(agent_state, f, indent=2, default=str)
         except (OSError, IOError) as e:
             logger.error(
                 "Failed to save session file",
@@ -357,6 +375,9 @@ class WorkflowManager:
             session_file = self.sessions_dir / f"{session_id}.json"
             if session_file.exists():
                 session_file.unlink()
+                # Also remove from workflow graph cache
+                if session_id in self._workflow_graphs:
+                    del self._workflow_graphs[session_id]
                 logger.info(
                     "Cleaned up workflow for session",
                     extra={"session_id": session_id}
@@ -374,3 +395,24 @@ class WorkflowManager:
                 extra={"session_id": session_id, "error": str(e)}
             )
             return False
+
+    def _get_workflow_graph(self, session_id: str):
+        """Get or create a workflow graph for the given session.
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            The workflow graph instance
+        """
+        if session_id not in self._workflow_graphs:
+            # Create new workflow graph using DI container
+            self._workflow_graphs[session_id] = create_cv_workflow_graph_with_di(
+                self.container, session_id
+            )
+            logger.debug(
+                "Created new workflow graph for session",
+                extra={"session_id": session_id}
+            )
+        
+        return self._workflow_graphs[session_id]

@@ -87,10 +87,12 @@ async def test_professional_experience_writer_agent_success(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, AgentState)
-    assert not result.error_messages
+    assert isinstance(result, dict)
+    assert "structured_cv" in result
+    assert "current_item_id" in result
+    assert "error_messages" not in result
 
-    updated_cv = result.structured_cv
+    updated_cv = result["structured_cv"]
     exp_section = next(s for s in updated_cv.sections if s.name == "Professional Experience")
     updated_item = next(item for item in exp_section.items if str(item.id) == "12345678-1234-5678-9012-123456789012")
 
@@ -127,9 +129,10 @@ async def test_professional_experience_writer_agent_missing_inputs(
         cv_text="mock cv text"
     )
     result = await agent.run_as_node(initial_state_missing_jd)
-    assert result.error_messages
-    assert "Input validation failed" in result.error_messages[0]
-    assert "job_description_data" in result.error_messages[0]
+    assert isinstance(result, dict)
+    assert "error_messages" in result
+    assert "Input validation failed" in result["error_messages"][0]
+    assert "job_description_data" in result["error_messages"][0]
 
     # Test missing current_item_id
     initial_state_missing_item_id = AgentState(
@@ -139,8 +142,9 @@ async def test_professional_experience_writer_agent_missing_inputs(
         cv_text="mock cv text"
     )
     result = await agent.run_as_node(initial_state_missing_item_id)
-    assert result.error_messages
-    assert "Missing or invalid 'current_item_id' in input_data." in result.error_messages[0]
+    assert isinstance(result, dict)
+    assert "error_messages" in result
+    assert "Missing or invalid 'current_item_id' in input_data." in result["error_messages"][0]
 
 @pytest.mark.asyncio
 async def test_professional_experience_writer_agent_llm_failure(
@@ -167,9 +171,9 @@ async def test_professional_experience_writer_agent_llm_failure(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, AgentState)
-    assert result.error_messages
-    assert "Agent 'ProfessionalExperienceWriter' failed: LLM failed to generate valid Professional Experience content." in result.error_messages[0]
+    assert isinstance(result, dict)
+    assert "error_messages" in result
+    assert "Agent 'ProfessionalExperienceWriter' failed: LLM failed to generate valid Professional Experience content." in result["error_messages"][0]
 
 @pytest.mark.asyncio
 async def test_professional_experience_writer_agent_item_not_found(
@@ -194,9 +198,9 @@ async def test_professional_experience_writer_agent_item_not_found(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, AgentState)
-    assert result.error_messages
-    assert "Item with ID '87654321-4321-8765-2109-876543210987' not found or is not a professional experience item." in result.error_messages[0]
+    assert isinstance(result, dict)
+    assert "error_messages" in result
+    assert "Item with ID '87654321-4321-8765-2109-876543210987' not found or is not a professional experience item." in result["error_messages"][0]
 
     # Test with an item of wrong type
     initial_state_wrong_type = AgentState(
@@ -208,9 +212,9 @@ async def test_professional_experience_writer_agent_item_not_found(
         cv_text="mock cv text"
     )
     result = await agent.run_as_node(initial_state_wrong_type)
-    assert isinstance(result, AgentState)
-    assert result.error_messages
-    assert "Item with ID '11111111-1111-1111-1111-111111111111' not found or is not a professional experience item." in result.error_messages[0]
+    assert isinstance(result, dict)
+    assert "error_messages" in result
+    assert "Item with ID '11111111-1111-1111-1111-111111111111' not found or is not a professional experience item." in result["error_messages"][0]
 
 @pytest.mark.asyncio
 async def test_professional_experience_writer_agent_template_not_found(
@@ -237,6 +241,6 @@ async def test_professional_experience_writer_agent_template_not_found(
 
     result = await agent.run_as_node(initial_state)
 
-    assert isinstance(result, AgentState)
-    assert result.error_messages
-    assert f"No prompt template found for type {ContentType.EXPERIENCE}" in result.error_messages[0]
+    assert isinstance(result, dict)
+    assert "error_messages" in result
+    assert f"No prompt template found for type {ContentType.EXPERIENCE}" in result["error_messages"][0]

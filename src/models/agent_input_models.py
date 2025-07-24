@@ -1,7 +1,7 @@
 """Agent-specific input models for explicit input mapping.
 
 This module defines Pydantic input models for each agent to reduce coupling
-between agents and the global AgentState. Each model explicitly declares
+between agents and the global GlobalState. Each model explicitly declares
 the required inputs for its corresponding agent.
 """
 
@@ -22,16 +22,13 @@ class CVAnalyzerAgentInput(BaseModel):
 
 
 class ExecutiveSummaryWriterAgentInput(BaseModel):
-    """Input model for ExecutiveSummaryWriterAgent."""
+    """Input model for ExecutiveSummaryWriterAgent following Gold Standard LCEL pattern."""
 
-    structured_cv: StructuredCV = Field(description="The structured CV data")
-    job_description_data: JobDescriptionData = Field(
-        description="The job description data"
-    )
-    research_findings: Optional[ResearchFindings] = Field(
-        default=None, description="Research findings if available"
-    )
-    session_id: str = Field(description="Session identifier")
+    job_description: str = Field(description="The job description text")
+    key_qualifications: str = Field(description="Extracted key qualifications from CV")
+    professional_experience: str = Field(description="Extracted professional experience from CV")
+    projects: str = Field(description="Extracted projects from CV")
+    research_findings: Optional[dict] = Field(default=None, description="Research findings if available")
 
 
 class ProfessionalExperienceWriterAgentInput(BaseModel):
@@ -170,12 +167,12 @@ def get_agent_input_model(agent_name: str) -> Optional[BaseModel]:
     return AGENT_INPUT_MODELS.get(agent_name)
 
 
-def extract_agent_inputs(agent_name: str, state: "AgentState") -> Dict[str, Any]:
-    """Extract and validate agent-specific inputs from AgentState.
+def extract_agent_inputs(agent_name: str, state: "GlobalState") -> Dict[str, Any]:
+    """Extract and validate agent-specific inputs from GlobalState.
 
     Args:
         agent_name: Name of the agent
-        state: The AgentState object
+        state: The GlobalState object
 
     Returns:
         Dictionary of validated inputs for the agent
@@ -187,54 +184,49 @@ def extract_agent_inputs(agent_name: str, state: "AgentState") -> Dict[str, Any]
     if not input_model_class:
         raise ValueError(f"No input model found for agent: {agent_name}")
 
-    # Extract state data as dict
-    state_data = state.model_dump()
-
     # Map common state fields to agent inputs
     agent_inputs = {
-        "session_id": state.session_id,
+        "session_id": state.get("session_id"),
     }
 
     # Add agent-specific field mappings
     model_fields = input_model_class.model_fields
 
     if "structured_cv" in model_fields:
-        agent_inputs["structured_cv"] = state.structured_cv
+        agent_inputs["structured_cv"] = state.get("structured_cv")
 
     if "job_description_data" in model_fields:
-        agent_inputs["job_description_data"] = state.job_description_data
+        agent_inputs["job_description_data"] = state.get("job_description_data")
 
     if "cv_data" in model_fields:
-        agent_inputs["cv_data"] = state.structured_cv
+        agent_inputs["cv_data"] = state.get("structured_cv")
 
     if "job_description" in model_fields:
-        agent_inputs["job_description"] = state.job_description_data
+        agent_inputs["job_description"] = state.get("job_description_data")
 
     if "cv_text" in model_fields:
-        agent_inputs["cv_text"] = state.cv_text
+        agent_inputs["cv_text"] = state.get("cv_text")
 
     if "current_item_id" in model_fields:
-        agent_inputs["current_item_id"] = state.current_item_id
+        agent_inputs["current_item_id"] = state.get("current_item_id")
 
     if "research_findings" in model_fields:
-        agent_inputs["research_findings"] = getattr(state, "research_findings", None)
+        agent_inputs["research_findings"] = state.get("research_findings")
 
     if "user_feedback" in model_fields:
-        agent_inputs["user_feedback"] = getattr(state, "user_feedback", None)
+        agent_inputs["user_feedback"] = state.get("user_feedback")
 
     if "generated_key_qualifications" in model_fields:
-        agent_inputs["generated_key_qualifications"] = getattr(state, "generated_key_qualifications", None)
+        agent_inputs["generated_key_qualifications"] = state.get("generated_key_qualifications")
 
     # For cleaning agent, handle raw_data and data_type specially
     if agent_name == "CleaningAgent":
-        agent_inputs["raw_data"] = getattr(state, "raw_data", None)
-        agent_inputs["data_type"] = getattr(state, "data_type", "unknown")
+        agent_inputs["raw_data"] = state.get("raw_data")
+        agent_inputs["data_type"] = state.get("data_type", "unknown")
 
     # For job description parser
     if agent_name == "JobDescriptionParserAgent":
-        agent_inputs["job_description_text"] = getattr(
-            state, "job_description_text", ""
-        )
+        agent_inputs["job_description_text"] = state.get("job_description_text", "")
 
     # Validate inputs using the agent's input model
     try:

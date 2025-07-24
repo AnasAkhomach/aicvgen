@@ -310,25 +310,3 @@ class LLMCachingService:
             )
         except (IOError, pickle.PickleError, EOFError) as e:
             logger.warning("Failed to load persisted cache", error=str(e))
-
-
-# Global caching service instance
-_cache_lock = threading.Lock()
-_CACHING_SERVICE: Optional[LLMCachingService] = None
-
-
-def get_llm_caching_service() -> LLMCachingService:
-    """Get global LLM caching service instance."""
-    global _CACHING_SERVICE  # pylint: disable=global-statement
-    if _CACHING_SERVICE is None:
-        with _cache_lock:
-            if _CACHING_SERVICE is None:
-
-                settings = get_config()
-                cache_file = (
-                    os.path.join(settings.data_dir, "llm_cache.pkl")
-                    if hasattr(settings, "data_dir")
-                    else None
-                )
-                _CACHING_SERVICE = LLMCachingService(persist_file=cache_file)
-    return _CACHING_SERVICE

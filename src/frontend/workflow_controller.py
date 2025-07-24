@@ -6,7 +6,7 @@ import streamlit as st
 
 from src.config.logging_config import get_logger
 from src.error_handling.exceptions import AgentExecutionError, ConfigurationError
-from src.orchestration.state import AgentState, UserFeedback
+from src.orchestration.state import GlobalState, UserFeedback
 from src.models.data_models import UserAction
 
 # Initialize logger
@@ -78,12 +78,12 @@ class WorkflowController:
             self._is_running = False
             logger.info("Background event loop stopped")
 
-    def start_generation(self, initial_state: AgentState, workflow_session_id: str):
+    def start_generation(self, initial_state: GlobalState, workflow_session_id: str):
         """
         Start CV generation workflow with the given initial state.
 
         Args:
-            initial_state: The initial AgentState to start the workflow with
+            initial_state: The initial GlobalState to start the workflow with
             workflow_session_id: The workflow session ID
         """
         if not self._is_running or not self._background_loop:
@@ -93,7 +93,7 @@ class WorkflowController:
 
         # Set processing flags
         trace_id = str(uuid.uuid4())
-        initial_state.trace_id = trace_id
+        initial_state["trace_id"] = trace_id
         st.session_state.is_processing = True
         st.session_state.workflow_error = None
         st.session_state.just_finished = False
@@ -119,12 +119,12 @@ class WorkflowController:
             st.session_state.workflow_error = e
             st.error(f"Failed to start workflow: {e}")
 
-    async def _execute_initial_workflow(self, initial_state: AgentState, workflow_session_id: str, trace_id: str):
+    async def _execute_initial_workflow(self, initial_state: GlobalState, workflow_session_id: str, trace_id: str):
         """
         Execute the initial workflow step asynchronously.
 
         Args:
-            initial_state: The initial AgentState
+            initial_state: The initial GlobalState
             workflow_session_id: The workflow session ID
             trace_id: The trace ID for logging
         """

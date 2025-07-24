@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
 
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.language_models import BaseLanguageModel
 from src.config.logging_config import get_structured_logger
 from src.models.llm_data_models import LLMResponse
 from src.models.llm_service_models import (LLMApiKeyInfo, LLMPerformanceOptimizationResult, LLMServiceStats)
@@ -58,6 +60,9 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
 
         self.model_name = self.settings.llm_settings.default_model
 
+        # Initialize the LLM model for LCEL pattern
+        self._llm_model = None
+
         # Performance tracking
         self.call_count = 0
         self.total_tokens = 0
@@ -98,6 +103,18 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
     def get_current_api_key_info(self) -> LLMApiKeyInfo:
         """Get information about the currently active API key."""
         return self.api_key_manager.get_current_api_key_info()
+
+    def get_llm(self) -> BaseLanguageModel:
+        """Get the underlying LLM model for LCEL pattern usage."""
+        if self._llm_model is None:
+            api_key = self.api_key_manager.get_current_api_key_info().api_key
+            self._llm_model = ChatGoogleGenerativeAI(
+                model=self.model_name,
+                google_api_key=api_key,
+                temperature=self.settings.llm_settings.temperature,
+                max_tokens=self.settings.llm_settings.max_tokens
+            )
+        return self._llm_model
 
     async def generate_content(
         self,

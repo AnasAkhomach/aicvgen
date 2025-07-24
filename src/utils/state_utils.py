@@ -1,22 +1,22 @@
 """State Management Utilities.
 
 This module contains standalone, reusable functions for managing application state,
-particularly for creating the initial AgentState. It is decoupled from Streamlit's
+particularly for creating the initial GlobalState. It is decoupled from Streamlit's
 session state to be usable in any context (e.g., testing, background workers).
 """
 
 from ..models.cv_models import JobDescriptionData, MetadataModel, StructuredCV
-from ..orchestration.state import AgentState
+from ..orchestration.state import GlobalState, create_global_state
 
 
 def create_initial_agent_state(
     job_description_raw: str,
     cv_text: str,
     start_from_scratch: bool = False,
-) -> AgentState:
-    """Creates a fully initialized AgentState from raw inputs.
+) -> GlobalState:
+    """Creates a fully initialized GlobalState from raw inputs.
 
-    This function is the canonical factory for AgentState, ensuring that every
+    This function is the canonical factory for GlobalState, ensuring that every
     workflow run starts from a consistent, well-defined state. It is deliberately
     decoupled from any UI or session management library.
 
@@ -26,7 +26,7 @@ def create_initial_agent_state(
         start_from_scratch: Flag indicating if the user wants to start a new CV.
 
     Returns:
-        AgentState: A fully initialized AgentState object ready for the workflow.
+        GlobalState: A fully initialized GlobalState object ready for the workflow.
     """
     job_description_data = JobDescriptionData(raw_text=job_description_raw)
 
@@ -38,7 +38,7 @@ def create_initial_agent_state(
     )
     structured_cv = StructuredCV(metadata=metadata)
 
-    initial_state = AgentState(
+    initial_state = create_global_state(
         structured_cv=structured_cv,
         job_description_data=job_description_data,
         cv_text=cv_text,

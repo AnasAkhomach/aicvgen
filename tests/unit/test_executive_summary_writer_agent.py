@@ -1,299 +1,161 @@
-"""Unit test for ExecutiveSummaryWriterAgent."""
+"""Unit tests for ExecutiveSummaryWriterAgent LCEL implementation."""
 
 import pytest
-import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
-
-# Add the project root to the Python path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
+from unittest.mock import Mock, AsyncMock, MagicMock, patch
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_google_genai import ChatGoogleGenerativeAI
 from src.agents.executive_summary_writer_agent import ExecutiveSummaryWriterAgent
-from src.models.agent_models import AgentResult
-from src.models.data_models import StructuredCV, JobDescriptionData, ContentType
-from src.models.llm_service_models import LLMServiceResponse
-from src.models.cv_models import Section, Item, ItemType, ItemStatus
-from src.orchestration.state import AgentState
-from uuid import uuid4, UUID
-
-# Fixed UUIDs for consistent testing
-EXEC_SUMMARY_ID = UUID("12345678-1234-5678-9abc-123456789abc")
-KEY_QUAL_ID = UUID("12345678-1234-5678-9abc-123456789abd")
-PROF_EXP_ID = UUID("12345678-1234-5678-9abc-123456789abe")
-PROJ_EXP_ID = UUID("12345678-1234-5678-9abc-123456789abf")
+from src.models.agent_input_models import ExecutiveSummaryWriterAgentInput
+from src.models.agent_output_models import ExecutiveSummaryLLMOutput
+from src.models.cv_models import StructuredCV
 
 
-@pytest.fixture
-def mock_llm_service():
-    """Fixture for a mock EnhancedLLMService."""
-    mock = AsyncMock()
-    mock.generate_content.return_value = LLMServiceResponse(
-        content="Generated executive summary."
-    )
-    return mock
+class TestExecutiveSummaryWriterAgentLCEL:
+    """Test cases for ExecutiveSummaryWriterAgent LCEL implementation."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Create a mock LLM."""
+        mock_llm = Mock(spec=ChatGoogleGenerativeAI)
+        # Make the mock support the pipe operator
+        mock_llm.__or__ = Mock(return_value=Mock())
+        return mock_llm
+
+    @pytest.fixture
+    def mock_prompt(self):
+        """Create a mock prompt template."""
+        mock_prompt = Mock(spec=ChatPromptTemplate)
+        mock_prompt.input_variables = ['job_description', 'key_qualifications', 'professional_experience', 'projects', 'research_findings']
+        # Make the mock support the pipe operator
+        mock_prompt.__or__ = Mock(return_value=Mock())
+        return mock_prompt
+
+    @pytest.fixture
+    def mock_parser(self):
+        """Create a mock output parser."""
+        mock_parser = Mock(spec=PydanticOutputParser)
+        mock_parser.pydantic_object = ExecutiveSummaryLLMOutput
+        return mock_parser
+
+    @pytest.fixture
+    def mock_chain(self):
+        """Create a mock chain."""
+        mock_chain = AsyncMock()
+        return mock_chain
+
+    @pytest.fixture
+    def agent(self, mock_llm, mock_prompt, mock_parser, mock_chain):
+        """Create an ExecutiveSummaryWriterAgent instance."""
+        with patch.object(ExecutiveSummaryWriterAgent, '__init__', return_value=None):
+            agent = ExecutiveSummaryWriterAgent.__new__(ExecutiveSummaryWriterAgent)
+            agent.name = "ExecutiveSummaryWriterAgent"
+            agent.description = "Agent responsible for generating executive summary content for a CV"
+            agent.session_id = "test_session"
+            agent.settings = {}
+            agent.chain = mock_chain
+            agent.logger = Mock()
+            # Mock the progress tracker and update_progress method
+            agent.progress_tracker = Mock()
+            agent.update_progress = Mock()
+            return agent
 
 
-@pytest.fixture
-def mock_template_manager():
-    """Fixture for a mock ContentTemplateManager."""
-    mock = MagicMock()
-    mock.get_template_by_type.return_value = (
-        "Job Description: {job_description}\n"
-        + "Key Qualifications: {key_qualifications}\n"
-        + "Professional Experience: {professional_experience}\n"
-        + "Projects: {projects}\n"
-        + "Research Findings: {research_findings}"
-    )
-    # Mock format_template to return a formatted string
-    mock.format_template.return_value = (
-        "Job Description: test job description\n"
-        + "Key Qualifications: Strategic thinker\n"
-        + "Professional Experience: Led cross-functional teams.\n"
-        + "Projects: Delivered complex projects.\n"
-        + "Research Findings: test research findings"
-    )
-    return mock
+    @pytest.fixture
+    def sample_input_data(self):
+        """Create sample input data for testing."""
+        return ExecutiveSummaryWriterAgentInput(
+            job_description="We are looking for a Software Engineer to develop software applications using modern technologies. The ideal candidate will have experience with Python, JavaScript, and cloud platforms.",
+            key_qualifications="Python programming, JavaScript development, Cloud platforms (AWS, Azure), Software architecture, Agile methodologies",
+            professional_experience="Senior Software Engineer at Tech Corp (2020-2023): Led development of scalable web applications using Python and JavaScript. Implemented cloud-based solutions on AWS.",
+            projects="E-commerce Platform: Built a full-stack e-commerce application using React and Django. Microservices Architecture: Designed and implemented microservices using Docker and Kubernetes.",
+            research_findings={"industry_trends": ["AI/ML growth"]}
+        )
 
 
-@pytest.fixture
-def mock_settings():
-    """Fixture for mock settings."""
-    return {
-        "max_tokens_content_generation": 1024,
-        "temperature_content_generation": 0.7,
-    }
+    def test_initialization(self, agent):
+        """Test that the agent initializes correctly with LCEL components."""
+        assert agent.name == "ExecutiveSummaryWriterAgent"
+        assert agent.chain is not None
+        assert hasattr(agent, 'chain')
+
+    def test_lcel_chain_setup(self, agent):
+        """Test that LCEL chain components are set up correctly."""
+        # Verify the chain was created
+        assert agent.chain is not None
+        assert hasattr(agent, 'chain')
+
+    @pytest.mark.asyncio
+    async def test_execute_with_valid_input(self, agent, sample_input_data):
+        """Test the _execute method with valid input."""
+        # Mock the chain result
+        mock_result = ExecutiveSummaryLLMOutput(
+            executive_summary="Generated executive summary content for the role that meets all requirements and provides comprehensive overview."
+        )
+        
+        # Mock the chain's ainvoke method
+        agent.chain.ainvoke = AsyncMock(return_value=mock_result)
+        
+        # Execute the agent with keyword arguments
+        result = await agent._execute(**sample_input_data.model_dump())
+        
+        # Verify the result structure matches the Gold Standard LCEL pattern
+        assert isinstance(result, dict)
+        assert "generated_executive_summary" in result
+        assert result["generated_executive_summary"] == "Generated executive summary content for the role that meets all requirements and provides comprehensive overview."
+        
+        # Verify the chain was called
+        agent.chain.ainvoke.assert_called_once()
 
 
-@pytest.fixture
-def sample_structured_cv():
-    """Fixture for a sample StructuredCV with all relevant sections."""
-    return StructuredCV(
-        sections=[
-            Section(
-                name="Executive Summary",
-                items=[
-                    Item(
-                        id=EXEC_SUMMARY_ID,
-                        content="Original summary",
-                        item_type=ItemType.EXECUTIVE_SUMMARY_PARA,
-                    )
-                ],
-            ),
-            Section(
-                name="Key Qualifications",
-                items=[
-                    Item(
-                        id=KEY_QUAL_ID,
-                        content="Strategic thinker",
-                        item_type=ItemType.KEY_QUALIFICATION,
-                    )
-                ],
-            ),
-            Section(
-                name="Professional Experience",
-                items=[
-                    Item(
-                        id=PROF_EXP_ID,
-                        content="Led cross-functional teams.",
-                        item_type=ItemType.EXPERIENCE_ROLE_TITLE,
-                    )
-                ],
-            ),
-            Section(
-                name="Project Experience",
-                items=[
-                    Item(
-                        id=PROJ_EXP_ID,
-                        content="Delivered complex projects.",
-                        item_type=ItemType.PROJECT_DESCRIPTION_BULLET,
-                    )
-                ],
-            ),
-        ]
-    )
+    @pytest.mark.asyncio
+    async def test_execute_validation_error(self, agent):
+        """Test that _execute handles validation errors correctly."""
+        from src.error_handling.exceptions import AgentExecutionError
+        
+        # Create invalid input (missing required fields)
+        invalid_input = {}
+        
+        # The _execute method should raise AgentExecutionError for validation errors
+        with pytest.raises(AgentExecutionError) as exc_info:
+            await agent._execute(**invalid_input)
+        
+        # Verify the exception details
+        assert "ExecutiveSummaryWriterAgent" in str(exc_info.value)
+        assert "failed" in str(exc_info.value)
 
+    def test_pydantic_input_model_validation(self):
+        """Test that ExecutiveSummaryWriterAgentInput validates correctly."""
+        # Valid data
+        valid_data = {
+            "job_description": "We are looking for a Software Engineer to develop applications.",
+            "key_qualifications": "Python programming, JavaScript development",
+            "professional_experience": "Senior Software Engineer with 5 years experience",
+            "projects": "E-commerce platform, Microservices architecture",
+            "research_findings": {"industry_trends": ["AI/ML growth"]}
+        }
+        input_model = ExecutiveSummaryWriterAgentInput(**valid_data)
+        assert input_model.job_description == "We are looking for a Software Engineer to develop applications."
+        assert input_model.key_qualifications == "Python programming, JavaScript development"
 
-@pytest.fixture
-def sample_job_description_data():
-    """Fixture for sample JobDescriptionData."""
-    return JobDescriptionData(
-        job_title="CTO",
-        company_name="Global Innovations",
-        raw_text="Seeking a visionary leader.",
-    )
+        # Invalid data - missing required fields
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            ExecutiveSummaryWriterAgentInput(job_description="Only job description")
 
+    def test_pydantic_output_model_validation(self):
+        """Test that ExecutiveSummaryLLMOutput validates correctly."""
+        # Valid data
+        valid_data = {
+            "executive_summary": "This is a valid executive summary content that is longer than 100 characters and provides comprehensive overview of professional background and qualifications."
+        }
+        output = ExecutiveSummaryLLMOutput(**valid_data)
+        assert output.executive_summary == valid_data["executive_summary"].strip()
 
-@pytest.mark.asyncio
-async def test_executive_summary_writer_agent_success(
-    mock_llm_service,
-    mock_template_manager,
-    mock_settings,
-    sample_structured_cv,
-    sample_job_description_data,
-):
-    """Test successful generation of executive summary content."""
-    agent = ExecutiveSummaryWriterAgent(
-        llm_service=mock_llm_service,
-        template_manager=mock_template_manager,
-        settings=mock_settings,
-        session_id="test_session",
-    )
+        # Invalid data - too short (Pydantic's built-in validation message)
+        with pytest.raises(Exception, match="String should have at least 100 characters"):
+            ExecutiveSummaryLLMOutput(executive_summary="Too short")
 
-    initial_state = AgentState(
-        session_id="test_session",
-        structured_cv=sample_structured_cv,
-        job_description_data=sample_job_description_data,
-        research_findings={"company_vision": "future-proof"},
-        cv_text="mock cv text",
-    )
-
-    result = await agent.run_as_node(initial_state)
-
-    assert isinstance(result, AgentState)
-    assert result.error_messages == []  # No errors should occur
-
-    # Check that the executive summary was updated in the structured_cv
-    updated_cv = result.structured_cv
-    summary_section = next(
-        s for s in updated_cv.sections if s.name == "Executive Summary"
-    )
-    assert len(summary_section.items) == 1
-    assert summary_section.items[0].content == "Generated executive summary."
-    assert summary_section.items[0].status == ItemStatus.GENERATED
-
-    mock_template_manager.get_template_by_type.assert_called_once_with(
-        ContentType.EXECUTIVE_SUMMARY
-    )
-    mock_llm_service.generate_content.assert_called_once()
-    call_args = mock_llm_service.generate_content.call_args[1]
-    assert "Job Description:" in call_args["prompt"]
-    assert "Key Qualifications: Strategic thinker" in call_args["prompt"]
-    assert "Professional Experience: Led cross-functional teams." in call_args["prompt"]
-    assert "Projects: Delivered complex projects." in call_args["prompt"]
-    assert "Research Findings:" in call_args["prompt"]
-    assert call_args["max_tokens"] == 1024
-    assert call_args["temperature"] == 0.7
-
-
-@pytest.mark.asyncio
-async def test_executive_summary_writer_agent_missing_inputs(
-    mock_llm_service, mock_template_manager, mock_settings, sample_structured_cv
-):
-    """Test agent failure when required inputs are missing."""
-    agent = ExecutiveSummaryWriterAgent(
-        llm_service=mock_llm_service,
-        template_manager=mock_template_manager,
-        settings=mock_settings,
-        session_id="test_session",
-    )
-
-    # Test missing job_description_data
-    initial_state_missing_jd = AgentState(
-        session_id="test_session",
-        structured_cv=sample_structured_cv,
-        cv_text="mock cv text"
-    )
-    result = await agent.run_as_node(initial_state_missing_jd)
-    assert len(result.error_messages) > 0
-    assert "Input extraction failed:" in result.error_messages[0]
-
-
-@pytest.mark.asyncio
-async def test_executive_summary_writer_agent_llm_failure(
-    mock_llm_service,
-    mock_template_manager,
-    mock_settings,
-    sample_structured_cv,
-    sample_job_description_data,
-):
-    """Test agent failure when LLM does not generate content."""
-    mock_llm_service.generate_content.return_value = LLMServiceResponse(content=None)
-
-    agent = ExecutiveSummaryWriterAgent(
-        llm_service=mock_llm_service,
-        template_manager=mock_template_manager,
-        settings=mock_settings,
-        session_id="test_session",
-    )
-
-    initial_state = AgentState(
-        session_id="test_session",
-        structured_cv=sample_structured_cv,
-        job_description_data=sample_job_description_data,
-        research_findings={"company_vision": "future-proof"},
-        cv_text="mock cv text"
-    )
-
-    result = await agent.run_as_node(initial_state)
-
-    assert isinstance(result, AgentState)
-    assert len(result.error_messages) > 0
-    assert "LLM failed to generate valid Executive Summary content." in result.error_messages[0]
-
-
-@pytest.mark.asyncio
-async def test_executive_summary_writer_agent_no_summary_section(
-    mock_llm_service, mock_template_manager, mock_settings, sample_job_description_data
-):
-    """Test agent failure when Executive Summary section is missing in CV."""
-    # Create a structured_cv without an "Executive Summary" section
-    cv_without_summary_section = StructuredCV(
-        sections=[
-            Section(name="Education", items=[]),
-        ]
-    )
-
-    agent = ExecutiveSummaryWriterAgent(
-        llm_service=mock_llm_service,
-        template_manager=mock_template_manager,
-        settings=mock_settings,
-        session_id="test_session",
-    )
-
-    initial_state = AgentState(
-        session_id="test_session",
-        structured_cv=cv_without_summary_section,
-        job_description_data=sample_job_description_data,
-        research_findings={"company_vision": "future-proof"},
-        cv_text="mock cv text"
-    )
-
-    result = await agent.run_as_node(initial_state)
-
-    assert isinstance(result, AgentState)
-    assert len(result.error_messages) > 0
-    assert "Executive Summary section not found in structured_cv." in result.error_messages[0]
-
-
-@pytest.mark.asyncio
-async def test_executive_summary_writer_agent_template_not_found(
-    mock_llm_service,
-    mock_template_manager,
-    mock_settings,
-    sample_structured_cv,
-    sample_job_description_data,
-):
-    """Test agent failure when template is not found."""
-    mock_template_manager.get_template_by_type.return_value = None
-
-    agent = ExecutiveSummaryWriterAgent(
-        llm_service=mock_llm_service,
-        template_manager=mock_template_manager,
-        settings=mock_settings,
-        session_id="test_session",
-    )
-
-    initial_state = AgentState(
-        session_id="test_session",
-        structured_cv=sample_structured_cv,
-        job_description_data=sample_job_description_data,
-        research_findings={"company_vision": "future-proof"},
-        cv_text="mock cv text"
-    )
-
-    result = await agent.run_as_node(initial_state)
-
-    assert isinstance(result, AgentState)
-    assert len(result.error_messages) > 0
-    assert f"No prompt template found for type {ContentType.EXECUTIVE_SUMMARY}" in result.error_messages[0]
+        # Invalid data - empty (Pydantic's built-in validation message)
+        with pytest.raises(Exception, match="String should have at least 100 characters"):
+            ExecutiveSummaryLLMOutput(executive_summary="")

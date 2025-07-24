@@ -2,168 +2,137 @@
 This module defines the KeyQualificationsWriterAgent, responsible for generating the Key Qualifications section of the CV.
 """
 
-from typing import Any, Dict
+from typing import Dict, Any
+from langchain_core.output_parsers import BaseOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.language_models import BaseLanguageModel
+from pydantic import BaseModel, Field
 
 from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
+from src.models.agent_output_models import KeyQualificationsLLMOutput
+from src.models.workflow_models import ContentType
 from src.constants.agent_constants import AgentConstants
-from src.constants.llm_constants import LLMConstants
-from src.error_handling.exceptions import AgentExecutionError
+from src.models.cv_models import Item, ItemStatus, ItemType, StructuredCV
+from src.models.data_models import StructuredCV as DataStructuredCV
 
-from src.models.agent_output_models import EnhancedContentWriterOutput
-from src.models.cv_models import Item, ItemStatus, ItemType
-from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
-from src.services.llm_service_interface import LLMServiceInterface
-from src.templates.content_templates import ContentTemplateManager
+logger = get_structured_logger("key_qualifications_writer_agent")
 
-logger = get_structured_logger(__name__)
+
+class KeyQualificationsAgentInput(BaseModel):
+    """Pydantic model for KeyQualificationsWriterAgent input validation."""
+    
+    main_job_description_raw: str = Field(
+        description="Raw job description text"
+    )
+    my_talents: str = Field(
+        description="Summary of candidate's talents and experience"
+    )
+    structured_cv: DataStructuredCV = Field(
+        description="The structured CV data to update"
+    )
 
 
 class KeyQualificationsWriterAgent(AgentBase):
-    """Agent for generating tailored Key Qualifications content."""
+    """
+    Agent responsible for generating the Key Qualifications section of a CV.
+    Pure LCEL implementation with direct LLM instantiation and declarative chain.
+    """
 
     def __init__(
         self,
-        llm_service: LLMServiceInterface,
-        template_manager: ContentTemplateManager,
+        llm: BaseLanguageModel,
+        prompt: ChatPromptTemplate,
+        parser: BaseOutputParser,
         settings: dict,
         session_id: str,
+        name: str = "KeyQualificationsWriterAgent",
+        description: str = "Generates key qualifications section for CV",
     ):
-        """Initialize the Key Qualifications writer agent."""
-        super().__init__(
-            name="KeyQualificationsWriter",
-            description="Generates tailored Key Qualifications for the CV.",
-            session_id=session_id,
-            settings=settings,
-        )
-        self.llm_service = llm_service
-        self.template_manager = template_manager
-
-    def _validate_inputs(self, input_data: dict) -> None:
-        """Validate inputs for Key Qualifications writer agent."""
-
-        if "structured_cv" not in input_data or input_data["structured_cv"] is None:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="Missing or invalid 'structured_cv' in input_data.",
-            )
-        if (
-            "job_description_data" not in input_data
-            or input_data["job_description_data"] is None
-        ):
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="Missing or invalid 'job_description_data' in input_data.",
-            )
-
-        # Convert dict back to Pydantic objects if needed
-        if isinstance(input_data["structured_cv"], dict):
-            input_data["structured_cv"] = StructuredCV(**input_data["structured_cv"])
-        if isinstance(input_data["job_description_data"], dict):
-            input_data["job_description_data"] = JobDescriptionData(
-                **input_data["job_description_data"]
-            )
-
-    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
-        """Execute the core content generation logic for Key Qualifications.
+        super().__init__(name, description, session_id, settings)
+        self.content_type = ContentType.QUALIFICATION
         
-        Returns only the generated list of qualifications for the next agent to consume.
-        Following LangGraph pattern of minimal state updates per node.
+        # Pure LCEL chain: prompt | llm | parser
+        self.chain = prompt | llm | parser
+        
+        logger.info(
+            "KeyQualificationsWriterAgent initialized with Gold Standard LCEL pattern",
+            agent_name=self.name,
+            content_type=self.content_type.value,
+        )
+
+
+
+    async def _execute(self, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Execute the Key Qualifications writer agent using Gold Standard LCEL pattern.
+        
+        Args:
+            **kwargs: Input data containing main_job_description_raw, my_talents, and structured_cv
+            
+        Returns:
+            Dict containing the modified structured_cv and current_item_id
         """
         try:
-            # Validate and convert inputs in place
-            self._validate_inputs(kwargs)
+            # Validate the input dictionary against our Pydantic model
+            validated_input = KeyQualificationsAgentInput(**kwargs)
+            
+            self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Generating Key Qualifications content using Gold Standard LCEL.")
+            
+            # Invoke the chain with the validated data
+            # Convert Pydantic model back to dict for the chain
+            chain_input = {
+                "main_job_description_raw": validated_input.main_job_description_raw,
+                "my_talents": validated_input.my_talents
+            }
+            
+            result: KeyQualificationsLLMOutput = await self.chain.ainvoke(chain_input)
+            
+            # Check if result has qualifications
+            if not result or not result.qualifications:
+                return {"error_messages": ["No qualifications generated by the LLM"]}
 
-            structured_cv: StructuredCV = kwargs.get("structured_cv")
-            job_description_data: JobDescriptionData = kwargs.get("job_description_data")
-            research_findings = kwargs.get("research_findings")
+            # Find and update the Key Qualifications section
+            key_qualifications_section = None
+            # Type annotation to help Pylint understand the type
+            structured_cv = validated_input.structured_cv  # type: DataStructuredCV
+            for section in structured_cv.sections:  # pylint: disable=no-member
+                if section.name.lower().replace(" ", "_") == "key_qualifications":
+                    key_qualifications_section = section
+                    break
 
-            self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Generating Key Qualifications content.")
-            generated_qualifications = await self._generate_key_qualifications(
-                structured_cv, job_description_data, research_findings
-            )
+            if not key_qualifications_section:
+                return {"error_messages": ["Key Qualifications section not found in structured_cv. It should be pre-initialized."]}
+
+            # Update the Key Qualifications section
+            current_item_id = None
+            for item in key_qualifications_section.items:
+                if item.item_type == ItemType.KEY_QUALIFICATION:
+                    # Update the content with generated qualifications
+                    item.content = "\n".join(result.qualifications)
+                    item.status = ItemStatus.COMPLETED
+                    current_item_id = str(item.id)
+                    break
+
+            if current_item_id is None:
+                # If no key qualification item found, create one
+                new_item = Item(
+                    content="\n".join(result.qualifications),
+                    item_type=ItemType.KEY_QUALIFICATION,
+                    status=ItemStatus.COMPLETED
+                )
+                key_qualifications_section.items.append(new_item)
+                current_item_id = str(new_item.id)
 
             self.update_progress(
-                AgentConstants.PROGRESS_COMPLETE, "Key Qualifications generation completed successfully."
+                AgentConstants.PROGRESS_COMPLETE, "Key Qualifications generation completed successfully using Gold Standard LCEL."
             )
             
-            # Return only the generated qualifications list for the next agent
-            # Following LangGraph pattern: each node returns only what it produces
+            # Return the entire modified structured_cv object
             return {
-                "generated_key_qualifications": generated_qualifications,
-                "current_item_id": "key_qualifications_section"
+                "structured_cv": structured_cv,
+                "current_item_id": current_item_id
             }
-        except AgentExecutionError as e:
-            logger.error(f"Agent execution error in {self.name}: {str(e)}")
-            return {"error_messages": [str(e)]}
-        except (AttributeError, TypeError, ValueError, KeyError) as e:
-            logger.error(f"Error processing Key Qualifications data: {str(e)}")
-            return {"error_messages": [f"Error processing Key Qualifications data: {str(e)}"]}
         except Exception as e:
             logger.error(f"Unexpected error in {self.name}: {str(e)}", exc_info=True)
-            return {"error_messages": [f"Unexpected error during Key Qualifications generation: {str(e)}"]}
-
-    async def _generate_key_qualifications(
-        self,
-        structured_cv: StructuredCV,
-        job_data: JobDescriptionData,
-        research_findings: Dict[str, Any] | None,
-    ) -> list[str]:
-        """Generates key qualifications using an LLM."""
-        prompt_template = self.template_manager.get_template_by_type(
-            ContentType.QUALIFICATION
-        )
-        if not prompt_template:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message=f"No prompt template found for type {ContentType.QUALIFICATION}",
-            )
-
-        # Prepare context for the prompt
-        cv_summary = ""
-        # Find executive summary from sections
-        for section in structured_cv.sections:
-            if section.name == "Executive Summary" and section.items:
-                cv_summary = section.items[0].content
-                break
-        # You might want to extract more relevant CV data here for the prompt
-
-        prompt = self.template_manager.format_template(
-            prompt_template,
-            {
-                "main_job_description_raw": job_data.raw_text or job_data.model_dump_json(indent=2),
-                "my_talents": cv_summary or "No CV summary available",
-            },
-        )
-
-        # Extract system instruction from settings
-        system_instruction = None
-        if self.settings and isinstance(self.settings, dict):
-            system_instruction = self.settings.get('writer_agent_system_instruction')
-        
-        response = await self.llm_service.generate_content(
-            prompt=prompt,
-            content_type=ContentType.QUALIFICATION,
-            max_tokens=self.settings.get("max_tokens_content_generation", LLMConstants.DEFAULT_MAX_TOKENS),
-            temperature=self.settings.get("temperature_content_generation", LLMConstants.TEMPERATURE_BALANCED),
-            system_instruction=system_instruction,
-            session_id=self.session_id
-        )
-
-        if not response or not response.content:
-            raise AgentExecutionError(
-                agent_name=self.name,
-                message="LLM failed to generate valid Key Qualifications content.",
-            )
-
-        # Assuming the LLM returns a list of qualifications, one per line or comma-separated
-        # This parsing logic might need to be more robust based on actual LLM output format
-        qualifications = []
-        for line in response.content.split("\n"):
-            line = line.strip()
-            if line:
-                # Remove bullet points and other common prefixes
-                line = line.lstrip("- •*").strip()
-                if line:
-                    qualifications.append(line)
-        return qualifications
+            return {"error_messages": [f"Unexpected error in {self.name}: {str(e)}"]}

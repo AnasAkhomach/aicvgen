@@ -48,6 +48,14 @@ class MetadataModel(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     status: Optional[ItemStatus] = None  # Added status field for item processing
+    
+    # Template loader specific fields
+    created_by: Optional[str] = None
+    source_file: Optional[str] = None
+    template_version: Optional[str] = None
+    section_type: Optional[str] = None
+    subsection_type: Optional[str] = None
+    
     extra: Dict[str, Any] = Field(
         default_factory=dict
     )  # Added extra field for arbitrary data
@@ -147,6 +155,7 @@ class Section(BaseModel):
     items: List[Item] = Field(default_factory=list)  # For sections without subsections
     order: int = 0
     status: ItemStatus = ItemStatus.INITIAL
+    metadata: MetadataModel = Field(default_factory=MetadataModel)
 
 
 class StructuredCV(BaseModel):

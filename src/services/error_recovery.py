@@ -11,15 +11,16 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from src.constants.error_constants import ErrorConstants
-from src.error_handling.classification import (is_network_error,
-                                             is_rate_limit_error,
-                                             is_timeout_error)
 from src.error_handling.exceptions import (AgentExecutionError,
                                          ConfigurationError,
                                          LLMResponseParsingError,
+                                         NetworkError,
+                                         OperationTimeoutError,
+                                         RateLimitError,
                                          StateManagerError, ValidationError,
                                          WorkflowPreconditionError)
 from src.models.data_models import ContentType, Item, ItemStatus
+from src.utils.retry_predicates import is_transient_error
 # Additional exception types for comprehensive error handling
 
 
@@ -63,6 +64,7 @@ class ErrorContext:
     stack_trace: Optional[str] = None
     retry_count: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    original_exception: Optional[Exception] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -202,12 +204,12 @@ class ErrorRecoveryService:
         if isinstance(exception, StateManagerError):
             return ErrorType.SYSTEM_ERROR
 
-        # --- Use centralized error classification ---
-        if is_rate_limit_error(exception):
+        # --- Use direct exception type checks ---
+        if isinstance(exception, RateLimitError):
             return ErrorType.RATE_LIMIT
-        if is_network_error(exception):
+        if isinstance(exception, NetworkError):
             return ErrorType.NETWORK_ERROR
-        if is_timeout_error(exception):
+        if isinstance(exception, OperationTimeoutError):
             return ErrorType.TIMEOUT_ERROR
 
         # Default to system error for unknown exceptions
@@ -238,6 +240,7 @@ class ErrorRecoveryService:
             stack_trace=traceback.format_exc(),
             retry_count=retry_count,
             metadata=context or {},
+            original_exception=exception,
         )
 
         # Record the error
@@ -397,28 +400,26 @@ class ErrorRecoveryService:
         return base_delay
 
     def _extract_retry_after(self, error_context: ErrorContext) -> Optional[float]:
-        """Extract retry-after value from rate limit error."""
-        # Try to extract from error message
-        error_message = error_context.error_message.lower()
-
-        # Look for common patterns
-        import re
-
-        patterns = [
-            r"retry[\s-]?after[:\s]+(\d+)",
-            r"wait[\s]+(\d+)[\s]*seconds?",
-            r"try again in[\s]+(\d+)",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, error_message)
-            if match:
-                return float(match.group(1))
-
-        # Check metadata
+        """Extract retry-after value from rate limit error using explicit exception attributes."""
+        # First check metadata for explicit retry_after value
         if "retry_after" in error_context.metadata:
             return float(error_context.metadata["retry_after"])
-
+        
+        # Check if the original exception has retry_after information
+        if error_context.original_exception is not None:
+            original_exc = error_context.original_exception
+            if hasattr(original_exc, 'retry_after'):
+                return float(original_exc.retry_after)
+            if hasattr(original_exc, 'headers') and original_exc.headers:
+                # Check both 'Retry-After' and 'retry-after' headers
+                for header_key in ['Retry-After', 'retry-after']:
+                    if header_key in original_exc.headers:
+                        return float(original_exc.headers[header_key])
+        
+        # Fallback for rate limit errors: provide default backoff
+        if error_context.error_type == ErrorType.RATE_LIMIT:
+            return 60.0
+        
         return None
 
     def _get_final_fallback_action(self, error_context: ErrorContext) -> RecoveryAction:
@@ -607,21 +608,3 @@ class ErrorRecoveryService:
             del self.circuit_breakers[key]
 
         self.logger.info("Cleaned up error tracking data", session_id=session_id)
-
-
-# Global error recovery service instance
-_global_error_recovery_service: Optional[ErrorRecoveryService] = None
-
-
-def get_error_recovery_service() -> ErrorRecoveryService:
-    """Get the global error recovery service instance."""
-    global _global_error_recovery_service
-    if _global_error_recovery_service is None:
-        _global_error_recovery_service = ErrorRecoveryService()
-    return _global_error_recovery_service
-
-
-def reset_error_recovery_service():
-    """Reset the global error recovery service (useful for testing)."""
-    global _global_error_recovery_service
-    _global_error_recovery_service = None

@@ -1,5 +1,5 @@
 """Node output validation utilities for LangGraph workflow.This module provides decorators and utilities to validate that agent nodes
-only return valid AgentState fields, preventing contract breaches.
+only return valid GlobalState fields, preventing contract breaches.
 """
 
 from functools import wraps
@@ -8,17 +8,17 @@ from typing import Any, Dict, Set
 from pydantic import ValidationError
 
 from ..config.logging_config import get_structured_logger
-from ..orchestration.state import AgentState
+from ..orchestration.state import GlobalState
 
 logger = get_structured_logger(__name__)
 
 
 def validate_node_output(node_func):
     """
-    Decorator to validate that node functions only return valid AgentState fields.
+    Decorator to validate that node functions only return valid GlobalState fields.
 
     This decorator ensures that the dictionary returned by a node function
-    contains only keys that are valid fields in the AgentState Pydantic model.
+    contains only keys that are valid fields in the GlobalState TypedDict.
     If invalid keys are found, a CRITICAL error is logged.
 
     Args:
@@ -34,29 +34,26 @@ def validate_node_output(node_func):
         # When decorating a method, args[0] is 'self'. The state is in args[1].
         # For regular functions, it might be in args[0] or kwargs.
         state = None
-        if len(args) > 1 and isinstance(args[1], AgentState):
+        if len(args) > 1 and isinstance(args[1], dict):
             state = args[1]
-        elif len(args) > 0 and isinstance(args[0], AgentState):
+        elif len(args) > 0 and isinstance(args[0], dict):
             state = args[0]
         else:
             state = kwargs.get("state")
 
-        if not state or not isinstance(state, AgentState):
+        if not state or not isinstance(state, dict):
             logger.error(
-                "Node '%s' was called without a valid AgentState.", node_func.__name__
+                "Node '%s' was called without a valid GlobalState.", node_func.__name__
             )
             raise TypeError(
-                f"Node '{node_func.__name__}' must be called with AgentState as an argument."
+                f"Node '{node_func.__name__}' must be called with GlobalState as an argument."
             )
 
         # Execute the original node function, passing all arguments through
         output = await node_func(*args, **kwargs)
 
-        # Accept both AgentState and dict outputs
-        is_agent_state = isinstance(output, AgentState)
-        if is_agent_state:
-            output_dict = output.model_dump()
-        elif isinstance(output, dict):
+        # Accept dict outputs (GlobalState is now a TypedDict)
+        if isinstance(output, dict):
             output_dict = output
         else:
             logger.error(
@@ -65,11 +62,11 @@ def validate_node_output(node_func):
                 type(output),
             )
             raise TypeError(
-                f"Node '{node_func.__name__}' must return AgentState or dict, got {type(output)}"
+                f"Node '{node_func.__name__}' must return dict, got {type(output)}"
             )
 
-        # Get valid AgentState field names
-        valid_keys: Set[str] = set(AgentState.model_fields.keys())
+        # Get valid GlobalState field names from TypedDict annotations
+        valid_keys: Set[str] = set(GlobalState.__annotations__.keys())
         returned_keys: Set[str] = set(output_dict.keys())
 
         # Find any invalid keys returned by the node
@@ -86,56 +83,27 @@ def validate_node_output(node_func):
             for key in invalid_keys:
                 del output_dict[key]
 
-        # If the original return type was AgentState, we need to reconstruct it
-        # from the (potentially filtered) dictionary to ensure the final state is valid.
-        if is_agent_state:
-            try:
-                # Create a new state object from the validated dict
-                validated_output = AgentState(**output_dict)
-                return validated_output
-            except (ValidationError, TypeError) as e:
-                logger.error(
-                    "Failed to create AgentState from validated output in '%s': %s",
-                    node_func.__name__,
-                    e,
-                    exc_info=True,
-                )
-                try:
-                    # Update state fields directly instead of using model_copy
-                    for key, value in output_dict.items():
-                        if hasattr(state, key):
-                            setattr(state, key, value)
-                    return state
-                except (ValidationError, TypeError) as copy_exc:
-                    logger.error(
-                        "Failed to even update state copy in '%s': %s",
-                        node_func.__name__,
-                        copy_exc,
-                        exc_info=True,
-                    )
-                    return state
-        else:
-            # If the original was a dict, return the filtered dict
-            return output_dict
+        # Return the filtered dict (GlobalState is now a TypedDict)
+        return output_dict
 
     return wrapper
 
 
 def get_valid_agent_state_fields() -> Set[str]:
     """
-    Get the set of valid AgentState field names.
+    Get the set of valid GlobalState field names.
 
     Returns:
-        Set of valid field names from the AgentState model
+        Set of valid field names from the GlobalState TypedDict
     """
-    return set(AgentState.model_fields.keys())
+    return set(GlobalState.__annotations__.keys())
 
 
 def validate_output_dict(
     output_dict: Dict[str, Any], context: str = "unknown"
 ) -> Dict[str, Any]:
     """
-    Standalone function to validate an output dictionary against AgentState fields.
+    Standalone function to validate an output dictionary against GlobalState fields.
 
     Args:
         output_dict: Dictionary to validate

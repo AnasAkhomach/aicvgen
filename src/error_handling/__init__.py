@@ -1,6 +1,6 @@
 """Error handling module for the aicvgen application."""
 
-from src.error_handling.exceptions import (
+from .exceptions import (
     AicvgenError,
     AgentExecutionError,
     ConfigurationError,
@@ -19,9 +19,8 @@ from src.error_handling.exceptions import (
     WorkflowError,
     WorkflowPreconditionError,
 )
-from src.error_handling.boundaries import StreamlitErrorBoundary
-from src.error_handling.classification import is_retryable_error
-from src.error_handling.models import (
+from .boundaries import StreamlitErrorBoundary
+from .models import (
     ErrorCategory,
     ErrorContext,
     ErrorSeverity,
@@ -49,8 +48,6 @@ __all__ = [
     "WorkflowPreconditionError",
     # Boundaries
     "StreamlitErrorBoundary",
-    # Classification
-    "is_retryable_error",
     # Models
     "ErrorCategory",
     "ErrorContext",

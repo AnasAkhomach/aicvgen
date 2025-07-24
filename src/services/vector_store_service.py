@@ -368,27 +368,7 @@ class VectorStoreService:
             raise VectorStoreError(f"Failed to add structured CV to vector store: {e}") from e
 
 
-_vector_store_instance = None
-_vector_store_lock = threading.Lock()
 
-
-def get_vector_store_service():
-    """Get the global VectorStoreService instance (singleton)."""
-    global _vector_store_instance
-    if _vector_store_instance is None:
-        with _vector_store_lock:
-            if _vector_store_instance is None:
-                import os
-
-                if os.getenv("SKIP_VECTOR_STORE", "false").lower() == "true":
-                    logger.warning(
-                        "Skipping vector store initialization (SKIP_VECTOR_STORE=true)"
-                    )
-                    _vector_store_instance = MockVectorStoreService()
-                else:
-                    config = get_config()
-                    _vector_store_instance = VectorStoreService(config.vector_db)
-    return _vector_store_instance
 
 
 class MockVectorStoreService:

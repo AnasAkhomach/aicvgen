@@ -9,7 +9,7 @@ from src.models.vector_store_config_interface import VectorStoreConfigInterface
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import ServiceInitializationError
 from src.services.llm_api_key_manager import LLMApiKeyManager
-from src.services.llm_caching_service import get_llm_caching_service
+
 from src.services.llm_client import LLMClient
 from src.services.llm_retry_handler import LLMRetryHandler
 from src.services.llm_retry_service import LLMRetryService
@@ -97,15 +97,7 @@ class ServiceFactory:
         """Create a progress tracker instance."""
         return ProgressTracker()
 
-    @staticmethod
-    def get_caching_service() -> Any:
-        """Get the LLM caching service."""
-        return get_llm_caching_service()
 
-    @staticmethod
-    def get_rate_limiter() -> Any:
-        """Get the rate limiter service."""
-        return get_rate_limiter()
 
     # Lazy initialization methods for interdependent services
     @staticmethod

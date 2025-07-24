@@ -11,25 +11,25 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from src.config.logging_config import get_structured_logger
 from src.models.progress_models import (ProgressEvent, ProgressEventType, ProgressMetrics)
 from src.models.workflow_models import ContentType
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState
 from src.constants.config_constants import ConfigConstants
 
 
 class SessionTracker:
     """Manages progress tracking data for a single session."""
 
-    def __init__(self, session_id: str, initial_state: AgentState):
+    def __init__(self, session_id: str, initial_state: GlobalState):
         self.session_id = session_id
         self.events: List[ProgressEvent] = []
         self.metrics: ProgressMetrics = ProgressMetrics(
             session_id=session_id,
             started_at=datetime.now(),
-            current_stage=initial_state.current_stage,
+            current_stage=initial_state.get("current_stage"),
         )
         self.subscribers: Set[Callable] = set()
         self.max_events_per_session = 1000  # Default limit, can be configured
 
-    def update_from_state(self, state: AgentState):
+    def update_from_state(self, state: GlobalState):
         """Update metrics from workflow state."""
         self.metrics.update_from_state(state)
 
@@ -115,20 +115,20 @@ class ProgressTracker:
         self.logger = logger if logger else get_structured_logger(__name__)
         self.sessions: Dict[str, SessionTracker] = {}
 
-    def start_tracking(self, session_id: str, state: AgentState):
+    def start_tracking(self, session_id: str, state: GlobalState):
         """Start tracking progress for a new session or resume an existing one."""
         if session_id not in self.sessions:
             self.sessions[session_id] = SessionTracker(session_id, state)
             self.logger.info(
                 "Initialized new session tracker",
                 session_id=session_id,
-                initial_stage=state.current_stage.value,
+                initial_stage=state.get("current_stage").value,
             )
         else:
             self.logger.info(
                 "Resuming existing session tracker",
                 session_id=session_id,
-                current_stage=state.current_stage.value,
+                current_stage=state.get("current_stage").value,
             )
 
         # Update from initial state and record start event
@@ -138,7 +138,7 @@ class ProgressTracker:
             ProgressEventType.WORKFLOW_STARTED,
             {
                 "total_items": session_tracker.metrics.total_items,
-                "initial_stage": state.current_stage.value,
+                "initial_stage": state.get("current_stage").value,
             },
         )
         session_tracker.notify_subscribers(event, self.logger)
@@ -149,7 +149,7 @@ class ProgressTracker:
             total_items=session_tracker.metrics.total_items,
         )
 
-    def update_progress(self, session_id: str, state: AgentState):
+    def update_progress(self, session_id: str, state: GlobalState):
         """Update progress from workflow state for a given session."""
         session_tracker = self.sessions.get(session_id)
         if not session_tracker:
@@ -163,12 +163,12 @@ class ProgressTracker:
         session_tracker.update_from_state(state)
 
         # Check for stage change
-        if old_stage != state.current_stage:
+        if old_stage != state.get("current_stage"):
             event = session_tracker.record_event(
                 ProgressEventType.STAGE_CHANGED,
                 {
                     "old_stage": old_stage.value,
-                    "new_stage": state.current_stage.value,
+                    "new_stage": state.get("current_stage").value,
                     "completion_percentage": session_tracker.metrics.completion_percentage,
                 },
             )

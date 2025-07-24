@@ -4,7 +4,7 @@ This test suite validates that all components across the application
 follow consistent error handling contracts and patterns.
 """
 
-import pytest
+
 from unittest.mock import Mock, patch
 
 from src.error_handling.exceptions import (
@@ -19,12 +19,7 @@ from src.error_handling.exceptions import (
 )
 from src.error_handling.agent_error_handler import AgentErrorHandler
 from src.error_handling.boundaries import StreamlitErrorBoundary
-from src.error_handling.classification import (
-    is_retryable_error,
-    is_rate_limit_error,
-    is_network_error,
-    is_timeout_error,
-)
+
 from src.error_handling.models import ErrorSeverity, ErrorCategory, ErrorContext
 from src.agents.agent_base import AgentBase
 from src.orchestration.state import AgentState
@@ -73,34 +68,7 @@ class TestErrorHandlingContracts:
         assert structured.severity == ErrorSeverity.HIGH
         assert structured.context.component == "test_agent"
 
-    def test_error_classification_utilities(self):
-        """Test error classification functions work correctly."""
-        # Test rate limit error detection
-        rate_limit_error = RateLimitError("Rate limit exceeded")
-        assert is_rate_limit_error(rate_limit_error)
-        retryable, error_type = is_retryable_error(rate_limit_error)
-        assert retryable
-        assert error_type == "rate_limit"
-        
-        # Test network error detection
-        network_error = NetworkError("Connection failed")
-        assert is_network_error(network_error)
-        retryable, error_type = is_retryable_error(network_error)
-        assert retryable
-        assert error_type == "network"
-        
-        # Test timeout error detection
-        timeout_error = OperationTimeoutError("Operation timed out")
-        assert is_timeout_error(timeout_error)
-        retryable, error_type = is_retryable_error(timeout_error)
-        assert retryable
-        assert error_type == "timeout"
-        
-        # Test non-retryable error
-        config_error = ConfigurationError("Invalid config")
-        retryable, error_type = is_retryable_error(config_error)
-        assert not retryable
-        assert error_type == "unknown"
+
 
     def test_agent_error_handler_integration(self):
         """Test that AgentErrorHandler provides consistent error handling."""

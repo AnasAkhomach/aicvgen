@@ -15,10 +15,12 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 import streamlit as st
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
-from src.error_handling.exceptions import (CATCHABLE_EXCEPTIONS, AicvgenError, NetworkError, OperationTimeoutError)
-from src.error_handling.models import ErrorSeverity
+from .exceptions import (CATCHABLE_EXCEPTIONS, AicvgenError, NetworkError, OperationTimeoutError)
+from .models import ErrorSeverity
 from ..config.logging_config import get_logger, log_error_with_context
+from ..utils.retry_predicates import is_transient_error
 
 
 logger = get_logger(__name__)
@@ -231,26 +233,19 @@ class ErrorRecovery:
     def retry_with_backoff(
         func: Callable, max_retries: int = 3, backoff_factor: float = 1.0
     ):
-        """Retry a function with exponential backoff for transient errors."""
-        import time
-
-        for attempt in range(max_retries):
-            try:
-                return func()
-            except RETRYABLE_EXCEPTIONS as e:
-                if attempt == max_retries - 1:
-                    logger.error(f"Final attempt failed for {func.__name__}")
-                    raise e
-
-                wait_time = backoff_factor * (2**attempt)
-                logger.warning(
-                    "Attempt %d failed for %s, retrying in %.2fs: %s",
-                    attempt + 1,
-                    func.__name__,
-                    wait_time,
-                    str(e),
-                )
-                time.sleep(wait_time)
+        """Retry a function with exponential backoff for transient errors using tenacity."""
+        
+        # Create a tenacity retry decorator with custom predicate function
+        retry_decorator = retry(
+            stop=stop_after_attempt(max_retries),
+            wait=wait_exponential(multiplier=backoff_factor, min=1, max=60),
+            retry=retry_if_exception(is_transient_error),
+            reraise=True
+        )
+        
+        # Apply the decorator to the function and execute it
+        decorated_func = retry_decorator(func)
+        return decorated_func()
 
     @staticmethod
     def fallback_chain(*funcs: Callable):

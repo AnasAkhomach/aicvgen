@@ -4,7 +4,7 @@ import streamlit as st
 
 from src.config.logging_config import get_logger
 from src.frontend.callbacks import (handle_api_key_validation, handle_user_action, start_cv_generation)
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -205,13 +205,14 @@ def display_input_form():
             st.info("💡 Please provide your CV content or check 'Start from scratch'.")
 
 
-def display_review_and_edit_tab(state: AgentState):
+def display_review_and_edit_tab(state: GlobalState):
     """Renders the 'Review & Edit' tab with section-based controls."""
-    if not state or not state.structured_cv:
+    structured_cv = state.get("structured_cv") if state else None
+    if not state or not structured_cv:
         st.info("Please generate a CV first to review it here.")
         return
 
-    for section in state.structured_cv.sections:
+    for section in structured_cv.sections:
         with st.expander(f"### {section.name}", expanded=True):
             if section.items:
                 for item in section.items:
@@ -250,15 +251,16 @@ def _display_reviewable_item(item):
         )
 
 
-def display_export_tab(state: AgentState):
+def display_export_tab(state: GlobalState):
     """Renders the 'Export' tab."""
-    if state and hasattr(state, "final_output_path") and state.final_output_path:
+    final_output_path = state.get("final_output_path") if state else None
+    if state and final_output_path:
         st.success("✅ Your CV has been generated!")
-        with open(state.final_output_path, "rb") as f:
+        with open(final_output_path, "rb") as f:
             st.download_button(
                 label="📥 Download PDF",
                 data=f,
-                file_name=Path(state.final_output_path).name,
+                file_name=Path(final_output_path).name,
                 mime="application/pdf",
             )
     else:
