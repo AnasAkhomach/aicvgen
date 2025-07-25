@@ -706,3 +706,75 @@ class ResearchAgentOutput(BaseModel):
         raise ValueError(
             f"research_findings must be a dict or ResearchFindings instance, got {type(v)}"
         )
+
+
+class ProfessionalExperienceUpdaterAgentOutput(BaseModel):
+    """Output model for ProfessionalExperienceUpdaterAgent."""
+
+    updated_structured_cv: StructuredCV = Field(
+        description="The structured CV with updated professional experience section"
+    )
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProfessionalExperienceUpdaterAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
+
+class ProjectsUpdaterAgentOutput(BaseModel):
+    """Output model for ProjectsUpdaterAgent."""
+
+    updated_structured_cv: StructuredCV = Field(
+        description="The structured CV with updated projects section"
+    )
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ProjectsUpdaterAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)
+
+
+class ExecutiveSummaryUpdaterAgentOutput(BaseModel):
+    """Output model for ExecutiveSummaryUpdaterAgent."""
+
+    updated_structured_cv: StructuredCV = Field(
+        description="The structured CV with updated executive summary section"
+    )
+
+    class Config:
+        """Pydantic configuration for proper JSON serialization."""
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExecutiveSummaryUpdaterAgentOutput":
+        """Create from dictionary for deserialization."""
+        return cls(**data)

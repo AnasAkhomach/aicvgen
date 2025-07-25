@@ -18,10 +18,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 import psutil
 
-from ..config.logging_config import get_structured_logger
-from ..error_handling.exceptions import AicvgenError
-from ..constants.memory_constants import MemoryConstants
-from ..constants.performance_constants import PerformanceConstants
+from src.config.logging_config import get_structured_logger
+from src.error_handling.exceptions import AicvgenError
+from src.constants.memory_constants import MemoryConstants
+from src.constants.performance_constants import PerformanceConstants
 
 logger = get_structured_logger(__name__)
 

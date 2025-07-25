@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import BaseOutputParser, PydanticOutputParser
 from langchain_core.language_models import BaseLanguageModel
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 
 from src.agents.cleaning_agent import CleaningAgent
 from src.agents.cv_analyzer_agent import CVAnalyzerAgent
@@ -16,7 +16,10 @@ from src.agents.key_qualifications_updater_agent import KeyQualificationsUpdater
 from src.agents.professional_experience_writer_agent import (
     ProfessionalExperienceWriterAgent,
 )
+from src.agents.professional_experience_updater_agent import ProfessionalExperienceUpdaterAgent
 from src.agents.projects_writer_agent import ProjectsWriterAgent
+from src.agents.projects_updater_agent import ProjectsUpdaterAgent
+from src.agents.executive_summary_updater_agent import ExecutiveSummaryUpdaterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.user_cv_parser_agent import UserCVParserAgent
@@ -31,25 +34,31 @@ class AgentFactory:
     to avoid circular dependencies.
     """
 
-    def __init__(self, llm_service, template_manager, vector_store_service, session_id_provider: Callable[[], str] = None):
+    def __init__(self, llm_service, template_manager, vector_store_service, llm_cv_parser_service=None, session_id_provider: Callable[[], str] = None):
         """Initialize the factory with specific service dependencies.
 
         Args:
             llm_service: The LLM service for agent communication.
             template_manager: The template manager for content generation.
             vector_store_service: The vector store service for embeddings.
+            llm_cv_parser_service: The LLM CV parser service for parsing operations.
             session_id_provider: Function that returns the current session ID.
         """
         self._llm_service = llm_service
         self._template_manager = template_manager
         self._vector_store_service = vector_store_service
+        self._llm_cv_parser_service = llm_cv_parser_service
         self._session_id_provider = session_id_provider or (lambda: "default")
 
-    def create_cv_analyzer_agent(self, session_id: Optional[str] = None) -> CVAnalyzerAgent:
+    def create_cv_analyzer_agent(self, settings: Dict[str, Any] = None, session_id: Optional[str] = None) -> CVAnalyzerAgent:
         """Create a CV analyzer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
-        return CVAnalyzerAgent(llm_service=self._llm_service, session_id=session_id)
+        return CVAnalyzerAgent(
+            llm_service=self._llm_service,
+            settings=settings or {},
+            session_id=session_id
+        )
 
     def create_key_qualifications_writer_agent(
         self, settings: Dict[str, Any] = None, session_id: Optional[str] = None
@@ -82,7 +91,41 @@ class AgentFactory:
         if session_id is None:
             session_id = self._session_id_provider()
         return KeyQualificationsUpdaterAgent(
+            session_id=session_id,
             name="KeyQualificationsUpdaterAgent"
+        )
+
+    def create_professional_experience_updater_agent(
+        self, session_id: Optional[str] = None
+    ) -> ProfessionalExperienceUpdaterAgent:
+        """Create a professional experience updater agent instance."""
+        if session_id is None:
+            session_id = self._session_id_provider()
+        return ProfessionalExperienceUpdaterAgent(
+            session_id=session_id,
+            name="ProfessionalExperienceUpdaterAgent"
+        )
+
+    def create_projects_updater_agent(
+        self, session_id: Optional[str] = None
+    ) -> ProjectsUpdaterAgent:
+        """Create a projects updater agent instance."""
+        if session_id is None:
+            session_id = self._session_id_provider()
+        return ProjectsUpdaterAgent(
+            name="ProjectsUpdaterAgent",
+            session_id=session_id
+        )
+
+    def create_executive_summary_updater_agent(
+        self, session_id: Optional[str] = None
+    ) -> ExecutiveSummaryUpdaterAgent:
+        """Create an executive summary updater agent instance."""
+        if session_id is None:
+            session_id = self._session_id_provider()
+        return ExecutiveSummaryUpdaterAgent(
+            session_id=session_id,
+            name="ExecutiveSummaryUpdaterAgent"
         )
 
     def create_professional_experience_writer_agent(
@@ -217,6 +260,7 @@ class AgentFactory:
             session_id = self._session_id_provider()
         return JobDescriptionParserAgent(
             llm_service=self._llm_service,
+            llm_cv_parser_service=self._llm_cv_parser_service,
             template_manager=self._template_manager,
             settings=settings or {},
             session_id=session_id,

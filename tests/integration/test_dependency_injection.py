@@ -36,18 +36,19 @@ def test_container_provides_services():
 def test_container_provides_agents():
     """Test that the container can provide agent factories."""
     container = get_container()
+    test_session_id = "test-session-123"
 
-    # Test that agent factories can be called
-    jd_parser_agent = container.job_description_parser_agent()
+    # Test that agent factories can be called with session_id
+    jd_parser_agent = container.job_description_parser_agent(session_id=test_session_id)
     assert jd_parser_agent is not None
 
-    cv_parser_agent = container.user_cv_parser_agent()
+    cv_parser_agent = container.user_cv_parser_agent(session_id=test_session_id)
     assert cv_parser_agent is not None
 
-    cv_analyzer = container.cv_analyzer_agent()
+    cv_analyzer = container.cv_analyzer_agent(session_id=test_session_id)
     assert cv_analyzer is not None
 
-    cleaning_agent = container.cleaning_agent()
+    cleaning_agent = container.cleaning_agent(session_id=test_session_id)
     assert cleaning_agent is not None
 
 
@@ -68,10 +69,11 @@ def test_singleton_services_are_consistent():
 def test_factory_services_return_new_instances():
     """Test that factory services return new instances each time."""
     container = get_container()
+    test_session_id = "test-session-123"
 
     # Factory services should return different instances
-    agent1 = container.job_description_parser_agent()
-    agent2 = container.job_description_parser_agent()
+    agent1 = container.job_description_parser_agent(session_id=test_session_id)
+    agent2 = container.job_description_parser_agent(session_id=test_session_id)
     assert agent1 is not agent2
 
     tracker1 = container.progress_tracker()

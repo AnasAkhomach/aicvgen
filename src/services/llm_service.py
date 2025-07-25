@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 from langchain_core.language_models import BaseLanguageModel
 from src.config.logging_config import get_structured_logger
 from src.models.llm_data_models import LLMResponse
@@ -12,6 +12,9 @@ from src.services.llm_caching_service import LLMCachingService
 from src.services.llm_retry_service import LLMRetryService
 from src.services.llm_service_interface import LLMServiceInterface
 from src.services.rate_limiter import RateLimiter
+
+if TYPE_CHECKING:
+    from src.services.llm.llm_client_interface import LLMClientInterface
 
 logger = get_structured_logger("llm_service")
 
@@ -30,6 +33,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
     def __init__(
         self,
         settings,
+        llm_client: 'LLMClientInterface',
         caching_service: LLMCachingService,
         api_key_manager: LLMApiKeyManager,
         retry_service: LLMRetryService,
@@ -42,6 +46,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
 
         Args:
             settings: Injected settings/config dependency
+            llm_client: Injected LLM client interface
             caching_service: Injected LLMCachingService instance
             api_key_manager: Injected LLMApiKeyManager instance
             retry_service: Injected LLMRetryService instance
@@ -50,6 +55,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
             async_optimizer: Optional async optimizer
         """
         self.settings = settings
+        self.llm_client = llm_client
         self.caching_service = caching_service
         self.api_key_manager = api_key_manager
         self.retry_service = retry_service
@@ -107,10 +113,10 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
     def get_llm(self) -> BaseLanguageModel:
         """Get the underlying LLM model for LCEL pattern usage."""
         if self._llm_model is None:
-            api_key = self.api_key_manager.get_current_api_key_info().api_key
-            self._llm_model = ChatGoogleGenerativeAI(
+            # Use the LLM client interface to get the underlying model
+            # This maintains abstraction while providing LCEL compatibility
+            self._llm_model = self.llm_client.get_langchain_model(
                 model=self.model_name,
-                google_api_key=api_key,
                 temperature=self.settings.llm_settings.temperature,
                 max_tokens=self.settings.llm_settings.max_tokens
             )

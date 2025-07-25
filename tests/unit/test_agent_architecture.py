@@ -13,8 +13,8 @@ from src.agents.agent_base import AgentBase
 from pydantic import BaseModel
 
 
-class TestOutput(BaseModel):
-    """Test output model."""
+class MockOutput(BaseModel):
+    """Mock output model for testing."""
 
     result: str
     status: str = "success"
@@ -36,7 +36,7 @@ class MockAgent(AgentBase):
 
     async def _execute(self, **kwargs) -> AgentResult:
         """Mock execute method."""
-        test_output = TestOutput(result="success")
+        test_output = MockOutput(result="success")
         return AgentResult(
             success=True,
             output_data=test_output,
@@ -61,7 +61,7 @@ def test_agent_base_structure():
 def test_agent_result_creation():
     """Test AgentResult creation methods."""
     # Test basic construction
-    test_output = TestOutput(result="success")
+    test_output = MockOutput(result="success")
     success_result = AgentResult(
         success=True,
         output_data=test_output,

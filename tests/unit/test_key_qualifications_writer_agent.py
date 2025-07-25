@@ -76,12 +76,12 @@ def sample_job_description_data():
 
 
 @pytest.fixture
-def sample_agent_input(sample_structured_cv, sample_job_description_data):
+def sample_agent_input(sample_job_description_data):
     """Fixture for agent input data."""
     return {
         "main_job_description_raw": sample_job_description_data.raw_text,
         "my_talents": "A seasoned professional with expertise in software development. Senior Software Engineer at Tech Corp with experience in developing scalable applications.",
-        "structured_cv": sample_structured_cv
+        "session_id": "test_session"
     }
 
 
@@ -123,16 +123,8 @@ async def test_key_qualifications_writer_agent_success(sample_agent_input):
     
     # Verify results
     assert isinstance(result, dict)
-    assert "error_messages" not in result or not result.get("error_messages")
-    assert "structured_cv" in result
-    assert "current_item_id" in result
-    
-    # Check that the Key Qualifications section was updated
-    updated_cv = result["structured_cv"]
-    qual_section = next(s for s in updated_cv.sections if s.name == "Key Qualifications")
-    assert len(qual_section.items) == 1
-    assert qual_section.items[0].content == "\n".join(mock_llm_output.qualifications)
-    assert qual_section.items[0].status == ItemStatus.COMPLETED
+    assert "generated_key_qualifications" in result
+    assert result["generated_key_qualifications"] == mock_llm_output.qualifications
     
     # Verify chain was called with correct input
     agent.chain.ainvoke.assert_called_once()
@@ -142,21 +134,14 @@ async def test_key_qualifications_writer_agent_success(sample_agent_input):
 
 
 @pytest.mark.asyncio
-async def test_key_qualifications_writer_agent_missing_section(sample_job_description_data):
-    """Test agent failure when Key Qualifications section is missing."""
-    # Create StructuredCV without Key Qualifications section
-    cv_without_kq = StructuredCV(
-        sections=[
-            Section(
-                name="Professional Summary",
-                items=[
-                    Item(
-                        content="A professional summary.",
-                        item_type=ItemType.BULLET_POINT,
-                        status=ItemStatus.COMPLETED
-                    )
-                ]
-            )
+async def test_key_qualifications_writer_agent_success_with_different_talents():
+    """Test successful generation with different talent input."""
+    # Mock the LLM output
+    mock_llm_output = KeyQualificationsLLMOutput(
+        qualifications=[
+            "Test qualification 1", 
+            "Test qualification 2", 
+            "Test qualification 3"
         ]
     )
     
@@ -177,21 +162,19 @@ async def test_key_qualifications_writer_agent_missing_section(sample_job_descri
     
     # Mock the chain with async support
     agent.chain = AsyncMock()
-    agent.chain.ainvoke = AsyncMock(return_value=KeyQualificationsLLMOutput(
-        qualifications=["Test qualification 1", "Test qualification 2", "Test qualification 3"]
-    ))
+    agent.chain.ainvoke = AsyncMock(return_value=mock_llm_output)
     
     # Execute the agent
     result = await agent._execute(
-        main_job_description_raw=sample_job_description_data.raw_text,
+        main_job_description_raw="Software Engineer position requiring Python skills",
         my_talents="A professional summary.",
-        structured_cv=cv_without_kq
+        session_id="test_session"
     )
     
-    # Verify error handling
+    # Verify successful generation
     assert isinstance(result, dict)
-    assert "error_messages" in result
-    assert "Key Qualifications section not found" in result["error_messages"][0]
+    assert "generated_key_qualifications" in result
+    assert result["generated_key_qualifications"] == mock_llm_output.qualifications
 
 
 @pytest.mark.asyncio
@@ -216,13 +199,12 @@ async def test_key_qualifications_writer_agent_llm_failure(sample_agent_input):
     agent.chain = AsyncMock()
     agent.chain.ainvoke = AsyncMock(side_effect=Exception("LLM failure"))
     
-    # Execute the agent
-    result = await agent._execute(**sample_agent_input)
+    # Execute the agent and expect an exception
+    with pytest.raises(Exception) as exc_info:
+        await agent._execute(**sample_agent_input)
     
-    # Verify error handling
-    assert isinstance(result, dict)
-    assert "error_messages" in result
-    assert "Unexpected error in KeyQualificationsWriterAgent" in result["error_messages"][0]
+    # Verify the exception is raised
+    assert "LLM failure" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -247,13 +229,12 @@ async def test_key_qualifications_writer_agent_empty_qualifications(sample_agent
     agent.chain = AsyncMock()
     agent.chain.ainvoke = AsyncMock(return_value=None)
     
-    # Execute the agent
-    result = await agent._execute(**sample_agent_input)
+    # Execute the agent and expect an exception
+    with pytest.raises(Exception) as exc_info:
+        await agent._execute(**sample_agent_input)
     
-    # Verify error handling
-    assert isinstance(result, dict)
-    assert "error_messages" in result
-    assert "No qualifications generated by the LLM" in result["error_messages"][0]
+    # Verify the exception is raised
+    assert "No qualifications generated" in str(exc_info.value)
 
 
 def test_key_qualifications_agent_input_validation():
@@ -264,13 +245,13 @@ def test_key_qualifications_agent_input_validation():
     valid_data = {
         "main_job_description_raw": "Software Engineer position",
         "my_talents": "Python, Machine Learning",
-        "structured_cv": StructuredCV(sections=[])
+        "session_id": "test_session"
     }
     
     input_model = KeyQualificationsAgentInput(**valid_data)
     assert input_model.main_job_description_raw == "Software Engineer position"
     assert input_model.my_talents == "Python, Machine Learning"
-    assert isinstance(input_model.structured_cv, StructuredCV)
+    assert input_model.session_id == "test_session"
     
     # Test invalid input (missing required fields)
     with pytest.raises(Exception):  # Pydantic validation error

@@ -5,6 +5,7 @@ and resilience mechanisms for the individual item processing workflow.
 """
 
 import asyncio
+import logging
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -111,11 +112,12 @@ class CircuitBreakerState:
 class ErrorRecoveryService:
     """Service for handling errors and implementing recovery strategies."""
 
-    def __init__(self, logger=None):
-        if logger is None:
-            from ..config.logging_config import get_structured_logger
-
-            logger = get_structured_logger(__name__)
+    def __init__(self, logger: logging.Logger):
+        """Initialize ErrorRecoveryService with injected dependencies.
+        
+        Args:
+            logger: Logger instance for error recovery operations
+        """
         self.logger = logger
 
         # Error tracking

@@ -16,6 +16,7 @@ from src.error_handling.models import (ErrorCategory, ErrorContext, ErrorSeverit
 from src.error_handling.exceptions import ValidationError
 from src.orchestration.state import GlobalState
 
+from src.utils.decorators import create_async_sync_decorator
 
 
 logger = get_structured_logger(__name__)
@@ -167,7 +168,6 @@ class AgentErrorHandler:
 
 def with_error_handling(agent_type: str, context: Optional[str] = None):
     """Decorator to add standardized error handling to agent methods."""
-    from ..utils.decorators import create_async_sync_decorator
 
     def create_async_wrapper(func):
         @wraps(func)
@@ -210,7 +210,6 @@ def with_error_handling(agent_type: str, context: Optional[str] = None):
 
 def with_node_error_handling(agent_type: str, context: Optional[str] = None):
     """Decorator to add standardized error handling to LangGraph node methods."""
-    from utils.decorators import create_async_sync_decorator
 
     def create_async_wrapper(func):
         @wraps(func)

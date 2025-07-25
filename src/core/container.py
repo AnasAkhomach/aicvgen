@@ -9,23 +9,39 @@ from dependency_injector import containers, providers
 from src.agents.cleaning_agent import CleaningAgent
 from src.agents.cv_analyzer_agent import CVAnalyzerAgent
 from src.agents.executive_summary_writer_agent import ExecutiveSummaryWriterAgent
+from src.agents.executive_summary_updater_agent import ExecutiveSummaryUpdaterAgent
 from src.agents.formatter_agent import FormatterAgent
 from src.agents.job_description_parser_agent import JobDescriptionParserAgent
 from src.agents.key_qualifications_writer_agent import KeyQualificationsWriterAgent
+from src.agents.key_qualifications_updater_agent import KeyQualificationsUpdaterAgent
 from src.agents.professional_experience_writer_agent import (
     ProfessionalExperienceWriterAgent,
 )
+from src.agents.professional_experience_updater_agent import ProfessionalExperienceUpdaterAgent
 from src.agents.projects_writer_agent import ProjectsWriterAgent
+from src.agents.projects_updater_agent import ProjectsUpdaterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.user_cv_parser_agent import UserCVParserAgent
+from src.services.llm_cv_parser_service import LLMCVParserService
+from src.services.cv_template_loader_service import CVTemplateLoaderService
+from src.services.session_manager import SessionManager
+from src.services.error_recovery import ErrorRecoveryService
 
-from src.config.logging_config import get_logger
+from src.config.logging_config import get_logger, get_structured_logger
 from src.config.settings import get_config
-from src.core.factories import AgentFactory, ServiceFactory, create_configured_llm_model
+from src.core.factories import AgentFactory
 from src.core.workflow_manager import WorkflowManager
+from src.services.llm.llm_client_interface import LLMClientInterface
+from src.services.llm.gemini_client import GeminiClient
+from src.services.llm_api_key_manager import LLMApiKeyManager
 from src.services.llm_caching_service import LLMCachingService
+from src.services.llm_retry_handler import LLMRetryHandler
+from src.services.llm_retry_service import LLMRetryService
+from src.services.llm_service import EnhancedLLMService
+from src.services.progress_tracker import ProgressTracker
 from src.services.rate_limiter import RateLimiter
+from src.services.vector_store_service import VectorStoreService
 # Workflow graph creation is now handled directly in WorkflowManager
 # from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
 from src.templates.content_templates import ContentTemplateManager
@@ -93,13 +109,7 @@ def validate_prompts_directory(config_prompts_dir: str) -> str:
         ) from e
 
 
-def _get_current_session_id() -> str:
-    """Helper function to get current session ID from Container.
-
-    This function is used to avoid circular reference issues when
-    defining providers within the Container class.
-    """
-    return Container.get_current_session_id()
+# Removed _get_current_session_id helper function as part of REM-CORE-001 refactoring
 
 
 def _get_agent_settings_dict() -> dict:
@@ -122,7 +132,6 @@ class Container(
     """
 
     _singleton_key = object()  # Private key for singleton creation
-    _current_session_id = "default"  # Default session ID
 
     def __new__(cls, *args, singleton_key=None, **kwargs):
         """Prevent direct instantiation unless proper singleton key is provided."""
@@ -133,24 +142,6 @@ class Container(
             )
         return object.__new__(cls)
 
-    @classmethod
-    def set_session_id(cls, session_id: str) -> None:
-        """Set the current session ID for all agent providers.
-
-        Args:
-            session_id: The session ID to use for agent instantiation
-        """
-        cls._current_session_id = session_id
-
-    @classmethod
-    def get_current_session_id(cls) -> str:
-        """Get the current session ID.
-
-        Returns:
-            The current session ID
-        """
-        return cls._current_session_id
-
     config = providers.Singleton(get_config)  # pylint: disable=c-extension-no-member
 
     template_manager = providers.Singleton(  # pylint: disable=c-extension-no-member
@@ -160,20 +151,16 @@ class Container(
         ),  # pylint: disable=c-extension-no-member
     )
 
-    # LLM Service Stack with Lazy Initialization
-    llm_model = providers.Singleton(  # pylint: disable=c-extension-no-member
-        create_configured_llm_model,
+    # LLM Service Stack with Direct Class Instantiation
+    # Register LLMClientInterface with GeminiClient implementation
+    llm_client = providers.Singleton(  # pylint: disable=c-extension-no-member
+        GeminiClient,
         api_key=config.provided.llm.gemini_api_key_primary,
         model_name=config.provided.llm_settings.default_model,
     )
 
-    llm_client = providers.Singleton(  # pylint: disable=c-extension-no-member
-        ServiceFactory.create_llm_client,
-        llm_model=llm_model,
-    )
-
     llm_retry_handler = providers.Singleton(  # pylint: disable=c-extension-no-member
-        ServiceFactory.create_llm_retry_handler,
+        LLMRetryHandler,
         llm_client=llm_client,
     )
 
@@ -186,19 +173,20 @@ class Container(
 
     rate_limiter = providers.Singleton(
         RateLimiter,
-        config=None,
+        logger=providers.Callable(get_structured_logger, "rate_limiter"),
+        config=config
     )
 
     # Lazy initialization for interdependent services
     llm_api_key_manager = providers.Singleton(
-        ServiceFactory.create_llm_api_key_manager_lazy,
+        LLMApiKeyManager,
         settings=config,
         llm_client=llm_client,
         user_api_key=providers.Object(None),
     )
 
     llm_retry_service = providers.Singleton(
-        ServiceFactory.create_llm_retry_service_lazy,
+        LLMRetryService,
         llm_retry_handler=llm_retry_handler,
         api_key_manager=llm_api_key_manager,
         rate_limiter=rate_limiter,
@@ -207,7 +195,7 @@ class Container(
     )
 
     llm_service = providers.Singleton(  # pylint: disable=c-extension-no-member
-        ServiceFactory.create_enhanced_llm_service_lazy,
+        EnhancedLLMService,
         settings=config,
         caching_service=advanced_cache,
         api_key_manager=llm_api_key_manager,
@@ -216,36 +204,61 @@ class Container(
     )
 
     vector_store_service = providers.Singleton(  # pylint: disable=c-extension-no-member
-        ServiceFactory.create_vector_store_service, vector_config=config.provided.vector_db
+        VectorStoreService,
+        vector_config=config.provided.vector_db,
+        logger=providers.Callable(get_structured_logger, "vector_store_service")
     )
 
-    progress_tracker = providers.Factory(  # pylint: disable=c-extension-no-member
-        ServiceFactory.create_progress_tracker
+    progress_tracker = providers.Singleton(  # pylint: disable=c-extension-no-member
+        ProgressTracker,
+        logger=providers.Callable(get_structured_logger, "progress_tracker")
     )
 
-    # Agent Factory
+    # Session Manager Service
+    session_manager = providers.Singleton(  # pylint: disable=c-extension-no-member
+        SessionManager,
+        settings=config,
+        logger=providers.Callable(get_structured_logger, "session_manager")
+    )
+
+    # Error Recovery Service
+    error_recovery_service = providers.Singleton(  # pylint: disable=c-extension-no-member
+        ErrorRecoveryService,
+        logger=providers.Callable(get_structured_logger, "error_recovery")
+    )
+
+    # CV Template Loader Service
+    cv_template_loader_service = providers.Singleton(  # pylint: disable=c-extension-no-member
+        CVTemplateLoaderService,
+    )
+
+    # LLM CV Parser Service
+    llm_cv_parser_service = providers.Factory(  # pylint: disable=c-extension-no-member
+        LLMCVParserService,
+        llm_service=llm_service,
+        settings=config,
+        template_manager=template_manager,
+    )
+
+    # Agent Factory with SessionManager integration
     agent_factory = providers.Singleton(  # pylint: disable=c-extension-no-member
         AgentFactory,
         llm_service=llm_service,
         template_manager=template_manager,
         vector_store_service=vector_store_service,
-        session_id_provider=providers.Callable(_get_current_session_id)
+        session_id_provider=session_manager.provided.get_current_session_id,
     )
 
-    # Agent Providers
+    # Agent Providers - session_id passed as runtime argument
     cv_analyzer_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         CVAnalyzerAgent,
         llm_service=llm_service,
         settings=providers.Callable(_get_agent_settings_dict),  # pylint: disable=c-extension-no-member
-        session_id=providers.Callable(_get_current_session_id),  # pylint: disable=c-extension-no-member
     )
 
     key_qualifications_writer_agent = providers.Factory(
-        KeyQualificationsWriterAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
+        agent_factory.provided.create_key_qualifications_writer_agent,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id),
     )
 
     professional_experience_writer_agent = providers.Factory(
@@ -253,7 +266,6 @@ class Container(
         llm_service=llm_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id),
     )
 
     projects_writer_agent = providers.Factory(
@@ -261,7 +273,6 @@ class Container(
         llm_service=llm_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id),
     )
 
     executive_summary_writer_agent = providers.Factory(
@@ -269,7 +280,6 @@ class Container(
         llm_service=llm_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id),
     )
 
     cleaning_agent = providers.Factory(  # pylint: disable=c-extension-no-member
@@ -277,7 +287,6 @@ class Container(
         llm_service=llm_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),  # pylint: disable=c-extension-no-member
-        session_id=providers.Callable(_get_current_session_id),  # pylint: disable=c-extension-no-member
     )
 
     quality_assurance_agent = providers.Factory(
@@ -285,14 +294,12 @@ class Container(
         llm_service=llm_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),  # pylint: disable=c-extension-no-member
-        session_id=providers.Callable(_get_current_session_id),  # pylint: disable=c-extension-no-member
     )
 
     formatter_agent = providers.Factory(  # pylint: disable=c-extension-no-member
         FormatterAgent,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),  # pylint: disable=c-extension-no-member
-        session_id=providers.Callable(_get_current_session_id),  # pylint: disable=c-extension-no-member
     )
 
     research_agent = providers.Factory(  # pylint: disable=c-extension-no-member
@@ -301,15 +308,14 @@ class Container(
         vector_store_service=vector_store_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),  # pylint: disable=c-extension-no-member
-        session_id=providers.Callable(_get_current_session_id),  # pylint: disable=c-extension-no-member
     )
 
     job_description_parser_agent = providers.Factory(
         JobDescriptionParserAgent,
         llm_service=llm_service,
+        llm_cv_parser_service=llm_cv_parser_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id),
     )
 
     user_cv_parser_agent = providers.Factory(
@@ -318,11 +324,26 @@ class Container(
         vector_store_service=vector_store_service,
         template_manager=template_manager,
         settings=providers.Callable(_get_agent_settings_dict),
-        session_id=providers.Callable(_get_current_session_id),
     )
 
-    # Add alias for qa_agent to match expected naming
-    qa_agent = quality_assurance_agent
+    # Updater Agent Providers
+    key_qualifications_updater_agent = providers.Factory(
+        KeyQualificationsUpdaterAgent,
+    )
+
+    professional_experience_updater_agent = providers.Factory(
+        ProfessionalExperienceUpdaterAgent,
+    )
+
+    projects_updater_agent = providers.Factory(
+        ProjectsUpdaterAgent,
+    )
+
+    executive_summary_updater_agent = providers.Factory(
+        ExecutiveSummaryUpdaterAgent,
+    )
+
+
 
     # WorkflowManager Singleton - now uses DI container directly
     workflow_manager = providers.Singleton(

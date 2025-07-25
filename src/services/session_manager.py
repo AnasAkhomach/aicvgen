@@ -16,8 +16,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from src.config.logging_config import get_structured_logger
-from src.config.settings import AppConfig, get_config
+from src.config.settings import AppConfig
 from src.constants.config_constants import ConfigConstants
 from src.models.vector_store_and_session_models import SessionInfoModel
 from src.models.workflow_models import WorkflowStage, WorkflowState
@@ -104,17 +103,17 @@ class SessionManager:
 
     def __init__(
         self,
-        logger: Optional[logging.Logger] = None,
-        settings: Optional[AppConfig] = None,
+        settings: AppConfig,
+        logger: logging.Logger,
     ):
         """Initializes the SessionManager.
 
         Args:
-            logger: Optional logger instance.
-            settings: Optional application configuration. If not provided, it's retrieved globally.
+            settings: Application configuration.
+            logger: Logger instance.
         """
-        self.logger = logger or get_structured_logger(__name__)
-        self.settings = settings or get_config()
+        self.logger = logger
+        self.settings = settings
 
         # Storage path is now determined by the application configuration.
         self.storage_path = self.settings.sessions_directory
@@ -186,6 +185,11 @@ class SessionManager:
         )
         return session_info, initial_state
 
+    @staticmethod
+    def generate_session_id() -> str:
+        """Generate a unique session ID."""
+        return str(uuid.uuid4())
+
     def create_session(
         self, user_id: Optional[str] = None, metadata: Dict[str, Any] = None
     ) -> str:
@@ -199,7 +203,7 @@ class SessionManager:
                     raise RuntimeError("Maximum number of active sessions reached")
 
             # Generate session ID
-            session_id = str(uuid.uuid4())
+            session_id = self.generate_session_id()
             now = datetime.now()
 
             # Centralized initialization
@@ -382,6 +386,28 @@ class SessionManager:
     def complete_session(self, session_id: str):
         """Mark a session as completed."""
         self.update_session_status(session_id, SessionStatus.COMPLETED)
+
+    def get_current_session_id(self) -> str:
+        """Get the current active session ID or create a new one.
+        
+        This method provides centralized session ID management for the application.
+        It returns the most recently created active session or creates a new one if none exists.
+        
+        Returns:
+            str: The current session ID
+        """
+        with self._lock:
+            # Return the most recent active session if available
+            if self.active_sessions:
+                # Get the most recently created session
+                latest_session = max(
+                    self.active_sessions.values(),
+                    key=lambda s: s.created_at
+                )
+                return latest_session.session_id
+            
+            # Create a new session if none exists
+            return self.create_session()
 
     def fail_session(self, session_id: str, error: str = None):
         """Mark a session as failed."""
@@ -592,21 +618,5 @@ class SessionManager:
         self.logger.info("Session manager shutdown complete")
 
 
-# Global session manager instance
-_global_session_manager: Optional[SessionManager] = None
-
-
-def get_session_manager() -> SessionManager:
-    """Get the global session manager instance."""
-    global _global_session_manager
-    if _global_session_manager is None:
-        _global_session_manager = SessionManager()
-    return _global_session_manager
-
-
-def reset_session_manager():
-    """Reset the global session manager (useful for testing)."""
-    global _global_session_manager
-    if _global_session_manager:
-        _global_session_manager.shutdown()
-    _global_session_manager = None
+# Note: Global session manager functions removed to enforce dependency injection.
+# SessionManager should be obtained through the DI container.

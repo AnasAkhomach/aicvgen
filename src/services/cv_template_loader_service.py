@@ -12,7 +12,8 @@ from typing import List, Optional
 
 from pydantic import ValidationError
 
-from ..models.cv_models import StructuredCV, Section, Subsection, MetadataModel
+from src.models.cv_models import StructuredCV, Section, Subsection, MetadataModel
+from src.services.session_manager import SessionManager
 
 
 class CVTemplateLoaderService:
@@ -26,8 +27,7 @@ class CVTemplateLoaderService:
     SECTION_PATTERN = re.compile(r'^##(?!#)\s*(.*)$', re.MULTILINE)
     SUBSECTION_PATTERN = re.compile(r'^###(?!#)\s*(.*)$', re.MULTILINE)
     
-    @classmethod
-    def load_from_markdown(cls, file_path: str) -> StructuredCV:
+    def load_from_markdown(self, file_path: str) -> StructuredCV:
         """Load and parse a Markdown template file into a StructuredCV object.
         
         Args:
@@ -57,14 +57,14 @@ class CVTemplateLoaderService:
                 raise ValueError("Template file is empty")
             
             # Parse sections and subsections
-            sections = cls._parse_sections(content)
+            sections = self._parse_sections(content)
             
             if not sections:
                 raise ValueError("No valid sections found in template file")
             
             # Create StructuredCV object
             cv_data = {
-                'id': uuid.uuid4(),
+                'id': SessionManager.generate_session_id(),
                 'metadata': MetadataModel(
                     created_by='cv_template_loader',
                     source_file=str(template_path),
@@ -87,8 +87,7 @@ class CVTemplateLoaderService:
             # Wrap unexpected exceptions
             raise ValueError(f"Unexpected error loading template: {e}")
     
-    @classmethod
-    def _parse_sections(cls, content: str) -> List[Section]:
+    def _parse_sections(self, content: str) -> List[Section]:
         """Parse sections from Markdown content.
         
         Args:
@@ -100,7 +99,7 @@ class CVTemplateLoaderService:
         sections = []
         
         # Find all section headers
-        section_matches = list(cls.SECTION_PATTERN.finditer(content))
+        section_matches = list(self.SECTION_PATTERN.finditer(content))
         
         for i, section_match in enumerate(section_matches):
             section_name = section_match.group(1).strip()
@@ -115,11 +114,11 @@ class CVTemplateLoaderService:
             section_content = content[section_start:section_end]
             
             # Parse subsections within this section
-            subsections = cls._parse_subsections(section_content)
+            subsections = self._parse_subsections(section_content)
             
             # Create section object
             section = Section(
-                id=uuid.uuid4(),
+                id=SessionManager.generate_session_id(),
                 name=section_name,
                 content_type='mixed',  # Default content type
                 metadata=MetadataModel(
@@ -134,8 +133,7 @@ class CVTemplateLoaderService:
         
         return sections
     
-    @classmethod
-    def _parse_subsections(cls, section_content: str) -> List[Subsection]:
+    def _parse_subsections(self, section_content: str) -> List[Subsection]:
         """Parse subsections from section content.
         
         Args:
@@ -147,14 +145,14 @@ class CVTemplateLoaderService:
         subsections = []
         
         # Find all subsection headers within this section
-        subsection_matches = list(cls.SUBSECTION_PATTERN.finditer(section_content))
+        subsection_matches = list(self.SUBSECTION_PATTERN.finditer(section_content))
         
         for subsection_match in subsection_matches:
             subsection_name = subsection_match.group(1).strip()
             
             # Create subsection object
             subsection = Subsection(
-                id=uuid.uuid4(),
+                id=SessionManager.generate_session_id(),
                 name=subsection_name,
                 metadata=MetadataModel(
                     created_by='cv_template_loader',

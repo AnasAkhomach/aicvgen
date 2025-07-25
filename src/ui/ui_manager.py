@@ -10,11 +10,11 @@ from typing import Optional, Tuple
 
 import streamlit as st
 
-from ..config.logging_config import get_logger
-from ..core.container import get_container
-from ..core.state_manager import StateManager
-from ..error_handling.boundaries import CATCHABLE_EXCEPTIONS
-from ..frontend.ui_components import (display_export_tab, display_input_form, display_review_and_edit_tab, display_sidebar)
+from src.config.logging_config import get_logger
+from src.core.container import get_container
+from src.core.state_manager import StateManager
+from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
+from src.frontend.ui_components import (display_export_tab, display_input_form, display_review_and_edit_tab, display_sidebar)
 
 logger = get_logger(__name__)
 

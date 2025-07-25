@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 WORKFLOW_SEQUENCE = [
     "key_qualifications",
     "professional_experience", 
-    "projects",
+    "project_experience",
     "executive_summary"
 ]
 
@@ -34,6 +34,9 @@ async def initialize_supervisor_node(state: GlobalState) -> GlobalState:
             state["structured_cv"], 
             WORKFLOW_SEQUENCE
         )
+        
+        # Remove supervisor_metadata from supervisor_state to avoid overwriting node_execution_metadata
+        supervisor_state.pop("supervisor_metadata", {})
         
         updated_state = {
             **state,
@@ -294,38 +297,44 @@ async def entry_router_node(state: GlobalState) -> GlobalState:
         }
 
 
-def _initialize_supervisor_state(structured_cv: Dict[str, Any], workflow_sequence: List[str]) -> Dict[str, Any]:
+def _initialize_supervisor_state(structured_cv, workflow_sequence: List[str]) -> Dict[str, Any]:
     """Initialize supervisor state based on structured CV and workflow sequence.
     
     Args:
-        structured_cv: The structured CV data
+        structured_cv: The structured CV data (StructuredCV object or None)
         workflow_sequence: List of workflow sections
         
     Returns:
         Dictionary with supervisor state initialization
     """
-    # Filter workflow sequence to only include sections that exist in structured_cv
-    available_sections = [section for section in workflow_sequence if section in structured_cv]
+    # Handle None or empty structured_cv
+    if not structured_cv or not hasattr(structured_cv, 'sections') or not structured_cv.sections:
+        return {
+            "workflow_sections": [],
+            "current_section_index": None,
+            "current_item_id": None,
+            "supervisor_metadata": {
+                "supervisor_initialized": True,
+                "available_sections": []
+            }
+        }
     
-    # Initialize with first available section
-    current_section_index = 0
+    # Find first section with items
+    current_section_index = None
     current_item_id = None
     
-    if available_sections:
-        current_section = available_sections[0]
-        # Set current_item_id to first item of the first section if it has items
-        section_data = structured_cv.get(current_section, {})
-        if isinstance(section_data, list) and section_data:
-            current_item_id = 0
-        elif isinstance(section_data, dict) and section_data:
-            current_item_id = list(section_data.keys())[0]
+    for index, section in enumerate(structured_cv.sections):
+        if section.items:  # Section has items
+            current_section_index = index
+            current_item_id = str(section.items[0].id)
+            break
     
     return {
-        "workflow_sections": available_sections,
+        "workflow_sections": workflow_sequence,
         "current_section_index": current_section_index,
         "current_item_id": current_item_id,
-        "node_execution_metadata": {
+        "supervisor_metadata": {
             "supervisor_initialized": True,
-            "available_sections": available_sections
+            "available_sections": [section.name for section in structured_cv.sections if section.items]
         }
     }

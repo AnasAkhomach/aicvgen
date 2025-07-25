@@ -8,7 +8,7 @@ import asyncio
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from src.config.logging_config import get_structured_logger
+import logging
 from src.models.progress_models import (ProgressEvent, ProgressEventType, ProgressMetrics)
 from src.models.workflow_models import ContentType
 from src.orchestration.state import GlobalState
@@ -111,8 +111,13 @@ class SessionTracker:
 class ProgressTracker:
     """Centralized progress tracker for managing multiple workflow sessions."""
 
-    def __init__(self, logger=None):
-        self.logger = logger if logger else get_structured_logger(__name__)
+    def __init__(self, logger: logging.Logger):
+        """Initialize ProgressTracker with injected dependencies.
+        
+        Args:
+            logger: Logger instance for tracking operations.
+        """
+        self.logger = logger
         self.sessions: Dict[str, SessionTracker] = {}
 
     def start_tracking(self, session_id: str, state: GlobalState):
@@ -328,19 +333,5 @@ class ProgressTracker:
         return session_tracker.export_data()
 
 
-# Global progress tracker instance
-_global_progress_tracker: Optional[ProgressTracker] = None
-
-
-def get_progress_tracker() -> ProgressTracker:
-    """Get the global progress tracker instance."""
-    global _global_progress_tracker
-    if _global_progress_tracker is None:
-        _global_progress_tracker = ProgressTracker()
-    return _global_progress_tracker
-
-
-def reset_progress_tracker():
-    """Reset the global progress tracker (useful for testing)."""
-    global _global_progress_tracker
-    _global_progress_tracker = None
+# Note: Global progress tracker functions removed to enforce dependency injection.
+# ProgressTracker should be obtained through the DI container.

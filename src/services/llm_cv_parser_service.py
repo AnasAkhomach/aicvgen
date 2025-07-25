@@ -2,9 +2,7 @@
 Service for LLM-based CV and job description parsing.
 """
 
-import json
 import logging
-import re
 from typing import Any, Optional
 
 from src.config.settings import Settings
@@ -14,6 +12,7 @@ from src.models.llm_data_models import CVParsingResult
 from src.models.workflow_models import ContentType
 from src.services.llm_service_interface import LLMServiceInterface
 from src.templates.content_templates import ContentTemplateManager
+from src.utils.json_utils import parse_llm_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -136,63 +135,19 @@ class LLMCVParserService:
                 trace_id=trace_id,
             )
 
-        # Regex to find JSON within ```json ... ``` code blocks
-        json_match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1)
-            logger.debug(
-                "Extracted JSON from markdown block.", extra={"trace_id": trace_id}
-            )
-        else:
-            # Fallback for raw JSON or JSON embedded in text
-            logger.debug(
-                "No markdown block found, attempting to find raw JSON.",
-                extra={"trace_id": trace_id},
-            )
-            # Look for the start of a JSON object or array
-            start_index = -1
-            first_brace = raw_text.find("{")
-            first_bracket = raw_text.find("[")
-
-            if first_brace != -1 and first_bracket != -1:
-                start_index = min(first_brace, first_bracket)
-            elif first_brace != -1:
-                start_index = first_brace
-            else:
-                start_index = first_bracket
-
-            if start_index != -1:
-                # Find the corresponding closing bracket/brace to be more robust
-                if raw_text[start_index] == "{":
-                    end_index = raw_text.rfind("}") + 1
-                else:
-                    end_index = raw_text.rfind("]") + 1
-                if end_index != 0:
-                    json_str = raw_text[start_index:end_index]
-                else:
-                    json_str = raw_text  # Assume the whole response is JSON
-            else:
-                # If no JSON structure is found, raise an error.
-                raise LLMResponseParsingError(
-                    "No valid JSON object found in the LLM response.",
-                    raw_response=raw_text,
-                    trace_id=trace_id,
-                )
-
+        # Use the centralized JSON parsing utility
         try:
-            return json.loads(json_str)
-        except json.JSONDecodeError as e:
+            return parse_llm_json_response(raw_text)
+        except LLMResponseParsingError as e:
+            # Re-raise with additional context (trace_id)
             logger.error(
-                "Failed to decode JSON from LLM response: %s",
+                "Failed to parse JSON from LLM response: %s",
                 e,
                 extra={"trace_id": trace_id},
             )
-            logger.debug(
-                "Malformed JSON string: %s", json_str, extra={"trace_id": trace_id}
-            )
+            # Create a new exception with trace_id context
             raise LLMResponseParsingError(
-                f"Could not parse JSON from LLM response. Error: {e}",
+                e.args[0],  # Use the original error message
                 raw_response=raw_text,
-                malformed_json=json_str,
                 trace_id=trace_id,
             ) from e

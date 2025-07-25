@@ -58,7 +58,7 @@ class TestLangSmithTracingConfig:
             mock_state_graph.return_value.compile.return_value = mock_graph
             
             # Create workflow graph wrapper
-            wrapper = create_cv_workflow_graph_with_di(mock_container, session_id)
+            wrapper = create_cv_workflow_graph_with_di(mock_container)
             
             # Test invoke method
             await wrapper.invoke(test_state)
@@ -88,7 +88,7 @@ class TestLangSmithTracingConfig:
             mock_state_graph.return_value.compile.return_value = mock_graph
             
             # Create workflow graph wrapper
-            wrapper = create_cv_workflow_graph_with_di(mock_container, session_id)
+            wrapper = create_cv_workflow_graph_with_di(mock_container)
             
             # Test trigger_workflow_step method
             await wrapper.trigger_workflow_step(test_state)
@@ -110,7 +110,7 @@ class TestLangSmithTracingConfig:
             mock_state_graph.return_value.compile.return_value = mock_graph
             
             # Create workflow graph wrapper
-            wrapper = create_cv_workflow_graph_with_di(mock_container, session_id)
+            wrapper = create_cv_workflow_graph_with_di(mock_container)
             
             # Verify that the wrapper stores the session_id correctly
             assert wrapper.session_id == session_id
@@ -152,7 +152,7 @@ class TestLangSmithTracingConfig:
                 mock_state_graph.return_value.compile.return_value = mock_graph
                 
                 # Create and invoke workflow
-                wrapper = create_cv_workflow_graph_with_di(mock_container, session_id)
+                wrapper = create_cv_workflow_graph_with_di(mock_container)
                 result = await wrapper.invoke(test_state)
                 
                 # Verify the call was made with proper configuration

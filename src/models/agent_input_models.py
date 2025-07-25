@@ -50,15 +50,11 @@ class ProfessionalExperienceWriterAgentInput(BaseModel):
 class KeyQualificationsWriterAgentInput(BaseModel):
     """Input model for KeyQualificationsWriterAgent."""
 
-    structured_cv: StructuredCV = Field(description="The structured CV data")
-    job_description_data: JobDescriptionData = Field(
-        description="The job description data"
+    main_job_description_raw: str = Field(
+        description="Raw job description text"
     )
-    current_item_id: Optional[str] = Field(
-        default=None, description="ID of the current item being processed"
-    )
-    research_findings: Optional[ResearchFindings] = Field(
-        default=None, description="Research findings if available"
+    my_talents: str = Field(
+        description="Summary of candidate's talents and experience"
     )
     session_id: str = Field(description="Session identifier")
 
@@ -87,6 +83,33 @@ class KeyQualificationsUpdaterAgentInput(BaseModel):
         description="List of generated key qualifications to update the CV with"
     )
     session_id: str = Field(description="Session identifier")
+
+
+class ProfessionalExperienceUpdaterAgentInput(BaseModel):
+    """Input model for ProfessionalExperienceUpdaterAgent."""
+
+    structured_cv: StructuredCV = Field(description="The structured CV data")
+    generated_professional_experience: str = Field(
+        description="Generated professional experience content to update the CV with"
+    )
+
+
+class ProjectsUpdaterAgentInput(BaseModel):
+    """Input model for ProjectsUpdaterAgent."""
+
+    structured_cv: StructuredCV = Field(description="The structured CV data")
+    generated_projects: str = Field(
+        description="Generated projects content to update the CV with"
+    )
+
+
+class ExecutiveSummaryUpdaterAgentInput(BaseModel):
+    """Input model for ExecutiveSummaryUpdaterAgent."""
+
+    structured_cv: StructuredCV = Field(description="The structured CV data")
+    generated_executive_summary: str = Field(
+        description="Generated executive summary content to update the CV with"
+    )
 
 
 class ResearchAgentInput(BaseModel):
@@ -145,6 +168,9 @@ AGENT_INPUT_MODELS = {
     "ProfessionalExperienceWriter": ProfessionalExperienceWriterAgentInput,
     "KeyQualificationsWriter": KeyQualificationsWriterAgentInput,
     "KeyQualificationsUpdaterAgent": KeyQualificationsUpdaterAgentInput,
+    "ProfessionalExperienceUpdaterAgent": ProfessionalExperienceUpdaterAgentInput,
+    "ProjectsUpdaterAgent": ProjectsUpdaterAgentInput,
+    "ExecutiveSummaryUpdaterAgent": ExecutiveSummaryUpdaterAgentInput,
     "ProjectsWriter": ProjectsWriterAgentInput,
     "ResearchAgent": ResearchAgentInput,
     "FormatterAgent": FormatterAgentInput,
@@ -184,13 +210,17 @@ def extract_agent_inputs(agent_name: str, state: "GlobalState") -> Dict[str, Any
     if not input_model_class:
         raise ValueError(f"No input model found for agent: {agent_name}")
 
+    # Get model fields first
+    model_fields = input_model_class.model_fields
+
     # Map common state fields to agent inputs
-    agent_inputs = {
-        "session_id": state.get("session_id"),
-    }
+    agent_inputs = {}
+    
+    # Only add session_id if the model has this field
+    if "session_id" in model_fields:
+        agent_inputs["session_id"] = state.get("session_id")
 
     # Add agent-specific field mappings
-    model_fields = input_model_class.model_fields
 
     if "structured_cv" in model_fields:
         agent_inputs["structured_cv"] = state.get("structured_cv")
@@ -202,7 +232,12 @@ def extract_agent_inputs(agent_name: str, state: "GlobalState") -> Dict[str, Any
         agent_inputs["cv_data"] = state.get("structured_cv")
 
     if "job_description" in model_fields:
-        agent_inputs["job_description"] = state.get("job_description_data")
+        # For ExecutiveSummaryWriter, map job_description as string
+        if agent_name == "ExecutiveSummaryWriter":
+            job_desc_data = state.get("job_description_data")
+            agent_inputs["job_description"] = job_desc_data.raw_text if job_desc_data else ""
+        else:
+            agent_inputs["job_description"] = state.get("job_description_data")
 
     if "cv_text" in model_fields:
         agent_inputs["cv_text"] = state.get("cv_text")
@@ -217,16 +252,58 @@ def extract_agent_inputs(agent_name: str, state: "GlobalState") -> Dict[str, Any
         agent_inputs["user_feedback"] = state.get("user_feedback")
 
     if "generated_key_qualifications" in model_fields:
-        agent_inputs["generated_key_qualifications"] = state.get("generated_key_qualifications")
+        agent_inputs["generated_key_qualifications"] = state.get("generated_key_qualifications", [])
 
-    # For cleaning agent, handle raw_data and data_type specially
-    if agent_name == "CleaningAgent":
-        agent_inputs["raw_data"] = state.get("raw_data")
+    if "generated_professional_experience" in model_fields:
+        agent_inputs["generated_professional_experience"] = state.get("generated_professional_experience", "")
+
+    if "generated_projects" in model_fields:
+        agent_inputs["generated_projects"] = state.get("generated_projects", "")
+
+    if "generated_executive_summary" in model_fields:
+        agent_inputs["generated_executive_summary"] = state.get("generated_executive_summary", "")
+
+    if "raw_data" in model_fields:
+        agent_inputs["raw_data"] = state.get("raw_data", "")
+
+    if "data_type" in model_fields:
         agent_inputs["data_type"] = state.get("data_type", "unknown")
 
-    # For job description parser
-    if agent_name == "JobDescriptionParserAgent":
+    if "job_description_text" in model_fields:
         agent_inputs["job_description_text"] = state.get("job_description_text", "")
+
+    # Special handling for ExecutiveSummaryWriter string fields
+    if agent_name == "ExecutiveSummaryWriter":
+        structured_cv = state.get("structured_cv")
+        if structured_cv and "key_qualifications" in model_fields:
+            # Extract content from Key Qualifications section
+            key_qual_section = next((s for s in structured_cv.sections if s.name == "Key Qualifications"), None)
+            agent_inputs["key_qualifications"] = "\n".join([item.content for item in key_qual_section.items]) if key_qual_section else ""
+        if structured_cv and "professional_experience" in model_fields:
+            # Extract content from Professional Experience section
+            prof_exp_section = next((s for s in structured_cv.sections if s.name == "Professional Experience"), None)
+            agent_inputs["professional_experience"] = "\n".join([item.content for item in prof_exp_section.items]) if prof_exp_section else ""
+        if structured_cv and "projects" in model_fields:
+            # Extract content from Project Experience section
+            projects_section = next((s for s in structured_cv.sections if s.name == "Project Experience"), None)
+            agent_inputs["projects"] = "\n".join([item.content for item in projects_section.items]) if projects_section else ""
+
+    # Special handling for KeyQualificationsWriter
+    if agent_name == "KeyQualificationsWriter":
+        if "main_job_description_raw" in model_fields:
+            job_desc_data = state.get("job_description_data")
+            agent_inputs["main_job_description_raw"] = job_desc_data.raw_text if job_desc_data else ""
+        if "my_talents" in model_fields:
+            structured_cv = state.get("structured_cv")
+            if structured_cv:
+                # Extract talents from Professional Experience and Key Qualifications sections
+                talents = []
+                for section in structured_cv.sections:
+                    if section.name in ["Professional Experience", "Key Qualifications"]:
+                        talents.extend([item.content for item in section.items])
+                agent_inputs["my_talents"] = "\n".join(talents)
+
+
 
     # Validate inputs using the agent's input model
     try:

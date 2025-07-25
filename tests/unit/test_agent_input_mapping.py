@@ -102,13 +102,13 @@ class TestExtractAgentInputs:
         # Mock getattr to handle optional fields
         state.__class__.__getattr__ = lambda self, name: mock_getattr(name)
         
-        state.model_dump.return_value = {
+        state.model_dump = Mock(return_value={
             "session_id": "test-session",
             "structured_cv": structured_cv,
             "job_description_data": job_description_data,
             "cv_text": "Sample CV text",
             "current_item_id": "item-123",
-        }
+        })
         
         return state
 
@@ -168,11 +168,11 @@ class TestExtractAgentInputs:
             return default
         state.__class__.__getattr__ = lambda self, name: mock_getattr(name)
         
-        state.model_dump.return_value = {
+        state.model_dump = Mock(return_value={
             "session_id": None,
             "structured_cv": None,
             "job_description_data": None
-        }
+        })
         
         with pytest.raises(ValueError, match="Input validation failed"):
             extract_agent_inputs("CVAnalyzerAgent", state)
@@ -225,15 +225,45 @@ class TestAgentBaseInputMapping:
         state.cv_text = "Sample CV text"
         state.current_item_id = "item-123"
         state.error_messages = []
-        state.model_copy.return_value = state
-        state.model_dump.return_value = {
+        
+        # Create a proper model_copy mock that returns a new mock with updated values
+        def mock_model_copy(update=None, **kwargs):
+            new_state = Mock(spec=AgentState)
+            # Copy all attributes from original state
+            for attr in ['session_id', 'structured_cv', 'job_description_data', 'cv_text', 'current_item_id', 'error_messages']:
+                setattr(new_state, attr, getattr(state, attr))
+            # Apply updates if provided
+            if update:
+                if hasattr(update, 'items'):  # Check if it's a dict-like object
+                    for key, value in update.items():
+                        setattr(new_state, key, value)
+                else:
+                    # Handle case where update might be passed as kwargs
+                    for key, value in kwargs.items():
+                        setattr(new_state, key, value)
+            # Apply any additional kwargs
+            for key, value in kwargs.items():
+                setattr(new_state, key, value)
+            new_state.model_copy = mock_model_copy
+            new_state.model_dump = Mock(return_value={
+                "session_id": getattr(new_state, 'session_id', "test-session"),
+                "structured_cv": getattr(new_state, 'structured_cv', structured_cv),
+                "job_description_data": getattr(new_state, 'job_description_data', job_description_data),
+                "cv_text": getattr(new_state, 'cv_text', "Sample CV text"),
+                "current_item_id": getattr(new_state, 'current_item_id', "item-123"),
+                "error_messages": getattr(new_state, 'error_messages', []),
+            })
+            return new_state
+            
+        state.model_copy = mock_model_copy
+        state.model_dump = Mock(return_value={
             "session_id": "test-session",
             "structured_cv": structured_cv,
             "job_description_data": job_description_data,
             "cv_text": "Sample CV text",
             "current_item_id": "item-123",
             "error_messages": [],
-        }
+        })
         
         return state
 
@@ -335,7 +365,7 @@ class TestArchitecturalImprovements:
         
         # ExecutiveSummaryWriter should have more fields but still be limited
         exec_summary_fields = set(ExecutiveSummaryWriterAgentInput.model_fields.keys())
-        expected_exec_fields = {"structured_cv", "job_description_data", "research_findings", "session_id"}
+        expected_exec_fields = {"job_description", "key_qualifications", "professional_experience", "projects", "research_findings"}
         assert exec_summary_fields == expected_exec_fields
 
     def test_input_extraction_does_not_pass_full_state(self):
@@ -350,7 +380,7 @@ class TestArchitecturalImprovements:
         state.error_messages = ["some error"]
         state.trace_id = "trace-123"
         state.current_section_key = "experience"
-        state.model_dump.return_value = {
+        state.model_dump = Mock(return_value={
             "session_id": "test-session",
             "structured_cv": state.structured_cv,
             "job_description_data": state.job_description_data,
@@ -359,7 +389,7 @@ class TestArchitecturalImprovements:
             "error_messages": ["some error"],
             "trace_id": "trace-123",
             "current_section_key": "experience",
-        }
+        })
         
         # Extract inputs for CVAnalyzerAgent
         inputs = extract_agent_inputs("CVAnalyzerAgent", state)

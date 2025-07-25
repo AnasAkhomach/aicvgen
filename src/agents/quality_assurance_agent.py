@@ -13,6 +13,7 @@ from src.models.agent_output_models import ItemQualityResultModel, OverallQualit
 from src.models.data_models import Item, Section, StructuredCV
 from src.services.llm_service_interface import LLMServiceInterface
 from src.templates.content_templates import ContentTemplateManager
+from src.utils.node_validation import ensure_pydantic_model
 
 logger = get_structured_logger(__name__)
 
@@ -47,6 +48,9 @@ class QualityAssuranceAgent(AgentBase):
         self.llm_service = llm_service
         self.template_manager = template_manager
 
+    @ensure_pydantic_model(
+        ('structured_cv', StructuredCV),
+    )
     async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """
         Runs the quality assurance agent to evaluate generated CV content.
@@ -60,15 +64,7 @@ class QualityAssuranceAgent(AgentBase):
             if not structured_cv:
                 raise AgentExecutionError(agent_name=self.name, message="structured_cv is required but not provided")
 
-            # Ensure structured_cv is a StructuredCV object
-            if isinstance(structured_cv, dict):
-                structured_cv = StructuredCV(**structured_cv)
-            elif not isinstance(structured_cv, StructuredCV):
-                raise AgentExecutionError(
-                    agent_name=self.name,
-                    message=f"Invalid type for 'structured_cv'. Expected StructuredCV or dict, got {type(structured_cv)}."
-                )
-
+            # Pydantic validation is now handled by the decorator
             self.update_progress(AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation passed.")
 
             section_results = [

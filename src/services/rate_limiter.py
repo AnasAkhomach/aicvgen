@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from tenacity import (before_sleep_log, retry, retry_if_exception_type,
                       stop_after_attempt, wait_exponential)
 
-from src.config.logging_config import get_structured_logger
+# Removed direct import of get_structured_logger for dependency injection
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import NetworkError, RateLimitError
 from src.models.llm_data_models import RateLimitLog, RateLimitState
@@ -38,10 +38,16 @@ class RateLimitConfig:
 class RateLimiter:
     """Rate limiter for LLM API calls with retry logic."""
 
-    def __init__(self, config: Optional[RateLimitConfig] = None):
+    def __init__(self, logger: logging.Logger, config: Optional[RateLimitConfig] = None):
+        """Initialize RateLimiter with injected dependencies.
+        
+        Args:
+            logger: Logger instance for rate limiting operations.
+            config: Optional rate limit configuration.
+        """
         self.config = config or RateLimitConfig()
         self.model_states: Dict[str, RateLimitState] = {}
-        self.logger = get_structured_logger("rate_limiter")
+        self.logger = logger
         self._async_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._sync_locks: Dict[str, threading.Lock] = defaultdict(threading.Lock)
 
@@ -355,8 +361,14 @@ class RateLimiter:
 class RetryableRateLimiter(RateLimiter):
     """Rate limiter with built-in retry logic using tenacity."""
 
-    def __init__(self, config: Optional[RateLimitConfig] = None):
-        super().__init__(config)
+    def __init__(self, logger: logging.Logger, config: Optional[RateLimitConfig] = None):
+        """Initialize RetryableRateLimiter with injected dependencies.
+        
+        Args:
+            logger: Logger instance for rate limiting operations.
+            config: Optional rate limit configuration.
+        """
+        super().__init__(logger, config)
         self.retry_decorator = retry(
             stop=stop_after_attempt(self.config.max_retries),
             wait=wait_exponential(
@@ -386,77 +398,7 @@ class RetryableRateLimiter(RateLimiter):
         return await _execute()
 
 
-# Global rate limiter instance
-_global_rate_limiter: Optional[RetryableRateLimiter] = None
-
-
-def get_rate_limiter(config: Optional[RateLimitConfig] = None) -> RetryableRateLimiter:
-    """Get the global rate limiter instance."""
-    global _global_rate_limiter
-    if _global_rate_limiter is None:
-        _global_rate_limiter = RetryableRateLimiter(config)
-    return _global_rate_limiter
-
-
-def reset_rate_limiter():
-    """Reset the global rate limiter (useful for testing)."""
-    global _global_rate_limiter
-    _global_rate_limiter = None
-
-
-# Decorator for easy rate limiting
-def rate_limited(model: str, estimated_tokens: int = 0):
-    """Decorator to add rate limiting to async functions."""
-
-    def decorator(func: Callable[..., Awaitable[Any]]):
-        async def wrapper(*args, **kwargs):
-            rate_limiter = get_rate_limiter()
-            return await rate_limiter.execute_with_retry(
-                func, model, estimated_tokens, *args, **kwargs
-            )
-
-        return wrapper
-
-    return decorator
-
-
-# Utility functions for common rate limiting scenarios
-async def rate_limited_llm_call(
-    llm_func: Callable[..., Awaitable[Any]],
-    model: str,
-    prompt: str,
-    estimated_tokens: Optional[int] = None,
-    **kwargs,
-) -> Any:
-    """Make a rate-limited LLM call with automatic token estimation."""
-    if estimated_tokens is None:
-        # Rough estimation: 1 token ≈ 4 characters
-        estimated_tokens = len(prompt) // 4 + 500  # Add buffer for response
-
-    rate_limiter = get_rate_limiter()
-    return await rate_limiter.execute_with_retry(
-        llm_func, model, estimated_tokens, prompt=prompt, **kwargs
-    )
-
-
-def get_rate_limit_status(model: str) -> Dict[str, Any]:
-    """Get current rate limit status for a model."""
-    rate_limiter = get_rate_limiter()
-    state = rate_limiter.get_model_state(model)
-
-    now = datetime.now()
-    window_elapsed = (now - state.window_start).total_seconds()
-
-    return {
-        "model": model,
-        "requests_in_window": state.requests_made,
-        "tokens_in_window": state.tokens_made,
-        "window_elapsed_seconds": window_elapsed,
-        "can_make_request": state.can_make_request(),
-        "wait_time_seconds": rate_limiter.get_wait_time(model),
-        "consecutive_failures": state.consecutive_failures,
-        "backoff_until": (
-            state.backoff_until.isoformat() if state.backoff_until else None
-        ),
-        "last_request_time": state.last_request_time.isoformat(),
-    }
+# Note: Global rate limiter functions and utility functions removed to enforce dependency injection.
+# RateLimiter should be obtained through the DI container.
+# Utility functions should be implemented as methods or separate services that receive
+# the rate limiter instance through dependency injection.

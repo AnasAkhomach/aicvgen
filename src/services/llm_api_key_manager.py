@@ -6,7 +6,7 @@ from src.utils.import_fallbacks import get_google_exceptions
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import ConfigurationError
 from src.models.llm_service_models import LLMApiKeyInfo
-from src.services.llm_client import LLMClient
+from src.services.llm.llm_client_interface import LLMClientInterface
 # Import Google API exceptions with standardized fallback handling
 google_exceptions, _ = get_google_exceptions()
 
@@ -22,7 +22,7 @@ class LLMApiKeyManager:
     def __init__(
         self,
         settings,
-        llm_client: LLMClient,
+        llm_client: LLMClientInterface,
         user_api_key: Optional[str] = None,
     ):
         """
@@ -30,7 +30,7 @@ class LLMApiKeyManager:
 
         Args:
             settings: Injected settings/config dependency
-            llm_client: Injected LLMClient instance
+            llm_client: Injected LLMClientInterface instance
             user_api_key: Optional user-provided API key (takes priority)
         """
         self.settings = settings

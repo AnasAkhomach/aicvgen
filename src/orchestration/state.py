@@ -23,6 +23,7 @@ from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.workflow_models import ContentType, UserFeedback
 
 
+
 class GlobalState(TypedDict):
     """
     Global state shared across all workflow graphs and subgraphs.

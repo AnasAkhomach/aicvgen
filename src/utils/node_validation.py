@@ -3,12 +3,12 @@ only return valid GlobalState fields, preventing contract breaches.
 """
 
 from functools import wraps
-from typing import Any, Dict, Set
+from typing import Any, Dict, Set, Type, Union
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from ..config.logging_config import get_structured_logger
-from ..orchestration.state import GlobalState
+from src.config.logging_config import get_structured_logger
+from src.orchestration.state import GlobalState
 
 logger = get_structured_logger(__name__)
 
@@ -86,7 +86,93 @@ def validate_node_output(node_func):
         # Return the filtered dict (GlobalState is now a TypedDict)
         return output_dict
 
-    return wrapper
+
+def ensure_pydantic_model(*model_fields):
+    """Decorator to ensure specified fields are converted to Pydantic models.
+
+    This decorator centralizes the logic for converting dictionary data to Pydantic models,
+    removing duplicated validation code from agents.
+
+    Args:
+        *model_fields: Tuples of (field_name, pydantic_model_class) to validate
+
+    Example:
+        @ensure_pydantic_model(
+            ('cv_data', StructuredCV),
+            ('job_description', JobDescriptionData)
+        )
+        async def _execute(self, state: GlobalState) -> Dict[str, Any]:
+            # cv_data and job_description are now guaranteed to be Pydantic models
+            pass
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Handle both state-based and kwargs-based patterns
+            state = None
+            use_kwargs_pattern = False
+
+            # Try to extract state from arguments (state-based pattern)
+            if len(args) > 1 and isinstance(args[1], dict):
+                state = args[1]
+            elif len(args) > 0 and isinstance(args[0], dict):
+                state = args[0]
+            elif 'state' in kwargs:
+                state = kwargs['state']
+            else:
+                # Use kwargs pattern - treat kwargs as the state
+                state = kwargs
+                use_kwargs_pattern = True
+
+            if not state:
+                logger.error(f"Function '{func.__name__}' called without state or kwargs")
+                raise ValueError(f"Function '{func.__name__}' requires state parameter or kwargs")
+
+            # Create a copy of state to avoid modifying the original
+            validated_state = state.copy()
+
+            # Validate and convert specified fields to Pydantic models
+            for field_name, model_class in model_fields:
+                if field_name in validated_state:
+                    field_value = validated_state[field_name]
+
+                    # Skip if already a Pydantic model instance
+                    if isinstance(field_value, model_class):
+                        continue
+
+                    # Convert dict to Pydantic model
+                    if isinstance(field_value, dict):
+                        try:
+                            validated_state[field_name] = model_class.model_validate(field_value)
+                            logger.debug(f"Converted {field_name} to {model_class.__name__} model")
+                        except ValidationError as e:
+                            logger.error(f"Failed to validate {field_name} as {model_class.__name__}: {e}")
+                            raise
+                    else:
+                        logger.warning(f"Field {field_name} is not a dict, cannot convert to {model_class.__name__}")
+
+            # Update the state in the arguments based on the pattern used
+            if use_kwargs_pattern:
+                # Update kwargs directly
+                kwargs.update(validated_state)
+            else:
+                # Update positional arguments or named state
+                if len(args) > 1 and isinstance(args[1], dict):
+                    args = list(args)
+                    args[1] = validated_state
+                    args = tuple(args)
+                elif len(args) > 0 and isinstance(args[0], dict):
+                    args = list(args)
+                    args[0] = validated_state
+                    args = tuple(args)
+                else:
+                    kwargs['state'] = validated_state
+
+            # Call the original function with validated state
+            return await func(*args, **kwargs)
+
+        return wrapper
+    return decorator
 
 
 def get_valid_agent_state_fields() -> Set[str]:

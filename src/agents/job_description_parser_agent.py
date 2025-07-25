@@ -23,6 +23,7 @@ class JobDescriptionParserAgent(AgentBase):
     def __init__(
         self,
         llm_service: LLMServiceInterface,
+        llm_cv_parser_service: LLMCVParserService,
         template_manager: ContentTemplateManager,
         settings: dict,
         session_id: str,
@@ -34,9 +35,7 @@ class JobDescriptionParserAgent(AgentBase):
             session_id=session_id,
             settings=settings,
         )
-        self.llm_cv_parser_service = LLMCVParserService(
-            llm_service, settings, template_manager
-        )
+        self.llm_cv_parser_service = llm_cv_parser_service
 
     async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the core parsing logic."""

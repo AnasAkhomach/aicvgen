@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import streamlit as st
 from src.frontend.callbacks import start_cv_generation
-from src.orchestration.state import AgentState
+from src.orchestration.state import GlobalState
 
 
 class MockSessionState(dict):
@@ -37,7 +37,7 @@ class TestWorkflowManagerIntegration:
         mock_container.workflow_manager.return_value = mock_workflow_manager
         mock_get_container.return_value = mock_container
         
-        mock_agent_state = Mock(spec=AgentState)
+        mock_agent_state = Mock(spec=GlobalState)
         mock_create_state.return_value = mock_agent_state
         
         # Setup Streamlit session state

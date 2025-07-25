@@ -27,8 +27,13 @@ async def jd_parser_node(state: GlobalState, *, agent: 'JobDescriptionParserAgen
         # Agent is now explicitly provided via dependency injection
         
         # Parse the job description
+        # Extract job description text from job_description_data if available
+        job_description_text = ""
+        if state["job_description_data"]:
+            job_description_text = state["job_description_data"].raw_text or ""
+        
         parsed_jd = await agent.parse_job_description(
-            job_description=state["job_description"]
+            job_description=job_description_text
         )
         
         # Update state with parsed job data

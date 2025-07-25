@@ -5,6 +5,7 @@ import uuid
 import streamlit as st
 
 from src.config.logging_config import get_logger
+from src.core.container import get_container
 from src.error_handling.exceptions import AgentExecutionError, ConfigurationError
 from src.orchestration.state import GlobalState, UserFeedback
 from src.models.data_models import UserAction
@@ -92,7 +93,10 @@ class WorkflowController:
             return
 
         # Set processing flags
-        trace_id = str(uuid.uuid4())
+        # Use SessionManager for centralized ID generation
+        container = get_container()
+        session_manager = container.session_manager()
+        trace_id = session_manager.generate_session_id()
         initial_state["trace_id"] = trace_id
         st.session_state.is_processing = True
         st.session_state.workflow_error = None

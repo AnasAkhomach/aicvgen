@@ -17,10 +17,11 @@ from typing import Any, Callable, Dict, Optional
 import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
+from src.config.logging_config import get_logger, log_error_with_context
+from src.utils.retry_predicates import is_transient_error
+
 from .exceptions import (CATCHABLE_EXCEPTIONS, AicvgenError, NetworkError, OperationTimeoutError)
 from .models import ErrorSeverity
-from ..config.logging_config import get_logger, log_error_with_context
-from ..utils.retry_predicates import is_transient_error
 
 
 logger = get_logger(__name__)
@@ -234,7 +235,7 @@ class ErrorRecovery:
         func: Callable, max_retries: int = 3, backoff_factor: float = 1.0
     ):
         """Retry a function with exponential backoff for transient errors using tenacity."""
-        
+
         # Create a tenacity retry decorator with custom predicate function
         retry_decorator = retry(
             stop=stop_after_attempt(max_retries),
@@ -242,7 +243,7 @@ class ErrorRecovery:
             retry=retry_if_exception(is_transient_error),
             reraise=True
         )
-        
+
         # Apply the decorator to the function and execute it
         decorated_func = retry_decorator(func)
         return decorated_func()

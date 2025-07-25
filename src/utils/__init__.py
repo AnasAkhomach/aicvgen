@@ -1,6 +1,8 @@
 """Utilities module for the aicvgen application."""
 
-from ..error_handling.exceptions import (AicvgenError, ConfigurationError, StateManagerError)
+from src.error_handling.exceptions import (AicvgenError, ConfigurationError, StateManagerError)
+from src.error_handling.boundaries import StreamlitErrorBoundary
+
 from .decorators import create_async_sync_decorator
 from .latex_utils import escape_latex, recursively_escape_latex
 from .node_validation import validate_node_output
@@ -9,10 +11,10 @@ from .security_utils import redact_log_message, redact_sensitive_data
 from .state_utils import create_initial_agent_state
 from .streamlit_utils import configure_page
 
+
 # Lazy import to avoid circular dependency
 def get_error_boundary():
     """Get StreamlitErrorBoundary with lazy import to avoid circular dependency."""
-    from ..error_handling.boundaries import StreamlitErrorBoundary
     return StreamlitErrorBoundary
 
 __all__ = [

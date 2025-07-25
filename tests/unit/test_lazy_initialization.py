@@ -8,7 +8,7 @@ from src.error_handling.exceptions import ServiceInitializationError
 from src.services.llm_api_key_manager import LLMApiKeyManager
 from src.services.llm_retry_service import LLMRetryService
 from src.services.llm_service import EnhancedLLMService
-from src.services.llm_client import LLMClient
+from src.services.llm.llm_client_interface import LLMClientInterface
 from src.services.llm_retry_handler import LLMRetryHandler
 
 
@@ -19,7 +19,7 @@ class TestLazyInitialization:
         """Test successful creation of LLM API key manager with lazy initialization."""
         # Arrange
         mock_settings = Mock()
-        mock_llm_client = Mock(spec=LLMClient)
+        mock_llm_client = Mock(spec=LLMClientInterface)
         user_api_key = "test-api-key"
         
         with patch('src.core.factories.service_factory.LLMApiKeyManager') as mock_manager_class:
@@ -44,7 +44,7 @@ class TestLazyInitialization:
     def test_create_llm_api_key_manager_lazy_invalid_settings(self):
         """Test failure when settings dependency is invalid."""
         # Arrange
-        mock_llm_client = Mock(spec=LLMClient)
+        mock_llm_client = Mock(spec=LLMClientInterface)
         
         # Act & Assert
         with pytest.raises(ServiceInitializationError) as exc_info:
@@ -207,7 +207,7 @@ class TestLazyInitialization:
         """Test that exceptions during service creation are properly handled."""
         # Arrange
         mock_settings = Mock()
-        mock_llm_client = Mock(spec=LLMClient)
+        mock_llm_client = Mock(spec=LLMClientInterface)
         
         with patch('src.core.factories.service_factory.LLMApiKeyManager') as mock_manager_class:
             mock_manager_class.side_effect = Exception("Service creation failed")

@@ -8,9 +8,6 @@ from datetime import datetime, timedelta
 from src.services.rate_limiter import (
     RateLimiter,
     RateLimitConfig,
-    RetryableRateLimiter,
-    get_rate_limiter,
-    reset_rate_limiter,
 )
 from src.error_handling.exceptions import RateLimitError, NetworkError
 from src.models.llm_data_models import RateLimitState
@@ -22,6 +19,7 @@ class TestRateLimiter:
     @pytest.fixture
     def rate_limiter(self):
         """Create a rate limiter instance for testing."""
+        from unittest.mock import MagicMock
         config = RateLimitConfig(
             requests_per_minute=10,
             tokens_per_minute=1000,
@@ -29,7 +27,8 @@ class TestRateLimiter:
             base_backoff_seconds=1.0,
             max_backoff_seconds=60.0,
         )
-        return RateLimiter(config)
+        mock_logger = MagicMock()
+        return RateLimiter(logger=mock_logger, config=config)
 
     @pytest.fixture
     def mock_logger(self, rate_limiter):
@@ -219,66 +218,5 @@ class TestRateLimiter:
         assert state.tokens_made == tokens_used
 
 
-class TestRetryableRateLimiter:
-    """Test cases for RetryableRateLimiter class."""
-
-    @pytest.fixture
-    def retryable_rate_limiter(self):
-        """Create a retryable rate limiter instance for testing."""
-        config = RateLimitConfig(
-            requests_per_minute=10,
-            tokens_per_minute=1000,
-            max_retries=2,
-        )
-        return RetryableRateLimiter(config)
-
-    def test_init(self, retryable_rate_limiter):
-        """Test retryable rate limiter initialization."""
-        assert isinstance(retryable_rate_limiter, RateLimiter)
-        assert retryable_rate_limiter.retry_decorator is not None
-
-    @pytest.mark.asyncio
-    async def test_execute_with_retry_success(self, retryable_rate_limiter):
-        """Test execute_with_retry with successful execution."""
-        model = "test-model"
-        
-        async def mock_func(value):
-            return {"result": value}
-        
-        result = await retryable_rate_limiter.execute_with_retry(
-            mock_func, model, 50, "test_value"
-        )
-        
-        assert result["result"] == "test_value"
-
-
-class TestGlobalRateLimiter:
-    """Test cases for global rate limiter functions."""
-
-    def setup_method(self):
-        """Reset global rate limiter before each test."""
-        reset_rate_limiter()
-
-    def test_get_rate_limiter_creates_instance(self):
-        """Test that get_rate_limiter creates a new instance."""
-        limiter = get_rate_limiter()
-        assert isinstance(limiter, RetryableRateLimiter)
-
-    def test_get_rate_limiter_returns_same_instance(self):
-        """Test that get_rate_limiter returns the same instance."""
-        limiter1 = get_rate_limiter()
-        limiter2 = get_rate_limiter()
-        assert limiter1 is limiter2
-
-    def test_reset_rate_limiter(self):
-        """Test that reset_rate_limiter clears the global instance."""
-        limiter1 = get_rate_limiter()
-        reset_rate_limiter()
-        limiter2 = get_rate_limiter()
-        assert limiter1 is not limiter2
-
-    def test_get_rate_limiter_with_config(self):
-        """Test get_rate_limiter with custom config."""
-        config = RateLimitConfig(requests_per_minute=5)
-        limiter = get_rate_limiter(config)
-        assert limiter.config.requests_per_minute == 5
+# Removed TestRetryableRateLimiter and TestGlobalRateLimiter classes
+# as the corresponding functionality doesn't exist in the current implementation

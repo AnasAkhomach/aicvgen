@@ -14,6 +14,7 @@ from src.constants.agent_constants import AgentConstants
 from src.models.agent_output_models import CVAnalysisResult
 from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.services.llm_service_interface import LLMServiceInterface
+from src.utils.node_validation import ensure_pydantic_model
 
 logger = get_structured_logger("cv_analyzer_agent")
 
@@ -21,7 +22,7 @@ logger = get_structured_logger("cv_analyzer_agent")
 class CVAnalyzerAgent(AgentBase):
     """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
 
-    def __init__(self, llm_service: LLMServiceInterface, session_id: str = "default", settings: dict = None):
+    def __init__(self, llm_service: LLMServiceInterface, settings: dict, session_id: str):
         super().__init__(
             name="CVAnalyzerAgent",
             description="Analyzes CV content and job requirements to provide optimization recommendations",
@@ -31,6 +32,10 @@ class CVAnalyzerAgent(AgentBase):
         self.llm_service = llm_service
         self.settings = get_config()
 
+    @ensure_pydantic_model(
+        ('cv_data', StructuredCV),
+        ('job_description', JobDescriptionData)
+    )
     async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Analyze CV content against job requirements using Pydantic models."""
         try:
@@ -44,11 +49,7 @@ class CVAnalyzerAgent(AgentBase):
             if not job_description:
                 return {"error_messages": ["job_description is required but not provided"]}
 
-            if not isinstance(cv_data, StructuredCV):
-                cv_data = StructuredCV.model_validate(cv_data)
-            if not isinstance(job_description, JobDescriptionData):
-                job_description = JobDescriptionData.model_validate(job_description)
-
+            # Pydantic validation is now handled by the decorator
             self.update_progress(AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation completed")
 
             analysis = await self._analyze_cv_job_match(

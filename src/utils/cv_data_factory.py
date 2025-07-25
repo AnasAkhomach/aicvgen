@@ -4,9 +4,9 @@ This module provides factory functions for creating and manipulating CV data str
 
 from typing import Any, Dict, Optional
 
-from ..error_handling.exceptions import DataConversionError
-from ..models.agent_output_models import ParserAgentOutput
-from ..models.cv_models import (Item, ItemStatus, ItemType, JobDescriptionData, Section, StructuredCV, Subsection)
+from src.error_handling.exceptions import DataConversionError
+from src.models.agent_output_models import ParserAgentOutput
+from src.models.cv_models import (Item, ItemStatus, ItemType, JobDescriptionData, Section, StructuredCV, Subsection)
 
 
 def create_empty_cv_structure(

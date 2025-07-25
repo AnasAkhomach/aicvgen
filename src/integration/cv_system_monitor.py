@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import VectorStoreError, WorkflowError
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph
+# Removed CVWorkflowGraph import - using Any for orchestrator type
 from src.services.vector_store_service import VectorStoreService
 from src.templates.content_templates import ContentTemplateManager
 
@@ -17,7 +17,7 @@ class CVSystemMonitor:
         self,
         template_manager: Optional[ContentTemplateManager],
         vector_db: Optional[VectorStoreService],
-        orchestrator: Optional[CVWorkflowGraph],
+        orchestrator: Optional[Any],  # Workflow graph wrapper
         agents: Dict[str, Any],
     ):
         self._template_manager = template_manager

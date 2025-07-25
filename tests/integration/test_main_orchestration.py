@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch, AsyncMock, MagicMock, call
 from src.core.main import main, initialize_application
 from src.core.state_manager import StateManager
 from src.ui.ui_manager import UIManager
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph
+from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
 from src.orchestration.state import AgentState
 from src.models.cv_models import StructuredCV, Section, Item, ItemType, ItemStatus, JobDescriptionData
 from src.models.workflow_models import UserFeedback, UserAction, ContentType
@@ -478,8 +478,8 @@ class TestStateManagerUIManagerIntegration:
             assert state_manager.user_gemini_api_key == "api_key_123"
 
 
-class TestCVWorkflowGraphIntegration:
-    """Integration tests for CVWorkflowGraph and its subgraphs."""
+class TestWorkflowGraphIntegration:
+    """Integration tests for workflow graph and its subgraphs."""
 
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self):
@@ -696,8 +696,8 @@ class TestCVWorkflowGraphIntegration:
             mock_qa_provider.return_value = mock_agents['qa_agent']
             mock_formatter_provider.return_value = mock_agents['formatter_agent']
             
-            # Initialize CVWorkflowGraph using the container factory
-            cv_workflow_graph = container.cv_workflow_graph()
+            # Initialize workflow graph using the new DI factory
+            cv_workflow_graph = create_cv_workflow_graph_with_di()
             
             # Act
             print(f"\n=== Starting test with initial state ===")
@@ -706,7 +706,8 @@ class TestCVWorkflowGraphIntegration:
             print(f"Initial metadata: {initial_agent_state.node_execution_metadata}")
             print(f"Initial workflow_status: {getattr(initial_agent_state, 'workflow_status', 'None')}")
             
-            final_state_dict = await cv_workflow_graph.app.ainvoke(initial_agent_state)
+            config = {"configurable": {"thread_id": "test-session"}}
+            final_state_dict = await cv_workflow_graph.ainvoke(initial_agent_state, config=config)
             final_state = AgentState.model_validate(final_state_dict)
             
             print(f"\n=== Final state ===")
@@ -771,8 +772,8 @@ class TestCVWorkflowGraphIntegration:
             mock_qa_provider.return_value = mock_agents['qa_agent']
             mock_formatter_provider.return_value = mock_agents['formatter_agent']
             
-            # Initialize CVWorkflowGraph using the container factory
-            cv_workflow_graph = container.cv_workflow_graph()
+            # Initialize workflow graph using the new DI factory
+            cv_workflow_graph = create_cv_workflow_graph_with_di()
             
             # Act
             print(f"\n=== Starting regeneration test with initial state ===")
@@ -780,7 +781,8 @@ class TestCVWorkflowGraphIntegration:
             print(f"Initial metadata: {initial_agent_state.node_execution_metadata}")
             print(f"Initial current_section_key: {initial_agent_state.current_section_key}")
             
-            final_state_dict = await cv_workflow_graph.app.ainvoke(initial_agent_state)
+            config = {"configurable": {"thread_id": "test-session"}}
+            final_state_dict = await cv_workflow_graph.ainvoke(initial_agent_state, config=config)
             final_state = AgentState.model_validate(final_state_dict)
             
             print(f"\n=== Final regeneration test state ===")
@@ -872,8 +874,8 @@ class TestCVWorkflowGraphIntegration:
             mock_qa_provider.return_value = mock_agents['qa_agent']
             mock_formatter_provider.return_value = mock_agents['formatter_agent']
             
-            # Initialize CVWorkflowGraph using the container factory
-            cv_workflow_graph = container.cv_workflow_graph()
+            # Initialize workflow graph using the new DI factory
+            cv_workflow_graph = create_cv_workflow_graph_with_di()
             
             # Act
             print(f"\n=== Starting regeneration test with initial state ===")
@@ -881,7 +883,8 @@ class TestCVWorkflowGraphIntegration:
             print(f"Initial metadata: {initial_agent_state.node_execution_metadata}")
             print(f"Initial current_section_key: {initial_agent_state.current_section_key}")
             
-            final_state_dict = await cv_workflow_graph.app.ainvoke(initial_agent_state)
+            config = {"configurable": {"thread_id": "test-session"}}
+            final_state_dict = await cv_workflow_graph.ainvoke(initial_agent_state, config=config)
             final_state = AgentState.model_validate(final_state_dict)
             
             print(f"\n=== Final regeneration test state ===")

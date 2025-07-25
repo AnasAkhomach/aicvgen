@@ -22,6 +22,11 @@ from src.models.cv_models import StructuredCV, Section, Subsection
 class TestCVTemplateLoaderService:
     """Test suite for CVTemplateLoaderService."""
     
+    @pytest.fixture
+    def service(self):
+        """Create a CVTemplateLoaderService instance for testing."""
+        return CVTemplateLoaderService()
+    
     def test_load_from_markdown_valid_template(self):
         """Test loading a valid Markdown template with sections and subsections."""
         markdown_content = """
@@ -58,7 +63,8 @@ Bachelor's degree information.
         
         try:
             # Load the template
-            result = CVTemplateLoaderService.load_from_markdown(temp_path)
+            service = CVTemplateLoaderService()
+            result = service.load_from_markdown(temp_path)
             
             # Verify it's a StructuredCV instance
             assert isinstance(result, StructuredCV)
@@ -117,7 +123,8 @@ Project portfolio content.
             temp_path = f.name
         
         try:
-            result = CVTemplateLoaderService.load_from_markdown(temp_path)
+            service = CVTemplateLoaderService()
+            result = service.load_from_markdown(temp_path)
             
             assert isinstance(result, StructuredCV)
             assert len(result.sections) == 2
@@ -135,7 +142,8 @@ Project portfolio content.
         non_existent_path = "/path/that/does/not/exist.md"
         
         with pytest.raises(FileNotFoundError) as exc_info:
-            CVTemplateLoaderService.load_from_markdown(non_existent_path)
+            service = CVTemplateLoaderService()
+            service.load_from_markdown(non_existent_path)
         
         assert "Template file not found" in str(exc_info.value)
         assert non_existent_path in str(exc_info.value)
@@ -148,7 +156,8 @@ Project portfolio content.
         
         try:
             with pytest.raises(ValueError) as exc_info:
-                CVTemplateLoaderService.load_from_markdown(temp_path)
+                service = CVTemplateLoaderService()
+                service.load_from_markdown(temp_path)
             
             assert "Template file is empty" in str(exc_info.value)
             
@@ -173,7 +182,8 @@ More content.
         
         try:
             with pytest.raises(ValueError) as exc_info:
-                CVTemplateLoaderService.load_from_markdown(temp_path)
+                service = CVTemplateLoaderService()
+                service.load_from_markdown(temp_path)
             
             assert "No valid sections found" in str(exc_info.value)
             
@@ -189,7 +199,8 @@ More content.
         
         try:
             with pytest.raises(ValueError) as exc_info:
-                CVTemplateLoaderService.load_from_markdown(temp_path)
+                service = CVTemplateLoaderService()
+                service.load_from_markdown(temp_path)
             
             assert "Failed to read template file as UTF-8" in str(exc_info.value)
             
@@ -209,7 +220,8 @@ More content.
             temp_path = f.name
         
         try:
-            result = CVTemplateLoaderService.load_from_markdown(temp_path)
+            service = CVTemplateLoaderService()
+            result = service.load_from_markdown(temp_path)
             
             assert len(result.sections) == 3
             section_names = [section.name for section in result.sections]
@@ -235,7 +247,8 @@ More content.
             temp_path = f.name
         
         try:
-            result = CVTemplateLoaderService.load_from_markdown(temp_path)
+            service = CVTemplateLoaderService()
+            result = service.load_from_markdown(temp_path)
             
             assert len(result.sections) == 1
             section = result.sections[0]
@@ -265,8 +278,9 @@ More content.
         
         try:
             # Call the service multiple times
-            result1 = CVTemplateLoaderService.load_from_markdown(temp_path)
-            result2 = CVTemplateLoaderService.load_from_markdown(temp_path)
+            service = CVTemplateLoaderService()
+            result1 = service.load_from_markdown(temp_path)
+            result2 = service.load_from_markdown(temp_path)
             
             # Results should be equivalent but different instances
             assert result1 is not result2
@@ -300,7 +314,8 @@ Content here.
         
         try:
             with pytest.raises(ValueError) as exc_info:
-                CVTemplateLoaderService.load_from_markdown(temp_path)
+                service = CVTemplateLoaderService()
+                service.load_from_markdown(temp_path)
             
             assert "Failed to create valid StructuredCV" in str(exc_info.value)
             
@@ -310,7 +325,8 @@ Content here.
     def test_regex_patterns(self):
         """Test the regex patterns used for parsing."""
         # Test section pattern
-        section_pattern = CVTemplateLoaderService.SECTION_PATTERN
+        service = CVTemplateLoaderService()
+        section_pattern = service.SECTION_PATTERN
         
         # Should match
         assert section_pattern.search("## Valid Section")
@@ -323,7 +339,7 @@ Content here.
         assert not section_pattern.search("Text ## in middle")
         
         # Test subsection pattern
-        subsection_pattern = CVTemplateLoaderService.SUBSECTION_PATTERN
+        subsection_pattern = service.SUBSECTION_PATTERN
         
         # Should match
         assert subsection_pattern.search("### Valid Subsection")
@@ -347,7 +363,8 @@ Content here.
             temp_path = f.name
         
         try:
-            result = CVTemplateLoaderService.load_from_markdown(temp_path)
+            service = CVTemplateLoaderService()
+            result = service.load_from_markdown(temp_path)
             
             # Check CV metadata
             assert result.metadata.created_by == 'cv_template_loader'

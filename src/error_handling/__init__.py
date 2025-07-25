@@ -19,7 +19,7 @@ from .exceptions import (
     WorkflowError,
     WorkflowPreconditionError,
 )
-from .boundaries import StreamlitErrorBoundary
+# StreamlitErrorBoundary imported lazily to avoid circular dependency
 from .models import (
     ErrorCategory,
     ErrorContext,
@@ -46,8 +46,7 @@ __all__ = [
     "VectorStoreError",
     "WorkflowError",
     "WorkflowPreconditionError",
-    # Boundaries
-    "StreamlitErrorBoundary",
+    # Boundaries - StreamlitErrorBoundary available via lazy import
     # Models
     "ErrorCategory",
     "ErrorContext",

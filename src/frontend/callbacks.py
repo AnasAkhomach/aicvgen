@@ -7,6 +7,7 @@ import streamlit as st
 from src.config.logging_config import get_logger
 from src.core.application_startup import get_application_startup
 from src.core.container import get_container
+from src.services.session_manager import SessionManager
 from src.error_handling.exceptions import ConfigurationError, AgentExecutionError
 from src.frontend.workflow_controller import WorkflowController
 from src.integration.enhanced_cv_system import get_enhanced_cv_integration
@@ -23,14 +24,13 @@ def get_enhanced_cv_integration_instance():
     if "cv_integration" not in st.session_state:
         session_id = st.session_state.get("session_id")
         if not session_id:
-            session_id = str(uuid.uuid4())
+            container = get_container()
+            session_manager = container.session_manager()
+            session_id = session_manager.create_session()
             st.session_state.session_id = session_id
 
-        # Set the session ID in the container for dynamic agent creation
-        Container.set_session_id(session_id)
-
         logger.info(
-            "Set container session ID for dynamic agent creation",
+            "Created session ID for CV integration",
             extra={"session_id": session_id},
         )
 

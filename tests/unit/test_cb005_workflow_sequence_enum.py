@@ -1,9 +1,9 @@
 """Test CB-005 fix: WORKFLOW_SEQUENCE uses WorkflowNodes enum values."""
 
 import pytest
-from unittest.mock import Mock, patch
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph, WorkflowNodes, WORKFLOW_SEQUENCE
-from src.orchestration.state import AgentState
+from src.core.enums import WorkflowNodes
+from src.orchestration.nodes.workflow_nodes import WORKFLOW_SEQUENCE
+from src.orchestration.state import GlobalState
 from src.models.workflow_models import UserAction, UserFeedback
 
 

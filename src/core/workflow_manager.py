@@ -1,7 +1,7 @@
 """Core WorkflowManager component for managing CV generation workflows.
 
 This module provides the WorkflowManager class that orchestrates the CV generation
-workflow using the CVWorkflowGraph and manages workflow lifecycle.
+workflow using the modular workflow graph pattern and manages workflow lifecycle.
 """
 
 import json
@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from langgraph.graph.state import CompiledStateGraph
 from src.config.logging_config import get_structured_logger
 from src.models.workflow_models import WorkflowStage, UserFeedback
 from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
@@ -16,6 +17,7 @@ from src.orchestration.state import GlobalState, create_global_state
 from src.models.cv_models import StructuredCV
 from src.models.cv_models import JobDescriptionData
 from src.services.cv_template_loader_service import CVTemplateLoaderService
+from src.services.session_manager import SessionManager
 
 
 
@@ -26,19 +28,21 @@ class WorkflowManager:
     """Manages CV generation workflows and their lifecycle.
 
     This class provides a high-level interface for creating, executing,
-    and monitoring CV generation workflows using the CVWorkflowGraph.
+    and monitoring CV generation workflows using the modular workflow graph.
     """
 
-    def __init__(self, container):
+    def __init__(self, container, session_manager: Optional[SessionManager] = None):
         """Initialize the WorkflowManager.
 
         Args:
             container: The dependency injection container
+            session_manager: Optional SessionManager for centralized session management
         """
         self.container = container
+        self.cv_template_loader_service = container.cv_template_loader_service()
+        self.session_manager = session_manager or container.session_manager()
         self.logger = logger
         self.sessions_dir = Path("instance/sessions")
-        self._workflow_graphs = {}  # Cache for workflow graphs by session
 
         logger.info("WorkflowManager initialized with DI container")
 
@@ -65,7 +69,7 @@ class WorkflowManager:
             OSError: If there's an error creating the session file
         """
         if session_id is None:
-            session_id = str(uuid.uuid4())
+            session_id = self.session_manager.create_session()
 
         # Check if workflow already exists
         session_file = self.sessions_dir / f"{session_id}.json"
@@ -75,7 +79,7 @@ class WorkflowManager:
         # Load template and create structured CV skeleton
         try:
             template_path = "src/templates/default_cv_template.md"
-            structured_cv = CVTemplateLoaderService.load_from_markdown(template_path)
+            structured_cv = self.cv_template_loader_service.load_from_markdown(template_path)
             # Set the original CV text for reference
             structured_cv.cv_text = cv_text
         except (FileNotFoundError, ValueError) as e:
@@ -165,16 +169,16 @@ class WorkflowManager:
             "Triggering workflow step",
             extra={
                 "session_id": session_id,
-                "trace_id": agent_state.trace_id
+                "trace_id": agent_state.get("trace_id")
             }
         )
 
         try:
             # Get or create workflow graph for this session
-            cv_workflow_graph = self._get_workflow_graph(session_id)
-            
-            # Use the CVWorkflowGraph's trigger_workflow_step method which includes pause mechanism
-            updated_state = await cv_workflow_graph.trigger_workflow_step(agent_state)
+            compiled_graph = self._get_workflow_graph(session_id)
+
+            # Execute workflow using the compiled graph directly
+            updated_state = await compiled_graph.ainvoke(agent_state)
 
             # Save updated state to file
             self._save_state(session_id, updated_state)
@@ -183,15 +187,15 @@ class WorkflowManager:
                 "Workflow step completed",
                 extra={
                     "session_id": session_id,
-                    "trace_id": updated_state.trace_id,
-                    "has_errors": bool(updated_state.error_messages),
-                    "workflow_status": updated_state.workflow_status
+                    "trace_id": updated_state.get("trace_id"),
+                    "has_errors": bool(updated_state.get("error_messages", [])),
+                    "workflow_status": updated_state.get("workflow_status")
                 }
             )
 
             return updated_state
 
-        except (RuntimeError, ValueError, OSError, IOError) as e:
+        except (RuntimeError, ValueError, OSError, IOError, Exception) as e:
             # Add error to agent state and save
             if agent_state.get("error_messages") is None:
                 agent_state["error_messages"] = []
@@ -375,9 +379,6 @@ class WorkflowManager:
             session_file = self.sessions_dir / f"{session_id}.json"
             if session_file.exists():
                 session_file.unlink()
-                # Also remove from workflow graph cache
-                if session_id in self._workflow_graphs:
-                    del self._workflow_graphs[session_id]
                 logger.info(
                     "Cleaned up workflow for session",
                     extra={"session_id": session_id}
@@ -397,22 +398,21 @@ class WorkflowManager:
             return False
 
     def _get_workflow_graph(self, session_id: str):
-        """Get or create a workflow graph for the given session.
+        """Create a compiled workflow graph for the given session.
 
         Args:
             session_id: The session ID
 
         Returns:
-            The workflow graph instance
+            CompiledStateGraph: The compiled workflow graph instance
         """
-        if session_id not in self._workflow_graphs:
-            # Create new workflow graph using DI container
-            self._workflow_graphs[session_id] = create_cv_workflow_graph_with_di(
-                self.container, session_id
-            )
-            logger.debug(
-                "Created new workflow graph for session",
-                extra={"session_id": session_id}
-            )
-        
-        return self._workflow_graphs[session_id]
+        # Create new compiled workflow graph using DI container
+        compiled_graph = create_cv_workflow_graph_with_di(
+            self.container
+        )
+        logger.debug(
+            "Created new compiled workflow graph for session",
+            extra={"session_id": session_id}
+        )
+
+        return compiled_graph

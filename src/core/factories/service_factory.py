@@ -3,47 +3,41 @@
 
 from typing import Any, Optional
 
-import google.generativeai as genai
 from src.models.vector_store_config_interface import VectorStoreConfigInterface
 
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import ServiceInitializationError
 from src.services.llm_api_key_manager import LLMApiKeyManager
 
-from src.services.llm_client import LLMClient
+from src.services.llm.llm_client_interface import LLMClientInterface
+from src.services.llm.gemini_client import GeminiClient
 from src.services.llm_retry_handler import LLMRetryHandler
 from src.services.llm_retry_service import LLMRetryService
 from src.services.llm_service import EnhancedLLMService
 from src.services.progress_tracker import ProgressTracker
-from src.services.rate_limiter import get_rate_limiter
+from src.services.rate_limiter import RateLimiter
 from src.services.vector_store_service import VectorStoreService
 
 logger = get_structured_logger("service_factory")
-
-
-def create_configured_llm_model(api_key: str, model_name: str) -> genai.GenerativeModel:
-    """Create a GenerativeModel with proper API key configuration."""
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(model_name=model_name)
 
 
 class ServiceFactory:
     """Factory for creating service instances with dependency injection."""
 
     @staticmethod
-    def create_llm_client(llm_model: genai.GenerativeModel) -> LLMClient:
+    def create_llm_client(api_key: str, model_name: str) -> LLMClientInterface:
         """Create an LLM client instance."""
-        return LLMClient(llm_model=llm_model)
+        return GeminiClient(api_key=api_key, model_name=model_name)
 
     @staticmethod
-    def create_llm_retry_handler(llm_client: LLMClient) -> LLMRetryHandler:
+    def create_llm_retry_handler(llm_client: LLMClientInterface) -> LLMRetryHandler:
         """Create an LLM retry handler instance."""
         return LLMRetryHandler(llm_client=llm_client)
 
     @staticmethod
     def create_llm_api_key_manager(
         settings: Any,
-        llm_client: LLMClient,
+        llm_client: LLMClientInterface,
         user_api_key: Optional[str] = None
     ) -> LLMApiKeyManager:
         """Create an LLM API key manager instance."""
@@ -73,6 +67,7 @@ class ServiceFactory:
     @staticmethod
     def create_enhanced_llm_service(
         settings: Any,
+        llm_client: LLMClientInterface,
         caching_service: Any,
         api_key_manager: LLMApiKeyManager,
         retry_service: LLMRetryService,
@@ -81,6 +76,7 @@ class ServiceFactory:
         """Create an enhanced LLM service instance."""
         return EnhancedLLMService(
             settings=settings,
+            llm_client=llm_client,
             caching_service=caching_service,
             api_key_manager=api_key_manager,
             retry_service=retry_service,
@@ -95,7 +91,7 @@ class ServiceFactory:
     @staticmethod
     def create_progress_tracker() -> ProgressTracker:
         """Create a progress tracker instance."""
-        return ProgressTracker()
+        return ProgressTracker(logger=logger)
 
 
 
@@ -103,7 +99,7 @@ class ServiceFactory:
     @staticmethod
     def create_llm_api_key_manager_lazy(
         settings: Any,
-        llm_client: LLMClient,
+        llm_client: LLMClientInterface,
         user_api_key: Optional[str] = None
     ) -> LLMApiKeyManager:
         """Create an LLM API key manager with lazy initialization and validation."""
@@ -199,6 +195,7 @@ class ServiceFactory:
     @staticmethod
     def create_enhanced_llm_service_lazy(
         settings: Any,
+        llm_client: LLMClientInterface,
         caching_service: Any,
         api_key_manager: LLMApiKeyManager,
         retry_service: LLMRetryService,
@@ -213,6 +210,12 @@ class ServiceFactory:
                 raise ServiceInitializationError(
                     "enhanced_llm_service",
                     "Settings dependency is None or invalid"
+                )
+
+            if not llm_client:
+                raise ServiceInitializationError(
+                    "enhanced_llm_service",
+                    "LLM client dependency is None or invalid"
                 )
 
             if not caching_service:
@@ -236,6 +239,7 @@ class ServiceFactory:
             # Create the service with validated dependencies
             service = EnhancedLLMService(
                 settings=settings,
+                llm_client=llm_client,
                 caching_service=caching_service,
                 api_key_manager=api_key_manager,
                 retry_service=retry_service,

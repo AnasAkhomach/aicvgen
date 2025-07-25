@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from ..error_handling.exceptions import TemplateFormattingError
+from src.error_handling.exceptions import TemplateFormattingError
 
 logger = logging.getLogger("prompt_utils")
 

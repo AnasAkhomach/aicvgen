@@ -66,12 +66,20 @@ class TestEnhancedLLMService:
         return limiter
 
     @pytest.fixture
+    def mock_llm_client(self):
+        """Create mock LLM client."""
+        client = AsyncMock()
+        client.generate_content = AsyncMock()
+        return client
+
+    @pytest.fixture
     def llm_service(
         self,
         mock_settings,
         mock_caching_service,
         mock_api_key_manager,
         mock_retry_service,
+        mock_llm_client,
     ):
         """Create an EnhancedLLMService instance for testing."""
         return EnhancedLLMService(
@@ -79,6 +87,7 @@ class TestEnhancedLLMService:
             caching_service=mock_caching_service,
             api_key_manager=mock_api_key_manager,
             retry_service=mock_retry_service,
+            llm_client=mock_llm_client,
         )
 
     @pytest.fixture
@@ -115,6 +124,7 @@ class TestEnhancedLLMService:
         mock_api_key_manager,
         mock_retry_service,
         mock_rate_limiter,
+        mock_llm_client,
     ):
         """Test initialization with optional parameters."""
         mock_performance_optimizer = MagicMock()
@@ -125,6 +135,7 @@ class TestEnhancedLLMService:
             caching_service=mock_caching_service,
             api_key_manager=mock_api_key_manager,
             retry_service=mock_retry_service,
+            llm_client=mock_llm_client,
             rate_limiter=mock_rate_limiter,
             performance_optimizer=mock_performance_optimizer,
             async_optimizer=mock_async_optimizer,

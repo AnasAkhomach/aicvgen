@@ -55,7 +55,9 @@ async def formatter_node(state: GlobalState, *, agent: 'FormatterAgent') -> Glob
 
 
 async def error_handler_node(state: GlobalState) -> GlobalState:
-    """Handle errors and provide recovery actions.
+    """Handle errors and provide recovery actions using ErrorRecoveryService.
+    
+    CB-004 Fix: Uses current_content_type dynamically, falls back to QUALIFICATION.
     
     Args:
         state: Current workflow state
@@ -63,47 +65,44 @@ async def error_handler_node(state: GlobalState) -> GlobalState:
     Returns:
         Updated state with error handling
     """
+    from src.services.error_recovery import ErrorRecoveryService
+    from src.models.workflow_models import ContentType
+    
     logger.info("Starting Error Handler node")
     
     try:
         error_messages = state.get("error_messages", [])
-        last_executed_node = state.get("last_executed_node", "UNKNOWN")
         
-        # Log all error messages
-        for error_msg in error_messages:
-            logger.error(f"Workflow error: {error_msg}")
+        # If no error messages, return state unchanged
+        if not error_messages:
+            return state
         
-        # Determine recovery action based on error context
-        recovery_action = "TERMINATE"  # Default action
+        # CB-004 Fix: Use current_content_type, fallback to QUALIFICATION
+        current_content_type = state.get("current_content_type")
+        if current_content_type is None:
+            current_content_type = ContentType.QUALIFICATION
         
-        # Analyze errors for potential recovery
-        if any("timeout" in str(error).lower() for error in error_messages):
-            recovery_action = "RETRY"
-            logger.info("Timeout detected, suggesting retry")
-        elif any("network" in str(error).lower() for error in error_messages):
-            recovery_action = "RETRY"
-            logger.info("Network error detected, suggesting retry")
-        elif any("validation" in str(error).lower() for error in error_messages):
-            recovery_action = "REGENERATE"
-            logger.info("Validation error detected, suggesting regeneration")
+        # Get required parameters for ErrorRecoveryService
+        current_item_id = state.get("current_item_id")
+        trace_id = state.get("trace_id")
         
-        # Prepare error summary for UI
-        error_summary = {
-            "total_errors": len(error_messages),
-            "last_failed_node": last_executed_node,
-            "recovery_suggestion": recovery_action,
-            "error_details": error_messages[-3:] if error_messages else []  # Last 3 errors
-        }
+        # Initialize ErrorRecoveryService and handle error
+        error_service = ErrorRecoveryService()
+        recovery_action = await error_service.handle_error(
+            error_messages[0] if error_messages else "Unknown error",
+            current_item_id,
+            current_content_type
+        )
         
+        # Clear error messages after handling
         updated_state = {
             **state,
-            "workflow_status": "ERROR",
-            "error_summary": error_summary,
-            "recovery_action": recovery_action,
+            "error_messages": [],
+            "recovery_action": recovery_action.strategy.value if recovery_action else "terminate",
             "last_executed_node": "ERROR_HANDLER"
         }
         
-        logger.info(f"Error handling completed. Recovery action: {recovery_action}")
+        logger.info(f"Error handling completed. Recovery action: {recovery_action.strategy.value if recovery_action else 'terminate'}")
         return updated_state
         
     except Exception as exc:

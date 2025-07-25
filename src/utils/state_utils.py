@@ -5,8 +5,8 @@ particularly for creating the initial GlobalState. It is decoupled from Streamli
 session state to be usable in any context (e.g., testing, background workers).
 """
 
-from ..models.cv_models import JobDescriptionData, MetadataModel, StructuredCV
-from ..orchestration.state import GlobalState, create_global_state
+from src.models.cv_models import JobDescriptionData, MetadataModel, StructuredCV
+from src.orchestration.state import GlobalState, create_global_state
 
 
 def create_initial_agent_state(

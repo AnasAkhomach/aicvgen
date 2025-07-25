@@ -30,9 +30,9 @@ def test_parser_agent_dependency_injection():
         mock_vector_store.return_value = mock.Mock()
         mock_template_manager.return_value = mock.Mock()
 
-        # Create agent through container
-        jd_agent = container.job_description_parser_agent()
-        cv_agent = container.user_cv_parser_agent()
+        # Create agent through container with session_id
+        jd_agent = container.job_description_parser_agent(session_id="test_session")
+        cv_agent = container.user_cv_parser_agent(session_id="test_session")
 
         # Verify agent was created
         assert isinstance(jd_agent, JobDescriptionParserAgent)
@@ -47,9 +47,9 @@ def test_container_agent_factory_behavior():
     """Test that agent factories work correctly."""
     container = get_container()
 
-    # Create multiple agents
-    agent1 = container.job_description_parser_agent()
-    agent2 = container.job_description_parser_agent()
+    # Create multiple agents with session_id
+    agent1 = container.job_description_parser_agent(session_id="test_session_1")
+    agent2 = container.job_description_parser_agent(session_id="test_session_2")
 
     # Should be different instances (factory behavior)
     assert agent1 is not agent2

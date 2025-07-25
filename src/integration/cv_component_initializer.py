@@ -10,7 +10,7 @@ from src.core.caching_strategy import get_intelligent_cache_manager
 from src.core.container import get_container
 from src.core.performance_optimizer import PerformanceOptimizer
 from src.integration.config import EnhancedCVConfig
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph
+from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
 
 from src.templates.content_templates import ContentTemplateManager
 from src.utils.security_utils import redact_sensitive_data
@@ -27,7 +27,7 @@ class CVComponentInitializer:
 
         self.template_manager: Optional[ContentTemplateManager] = None
         self.vector_db: Optional[Any] = None  # Use Any for now, refine later
-        self.orchestrator: Optional[CVWorkflowGraph] = None
+        self.orchestrator: Optional[Any] = None  # Workflow graph wrapper
         self.agents: Dict[str, Any] = {}
         self.performance_optimizer: Optional[PerformanceOptimizer] = None
         self.async_optimizer: Optional[AsyncOptimizer] = None
@@ -57,8 +57,9 @@ class CVComponentInitializer:
 
             if self.config.enable_orchestration:
                 container = get_container()
-                container.cv_workflow_graph.override(session_id=self._session_id)
-                self.orchestrator = container.cv_workflow_graph()
+                self.orchestrator = create_cv_workflow_graph_with_di(
+                    container, self._session_id
+                )
                 self.logger.info("Enhanced orchestration components initialized")
 
             if self.config.enable_performance_monitoring:

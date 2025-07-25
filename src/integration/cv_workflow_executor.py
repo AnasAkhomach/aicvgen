@@ -13,14 +13,14 @@ from src.core.caching_strategy import CachePattern, IntelligentCacheManager
 from src.core.performance_optimizer import PerformanceOptimizer
 from src.error_handling.exceptions import AgentExecutionError, WorkflowError
 from src.models.workflow_models import ContentType, WorkflowType
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph
+from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
 from src.orchestration.state import GlobalState, create_agent_state
 from src.services.error_recovery import ErrorRecoveryService, RecoveryStrategy
 
 
 @dataclass
 class WorkflowDependencies:
-    orchestrator: CVWorkflowGraph
+    container: Any  # Dependency injection container
     error_recovery_service: ErrorRecoveryService
     performance_optimizer: Optional[PerformanceOptimizer]
     async_optimizer: Optional[AsyncOptimizer]
@@ -36,7 +36,7 @@ class CVWorkflowExecutor:
         session_id: str,
         enable_error_recovery: bool,
     ):
-        self.orchestrator = dependencies.orchestrator
+        self.container = dependencies.container
         self.error_recovery = dependencies.error_recovery_service
         self.performance_optimizer = dependencies.performance_optimizer
         self.async_optimizer = dependencies.async_optimizer
@@ -44,6 +44,7 @@ class CVWorkflowExecutor:
         self._session_id = session_id
         self.enable_error_recovery = enable_error_recovery
         self.logger = get_structured_logger(__name__)
+        self._orchestrator = None  # Lazy initialization
 
         self._performance_stats = {
             "requests_processed": 0,
@@ -52,6 +53,20 @@ class CVWorkflowExecutor:
             "cache_hits": 0,
             "cache_misses": 0,
         }
+    
+    @property
+    def orchestrator(self):
+        """Lazy initialization of the workflow orchestrator."""
+        if self._orchestrator is None:
+            self._orchestrator = create_cv_workflow_graph_with_di(
+                self.container
+            )
+        return self._orchestrator
+
+    @property
+    def performance_stats(self) -> Dict[str, Any]:
+        """Get current performance statistics."""
+        return self._performance_stats
 
     def _get_performance_context(self):
         """Get performance optimization context."""

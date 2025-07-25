@@ -12,6 +12,7 @@ from src.agents.agent_base import AgentBase
 from src.constants.agent_constants import AgentConstants
 from src.error_handling.exceptions import AgentExecutionError
 from src.models.cv_models import StructuredCV, Item, ItemStatus, ItemType
+from src.utils.node_validation import ensure_pydantic_model
 
 
 
@@ -24,7 +25,7 @@ class KeyQualificationsUpdaterAgent(AgentBase):
     and properly integrates them into the structured CV following the data model patterns.
     """
 
-    def __init__(self, name: str = "KeyQualificationsUpdaterAgent", session_id: str = "default_session"):
+    def __init__(self, session_id: str, name: str = "KeyQualificationsUpdaterAgent"):
         """Initialize the KeyQualificationsUpdaterAgent.
         
         Args:
@@ -52,17 +53,8 @@ class KeyQualificationsUpdaterAgent(AgentBase):
             if field not in kwargs or kwargs[field] is None:
                 raise AgentExecutionError(self.name, f"Missing required input: {field}")
 
-        # Handle structured_cv input - it may come as a dict from extract_agent_inputs
-        structured_cv_value = kwargs["structured_cv"]
-        
-        # If it's a dict, convert it to StructuredCV
-        if isinstance(structured_cv_value, dict):
-            try:
-                kwargs["structured_cv"] = StructuredCV(**structured_cv_value)
-            except Exception as e:
-                raise AgentExecutionError(self.name, f"Failed to convert structured_cv dict to StructuredCV: {e}")
-        elif not isinstance(kwargs["structured_cv"], StructuredCV):
-            raise AgentExecutionError(self.name, f"structured_cv must be a StructuredCV instance, got {type(structured_cv_value)}")
+        # Pydantic validation for structured_cv is now handled by the decorator
+        # At this point, structured_cv has already been converted to StructuredCV by the decorator
             
         # Validate generated_key_qualifications type
         if not isinstance(kwargs["generated_key_qualifications"], list):
@@ -71,6 +63,9 @@ class KeyQualificationsUpdaterAgent(AgentBase):
         if not kwargs["generated_key_qualifications"]:
             raise AgentExecutionError(self.name, "generated_key_qualifications cannot be empty")
 
+    @ensure_pydantic_model(
+        ('structured_cv', StructuredCV),
+    )
     async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the key qualifications update logic.
         

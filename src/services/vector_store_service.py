@@ -5,14 +5,13 @@ from typing import Any, Dict, Optional
 
 import chromadb
 
-from ..config.settings import get_config
-from ..constants.config_constants import ConfigConstants
-from ..error_handling.exceptions import (
+from src.constants.config_constants import ConfigConstants
+from src.error_handling.exceptions import (
     ConfigurationError,
     OperationTimeoutError,
     VectorStoreError,
 )
-from ..models.vector_store_and_session_models import VectorStoreSearchResult
+from src.models.vector_store_and_session_models import VectorStoreSearchResult
 
 logger = logging.getLogger("vector_store_service")
 
@@ -54,21 +53,33 @@ def run_with_timeout(
 
 
 class VectorStoreService:
-    def __init__(self, vector_config):
+    """Vector store service with proper dependency injection.
+    
+    All dependencies are injected through the constructor to follow DI principles.
+    """
+    
+    def __init__(self, vector_config, logger=None):
+        """Initialize VectorStoreService with injected dependencies.
+        
+        Args:
+            vector_config: Vector store configuration object
+            logger: Optional logger instance (defaults to module logger if not provided)
+        """
         self.vector_config = vector_config
+        self.logger = logger or logging.getLogger("vector_store_service")
         self.client = self._connect()
         self.collection = self._get_or_create_collection()
 
     def shutdown(self):
         """Shutdown the vector store service and release resources."""
-        logger.info("Shutting down VectorStoreService.")
+        self.logger.info("Shutting down VectorStoreService.")
         self.client = None
         self.collection = None
-        logger.info("VectorStoreService shutdown complete.")
+        self.logger.info("VectorStoreService shutdown complete.")
 
     def _connect(self):
         try:
-            logger.info(
+            self.logger.info(
                 "Initializing ChromaDB at %s", self.vector_config.persist_directory
             )
 
@@ -83,11 +94,11 @@ class VectorStoreService:
                     path=self.vector_config.persist_directory
                 )
                 # Test the connection with a simple operation
-                logger.info("Testing ChromaDB connection...")
+                self.logger.info("Testing ChromaDB connection...")
                 test_collection = client.get_or_create_collection("test_connection")
                 # Try a simple operation to ensure it's working
                 test_collection.count()
-                logger.info("ChromaDB connection test successful")
+                self.logger.info("ChromaDB connection test successful")
                 return client
 
             try:
@@ -105,7 +116,7 @@ class VectorStoreService:
                     "Try restarting the application or clearing the vector_db directory."
                 ) from e
 
-            logger.info(
+            self.logger.info(
                 "Successfully connected to ChromaDB at %s",
                 self.vector_config.persist_directory,
             )
@@ -122,7 +133,7 @@ class VectorStoreService:
                 f"3. Try clearing the vector_db directory and restart\n"
                 f"4. Check for conflicting processes using the database"
             )
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             raise ConfigurationError(error_msg) from e
 
     def _get_or_create_collection(self, collection_name: str = "cv_content"):
@@ -134,7 +145,7 @@ class VectorStoreService:
             )
             return collection
         except (chromadb.errors.ChromaError, OperationTimeoutError) as e:
-            logger.error(
+            self.logger.error(
                 "Failed to get or create collection '%s': %s", collection_name, e
             )
             raise ConfigurationError(f"Failed to initialize collection: {e}") from e
@@ -172,19 +183,19 @@ class VectorStoreService:
                         f"Persistence verification failed for item {item_id}"
                     )
             except Exception as verify_error:
-                logger.warning(
+                self.logger.warning(
                     "Could not verify persistence for item %s: %s",
                     item_id,
                     verify_error,
                 )
                 # Continue execution as the upsert may have succeeded
 
-            logger.debug(
+            self.logger.debug(
                 f"Successfully persisted item to vector store with ID: {item_id}"
             )
             return item_id
         except (chromadb.errors.ChromaError, TypeError) as e:
-            logger.error("Failed to add item to vector store: %s", e)
+            self.logger.error("Failed to add item to vector store: %s", e)
             raise VectorStoreError("Failed to add item to vector store") from e
 
     def search(self, query: str, k: int = 5) -> list[VectorStoreSearchResult]:
@@ -213,14 +224,14 @@ class VectorStoreService:
                         ),
                     )
                     formatted_results.append(result)
-            logger.debug(
+            self.logger.debug(
                 "Search returned %d results for query: %s...",
                 len(formatted_results),
                 query[:50],
             )
             return formatted_results
         except (chromadb.errors.ChromaError, TypeError) as e:
-            logger.error("Failed to search vector store: %s", e)
+            self.logger.error("Failed to search vector store: %s", e)
             return []
 
     def _generate_id(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> str:
@@ -256,7 +267,7 @@ class VectorStoreService:
             # Verify retrieval
             result = self.collection.get(ids=[test_id])
             if not result["ids"] or result["ids"][0] != test_id:
-                logger.error(
+                self.logger.error(
                     "Persistence integrity check failed: could not retrieve test item"
                 )
                 return False
@@ -264,11 +275,11 @@ class VectorStoreService:
             # Clean up test item
             self.collection.delete(ids=[test_id])
 
-            logger.debug("Persistence integrity verification successful")
+            self.logger.debug("Persistence integrity verification successful")
             return True
 
         except Exception as e:
-            logger.error("Persistence integrity check failed: %s", e)
+            self.logger.error("Persistence integrity check failed: %s", e)
             return False
 
     def batch_add_items(
@@ -310,17 +321,17 @@ class VectorStoreService:
 
                 if not expected_ids.issubset(verified_ids):
                     missing_ids = expected_ids - verified_ids
-                    logger.warning(
+                    self.logger.warning(
                         "Batch persistence verification: missing items %s", missing_ids
                     )
             except Exception as verify_error:
-                logger.warning("Could not verify batch persistence: %s", verify_error)
+                self.logger.warning("Could not verify batch persistence: %s", verify_error)
 
-            logger.debug(f"Successfully batch persisted {len(ids)} items to vector store")
+            self.logger.debug(f"Successfully batch persisted {len(ids)} items to vector store")
             return ids
 
         except (chromadb.errors.ChromaError, TypeError) as e:
-            logger.error("Failed to batch add items to vector store: %s", e)
+            self.logger.error("Failed to batch add items to vector store: %s", e)
             raise VectorStoreError("Failed to batch add items to vector store") from e
 
     async def add_structured_cv(self, structured_cv):
@@ -357,14 +368,14 @@ class VectorStoreService:
             
             if items_data:
                 item_ids = self.batch_add_items(items_data)
-                logger.info(f"Successfully stored {len(item_ids)} CV items in vector store")
+                self.logger.info(f"Successfully stored {len(item_ids)} CV items in vector store")
                 return item_ids
             else:
-                logger.warning("No content found in structured CV to store")
+                self.logger.warning("No content found in structured CV to store")
                 return []
                 
         except Exception as e:
-            logger.error(f"Failed to add structured CV to vector store: {e}")
+            self.logger.error(f"Failed to add structured CV to vector store: {e}")
             raise VectorStoreError(f"Failed to add structured CV to vector store: {e}") from e
 
 

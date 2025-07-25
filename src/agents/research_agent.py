@@ -2,7 +2,6 @@
 This module defines the ResearchAgent, responsible for conducting research on job descriptions and CVs.
 """
 
-import json
 import re
 from typing import Any, Union
 
@@ -24,6 +23,7 @@ from src.constants.agent_constants import AgentConstants
 from src.services.llm_service_interface import LLMServiceInterface
 from src.services.vector_store_service import VectorStoreService
 from src.templates.content_templates import ContentTemplateManager
+from src.utils.json_utils import parse_llm_json_response
 
 logger = get_structured_logger(__name__)
 
@@ -295,72 +295,38 @@ Return only valid JSON.
                 logger.error("Empty or None LLM response received")
                 raise LLMResponseParsingError("Empty or None LLM response received")
 
-            # Try to extract JSON from markdown code blocks first
-            json_code_block_match = re.search(
-                r"```json\s*\n(.*?)\n```", llm_response, re.DOTALL | re.IGNORECASE
-            )
-            if json_code_block_match:
-                json_str = json_code_block_match.group(1).strip()
-                try:
-                    parsed_data = json.loads(json_str)
-                    is_json_response = True
-                    logger.debug("Successfully extracted JSON from markdown code block")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON from code block: {e}")
-                    raise LLMResponseParsingError(
-                        f"Failed to parse JSON from code block: {e}"
-                    ) from e
-            else:
-                # Fallback: Try to extract JSON from the response without code blocks
-                json_match = re.search(r"\{.*\}", llm_response, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                    try:
-                        parsed_data = json.loads(json_str)
-                        is_json_response = True
-                        logger.debug("Successfully extracted JSON from raw response")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse JSON from LLM response: {e}")
-                        # If we found JSON structure but it's malformed, raise error
-                        raise LLMResponseParsingError(
-                            f"Failed to parse LLM response as JSON: {e}"
-                        ) from e
-                else:
-                    # Check if the response looks like it should be JSON but is malformed
-                    if "{" in llm_response or "}" in llm_response:
-                        logger.error(
-                            "Response contains JSON-like structure but is malformed"
-                        )
-                        raise LLMResponseParsingError(
-                            "Failed to parse LLM response as JSON"
-                        )
-
-                    # Check if this looks like a simple invalid response vs structured text
-                    # If it's a short, simple sentence, treat it as invalid JSON
-                    if len(llm_response.strip()) < 50 and not any(
-                        keyword in llm_response.lower()
-                        for keyword in [
-                            "skill",
-                            "experience",
-                            "require",
-                            "python",
-                            "javascript",
-                            "communication",
-                        ]
-                    ):
-                        logger.error(
-                            "Response appears to be invalid JSON rather than structured text"
-                        )
-                        raise LLMResponseParsingError(
-                            "Failed to parse LLM response as JSON"
-                        )
-
-                    # No JSON found, extract from text (fallback for structured text responses)
-                    logger.warning(
-                        "No JSON structure found in LLM response, using text extraction"
+            # Try to parse JSON using the centralized utility function
+            try:
+                parsed_data = parse_llm_json_response(llm_response)
+                is_json_response = True
+                logger.debug("Successfully parsed JSON from LLM response")
+            except LLMResponseParsingError as e:
+                # Check if this looks like a simple invalid response vs structured text
+                # If it's a short, simple sentence, treat it as invalid JSON
+                if len(llm_response.strip()) < 50 and not any(
+                    keyword in llm_response.lower()
+                    for keyword in [
+                        "skill",
+                        "experience",
+                        "require",
+                        "python",
+                        "javascript",
+                        "communication",
+                    ]
+                ):
+                    logger.error(
+                        "Response appears to be invalid JSON rather than structured text"
                     )
-                    parsed_data = self._extract_from_text(llm_response)
-                    is_json_response = False
+                    raise LLMResponseParsingError(
+                        "Failed to parse LLM response as JSON"
+                    ) from e
+
+                # No JSON found, extract from text (fallback for structured text responses)
+                logger.warning(
+                    "No JSON structure found in LLM response, using text extraction"
+                )
+                parsed_data = self._extract_from_text(llm_response)
+                is_json_response = False
 
             # Validate that we have some data
             if not parsed_data or not isinstance(parsed_data, dict):

@@ -1,0 +1,17 @@
+feat(architecture): Complete major architectural refactoring
+
+This commit marks the completion of a significant architectural overhaul to address technical debt and align the project with modern, maintainable best practices for agentic workflows.
+
+The core of this refactoring was to decouple components, enforce a clean separation of concerns, and leverage industry-standard patterns over bespoke implementations.
+
+Key accomplishments include:
+
+- STATE-MGT: Refactored the entire state management system from a monolithic, mutable Pydantic model to a composable, immutable 'TypedDict' architecture. This improves modularity and aligns with LangGraph best practices.
+
+- CV-STRUCT: Decoupled the CV's structure from the agent logic. The system is now template-driven, with a 'CVTemplateLoaderService' creating a CV skeleton from a Markdown file, making the layout flexible and easy to modify without code changes.
+
+- AGENT-REFACTORING: Overhauled all writer agents ('KeyQualifications', 'ProfessionalExperience', 'Projects', 'ExecutiveSummary') to be pure, stateless, and declarative 'gold standard' LCEL components. This removes all business logic from the agents, making them simple, reusable 'brains'.
+
+- DEPENDENCY-INJECTION: Replaced the flawed Service Locator pattern with a true Dependency Injection system. The graph assembly now uses 'functools.partial' to explicitly wire specific agent dependencies into each node, making the system's structure clear and robust.
+
+- NODE-ABSTRACTION: Eliminated repetitive and complex logic from the content generation nodes by creating a generic 'AgentNodeFactory'. This factory abstracts the common pattern of mapping state, calling an agent, and updating state, resulting in incredibly clean and declarative node definitions.

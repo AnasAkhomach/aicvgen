@@ -19,7 +19,11 @@ class TestCVAnalyzerAgentProgressTracking:
     @pytest.fixture
     def cv_analyzer_agent(self, mock_llm_service):
         """Create a CVAnalyzerAgent instance for testing."""
-        return CVAnalyzerAgent(llm_service=mock_llm_service, session_id="test_session")
+        return CVAnalyzerAgent(
+            llm_service=mock_llm_service,
+            settings={},
+            session_id="test_session"
+        )
 
     @pytest.fixture
     def sample_cv_data(self):
@@ -53,7 +57,7 @@ class TestCVAnalyzerAgentProgressTracking:
         }
         
         # Execute the agent using run method
-        result = await cv_analyzer_agent.run(input_data=input_data)
+        result = await cv_analyzer_agent.run(**input_data)
         
         # Debug: Print actual progress calls
         progress_calls = mock_progress_tracker.update_progress.call_args_list
@@ -61,8 +65,8 @@ class TestCVAnalyzerAgentProgressTracking:
         for i, call_args in enumerate(progress_calls):
             print(f"Call {i+1}: {call_args}")
         
-        print(f"\nResult success: {result.success}")
-        print(f"Result: {result}")
+        print(f"\nResult: {result}")
+        print(f"Result type: {type(result)}")
         
         # The agent should make at least the initial progress call from AgentBase.run
         assert mock_progress_tracker.update_progress.call_count >= 1
@@ -71,6 +75,9 @@ class TestCVAnalyzerAgentProgressTracking:
         # If it failed, we still want to verify that progress tracking works
         # The key is that progress calls were made without errors
         assert len(progress_calls) > 0, "No progress calls were made"
+        
+        # Verify result is a dictionary
+        assert isinstance(result, dict), f"Expected dict, got {type(result)}"
 
     @pytest.mark.asyncio
     async def test_progress_tracking_without_tracker(self, cv_analyzer_agent, sample_cv_data, sample_job_description):

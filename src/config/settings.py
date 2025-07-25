@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
+from src.constants.config_constants import ConfigConstants
+from src.utils.import_fallbacks import get_dotenv
 from .shared_configs import PerformanceConfig, DatabaseConfig
-from ..constants.config_constants import ConfigConstants
-from ..utils.import_fallbacks import get_dotenv
 
 # Try to import python-dotenv, but don't fail if it's not available
 # Load environment variables with standardized fallback handling
@@ -86,7 +86,7 @@ class AgentSettings(BaseModel):
     max_bullet_points_per_project: int = ConfigConstants.MAX_BULLET_POINTS_PER_PROJECT
     default_company_name: str = ConfigConstants.DEFAULT_COMPANY_NAME
     default_job_title: str = ConfigConstants.DEFAULT_JOB_TITLE
-    
+
     # System instruction settings for different agent types
     job_description_parser_system_instruction: str = Field(
         default="You are an expert job description parser. Extract key information from job descriptions including requirements, responsibilities, and qualifications.",
@@ -263,7 +263,7 @@ class LangSmithConfig:
         """Validate LangSmith configuration after initialization."""
         if self.tracing_enabled and not self.api_key:
             print("Warning: LangSmith tracing is enabled but no API key is provided")
-        
+
         # Set environment variables for LangChain/LangSmith integration
         if self.tracing_enabled:
             os.environ["LANGCHAIN_TRACING_V2"] = "true"

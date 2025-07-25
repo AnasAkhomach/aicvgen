@@ -1,7 +1,7 @@
 """Unit tests for the async WorkflowManager.
 
 This module contains comprehensive unit tests for the WorkflowManager class,
-focusing on async method testing with proper mocking of CVWorkflowGraph and file system.
+focusing on async method testing with proper mocking of workflow graph and file system.
 """
 
 import pytest
@@ -13,62 +13,65 @@ from pathlib import Path
 from typing import Dict, Any
 
 from src.core.workflow_manager import WorkflowManager
-from src.orchestration.cv_workflow_graph import CVWorkflowGraph
-from src.orchestration.state import AgentState
+from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
+from src.orchestration.state import GlobalState
 from src.models.workflow_models import WorkflowState, WorkflowStage, UserFeedback, UserAction
 from src.models.cv_models import StructuredCV, JobDescriptionData
+from src.agents.agent_base import AgentBase
 
 
 class TestAsyncWorkflowManager:
     """Test class for async WorkflowManager functionality."""
 
     @pytest.fixture
-    def mock_cv_workflow_graph(self):
-        """Create a mock CVWorkflowGraph with async astream method for testing."""
-        mock_graph = MagicMock(spec=CVWorkflowGraph)
-        mock_graph.app = MagicMock()
+    def mock_container(self):
+        """Create mock dependency injection container."""
+        container = MagicMock()
         
-        # Mock ainvoke to return dict (as per actual implementation)
-        async def mock_ainvoke(*args, **kwargs):
-            return {
-                "trace_id": "test-trace",
-                "structured_cv": StructuredCV().model_dump(),
-                "cv_text": "Generated CV text",
-                "session_id": "test-session",
-                "error_messages": []
-            }
+        # Mock agents
+        agent_types = [
+            "job_description_parser_agent",
+            "user_cv_parser_agent", 
+            "research_agent",
+            "cv_analyzer_agent",
+            "key_qualifications_writer_agent",
+            "professional_experience_writer_agent",
+            "projects_writer_agent",
+            "executive_summary_writer_agent",
+            "qa_agent",
+            "formatter_agent",
+        ]
         
-        mock_graph.app.ainvoke = mock_ainvoke
+        for agent_type in agent_types:
+            mock_agent = MagicMock(spec=AgentBase)
+            mock_agent.run_as_node = AsyncMock()
+            container.get.return_value = mock_agent
+            
+        return container
+
+    @pytest.fixture
+    def mock_workflow_wrapper(self, mock_container):
+        """Create a mock CompiledStateGraph."""
+        # Create a mock compiled graph
+        mock_compiled_graph = MagicMock()
         
-        # Mock astream as an async generator as required by the task
-        async def mock_astream(*args, **kwargs):
-            """Mock async generator for astream method."""
-            yield {"test_node": AgentState(
-                structured_cv=StructuredCV(),
-                cv_text="Generated CV text",
-                trace_id="test-trace"
-            )}
-        
-        mock_graph.app.astream = mock_astream
-        
-        # Mock trigger_workflow_step method that WorkflowManager now calls
-        async def mock_trigger_workflow_step(agent_state):
-            """Mock trigger_workflow_step method."""
-            # Return updated agent state with generated CV text
-            updated_state = AgentState(
-                trace_id=agent_state.trace_id,
-                structured_cv=agent_state.structured_cv,
-                cv_text="Generated CV text",
-                session_id=agent_state.session_id,
-                error_messages=agent_state.error_messages
-            )
+        # Mock ainvoke method
+        async def mock_ainvoke(global_state, config=None):
+            """Mock ainvoke method."""
+            # Return updated global state with generated CV text
+            updated_state = global_state.copy()
+            updated_state["cv_text"] = "Generated CV text"
             return updated_state
         
-        mock_graph.trigger_workflow_step = mock_trigger_workflow_step
-        return mock_graph
+        mock_compiled_graph.ainvoke = mock_ainvoke
+        
+        # Mock the create_cv_workflow_graph_with_di function
+        with patch('src.core.workflow_manager.create_cv_workflow_graph_with_di') as mock_create:
+            mock_create.return_value = mock_compiled_graph
+            return mock_compiled_graph
     
     @pytest.fixture
-    def workflow_manager(self, mock_cv_workflow_graph):
+    def workflow_manager(self, mock_container):
         """Create a WorkflowManager instance with mocked dependencies."""
         with patch('src.core.workflow_manager.Path') as mock_path:
             # Mock the sessions directory
@@ -77,22 +80,22 @@ class TestAsyncWorkflowManager:
             mock_sessions_dir.mkdir = MagicMock()
             mock_path.return_value = mock_sessions_dir
             
-            manager = WorkflowManager(cv_workflow_graph=mock_cv_workflow_graph)
+            manager = WorkflowManager(container=mock_container)
             manager.sessions_dir = mock_sessions_dir
             
             yield manager
     
-    def test_initialization(self, mock_cv_workflow_graph):
+    def test_initialization(self, mock_container):
         """Test that WorkflowManager initializes correctly."""
-        manager = WorkflowManager(cv_workflow_graph=mock_cv_workflow_graph)
+        manager = WorkflowManager(container=mock_container)
         
-        assert manager.cv_workflow_graph == mock_cv_workflow_graph
+        assert manager.container == mock_container
         assert manager.sessions_dir.name == "sessions"
         assert manager.logger is not None
     
     @patch('builtins.open', new_callable=mock_open)
     @patch('src.core.workflow_manager.Path')
-    def test_create_new_workflow(self, mock_path, mock_file, mock_cv_workflow_graph):
+    def test_create_new_workflow(self, mock_path, mock_file, mock_container):
         """Test creating a new workflow with file system mocking."""
         # Setup mocks
         mock_sessions_dir = MagicMock()
@@ -104,7 +107,7 @@ class TestAsyncWorkflowManager:
         mock_session_file.exists.return_value = False
         mock_sessions_dir.__truediv__.return_value = mock_session_file
         
-        manager = WorkflowManager(cv_workflow_graph=mock_cv_workflow_graph)
+        manager = WorkflowManager(container=mock_container)
         manager.sessions_dir = mock_sessions_dir
         
         session_id = "test-session-123"
@@ -119,7 +122,7 @@ class TestAsyncWorkflowManager:
     
     @patch('builtins.open', new_callable=mock_open)
     @patch('src.core.workflow_manager.Path')
-    def test_create_duplicate_workflow_raises_error(self, mock_path, mock_file, mock_cv_workflow_graph):
+    def test_create_duplicate_workflow_raises_error(self, mock_path, mock_file, mock_container):
         """Test that creating a workflow with existing ID raises an error."""
         # Setup mocks
         mock_sessions_dir = MagicMock()
@@ -130,7 +133,7 @@ class TestAsyncWorkflowManager:
         mock_session_file.exists.return_value = True  # File already exists
         mock_sessions_dir.__truediv__.return_value = mock_session_file
         
-        manager = WorkflowManager(cv_workflow_graph=mock_cv_workflow_graph)
+        manager = WorkflowManager(container=mock_container)
         manager.sessions_dir = mock_sessions_dir
         
         session_id = "duplicate-session"
@@ -142,76 +145,102 @@ class TestAsyncWorkflowManager:
             manager.create_new_workflow(cv_text, jd_text, session_id)
     
     @pytest.mark.asyncio
-    async def test_trigger_workflow_step_success(self, workflow_manager, mock_cv_workflow_graph):
+    async def test_trigger_workflow_step_success(self, workflow_manager, mock_workflow_wrapper):
         """Test successful async workflow step execution."""
         session_id = "test-session"
-        agent_state = AgentState(
-            trace_id="test-trace",
-            structured_cv=StructuredCV(),
-            cv_text="Test CV content"
-        )
+        global_state = {
+            "trace_id": "test-trace",
+            "structured_cv": StructuredCV().model_dump(),
+            "cv_text": "Test CV content",
+            "session_id": session_id,
+            "error_messages": [],
+            "node_execution_metadata": {},
+            "workflow_status": "PROCESSING",
+            "ui_display_data": {},
+            "automated_mode": False
+        }
         
         # Mock get_workflow_status to return existing workflow
         with patch.object(workflow_manager, 'get_workflow_status') as mock_get_status:
-            mock_get_status.return_value = agent_state
+            mock_get_status.return_value = global_state
             
-            # Mock file operations
-            with patch('builtins.open', mock_open()) as mock_file:
-                # Trigger workflow step
-                result = await workflow_manager.trigger_workflow_step(session_id, agent_state)
+            # Mock the workflow graph creation
+            with patch.object(workflow_manager, '_get_workflow_graph') as mock_get_graph:
+                mock_get_graph.return_value = mock_workflow_wrapper
                 
-                # Verify result is an AgentState with expected properties
-                assert isinstance(result, AgentState)
-                assert result.trace_id == "test-trace"
-                assert result.cv_text == "Generated CV text"
-                mock_file.assert_called()
+                # Mock file operations
+                with patch('builtins.open', mock_open()) as mock_file:
+                    # Trigger workflow step
+                    result = await workflow_manager.trigger_workflow_step(session_id, global_state)
+                    
+                    # Verify result is a dict with expected properties
+                    assert isinstance(result, dict)
+                    assert result["trace_id"] == "test-trace"
+                    assert result["cv_text"] == "Generated CV text"
+                    mock_file.assert_called()
     
     @pytest.mark.asyncio
     async def test_trigger_workflow_step_nonexistent_workflow(self, workflow_manager):
         """Test triggering workflow step for non-existent workflow."""
-        agent_state = AgentState(
-            trace_id="test-trace",
-            structured_cv=StructuredCV(),
-            cv_text="Test CV content"
-        )
+        global_state = {
+            "trace_id": "test-trace",
+            "structured_cv": StructuredCV().model_dump(),
+            "cv_text": "Test CV content",
+            "session_id": "nonexistent",
+            "error_messages": [],
+            "node_execution_metadata": {},
+            "workflow_status": "PROCESSING",
+            "ui_display_data": {},
+            "automated_mode": False
+        }
         
         # Mock get_workflow_status to return None (no workflow found)
         with patch.object(workflow_manager, 'get_workflow_status') as mock_get_status:
             mock_get_status.return_value = None
             
             with pytest.raises(ValueError, match="No active workflow found for session_id: nonexistent"):
-                await workflow_manager.trigger_workflow_step("nonexistent", agent_state)
+                await workflow_manager.trigger_workflow_step("nonexistent", global_state)
     
     @pytest.mark.asyncio
-    async def test_trigger_workflow_step_with_exception(self, workflow_manager, mock_cv_workflow_graph):
+    async def test_trigger_workflow_step_with_exception(self, workflow_manager, mock_workflow_wrapper):
         """Test triggering workflow step with exception handling."""
         session_id = "test-session"
-        agent_state = AgentState(
-            trace_id="test-trace",
-            structured_cv=StructuredCV(),
-            cv_text="Test CV content"
-        )
+        global_state = {
+            "trace_id": "test-trace",
+            "structured_cv": StructuredCV().model_dump(),
+            "cv_text": "Test CV content",
+            "session_id": session_id,
+            "error_messages": [],
+            "node_execution_metadata": {},
+            "workflow_status": "PROCESSING",
+            "ui_display_data": {},
+            "automated_mode": False
+        }
         
         # Mock get_workflow_status to return existing workflow
         with patch.object(workflow_manager, 'get_workflow_status') as mock_get_status:
-            mock_get_status.return_value = agent_state
+            mock_get_status.return_value = global_state
             
             # Create a new mock that raises exception
-            async def failing_trigger_workflow_step(*args, **kwargs):
+            async def failing_ainvoke(*args, **kwargs):
                 raise Exception("Graph execution failed")
             
-            mock_cv_workflow_graph.trigger_workflow_step = failing_trigger_workflow_step
+            mock_workflow_wrapper.ainvoke = failing_ainvoke
             
-            # Mock file operations
-            with patch('builtins.open', mock_open()) as mock_file:
-                # Trigger workflow step should raise RuntimeError
-                with pytest.raises(RuntimeError, match="Workflow execution failed: Graph execution failed"):
-                    await workflow_manager.trigger_workflow_step(session_id, agent_state)
+            # Mock the workflow graph creation
+            with patch.object(workflow_manager, '_get_workflow_graph') as mock_get_graph:
+                mock_get_graph.return_value = mock_workflow_wrapper
                 
-                # Verify file write was attempted (for error state)
-                mock_file.assert_called()
+                # Mock file operations
+                with patch('builtins.open', mock_open()) as mock_file:
+                    # Trigger workflow step should raise RuntimeError
+                    with pytest.raises(RuntimeError, match="Workflow execution failed: Graph execution failed"):
+                        await workflow_manager.trigger_workflow_step(session_id, global_state)
+                    
+                    # Verify file write was attempted (for error state)
+                    mock_file.assert_called()
     
-    @patch('builtins.open', new_callable=mock_open, read_data='{"session_id": "test-session", "cv_text": "Test CV", "structured_cv": {}, "error_messages": [], "trace_id": "test-trace"}')
+    @patch('builtins.open', new_callable=mock_open, read_data='{"session_id": "test-session", "cv_text": "Test CV", "structured_cv": {}, "error_messages": [], "trace_id": "test-trace", "node_execution_metadata": {}, "workflow_status": "PROCESSING", "ui_display_data": {}, "automated_mode": false}')
     @patch('src.core.workflow_manager.Path')
     def test_get_workflow_status_existing(self, mock_path, mock_file, workflow_manager):
         """Test getting status of existing workflow with file system mocking."""
@@ -229,8 +258,8 @@ class TestAsyncWorkflowManager:
         # Get status
         status = workflow_manager.get_workflow_status(session_id)
         
-        assert isinstance(status, AgentState)
-        assert status.session_id == session_id
+        assert isinstance(status, dict)
+        assert status["session_id"] == session_id
         mock_file.assert_called_once()
     
     @patch('builtins.open', side_effect=FileNotFoundError())
@@ -249,7 +278,7 @@ class TestAsyncWorkflowManager:
         result = workflow_manager.get_workflow_status("nonexistent")
         assert result is None
     
-    @patch('builtins.open', new_callable=mock_open, read_data='{"session_id": "test-session", "cv_text": "Test CV", "structured_cv": {}, "error_messages": [], "trace_id": "test-trace"}')
+    @patch('builtins.open', new_callable=mock_open, read_data='{"session_id": "test-session", "cv_text": "Test CV", "structured_cv": {}, "error_messages": [], "trace_id": "test-trace", "node_execution_metadata": {}, "workflow_status": "PROCESSING", "ui_display_data": {}, "automated_mode": false}')
     @patch('src.core.workflow_manager.Path')
     def test_send_feedback_existing_workflow(self, mock_path, mock_file, workflow_manager):
         """Test sending user feedback to existing workflow."""
@@ -305,9 +334,8 @@ class TestAsyncWorkflowManager:
         next_stage = workflow_manager._determine_next_stage(WorkflowStage.COMPLETED)
         assert next_stage is None
     
-    @patch('builtins.open', new_callable=mock_open, read_data='{"session_id": "test-session", "cv_text": "Test CV", "structured_cv": {}, "error_messages": [], "trace_id": "test-trace"}')
     @patch('src.core.workflow_manager.Path')
-    def test_cleanup_workflow_existing(self, mock_path, mock_file, workflow_manager):
+    def test_cleanup_workflow_existing(self, mock_path, workflow_manager):
         """Test cleaning up existing workflow."""
         session_id = "test-session"
         
@@ -346,61 +374,71 @@ class TestAsyncWorkflowManager:
         assert result is False
     
     @pytest.mark.asyncio
-    async def test_astream_method_mocking(self, mock_cv_workflow_graph):
-        """Test that the astream method is properly mocked as an async generator."""
-        # Verify that astream is an async generator
-        astream_result = mock_cv_workflow_graph.app.astream({}, config={})
+    async def test_workflow_wrapper_mocking(self, mock_workflow_wrapper):
+        """Test that the workflow wrapper is properly mocked."""
+        # Test ainvoke method
+        test_state = {
+            "trace_id": "test-trace",
+            "cv_text": "Test CV content"
+        }
         
-        # Test async iteration
-        results = []
-        async for step in astream_result:
-            results.append(step)
+        result = await mock_workflow_wrapper.ainvoke(test_state)
         
-        assert len(results) == 1
-        assert "test_node" in results[0]
-        assert isinstance(results[0]["test_node"], AgentState)
+        assert isinstance(result, dict)
+        assert result["cv_text"] == "Generated CV text"
     
     @pytest.mark.asyncio
-    async def test_multiple_async_operations(self, workflow_manager, mock_cv_workflow_graph):
+    async def test_multiple_async_operations(self, workflow_manager, mock_workflow_wrapper):
         """Test multiple async operations running concurrently."""
         session_ids = ["session-1", "session-2", "session-3"]
-        agent_states = [
-            AgentState(
-                trace_id=f"trace-{i}",
-                structured_cv=StructuredCV(),
-                cv_text=f"Test CV content {i}"
-            )
+        global_states = [
+            {
+                "trace_id": f"trace-{i}",
+                "structured_cv": StructuredCV().model_dump(),
+                "cv_text": f"Test CV content {i}",
+                "session_id": session_ids[i],
+                "error_messages": [],
+                "node_execution_metadata": {},
+                "workflow_status": "PROCESSING",
+                "ui_display_data": {},
+                "automated_mode": False
+            }
             for i in range(3)
         ]
         
-        # Track calls to trigger_workflow_step
+        # Track calls to ainvoke
         call_count = 0
-        original_trigger_workflow_step = mock_cv_workflow_graph.trigger_workflow_step
+        original_ainvoke = mock_workflow_wrapper.ainvoke
         
-        async def counting_trigger_workflow_step(*args, **kwargs):
+        async def counting_ainvoke(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            return await original_trigger_workflow_step(*args, **kwargs)
+            return await original_ainvoke(*args, **kwargs)
         
-        mock_cv_workflow_graph.trigger_workflow_step = counting_trigger_workflow_step
+        mock_workflow_wrapper.ainvoke = counting_ainvoke
         
         # Mock get_workflow_status to return existing workflows
         with patch.object(workflow_manager, 'get_workflow_status') as mock_get_status:
-            mock_get_status.side_effect = agent_states
+            mock_get_status.side_effect = global_states
             
-            # Mock file operations
-            with patch('builtins.open', mock_open()):
-                # Run multiple async operations concurrently
-                tasks = [
-                    workflow_manager.trigger_workflow_step(session_id, state)
-                    for session_id, state in zip(session_ids, agent_states)
-                ]
+            # Mock the workflow graph creation
+            with patch.object(workflow_manager, '_get_workflow_graph') as mock_get_graph:
+                mock_get_graph.return_value = mock_workflow_wrapper
                 
-                results = await asyncio.gather(*tasks)
-                
-                assert len(results) == 3
-                for result in results:
-                    assert isinstance(result, AgentState)
-                
-                # Verify trigger_workflow_step was called for each task
-                assert call_count == 3
+                # Mock file operations
+                with patch('builtins.open', mock_open()):
+                    # Run multiple async operations concurrently
+                    tasks = [
+                        workflow_manager.trigger_workflow_step(session_id, state)
+                        for session_id, state in zip(session_ids, global_states)
+                    ]
+                    
+                    results = await asyncio.gather(*tasks)
+                    
+                    assert len(results) == 3
+                    for result in results:
+                        assert isinstance(result, dict)
+                        assert result["cv_text"] == "Generated CV text"
+                    
+                    # Verify ainvoke was called for each task
+                    assert call_count == 3

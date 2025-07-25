@@ -105,7 +105,6 @@ class TestContainerLazyInitialization:
         assert container.template_manager() is not None
         
         # LLM stack (lazy initialized)
-        assert container.llm_model() is not None
         assert container.llm_client() is not None
         assert container.llm_retry_handler() is not None
         assert container.llm_api_key_manager() is not None
@@ -122,16 +121,16 @@ class TestContainerLazyInitialization:
         container = get_container()
         
         # Create various agents that depend on LLM services
-        cv_analyzer = container.cv_analyzer_agent()
+        cv_analyzer = container.cv_analyzer_agent(session_id="test_session")
         assert cv_analyzer is not None
         
-        key_qualifications_writer = container.key_qualifications_writer_agent()
+        key_qualifications_writer = container.key_qualifications_writer_agent(session_id="test_session")
         assert key_qualifications_writer is not None
         
-        research_agent = container.research_agent()
+        research_agent = container.research_agent(session_id="test_session")
         assert research_agent is not None
         
-        job_parser = container.job_description_parser_agent()
+        job_parser = container.job_description_parser_agent(session_id="test_session")
         assert job_parser is not None
     
     def test_lazy_initialization_performance(self):

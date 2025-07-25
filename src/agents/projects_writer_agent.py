@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from src.models.agent_output_models import ProjectLLMOutput
 from src.config.logging_config import get_logger
+from src.agents.agent_base import AgentBase
 
 logger = get_logger(__name__)
 
@@ -29,7 +30,7 @@ class ProjectsWriterAgentInput(BaseModel):
     format_instructions: str = Field(description="Output format instructions from parser")
 
 
-class ProjectsWriterAgent:
+class ProjectsWriterAgent(AgentBase):
     """Agent for generating tailored project content using Gold Standard LCEL pattern."""
     
     def __init__(
@@ -49,6 +50,14 @@ class ProjectsWriterAgent:
             settings: Settings dictionary
             session_id: Session identifier
         """
+        # Call parent constructor with required parameters
+        super().__init__(
+            name="ProjectsWriterAgent",
+            description="Agent for generating tailored project content using Gold Standard LCEL pattern",
+            session_id=session_id,
+            settings=settings
+        )
+        
         self.llm = llm
         self.prompt = prompt
         self.parser = parser
