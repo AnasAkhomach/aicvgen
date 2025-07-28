@@ -390,10 +390,10 @@ class SessionManager:
 
     def get_current_session_id(self) -> str:
         """Get the current active session ID or create a new one.
-        
+
         This method provides centralized session ID management for the application.
         It returns the most recently created active session or creates a new one if none exists.
-        
+
         Returns:
             str: The current session ID
         """
@@ -402,11 +402,10 @@ class SessionManager:
             if self.active_sessions:
                 # Get the most recently created session
                 latest_session = max(
-                    self.active_sessions.values(),
-                    key=lambda s: s.created_at
+                    self.active_sessions.values(), key=lambda s: s.created_at
                 )
                 return latest_session.session_id
-            
+
             # Create a new session if none exists
             return self.create_session()
 
