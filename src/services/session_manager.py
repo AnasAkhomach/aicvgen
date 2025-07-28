@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.config.settings import AppConfig
@@ -116,7 +117,7 @@ class SessionManager:
         self.settings = settings
 
         # Storage path is now determined by the application configuration.
-        self.storage_path = self.settings.sessions_directory
+        self.storage_path = Path(self.settings.paths.sessions_directory)
         # The startup service ensures this directory exists, but we double-check.
         self.storage_path.mkdir(parents=True, exist_ok=True)
 

@@ -169,4 +169,8 @@ __pycache__/
 .DS_Store
 
 data/job_descriptions
-data/sessions\"DEBUG_TO_BE_DELETED/\" 
+data/sessions\"DEBUG_TO_BE_DELETED/\"
+
+
+# Project documentation
+DOCs/
