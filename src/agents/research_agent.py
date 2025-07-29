@@ -2,14 +2,15 @@
 This module defines the ResearchAgent, responsible for conducting research on job descriptions and CVs.
 """
 
+import json
 import re
 from typing import Any, Union
 
 from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
+from src.constants.agent_constants import AgentConstants
 from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError, LLMResponseParsingError
-
 from src.models.agent_output_models import (
     CompanyInsight,
     IndustryInsight,
@@ -19,7 +20,6 @@ from src.models.agent_output_models import (
     RoleInsight,
 )
 from src.models.data_models import JobDescriptionData
-from src.constants.agent_constants import AgentConstants
 from src.services.llm_service_interface import LLMServiceInterface
 from src.services.vector_store_service import VectorStoreService
 from src.templates.content_templates import ContentTemplateManager
@@ -84,7 +84,9 @@ class ResearchAgent(AgentBase):
             # Validate research findings result
             if not research_findings:
                 logger.error("Research analysis returned None")
-                return {"error_messages": ["Research analysis failed to return any results"]}
+                return {
+                    "error_messages": ["Research analysis failed to return any results"]
+                }
 
             if research_findings.status == ResearchStatus.FAILED:
                 # Research failed but we have error details
@@ -95,7 +97,11 @@ class ResearchAgent(AgentBase):
                     AgentConstants.PROGRESS_COMPLETE,
                     "Research analysis failed but returning error details.",
                 )
-                return {"error_messages": [research_findings.error_message or "Research analysis failed"]}
+                return {
+                    "error_messages": [
+                        research_findings.error_message or "Research analysis failed"
+                    ]
+                }
 
             # Success case
             self.update_progress(
@@ -126,7 +132,9 @@ class ResearchAgent(AgentBase):
                 AgentConstants.PROGRESS_COMPLETE,
                 "Research analysis failed due to validation error.",
             )
-            return {"error_messages": [f"A validation error occurred during research: {e}"]}
+            return {
+                "error_messages": [f"A validation error occurred during research: {e}"]
+            }
 
     async def _perform_research_analysis(
         self, job_desc_data: Union[JobDescriptionData, dict]
@@ -150,8 +158,10 @@ class ResearchAgent(AgentBase):
             # Extract system instruction from settings
             system_instruction = None
             if self.settings and isinstance(self.settings, dict):
-                system_instruction = self.settings.get('research_agent_system_instruction')
-            
+                system_instruction = self.settings.get(
+                    "research_agent_system_instruction"
+                )
+
             llm_response = await self.llm_service.generate_content(
                 prompt=prompt,
                 max_tokens=self.settings.get(
@@ -161,7 +171,7 @@ class ResearchAgent(AgentBase):
                     "temperature_analysis", LLMConstants.TEMPERATURE_BALANCED
                 ),
                 system_instruction=system_instruction,
-                session_id=self.session_id
+                session_id=self.session_id,
             )
 
             # Debug logging: Log the raw LLM response
@@ -289,7 +299,6 @@ Return only valid JSON.
     def _parse_llm_response(self, llm_response: str) -> ResearchFindings:
         """Parse the LLM response and extract research findings."""
         try:
-
             # Validate input
             if not llm_response or not llm_response.strip():
                 logger.error("Empty or None LLM response received")

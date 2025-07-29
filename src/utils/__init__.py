@@ -1,35 +1,52 @@
-"""Utilities module for the aicvgen application."""
+"""Backward compatibility module for utils imports.
 
-from src.error_handling.exceptions import (AicvgenError, ConfigurationError, StateManagerError)
-from src.error_handling.boundaries import StreamlitErrorBoundary
-
-from .decorators import create_async_sync_decorator
-from .latex_utils import escape_latex, recursively_escape_latex
-from .node_validation import validate_node_output
-from .performance import get_performance_monitor, monitor_performance
-from .security_utils import redact_log_message, redact_sensitive_data
-from .state_utils import create_initial_agent_state
-from .streamlit_utils import configure_page
+This module provides backward compatibility for imports that expect
+utils to be at src.utils. All imports are redirected to the new
+location at src.core.utils.
+"""
 
 
-# Lazy import to avoid circular dependency
-def get_error_boundary():
-    """Get StreamlitErrorBoundary with lazy import to avoid circular dependency."""
-    return StreamlitErrorBoundary
+# Lazy imports to avoid circular dependencies
+def _get_core_utils():
+    """Get core utils with lazy import to avoid circular dependencies."""
+    from src.core.utils import (
+        AicvgenError,
+        ConfigurationError,
+        StateManagerError,
+        configure_page,
+        create_async_sync_decorator,
+        create_initial_agent_state,
+        escape_latex,
+        get_error_boundary,
+        get_performance_monitor,
+        monitor_performance,
+        recursively_escape_latex,
+        redact_log_message,
+        redact_sensitive_data,
+        validate_node_output,
+    )
 
-__all__ = [
-    "AicvgenError",
-    "ConfigurationError",
-    "StateManagerError",
-    "redact_sensitive_data",
-    "redact_log_message",
-    "monitor_performance",
-    "get_performance_monitor",
-    "escape_latex",
-    "recursively_escape_latex",
-    "create_async_sync_decorator",
-    "configure_page",
-    "validate_node_output",
-    "create_initial_agent_state",
-    "get_error_boundary",
-]
+    return {
+        "AicvgenError": AicvgenError,
+        "ConfigurationError": ConfigurationError,
+        "StateManagerError": StateManagerError,
+        "redact_sensitive_data": redact_sensitive_data,
+        "redact_log_message": redact_log_message,
+        "monitor_performance": monitor_performance,
+        "get_performance_monitor": get_performance_monitor,
+        "escape_latex": escape_latex,
+        "recursively_escape_latex": recursively_escape_latex,
+        "create_async_sync_decorator": create_async_sync_decorator,
+        "configure_page": configure_page,
+        "validate_node_output": validate_node_output,
+        "create_initial_agent_state": create_initial_agent_state,
+        "get_error_boundary": get_error_boundary,
+    }
+
+
+# Dynamically expose all exports
+_utils = _get_core_utils()
+for name, obj in _utils.items():
+    globals()[name] = obj
+
+__all__ = list(_utils.keys())

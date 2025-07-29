@@ -1,15 +1,21 @@
-### **Work Item ID:** `REM-P3-001`
-**Task Title:** Standardize Test File Naming and Organization
+### **Work Item ID:** `REM-P1-01`
+**Task Title:** `Execute Foundational Directory & Component Restructuring`
 
 **Acceptance Criteria (AC):**
-1. All test files with 'fix' naming pattern are renamed to descriptive names
-2. Test organization follows consistent patterns across the codebase
-3. Test files clearly indicate what functionality they test
-4. No temporary or task-specific test files remain in the codebase
-5. Test documentation is updated to reflect new naming conventions
+1.  The following new directories are created and exist in the `src/` directory:
+    *   `src/core/containers/`
+    *   `src/core/facades/`
+    *   `src/core/managers/`
+    *   `src/core/utils/`
+2.  The following files are moved and renamed to their new locations:
+    *   `src/core/container.py` is now at `src/core/containers/main_container.py`
+    *   `src/core/workflow_manager.py` is now at `src/core/managers/workflow_manager.py`
+    *   `src/services/session_manager.py` is now at `src/core/managers/session_manager.py`
+3.  All files previously in `src/utils/` are now located in `src/core/utils/`.
+4.  The old `src/utils/` directory is deleted.
+5.  The application is in a non-runnable state due to broken imports, which is expected before the next ticket.
 
 **Technical Implementation Notes:**
-- **Rename**: `test_cb008_fix.py` → `test_retry_service_error_propagation.py`
-- **Rename**: `test_nonetype_fix.py` → `test_workflow_graph_null_handling.py`
-- **Rename**: `test_session_id_fix.py` → `test_agent_state_session_validation.py`
-- **Pattern**: `test_{component}_{functionality}.py`
+*   Use standard file system commands (`mkdir`, `mv`) to perform these operations.
+*   This task is purely structural. Do not attempt to fix any broken Python imports.
+*   The goal is to set the stage for the next ticket, which will handle all import-related fixes project-wide.
