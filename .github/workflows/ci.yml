@@ -52,14 +52,17 @@ jobs:
     - name: Run tests
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        PYTHONPATH: ${{ github.workspace }}/src:$PYTHONPATH
+        PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}:$PYTHONPATH
       run: |
+        echo "PYTHONPATH: $PYTHONPATH"
+        python -c "import sys; print('Python path:', sys.path)"
         pytest tests/unit/ -v --tb=short
         pytest tests/integration/ -v --tb=short
 
     - name: Generate coverage report
       env:
-        PYTHONPATH: ${{ github.workspace }}/src:$PYTHONPATH
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}:$PYTHONPATH
       run: |
         pytest --cov=src --cov-report=xml
 
