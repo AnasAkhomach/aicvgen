@@ -47,6 +47,13 @@ pytest
 pytest-asyncio
 pytest-playwright
 playwright
+pytest-cov
+
+# Code quality and formatting
+flake8
+mypy
+black
+pre-commit
 
 # Observability and Monitoring
 python-json-logger
