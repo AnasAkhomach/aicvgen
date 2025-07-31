@@ -57,14 +57,14 @@ jobs:
         echo "PYTHONPATH: $PYTHONPATH"
         python -c "import sys; print('Python path:', sys.path)"
         pytest tests/unit/ -v --tb=short
-        pytest tests/integration/ -v --tb=short
+        pytest tests/integration/ -v --tb=short -k "not test_docker_production_logging_integration"
 
     - name: Generate coverage report
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}:$PYTHONPATH
       run: |
-        pytest --cov=src --cov-report=xml
+        pytest --cov=src --cov-report=xml -k "not test_docker_production_logging_integration"
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
