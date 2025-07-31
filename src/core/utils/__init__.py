@@ -8,6 +8,7 @@ from src.error_handling.exceptions import (
 )
 
 from .decorators import create_async_sync_decorator
+from .import_fallbacks import get_dotenv
 from .latex_utils import escape_latex, recursively_escape_latex
 from .node_validation import validate_node_output
 from .performance import get_performance_monitor, monitor_performance
@@ -37,4 +38,5 @@ __all__ = [
     "validate_node_output",
     "create_initial_agent_state",
     "get_error_boundary",
+    "get_dotenv",
 ]
