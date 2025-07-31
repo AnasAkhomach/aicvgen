@@ -187,6 +187,9 @@ logger.info("Docker integration test completed")
             f.write(test_script)
             test_script_path = f.name
 
+        # Set proper permissions for Docker to read the file
+        os.chmod(test_script_path, 0o644)
+
         try:
             # Build Docker image (skip if build fails - not our focus)
             try:
