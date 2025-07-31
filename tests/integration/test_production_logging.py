@@ -182,14 +182,6 @@ except Exception:
 logger.info("Docker integration test completed")
 """
 
-        # Write test script to a temporary file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(test_script)
-            test_script_path = f.name
-
-        # Set proper permissions for Docker to read the file
-        os.chmod(test_script_path, 0o644)
-
         try:
             # Build Docker image (skip if build fails - not our focus)
             try:
@@ -204,6 +196,12 @@ logger.info("Docker integration test completed")
 
             # Create temporary directory for volume mount
             with tempfile.TemporaryDirectory() as temp_instance_dir:
+                # Write test script directly to the mounted directory
+                test_script_path = Path(temp_instance_dir) / "test_logging.py"
+                test_script_path.write_text(test_script)
+                # Set proper permissions for Docker to read the file
+                test_script_path.chmod(0o644)
+
                 # Run container with our test script
                 result = subprocess.run(
                     [
@@ -212,11 +210,9 @@ logger.info("Docker integration test completed")
                         "--rm",
                         "-v",
                         f"{temp_instance_dir}:/app/instance",
-                        "-v",
-                        f"{test_script_path}:/app/test_logging.py",
                         "aicvgen-test",
                         "python",
-                        "/app/test_logging.py",
+                        "/app/instance/test_logging.py",
                     ],
                     capture_output=True,
                     text=True,
@@ -249,5 +245,5 @@ logger.info("Docker integration test completed")
                 assert "Traceback" in error_log_content
 
         finally:
-            # Cleanup test script
-            os.unlink(test_script_path)
+            # No cleanup needed - test script is in temp directory that gets auto-cleaned
+            pass
