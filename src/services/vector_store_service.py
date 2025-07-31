@@ -54,13 +54,13 @@ def run_with_timeout(
 
 class VectorStoreService:
     """Vector store service with proper dependency injection.
-    
+
     All dependencies are injected through the constructor to follow DI principles.
     """
-    
+
     def __init__(self, vector_config, logger=None):
         """Initialize VectorStoreService with injected dependencies.
-        
+
         Args:
             vector_config: Vector store configuration object
             logger: Optional logger instance (defaults to module logger if not provided)
@@ -80,7 +80,7 @@ class VectorStoreService:
     def _connect(self):
         try:
             self.logger.info(
-                "Initializing ChromaDB at %s", self.vector_config.persist_directory
+                f"Initializing ChromaDB at {self.vector_config.persist_directory}"
             )
 
             # Create directory if it doesn't exist
@@ -117,8 +117,7 @@ class VectorStoreService:
                 ) from e
 
             self.logger.info(
-                "Successfully connected to ChromaDB at %s",
-                self.vector_config.persist_directory,
+                f"Successfully connected to ChromaDB at {self.vector_config.persist_directory}"
             )
             return client
 
@@ -146,7 +145,7 @@ class VectorStoreService:
             return collection
         except (chromadb.errors.ChromaError, OperationTimeoutError) as e:
             self.logger.error(
-                "Failed to get or create collection '%s': %s", collection_name, e
+                f"Failed to get or create collection '{collection_name}': {e}"
             )
             raise ConfigurationError(f"Failed to initialize collection: {e}") from e
 
@@ -184,9 +183,7 @@ class VectorStoreService:
                     )
             except Exception as verify_error:
                 self.logger.warning(
-                    "Could not verify persistence for item %s: %s",
-                    item_id,
-                    verify_error,
+                    f"Could not verify persistence for item {item_id}: {verify_error}"
                 )
                 # Continue execution as the upsert may have succeeded
 
@@ -195,7 +192,7 @@ class VectorStoreService:
             )
             return item_id
         except (chromadb.errors.ChromaError, TypeError) as e:
-            self.logger.error("Failed to add item to vector store: %s", e)
+            self.logger.error(f"Failed to add item to vector store: {e}")
             raise VectorStoreError("Failed to add item to vector store") from e
 
     def search(self, query: str, k: int = 5) -> list[VectorStoreSearchResult]:
@@ -225,29 +222,30 @@ class VectorStoreService:
                     )
                     formatted_results.append(result)
             self.logger.debug(
-                "Search returned %d results for query: %s...",
-                len(formatted_results),
-                query[:50],
+                f"Search returned {len(formatted_results)} results for query: {query[:50]}..."
             )
             return formatted_results
         except (chromadb.errors.ChromaError, TypeError) as e:
-            self.logger.error("Failed to search vector store: %s", e)
+            self.logger.error(f"Failed to search vector store: {e}")
             return []
 
-    def _generate_id(self, content: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    def _generate_id(
+        self, content: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
         """Generate a unique ID for content based on its hash and metadata."""
         # Include metadata context to ensure uniqueness
         id_components = [content]
         if metadata:
             # Add relevant metadata to make ID unique
             for key in sorted(metadata.keys()):
-                if key in ['cv_id', 'section', 'subsection', 'type', 'item_type']:
+                if key in ["cv_id", "section", "subsection", "type", "item_type"]:
                     id_components.append(f"{key}:{metadata[key]}")
-        
+
         # Add timestamp component for additional uniqueness
         import time
+
         id_components.append(str(int(time.time() * 1000000)))
-        
+
         combined_content = "|".join(id_components)
         return hashlib.md5(combined_content.encode("utf-8")).hexdigest()
 
@@ -279,7 +277,7 @@ class VectorStoreService:
             return True
 
         except Exception as e:
-            self.logger.error("Persistence integrity check failed: %s", e)
+            self.logger.error(f"Persistence integrity check failed: {e}")
             return False
 
     def batch_add_items(
@@ -322,31 +320,37 @@ class VectorStoreService:
                 if not expected_ids.issubset(verified_ids):
                     missing_ids = expected_ids - verified_ids
                     self.logger.warning(
-                        "Batch persistence verification: missing items %s", missing_ids
+                        f"Batch persistence verification: missing items {missing_ids}"
                     )
             except Exception as verify_error:
-                self.logger.warning("Could not verify batch persistence: %s", verify_error)
+                self.logger.warning(
+                    f"Could not verify batch persistence: {verify_error}"
+                )
 
-            self.logger.debug(f"Successfully batch persisted {len(ids)} items to vector store")
+            self.logger.debug(
+                f"Successfully batch persisted {len(ids)} items to vector store"
+            )
             return ids
 
         except (chromadb.errors.ChromaError, TypeError) as e:
-            self.logger.error("Failed to batch add items to vector store: %s", e)
+            self.logger.error(f"Failed to batch add items to vector store: {e}")
             raise VectorStoreError("Failed to batch add items to vector store") from e
 
     async def add_structured_cv(self, structured_cv):
         """Add a structured CV to the vector store."""
         try:
             items_data = []
-            
+
             # Add CV summary/overview
-            if hasattr(structured_cv, 'cv_text') and structured_cv.cv_text:
-                items_data.append((
-                    structured_cv,
-                    structured_cv.cv_text,
-                    {"type": "cv_full_text", "cv_id": str(structured_cv.id)}
-                ))
-            
+            if hasattr(structured_cv, "cv_text") and structured_cv.cv_text:
+                items_data.append(
+                    (
+                        structured_cv,
+                        structured_cv.cv_text,
+                        {"type": "cv_full_text", "cv_id": str(structured_cv.id)},
+                    )
+                )
+
             # Add each section's content
             for section in structured_cv.sections:
                 if section.subsections:
@@ -354,32 +358,37 @@ class VectorStoreService:
                         if subsection.items:
                             for item in subsection.items:
                                 if item.content:
-                                    items_data.append((
-                                        item,
-                                        item.content,
-                                        {
-                                            "type": "cv_item",
-                                            "cv_id": str(structured_cv.id),
-                                            "section": section.name,
-                                            "subsection": subsection.name,
-                                            "item_type": str(item.item_type) if hasattr(item, 'item_type') else "unknown"
-                                        }
-                                    ))
-            
+                                    items_data.append(
+                                        (
+                                            item,
+                                            item.content,
+                                            {
+                                                "type": "cv_item",
+                                                "cv_id": str(structured_cv.id),
+                                                "section": section.name,
+                                                "subsection": subsection.name,
+                                                "item_type": str(item.item_type)
+                                                if hasattr(item, "item_type")
+                                                else "unknown",
+                                            },
+                                        )
+                                    )
+
             if items_data:
                 item_ids = self.batch_add_items(items_data)
-                self.logger.info(f"Successfully stored {len(item_ids)} CV items in vector store")
+                self.logger.info(
+                    f"Successfully stored {len(item_ids)} CV items in vector store"
+                )
                 return item_ids
             else:
                 self.logger.warning("No content found in structured CV to store")
                 return []
-                
+
         except Exception as e:
             self.logger.error(f"Failed to add structured CV to vector store: {e}")
-            raise VectorStoreError(f"Failed to add structured CV to vector store: {e}") from e
-
-
-
+            raise VectorStoreError(
+                f"Failed to add structured CV to vector store: {e}"
+            ) from e
 
 
 class MockVectorStoreService:

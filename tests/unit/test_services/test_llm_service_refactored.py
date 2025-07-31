@@ -92,18 +92,18 @@ class TestEnhancedLLMService:
         mock_api_key_manager,
         mock_llm_client,
     ):
-        """Test initialization with optional parameters."""
-        mock_performance_optimizer = MagicMock()
-        mock_async_optimizer = MagicMock()
+        """Test initialization with optional cache parameter."""
+        from langchain_core.caches import InMemoryCache
 
+        cache = InMemoryCache()
         service = EnhancedLLMService(
             settings=mock_settings,
             llm_client=mock_llm_client,
             api_key_manager=mock_api_key_manager,
-            async_optimizer=mock_async_optimizer,
+            cache=cache,
         )
 
-        assert service.async_optimizer is mock_async_optimizer
+        assert service.cache is cache
 
     # Cache initialization tests removed - caching is now handled internally
 

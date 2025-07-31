@@ -79,9 +79,14 @@ class TestStructuredOutput:
             enhancement_suggestions=["Add ML projects"],
         )
 
-        mock_dependencies[
-            "llm_client"
-        ].generate_structured_content.return_value = expected_result
+        # Mock the LangChain structured LLM
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke.return_value = expected_result
+
+        # Mock the get_llm method to return a mock LLM
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+        llm_service.get_llm = MagicMock(return_value=mock_llm)
 
         # Test the method
         result = await llm_service.generate_structured_content(
@@ -98,12 +103,11 @@ class TestStructuredOutput:
         assert result.role_insights.role_title == "Software Engineer"
         assert result.key_terms == ["python", "ai"]
 
-        # Verify the client was called correctly
-        mock_dependencies[
-            "llm_client"
-        ].generate_structured_content.assert_called_once_with(
-            prompt="Test prompt",
-            response_model=ResearchFindings,
+        # Verify the LangChain methods were called correctly
+        llm_service.get_llm.assert_called_once()
+        mock_llm.with_structured_output.assert_called_once_with(ResearchFindings)
+        mock_structured_llm.ainvoke.assert_called_once_with(
+            "Test prompt",
             system_instruction="Test instruction",
         )
 
@@ -112,13 +116,17 @@ class TestStructuredOutput:
         self, llm_service, mock_dependencies
     ):
         """Test error handling in structured content generation."""
-        # Setup mock to raise an exception
-        mock_dependencies[
-            "llm_client"
-        ].generate_structured_content.side_effect = Exception("Test error")
+        # Mock the LangChain structured LLM to raise an exception
+        mock_structured_llm = AsyncMock()
+        mock_structured_llm.ainvoke.side_effect = Exception("Test error")
 
-        # Test that the method raises ValueError
-        with pytest.raises(ValueError, match="Structured content generation failed"):
+        # Mock the get_llm method to return a mock LLM
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = mock_structured_llm
+        llm_service.get_llm = MagicMock(return_value=mock_llm)
+
+        # Test that the method propagates the exception
+        with pytest.raises(Exception, match="Test error"):
             await llm_service.generate_structured_content(
                 prompt="Test prompt", response_model=ResearchFindings
             )

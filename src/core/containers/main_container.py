@@ -28,19 +28,19 @@ from src.agents.user_cv_parser_agent import UserCVParserAgent
 from src.config.logging_config import get_logger, get_structured_logger
 from src.config.settings import get_config
 from src.core.factories import AgentFactory
+from src.core.facades.cv_generation_facade import CvGenerationFacade
+from src.core.facades.cv_template_manager_facade import CVTemplateManagerFacade
+from src.core.facades.cv_vector_store_facade import CVVectorStoreFacade
 from src.core.managers.workflow_manager import WorkflowManager
 from src.services.cv_template_loader_service import CVTemplateLoaderService
 from src.services.error_recovery import ErrorRecoveryService
 from src.services.llm.gemini_client import GeminiClient
 from src.services.llm.llm_client_interface import LLMClientInterface
 from src.services.llm_api_key_manager import LLMApiKeyManager
-from src.services.llm_caching_service import LLMCachingService
 from src.services.llm_cv_parser_service import LLMCVParserService
-from src.services.llm_retry_handler import LLMRetryHandler
-from src.services.llm_retry_service import LLMRetryService
+
 from src.services.llm_service import EnhancedLLMService
 from src.services.progress_tracker import ProgressTracker
-from src.services.rate_limiter import RateLimiter
 from src.services.session_manager import SessionManager
 from src.services.vector_store_service import VectorStoreService
 
@@ -158,24 +158,6 @@ class Container(
         model_name=config.provided.llm_settings.default_model,
     )
 
-    llm_retry_handler = providers.Singleton(  # pylint: disable=c-extension-no-member
-        LLMRetryHandler,
-        llm_client=llm_client,
-    )
-
-    advanced_cache = providers.Singleton(
-        LLMCachingService,
-        max_size=1000,
-        default_ttl_hours=24,
-        persist_file=None,
-    )
-
-    rate_limiter = providers.Singleton(
-        RateLimiter,
-        logger=providers.Callable(get_structured_logger, "rate_limiter"),
-        config=config,
-    )
-
     # Lazy initialization for interdependent services
     llm_api_key_manager = providers.Singleton(
         LLMApiKeyManager,
@@ -184,22 +166,11 @@ class Container(
         user_api_key=providers.Object(None),
     )
 
-    llm_retry_service = providers.Singleton(
-        LLMRetryService,
-        llm_retry_handler=llm_retry_handler,
-        api_key_manager=llm_api_key_manager,
-        rate_limiter=rate_limiter,
-        timeout=config.provided.llm.retry.request_timeout,
-        model_name=config.provided.llm_settings.default_model,
-    )
-
     llm_service = providers.Singleton(  # pylint: disable=c-extension-no-member
         EnhancedLLMService,
         settings=config,
-        caching_service=advanced_cache,
+        llm_client=llm_client,
         api_key_manager=llm_api_key_manager,
-        retry_service=llm_retry_service,
-        rate_limiter=rate_limiter,
     )
 
     vector_store_service = providers.Singleton(  # pylint: disable=c-extension-no-member
@@ -360,6 +331,24 @@ class Container(
     workflow_manager = providers.Singleton(
         WorkflowManager,
         container=providers.Self(),
+    )
+
+    # Facade providers
+    cv_template_manager_facade = providers.Singleton(
+        CVTemplateManagerFacade,
+        template_manager=template_manager,
+    )
+
+    cv_vector_store_facade = providers.Singleton(
+        CVVectorStoreFacade,
+        vector_db=vector_store_service,
+    )
+
+    cv_generation_facade = providers.Singleton(
+        CvGenerationFacade,
+        workflow_manager=workflow_manager,
+        template_facade=cv_template_manager_facade,
+        vector_store_facade=cv_vector_store_facade,
     )
 
 

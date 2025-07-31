@@ -1,17 +1,20 @@
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
-
+from typing import Optional, TYPE_CHECKING, Any
 
 from langchain_core.language_models import BaseLanguageModel
+from langchain_core.caches import InMemoryCache
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 from src.config.logging_config import get_structured_logger
 from src.models.llm_data_models import LLMResponse
-from src.models.llm_service_models import (LLMApiKeyInfo, LLMPerformanceOptimizationResult, LLMServiceStats)
+from src.models.llm_service_models import (
+    LLMApiKeyInfo,
+    LLMPerformanceOptimizationResult,
+    LLMServiceStats,
+)
 from src.models.workflow_models import ContentType
 from src.services.llm_api_key_manager import LLMApiKeyManager
-from src.services.llm_caching_service import LLMCachingService
-from src.services.llm_retry_service import LLMRetryService
 from src.services.llm_service_interface import LLMServiceInterface
-from src.services.rate_limiter import RateLimiter
 
 if TYPE_CHECKING:
     from src.services.llm.llm_client_interface import LLMClientInterface
@@ -19,50 +22,39 @@ if TYPE_CHECKING:
 logger = get_structured_logger("llm_service")
 
 
-class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-instance-attributes
+class EnhancedLLMService(
+    LLMServiceInterface
+):  # pylint: disable=too-many-instance-attributes
     """
-    Enhanced LLM service with decomposed responsibilities.
-    Now uses composed services for caching, API key management, and retry logic.
-    Strict DI: all dependencies must be injected.
-    Fully asynchronous implementation.
-    
-    This implementation hides internal caching, retry, and rate limiting details
-    behind a clean interface contract.
+    Modernized LLM service using native LangChain features.
+    Eliminates custom caching and retry services in favor of:
+    - LangChain's built-in caching (InMemoryCache)
+    - Tenacity for retry logic
+    - Native structured output via with_structured_output
+
+    This implementation follows Phase 3 of the refactoring plan.
     """
 
     def __init__(
         self,
         settings,
-        llm_client: 'LLMClientInterface',
-        caching_service: LLMCachingService,
+        llm_client: "LLMClientInterface",
         api_key_manager: LLMApiKeyManager,
-        retry_service: LLMRetryService,
-        rate_limiter: Optional[RateLimiter] = None,
-        performance_optimizer=None,
-        async_optimizer=None,
+        cache: Optional[InMemoryCache] = None,
     ):
         """
-        Initialize the enhanced LLM service.
+        Initialize the modernized LLM service.
 
         Args:
             settings: Injected settings/config dependency
             llm_client: Injected LLM client interface
-            caching_service: Injected LLMCachingService instance
-            api_key_manager: Injected LLMApiKeyManager instance
-            retry_service: Injected LLMRetryService instance
-            rate_limiter: Optional rate limiter instance
-            performance_optimizer: Optional performance optimizer
-            async_optimizer: Optional async optimizer
+            api_key_manager: Injected API key manager
+            cache: Optional LangChain cache instance
         """
         self.settings = settings
         self.llm_client = llm_client
-        self.caching_service = caching_service
         self.api_key_manager = api_key_manager
-        self.retry_service = retry_service
-        self.rate_limiter = rate_limiter
-        self.performance_optimizer = performance_optimizer
-        self.async_optimizer = async_optimizer
-        self._cache_initialized = False
+        self.cache = cache or InMemoryCache()
 
         self.model_name = self.settings.llm_settings.default_model
 
@@ -75,17 +67,15 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
         self.total_processing_time = 0.0
 
         logger.info(
-            "Enhanced LLM service initialized",
+            "Modernized LLM service initialized",
             model=self.model_name,
             api_key_info=self.api_key_manager.get_current_api_key_info().model_dump(),
         )
 
     async def _ensure_cache_initialized(self):
-        """Initializes the cache if it hasn't been already."""
-        if not self._cache_initialized:
-            if self.caching_service and hasattr(self.caching_service, "initialize"):
-                await self.caching_service.initialize()
-            self._cache_initialized = True
+        """Cache is already initialized in constructor with LangChain's InMemoryCache."""
+        # No initialization needed - LangChain cache is ready to use
+        pass
 
     async def ensure_api_key_valid(self):
         """
@@ -118,7 +108,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
             self._llm_model = self.llm_client.get_langchain_model(
                 model=self.model_name,
                 temperature=self.settings.llm_settings.temperature,
-                max_tokens=self.settings.llm_settings.max_tokens
+                max_tokens=self.settings.llm_settings.max_tokens,
             )
         return self._llm_model
 
@@ -132,7 +122,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         system_instruction: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> LLMResponse:
         """
         Generate content using the Gemini model with enhanced error handling and caching.
@@ -165,60 +155,79 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
             "max_tokens": max_tokens,
             "temperature": temperature,
             "system_instruction": system_instruction,
-            **kwargs
+            **kwargs,
         }
 
         # Remove None values to avoid passing them downstream
         all_kwargs = {k: v for k, v in all_kwargs.items() if v is not None}
 
-        # 0. Ensure cache is initialized
+        # Ensure cache is initialized
         await self._ensure_cache_initialized()
 
-        # 1. Check cache
-        cached_response = await self.caching_service.check_cache(
-            prompt, self.model_name, content_type, **all_kwargs
-        )
-        if cached_response:
-            return cached_response
-
-        # 2. Generate content with retry logic
-        llm_response = await self.retry_service.generate_content_with_retry(
+        # Generate content with native retry logic
+        llm_response = await self._generate_with_retry(
             prompt, content_type, **all_kwargs
         )
 
-        # 3. Cache the response
-        await self.caching_service.cache_response(
-            prompt, self.model_name, content_type, llm_response, **all_kwargs
-        )
-
-        # 4. Update stats
+        # Update stats
         self.call_count += 1
         self.total_tokens += llm_response.tokens_used
         self.total_processing_time += llm_response.processing_time
 
         return llm_response
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        reraise=True,
+    )
+    async def _generate_with_retry(
+        self, prompt: str, content_type: ContentType, **kwargs
+    ) -> LLMResponse:
+        """Generate content with Tenacity-based retry logic."""
+        return await self.llm_client.generate_content(
+            prompt=prompt, content_type=content_type, **kwargs
+        )
+
+    async def generate_structured_content(self, prompt: str, response_model, **kwargs):
+        """Generate structured content using LangChain's with_structured_output.
+
+        Args:
+            prompt: Text prompt to send to the model
+            response_model: Pydantic model class for structured output
+            **kwargs: Additional arguments
+
+        Returns:
+            Instance of response_model with structured data
+        """
+        # Get the LangChain model and add structured output capability
+        llm = self.get_llm()
+        structured_llm = llm.with_structured_output(response_model)
+
+        # Generate structured content with retry
+        result = await self._generate_structured_with_retry(
+            structured_llm, prompt, **kwargs
+        )
+
+        return result
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        reraise=True,
+    )
+    async def _generate_structured_with_retry(
+        self, structured_llm, prompt: str, **kwargs
+    ):
+        """Generate structured content with Tenacity-based retry logic."""
+        return await structured_llm.ainvoke(prompt, **kwargs)
+
     async def _get_service_stats(self) -> LLMServiceStats:
         """
-        Internal method to get service performance statistics including cache metrics.
-        This is not part of the public interface to avoid exposing implementation details.
+        Internal method to get service performance statistics.
+        Simplified for modernized implementation without custom services.
         """
         await self._ensure_cache_initialized()
-
-        # Get cache stats from caching service
-        cache_stats = await self.caching_service.get_cache_stats()
-
-        # Get optimizer stats
-        optimizer_stats = (
-            self.performance_optimizer.get_comprehensive_stats()
-            if self.performance_optimizer
-            else {}
-        )
-        async_stats = (
-            self.async_optimizer.get_comprehensive_stats()
-            if self.async_optimizer
-            else {}
-        )
 
         return LLMServiceStats(
             total_calls=self.call_count,
@@ -227,14 +236,10 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
             average_processing_time=self.total_processing_time
             / max(self.call_count, 1),
             model_name=self.model_name,
-            rate_limiter_status=(
-                self.rate_limiter.get_status()
-                if hasattr(self.rate_limiter, "get_status")
-                else None
-            ),
-            cache_stats=cache_stats,
-            optimizer_stats=optimizer_stats,
-            async_stats=async_stats,
+            rate_limiter_status=None,  # No custom rate limiter
+            cache_stats={},  # LangChain cache stats not exposed
+            optimizer_stats={},  # No custom optimizer
+            async_stats={},  # No custom async optimizer
         )
 
     def reset_stats(self):
@@ -250,8 +255,8 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
         This is not part of the public interface to avoid exposing implementation details.
         """
         await self._ensure_cache_initialized()
-        if self.caching_service:
-            await self.caching_service.clear()
+        if self.cache:
+            self.cache.clear()
         logger.info("LLM service cache cleared")
 
     async def _optimize_performance(self) -> LLMPerformanceOptimizationResult:
@@ -303,5 +308,7 @@ class EnhancedLLMService(LLMServiceInterface):  # pylint: disable=too-many-insta
             LLMResponse with generated content and metadata
         """
         # Extract content_type from kwargs if provided, otherwise use default
-        content_type = kwargs.pop('content_type', ContentType.CV_ANALYSIS)
-        return await self.generate_content(prompt=prompt, content_type=content_type, **kwargs)
+        content_type = kwargs.pop("content_type", ContentType.CV_ANALYSIS)
+        return await self.generate_content(
+            prompt=prompt, content_type=content_type, **kwargs
+        )

@@ -292,3 +292,35 @@ class KeyTerms(BaseModel):
     responsibilities: List[str] = Field(default_factory=list)
     industry_terms: List[str] = Field(default_factory=list)
     company_values: List[str] = Field(default_factory=list)
+
+
+# Structured Output Models for LLM Parsing
+class CVParsingStructuredOutput(BaseModel):
+    """Structured output model for CV parsing using LLM structured output."""
+
+    personal_info: CVParsingPersonalInfo
+    sections: List[CVParsingSection]
+
+
+class JobDescriptionStructuredOutput(BaseModel):
+    """Structured output model for job description parsing using LLM structured output."""
+
+    job_title: Optional[str] = None
+    company_name: Optional[str] = None
+    main_job_description_raw: Optional[str] = None
+    skills: List[str] = Field(default_factory=list)
+    experience_level: Optional[str] = None
+    responsibilities: List[str] = Field(default_factory=list)
+    industry_terms: List[str] = Field(default_factory=list)
+    company_values: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class ResearchAgentStructuredOutput(BaseModel):
+    """Structured output model for research agent analysis."""
+
+    core_technical_skills: List[str] = Field(default_factory=list)
+    soft_skills: List[str] = Field(default_factory=list)
+    key_performance_metrics: List[str] = Field(default_factory=list)
+    project_types: List[str] = Field(default_factory=list)
+    working_environment_characteristics: List[str] = Field(default_factory=list)

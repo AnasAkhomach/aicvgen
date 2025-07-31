@@ -22,10 +22,10 @@ class LLMServiceInterface(ABC):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         system_instruction: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> LLMResponse:
         """Generate content using the LLM.
-        
+
         Args:
             prompt: Text prompt to send to the model
             content_type: Type of content being generated
@@ -36,7 +36,7 @@ class LLMServiceInterface(ABC):
             temperature: Sampling temperature for generation
             system_instruction: System instruction to guide model behavior
             **kwargs: Additional LLM parameters
-            
+
         Returns:
             LLMResponse with generated content and metadata
         """
@@ -45,11 +45,11 @@ class LLMServiceInterface(ABC):
     @abstractmethod
     async def generate(self, prompt: str, **kwargs) -> LLMResponse:
         """Backward-compatible wrapper for generate_content.
-        
+
         Args:
             prompt: Text prompt to send to the model
             **kwargs: Additional arguments
-            
+
         Returns:
             LLMResponse with generated content and metadata
         """
@@ -58,7 +58,7 @@ class LLMServiceInterface(ABC):
     @abstractmethod
     async def validate_api_key(self) -> bool:
         """Validate the current API key.
-        
+
         Returns:
             True if valid, False otherwise
         """
@@ -67,7 +67,7 @@ class LLMServiceInterface(ABC):
     @abstractmethod
     def get_current_api_key_info(self) -> LLMApiKeyInfo:
         """Get information about the currently active API key.
-        
+
         Returns:
             LLMApiKeyInfo with current API key information
         """
@@ -76,8 +76,22 @@ class LLMServiceInterface(ABC):
     @abstractmethod
     async def ensure_api_key_valid(self):
         """Ensure the API key is valid.
-        
+
         Raises:
             ConfigurationError: If API key is invalid
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def generate_structured_content(self, prompt: str, response_model, **kwargs):
+        """Generate structured content using LangChain's with_structured_output.
+
+        Args:
+            prompt: Text prompt to send to the model
+            response_model: Pydantic model class for structured output
+            **kwargs: Additional arguments
+
+        Returns:
+            Instance of response_model with structured data
         """
         raise NotImplementedError

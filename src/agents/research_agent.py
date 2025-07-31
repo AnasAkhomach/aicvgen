@@ -2,7 +2,6 @@
 This module defines the ResearchAgent, responsible for conducting research on job descriptions and CVs.
 """
 
-import json
 import re
 from typing import Any, Union
 
@@ -23,7 +22,7 @@ from src.models.data_models import JobDescriptionData
 from src.services.llm_service_interface import LLMServiceInterface
 from src.services.vector_store_service import VectorStoreService
 from src.templates.content_templates import ContentTemplateManager
-from src.utils.json_utils import parse_llm_json_response
+from src.models.llm_data_models import ResearchAgentStructuredOutput
 
 logger = get_structured_logger(__name__)
 
@@ -162,8 +161,9 @@ class ResearchAgent(AgentBase):
                     "research_agent_system_instruction"
                 )
 
-            llm_response = await self.llm_service.generate_content(
+            llm_response = await self.llm_service.generate_structured_content(
                 prompt=prompt,
+                response_model=ResearchAgentStructuredOutput,
                 max_tokens=self.settings.get(
                     "max_tokens_analysis", LLMConstants.DEFAULT_MAX_TOKENS
                 ),
@@ -174,13 +174,15 @@ class ResearchAgent(AgentBase):
                 session_id=self.session_id,
             )
 
-            # Debug logging: Log the raw LLM response
-            logger.debug(f"RAW LLM RESPONSE:\n{llm_response.content}")
+            # Debug logging: Log the structured response
+            logger.debug(f"STRUCTURED LLM RESPONSE: {llm_response}")
 
             self.update_progress(
-                AgentConstants.PROGRESS_LLM_PARSING, "Parsing LLM response."
+                AgentConstants.PROGRESS_LLM_PARSING, "Processing structured response."
             )
-            parsed_findings = self._parse_llm_response(llm_response.content)
+            parsed_findings = self._create_research_findings_from_structured_output(
+                llm_response
+            )
 
             # Validate the parsed findings
             if not parsed_findings:
@@ -296,105 +298,21 @@ Return only valid JSON.
             company_name = job_desc_data.company_name or "Unknown Company"
             return f"Research insights for {job_title} at {company_name}."
 
-    def _parse_llm_response(self, llm_response: str) -> ResearchFindings:
-        """Parse the LLM response and extract research findings."""
+    def _create_research_findings_from_structured_output(
+        self, structured_output: ResearchAgentStructuredOutput
+    ) -> ResearchFindings:
+        """Create ResearchFindings from structured LLM output."""
         try:
-            # Validate input
-            if not llm_response or not llm_response.strip():
-                logger.error("Empty or None LLM response received")
-                raise LLMResponseParsingError("Empty or None LLM response received")
+            # Extract data from structured output
+            core_technical_skills = structured_output.core_technical_skills
+            soft_skills = structured_output.soft_skills
+            key_performance_metrics = structured_output.key_performance_metrics
+            project_types = structured_output.project_types
+            working_environment = structured_output.working_environment_characteristics
 
-            # Try to parse JSON using the centralized utility function
-            try:
-                parsed_data = parse_llm_json_response(llm_response)
-                is_json_response = True
-                logger.debug("Successfully parsed JSON from LLM response")
-            except LLMResponseParsingError as e:
-                # Check if this looks like a simple invalid response vs structured text
-                # If it's a short, simple sentence, treat it as invalid JSON
-                if len(llm_response.strip()) < 50 and not any(
-                    keyword in llm_response.lower()
-                    for keyword in [
-                        "skill",
-                        "experience",
-                        "require",
-                        "python",
-                        "javascript",
-                        "communication",
-                    ]
-                ):
-                    logger.error(
-                        "Response appears to be invalid JSON rather than structured text"
-                    )
-                    raise LLMResponseParsingError(
-                        "Failed to parse LLM response as JSON"
-                    ) from e
-
-                # No JSON found, extract from text (fallback for structured text responses)
-                logger.warning(
-                    "No JSON structure found in LLM response, using text extraction"
-                )
-                parsed_data = self._extract_from_text(llm_response)
-                is_json_response = False
-
-            # Validate that we have some data
-            if not parsed_data or not isinstance(parsed_data, dict):
-                logger.error("Failed to extract any valid data from LLM response")
-                raise LLMResponseParsingError(
-                    "Could not extract valid data structure from LLM response"
-                )
-
-            # Extract core data with defaults
-            core_technical_skills = parsed_data.get("core_technical_skills", [])
-            soft_skills = parsed_data.get("soft_skills", [])
-            key_performance_metrics = parsed_data.get("key_performance_metrics", [])
-            project_types = parsed_data.get("project_types", [])
-            working_environment = parsed_data.get(
-                "working_environment_characteristics", []
-            )
-
-            # Check if this was a fallback to text extraction (no JSON found)
-            is_text_fallback = not is_json_response
-
-            # Validate that we have meaningful data for JSON responses
-            if not is_text_fallback:
-                # For JSON responses, we need at least 3 out of 5 main fields to be present
-                present_fields = sum(
-                    1
-                    for field in [
-                        core_technical_skills,
-                        soft_skills,
-                        key_performance_metrics,
-                        project_types,
-                        working_environment,
-                    ]
-                    if field
-                )
-                if present_fields < 3:
-                    logger.error(
-                        f"JSON response missing too many required fields (only {present_fields}/5 present)"
-                    )
-                    raise LLMResponseParsingError(
-                        "Failed to extract meaningful data from LLM response"
-                    )
-
-            # For text fallback, allow minimal data
-            if is_text_fallback and not any(
-                [
-                    core_technical_skills,
-                    soft_skills,
-                    key_performance_metrics,
-                    project_types,
-                    working_environment,
-                ]
-            ):
-                logger.warning(
-                    "No meaningful data extracted from text fallback, using minimal defaults"
-                )
-
-            # Create RoleInsight with extracted data
+            # Create role insight with structured data
             role_insight = RoleInsight(
-                role_title="Software Engineer",  # Default for now, can be enhanced
+                role_title="Software Engineer",  # Default, could be enhanced
                 required_skills=(
                     core_technical_skills[:10]
                     if core_technical_skills
@@ -416,7 +334,7 @@ Return only valid JSON.
                     "Principal Engineer",
                 ],
                 salary_range="$70,000 - $120,000",
-                confidence_score=0.85,
+                confidence_score=0.90,  # Higher confidence with structured output
             )
 
             # Create company insight with defaults
@@ -430,7 +348,7 @@ Return only valid JSON.
                     else ["Innovation", "Collaboration"]
                 ),
                 benefits=["Health Insurance", "401k", "Professional Development"],
-                confidence_score=0.75,
+                confidence_score=0.85,
             )
 
             # Create industry insight
@@ -444,34 +362,24 @@ Return only valid JSON.
                 ),
                 growth_areas=["Cloud Computing", "Machine Learning"],
                 challenges=["Talent Shortage", "Rapid Technology Changes"],
-                confidence_score=0.80,
-            )
-
-            # Determine status based on whether we used text fallback
-            status = (
-                ResearchStatus.PARTIAL if is_text_fallback else ResearchStatus.SUCCESS
+                confidence_score=0.85,
             )
 
             return ResearchFindings(
-                status=status,
+                status=ResearchStatus.SUCCESS,
                 role_insights=role_insight,
                 company_insights=company_insight,
                 industry_insights=industry_insight,
             )
 
-        except LLMResponseParsingError:
-            # Re-raise our custom parsing errors
-            raise
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            logger.error(f"Failed to parse LLM response: {e}")
-            raise LLMResponseParsingError(
-                f"Could not parse research findings: {e}"
-            ) from e
         except (AttributeError, TypeError) as e:
-            logger.error(f"Unexpected error parsing LLM response: {e}")
-            raise LLMResponseParsingError(
-                f"Unexpected error during parsing: {e}"
-            ) from e
+            logger.error(
+                f"Failed to create research findings from structured output: {e}"
+            )
+            return ResearchFindings(
+                status=ResearchStatus.FAILED,
+                error_message=f"Failed to process structured output: {e}",
+            )
 
     def _extract_from_text(self, text: str) -> dict:
         """Extract structured data from unstructured text response."""

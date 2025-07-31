@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
 
 import logging
-from src.models.progress_models import (ProgressEvent, ProgressEventType, ProgressMetrics)
+from src.models.progress_models import ProgressEvent, ProgressEventType, ProgressMetrics
 from src.models.workflow_models import ContentType
 from src.orchestration.state import GlobalState
 from src.constants.config_constants import ConfigConstants
@@ -90,7 +90,9 @@ class SessionTracker:
 
     def get_progress_summary(self) -> Dict[str, Any]:
         """Get a comprehensive progress summary for this session."""
-        recent_events = self.get_events(limit=ConfigConstants.DEFAULT_RECENT_EVENTS_LIMIT)
+        recent_events = self.get_events(
+            limit=ConfigConstants.DEFAULT_RECENT_EVENTS_LIMIT
+        )
 
         return {
             "metrics": self.metrics.to_dict(),
@@ -113,7 +115,7 @@ class ProgressTracker:
 
     def __init__(self, logger: logging.Logger):
         """Initialize ProgressTracker with injected dependencies.
-        
+
         Args:
             logger: Logger instance for tracking operations.
         """

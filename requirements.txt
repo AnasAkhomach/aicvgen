@@ -62,6 +62,7 @@ dependency-injector
 beautifulsoup4
 docker
 flake8
+mypy
 pylint
 black
 psutil
