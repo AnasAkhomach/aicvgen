@@ -15,6 +15,7 @@ scikit-learn
 faiss-cpu
 langgraph
 langchain-core
+langchain-community
 langchain-google-genai
 langsmith
 

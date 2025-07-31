@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.llm_data_models import BasicCVInfo
@@ -17,52 +17,56 @@ from src.models.llm_data_models import BasicCVInfo
 
 class ExecutiveSummaryLLMOutput(BaseModel):
     """Pydantic model for structured LLM output of executive summary."""
-    
+
     executive_summary: str = Field(
         description="Generated executive summary content for the CV",
         min_length=100,
-        max_length=2000
+        max_length=2000,
     )
-    
-    @field_validator('executive_summary')
+
+    @field_validator("executive_summary")
     @classmethod
     def validate_executive_summary(cls, v):
         """Validate that executive summary content is meaningful."""
         if not v or not v.strip():
             raise ValueError("Executive summary content cannot be empty")
         if len(v.strip()) < 100:
-            raise ValueError("Executive summary content must be at least 100 characters long")
+            raise ValueError(
+                "Executive summary content must be at least 100 characters long"
+            )
         if len(v.strip()) > 2000:
-            raise ValueError("Executive summary content must not exceed 2000 characters")
+            raise ValueError(
+                "Executive summary content must not exceed 2000 characters"
+            )
         return v.strip()
 
 
 class KeyQualificationsLLMOutput(BaseModel):
     """Pydantic model for structured LLM output of key qualifications."""
-    
+
     qualifications: List[str] = Field(
         description="List of key qualifications tailored to the job description",
-        min_items=3,
-        max_items=8
+        min_length=3,
+        max_length=8,
     )
-    
-    @field_validator('qualifications')
+
+    @field_validator("qualifications")
     @classmethod
     def validate_qualifications(cls, v):
         """Validate that qualifications are not empty and properly formatted."""
         if not v:
             raise ValueError("At least one qualification must be provided")
-        
+
         cleaned_qualifications = []
         for qual in v:
             # Clean up common prefixes and ensure proper formatting
             cleaned = qual.strip().lstrip("- •*").strip()
             if cleaned and len(cleaned) > 5:  # Minimum meaningful length
                 cleaned_qualifications.append(cleaned)
-        
+
         if not cleaned_qualifications:
             raise ValueError("No valid qualifications found after cleaning")
-            
+
         return cleaned_qualifications
 
 
@@ -81,48 +85,49 @@ class ProfessionalExperienceLLMOutput(BaseModel):
         if not v or not v.strip():
             raise ValueError("Professional experience content cannot be empty")
         if len(v.strip()) < 50:
-            raise ValueError("Professional experience content must be at least 50 characters long")
+            raise ValueError(
+                "Professional experience content must be at least 50 characters long"
+            )
         return v.strip()
 
 
 class ProjectLLMOutput(BaseModel):
     """Pydantic model for structured LLM output of project content."""
-    
+
     project_description: Optional[str] = Field(
-        default=None,
-        description="A brief description of the project"
+        default=None, description="A brief description of the project"
     )
     technologies_used: List[str] = Field(
         default_factory=list,
-        description="List of technologies and tools used in the project"
+        description="List of technologies and tools used in the project",
     )
     achievements: List[str] = Field(
         default_factory=list,
-        description="List of key achievements and outcomes from the project"
+        description="List of key achievements and outcomes from the project",
     )
     bullet_points: List[str] = Field(
         description="A list of 3-5 generated project bullet points",
-        min_items=1,
-        max_items=8
+        min_length=1,
+        max_length=8,
     )
-    
-    @field_validator('bullet_points')
+
+    @field_validator("bullet_points")
     @classmethod
     def validate_bullet_points(cls, v):
         """Validate that bullet points are not empty and properly formatted."""
         if not v:
             raise ValueError("At least one bullet point must be provided")
-        
+
         cleaned_bullets = []
         for bullet in v:
             # Clean up common prefixes and ensure proper formatting
             cleaned = bullet.strip().lstrip("- •*").strip()
             if cleaned and len(cleaned) > 10:  # Minimum meaningful length
                 cleaned_bullets.append(cleaned)
-        
+
         if not cleaned_bullets:
             raise ValueError("No valid bullet points found after cleaning")
-            
+
         return cleaned_bullets
 
 
@@ -133,21 +138,18 @@ class KeyQualificationsAgentOutput(BaseModel):
         description="The full CV data structure with the key qualifications section updated."
     )
     generated_qualifications: List[str] = Field(
-        default_factory=list,
-        description="The newly generated key qualifications."
+        default_factory=list, description="The newly generated key qualifications."
     )
     qualification_count: int = Field(
-        default=0,
-        description="Number of qualifications generated."
+        default=0, description="Number of qualifications generated."
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -172,13 +174,12 @@ class ProfessionalExperienceWriterOutput(BaseModel):
         default_factory=dict, description="Additional metadata about the generation"
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -200,13 +201,12 @@ class ParserAgentOutput(BaseModel):
         default=None, description="Parsed CV data structure"
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -227,13 +227,12 @@ class EnhancedContentWriterOutput(BaseModel):
     item_id: str = Field(description="The ID of the item that was enhanced.")
     generated_content: str = Field(description="The newly generated content.")
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -263,13 +262,12 @@ class CleaningAgentOutput(BaseModel):
         description="The type of output that was cleaned (e.g., 'skills_list').",
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -292,13 +290,12 @@ class CVAnalysisResult(BaseModel):
     match_score: float = 0.0
     analysis_timestamp: Optional[str] = None
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -326,13 +323,12 @@ class CVAnalyzerAgentOutput(BaseModel):
         default=None, ge=0.0, le=1.0, description="CV-job compatibility score"
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -352,13 +348,12 @@ class ItemQualityResultModel(BaseModel):
     issues: List[str]
     suggestions: Optional[List[str]] = None
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -378,13 +373,12 @@ class SectionQualityResultModel(BaseModel):
     issues: List[str]
     item_checks: Optional[List[ItemQualityResultModel]] = Field(default_factory=list)
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -403,13 +397,12 @@ class OverallQualityCheckResultModel(BaseModel):
     passed: bool
     details: Optional[str] = None
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -434,13 +427,12 @@ class QualityAssuranceAgentOutput(BaseModel):
         default_factory=list, description="Suggestions for improving the CV"
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -457,13 +449,12 @@ class FormatterAgentOutput(BaseModel):
 
     output_path: str = Field(description="The absolute path to the generated CV file.")
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -496,13 +487,12 @@ class CompanyInsight(BaseModel):
     key_values: List[str] = Field(default_factory=list)
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -524,13 +514,12 @@ class IndustryInsight(BaseModel):
     challenges: List[str] = Field(default_factory=list)
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -553,13 +542,12 @@ class RoleInsight(BaseModel):
     salary_range: Optional[str] = None
     confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -579,13 +567,12 @@ class ResearchMetadataModel(BaseModel):
     notes: Optional[str] = None
     extra: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -636,9 +623,9 @@ class ResearchFindings(BaseModel):
             f"metadata must be a dict or ResearchMetadataModel instance, got {type(v)}"
         )
 
-    class Config:
-        arbitrary_types_allowed = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True, json_encoders={datetime: lambda v: v.isoformat()}
+    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for backward compatibility."""
@@ -676,13 +663,12 @@ class ResearchAgentOutput(BaseModel):
         description="Confidence level of research findings",
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -715,19 +701,21 @@ class ProfessionalExperienceUpdaterAgentOutput(BaseModel):
         description="The structured CV with updated professional experience section"
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ProfessionalExperienceUpdaterAgentOutput":
+    def from_dict(
+        cls, data: Dict[str, Any]
+    ) -> "ProfessionalExperienceUpdaterAgentOutput":
         """Create from dictionary for deserialization."""
         return cls(**data)
 
@@ -739,12 +727,12 @@ class ProjectsUpdaterAgentOutput(BaseModel):
         description="The structured CV with updated projects section"
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -763,12 +751,12 @@ class ExecutiveSummaryUpdaterAgentOutput(BaseModel):
         description="The structured CV with updated executive summary section"
     )
 
-    class Config:
-        """Pydantic configuration for proper JSON serialization."""
-        arbitrary_types_allowed = True
-        json_encoders = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
