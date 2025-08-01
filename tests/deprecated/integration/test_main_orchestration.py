@@ -23,8 +23,8 @@ from src.models.cv_models import (
 )
 from src.models.workflow_models import ContentType, UserAction, UserFeedback
 from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
-from src.orchestration.state import AgentState
-from src.ui.ui_manager import UIManager
+from src.orchestration.state import GlobalState as AgentState
+from src.frontend.ui_manager import UIManager
 
 
 class TestMainOrchestration:
@@ -95,8 +95,10 @@ class TestMainOrchestration:
 
         # Assert
         mock_init_app.assert_called_once_with(mock_state_manager)
+        # Convert errors list to a single error message string
+        expected_error_message = "\n".join(mock_startup_result.errors)
         mock_ui_manager.show_startup_error.assert_called_once_with(
-            mock_startup_result.errors, mock_startup_result.services
+            expected_error_message
         )
         mock_st.stop.assert_called()
 
@@ -389,17 +391,17 @@ class TestStateManagerUIManagerIntegration:
     """Test integration between StateManager and UIManager."""
 
     @patch("streamlit.session_state", new_callable=lambda: {})
-    @patch("src.ui.ui_manager.st")
+    @patch("src.frontend.ui_manager.st")
     def test_state_manager_ui_manager_integration(self, mock_st, mock_session_state):
         """Test that StateManager and UIManager work together correctly."""
         # Arrange
         state_manager = StateManager()
 
         # Mock UI components to avoid import issues
-        with patch("src.ui.ui_manager.display_sidebar"), patch(
-            "src.ui.ui_manager.display_input_form"
-        ), patch("src.ui.ui_manager.display_review_and_edit_tab"), patch(
-            "src.ui.ui_manager.display_export_tab"
+        with patch("src.frontend.ui_components.display_sidebar"), patch(
+            "src.frontend.ui_components.display_input_form"
+        ), patch("src.frontend.ui_components.display_review_and_edit_tab"), patch(
+            "src.frontend.ui_components.display_export_tab"
         ):
             ui_manager = UIManager(state_manager)
 
@@ -417,7 +419,7 @@ class TestStateManagerUIManagerIntegration:
             assert state_manager.is_processing is True
 
     @patch("streamlit.session_state", new_callable=lambda: {})
-    @patch("src.ui.ui_manager.st")
+    @patch("src.frontend.ui_manager.st")
     def test_state_manager_ui_manager_error_handling_integration(
         self, mock_st, mock_session_state
     ):
@@ -425,10 +427,10 @@ class TestStateManagerUIManagerIntegration:
         # Arrange
         state_manager = StateManager()
 
-        with patch("src.ui.ui_manager.display_sidebar"), patch(
-            "src.ui.ui_manager.display_input_form"
-        ), patch("src.ui.ui_manager.display_review_and_edit_tab"), patch(
-            "src.ui.ui_manager.display_export_tab"
+        with patch("src.frontend.ui_components.display_sidebar"), patch(
+            "src.frontend.ui_components.display_input_form"
+        ), patch("src.frontend.ui_components.display_review_and_edit_tab"), patch(
+            "src.frontend.ui_components.display_export_tab"
         ):
             ui_manager = UIManager(state_manager)
 
@@ -447,16 +449,16 @@ class TestStateManagerUIManagerIntegration:
             assert state_manager.just_finished is False  # Should be reset
 
     @patch("streamlit.session_state", new_callable=lambda: {})
-    @patch("src.ui.ui_manager.st")
+    @patch("src.frontend.ui_manager.st")
     def test_state_persistence_across_ui_operations(self, mock_st, mock_session_state):
         """Test that state persists correctly across UI operations."""
         # Arrange
         state_manager = StateManager()
 
-        with patch("src.ui.ui_manager.display_sidebar"), patch(
-            "src.ui.ui_manager.display_input_form"
-        ), patch("src.ui.ui_manager.display_review_and_edit_tab"), patch(
-            "src.ui.ui_manager.display_export_tab"
+        with patch("src.frontend.ui_components.display_sidebar"), patch(
+            "src.frontend.ui_components.display_input_form"
+        ), patch("src.frontend.ui_components.display_review_and_edit_tab"), patch(
+            "src.frontend.ui_components.display_export_tab"
         ):
             ui_manager = UIManager(state_manager)
 

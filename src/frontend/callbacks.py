@@ -9,7 +9,8 @@ from src.core.application_startup import get_application_startup
 from src.core.container import get_container
 from src.services.session_manager import SessionManager
 from src.error_handling.exceptions import ConfigurationError, AgentExecutionError
-from src.frontend.workflow_controller import WorkflowController
+
+# Removed UIManager import to avoid circular dependency
 from src.integration.enhanced_cv_system import get_enhanced_cv_integration
 from src.services.llm_service import EnhancedLLMService
 from src.utils.state_utils import create_initial_agent_state
@@ -45,58 +46,78 @@ def get_enhanced_cv_integration_instance():
     return st.session_state.cv_integration
 
 
-def _get_or_create_workflow_controller() -> WorkflowController:
+def _get_or_create_ui_manager():
     """
-    Get or create the WorkflowController instance from session state.
+    Get or create the UIManager instance from session state.
 
     Returns:
-        WorkflowController: The singleton WorkflowController instance
+        UIManager: The UIManager instance
     """
-    if "workflow_controller" not in st.session_state:
-        # Get the workflow manager from the container
+    if "ui_manager" not in st.session_state:
+        from src.core.state_manager import StateManager
+        from src.frontend.ui_manager import UIManager
+
+        # Create state manager
+        state_manager = StateManager()
+
+        # Create UI manager
+        ui_manager = UIManager(state_manager)
+
+        # Get facade from container and initialize it
         container = get_container()
-        workflow_manager = container.workflow_manager()
+        facade = container.cv_generation_facade()
+        ui_manager.initialize_facade(facade)
 
-        # Create and store the WorkflowController
-        st.session_state.workflow_controller = WorkflowController(workflow_manager)
-        logger.info("Created new WorkflowController instance")
+        st.session_state.ui_manager = ui_manager
+        logger.info("Created new UIManager instance with initialized facade")
 
-    return st.session_state.workflow_controller
+    return st.session_state.ui_manager
+
 
 def start_cv_generation():
     """
     Initializes state from UI inputs and starts the CV generation workflow
-    using WorkflowController.
+    using streaming with StreamlitCallbackHandler.
     """
     job_desc_raw = st.session_state.get("job_description_input", "")
     cv_text = st.session_state.get("cv_text_input", "")
     start_from_scratch = st.session_state.get("start_from_scratch_input", False)
 
-    # Get WorkflowController
-    workflow_controller = _get_or_create_workflow_controller()
+    # Get UIManager
+    ui_manager = _get_or_create_ui_manager()
 
-    # Create new workflow and get session_id
-    container = get_container()
-    workflow_manager = container.workflow_manager()
-    session_id = workflow_manager.create_new_workflow(
-        cv_text=cv_text, jd_text=job_desc_raw
-    )
+    # Create status container for streaming updates
+    status_container = st.status("Starting CV Generation...", expanded=True)
 
-    # Store session_id in session state
-    st.session_state.workflow_session_id = session_id
+    with status_container:
+        # Import StreamlitCallbackHandler
+        from src.frontend.streamlit_callback import StreamlitCallbackHandler
 
-    # Create initial agent state
-    initial_state = create_initial_agent_state(
-        job_description_raw=job_desc_raw,
-        cv_text=cv_text,
-        start_from_scratch=start_from_scratch
-    )
+        # Create callback handler for streaming updates
+        st_callback = StreamlitCallbackHandler(st.container())
 
-    # Store initial state in session state
-    st.session_state.agent_state = initial_state
+        try:
+            # Stream CV generation workflow
+            async def run_streaming():
+                final_state = None
+                async for state_update in ui_manager.stream_cv_generation(
+                    cv_text=cv_text,
+                    job_description=job_desc_raw,
+                    callback_handler=st_callback,
+                ):
+                    final_state = state_update
+                return final_state
 
-    # Start workflow execution using WorkflowController
-    workflow_controller.start_generation(initial_state, session_id)
+            final_state = asyncio.run(run_streaming())
+
+            # Update status to complete
+            status_container.update(label="Generation Complete!", state="complete")
+
+        except Exception as e:
+            logger.error(f"CV generation failed: {e}")
+            status_container.update(label="Generation Failed!", state="error")
+            st.error(f"Failed to generate CV: {str(e)}")
+            raise
 
 
 def handle_user_action(action: str, item_id: str):
@@ -115,11 +136,11 @@ def handle_user_action(action: str, item_id: str):
         return
 
     try:
-        # Get WorkflowController
-        workflow_controller = _get_or_create_workflow_controller()
+        # Get UIManager
+        ui_manager = _get_or_create_ui_manager()
 
-        # Submit user feedback using WorkflowController
-        success = workflow_controller.submit_user_feedback(
+        # Submit user feedback using UIManager
+        success = ui_manager.submit_user_feedback(
             action=action, item_id=item_id, workflow_session_id=workflow_session_id
         )
 
@@ -131,19 +152,18 @@ def handle_user_action(action: str, item_id: str):
     except (ConfigurationError, AgentExecutionError, RuntimeError) as e:
         logger.error(f"Error handling user action: {e}", exc_info=True)
         st.error(f"Failed to handle {action} action: {e}")
-    except (ValueError, OSError, IOError, TimeoutError,
-            concurrent.futures.CancelledError) as e:
-        logger.error(
-            f"Error handling user action: {e}",
-            exc_info=True
-        )
+    except (
+        ValueError,
+        OSError,
+        IOError,
+        TimeoutError,
+        concurrent.futures.CancelledError,
+    ) as e:
+        logger.error(f"Error handling user action: {e}", exc_info=True)
         st.error(f"An error occurred while handling {action} action")
     except Exception as e:  # pylint: disable=broad-exception-caught
         # Minimal catch-all for truly unexpected errors to prevent UI crashes
-        logger.error(
-            f"Unexpected error handling user action: {e}",
-            exc_info=True
-        )
+        logger.error(f"Unexpected error handling user action: {e}", exc_info=True)
         st.error(f"An unexpected error occurred while handling {action} action")
 
 

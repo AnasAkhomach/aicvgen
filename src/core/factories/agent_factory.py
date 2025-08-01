@@ -16,14 +16,21 @@ from src.agents.key_qualifications_updater_agent import KeyQualificationsUpdater
 from src.agents.professional_experience_writer_agent import (
     ProfessionalExperienceWriterAgent,
 )
-from src.agents.professional_experience_updater_agent import ProfessionalExperienceUpdaterAgent
+from src.agents.professional_experience_updater_agent import (
+    ProfessionalExperienceUpdaterAgent,
+)
 from src.agents.projects_writer_agent import ProjectsWriterAgent
 from src.agents.projects_updater_agent import ProjectsUpdaterAgent
 from src.agents.executive_summary_updater_agent import ExecutiveSummaryUpdaterAgent
 from src.agents.quality_assurance_agent import QualityAssuranceAgent
 from src.agents.research_agent import ResearchAgent
 from src.agents.user_cv_parser_agent import UserCVParserAgent
-from src.models.agent_output_models import KeyQualificationsLLMOutput, ProfessionalExperienceLLMOutput, ProjectLLMOutput, ExecutiveSummaryLLMOutput
+from src.models.agent_output_models import (
+    KeyQualificationsLLMOutput,
+    ProfessionalExperienceLLMOutput,
+    ProjectLLMOutput,
+    ExecutiveSummaryLLMOutput,
+)
 from src.config.logging_config import get_logger
 
 
@@ -34,7 +41,14 @@ class AgentFactory:
     to avoid circular dependencies.
     """
 
-    def __init__(self, llm_service, template_manager, vector_store_service, llm_cv_parser_service=None, session_id_provider: Callable[[], str] = None):
+    def __init__(
+        self,
+        llm_service,
+        template_manager,
+        vector_store_service,
+        llm_cv_parser_service=None,
+        session_id_provider: Callable[[], str] = None,
+    ):
         """Initialize the factory with specific service dependencies.
 
         Args:
@@ -50,14 +64,16 @@ class AgentFactory:
         self._llm_cv_parser_service = llm_cv_parser_service
         self._session_id_provider = session_id_provider or (lambda: "default")
 
-    def create_cv_analyzer_agent(self, settings: Dict[str, Any] = None, session_id: Optional[str] = None) -> CVAnalyzerAgent:
+    def create_cv_analyzer_agent(
+        self, settings: Dict[str, Any] = None, session_id: Optional[str] = None
+    ) -> CVAnalyzerAgent:
         """Create a CV analyzer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
         return CVAnalyzerAgent(
             llm_service=self._llm_service,
             settings=settings or {},
-            session_id=session_id
+            session_id=session_id,
         )
 
     def create_key_qualifications_writer_agent(
@@ -66,16 +82,16 @@ class AgentFactory:
         """Create a key qualifications writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
-        
+
         # Get the LLM model from the service
         llm = self._get_llm_model()
-        
+
         # Get the prompt template
         prompt = self._get_prompt_template("key_qualifications_prompt")
-        
+
         # Get the parser
         parser = self._get_output_parser("KeyQualificationsLLMOutput")
-        
+
         return KeyQualificationsWriterAgent(
             llm=llm,
             prompt=prompt,
@@ -91,8 +107,7 @@ class AgentFactory:
         if session_id is None:
             session_id = self._session_id_provider()
         return KeyQualificationsUpdaterAgent(
-            session_id=session_id,
-            name="KeyQualificationsUpdaterAgent"
+            session_id=session_id, name="KeyQualificationsUpdaterAgent"
         )
 
     def create_professional_experience_updater_agent(
@@ -102,8 +117,7 @@ class AgentFactory:
         if session_id is None:
             session_id = self._session_id_provider()
         return ProfessionalExperienceUpdaterAgent(
-            session_id=session_id,
-            name="ProfessionalExperienceUpdaterAgent"
+            session_id=session_id, name="ProfessionalExperienceUpdaterAgent"
         )
 
     def create_projects_updater_agent(
@@ -112,10 +126,7 @@ class AgentFactory:
         """Create a projects updater agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
-        return ProjectsUpdaterAgent(
-            name="ProjectsUpdaterAgent",
-            session_id=session_id
-        )
+        return ProjectsUpdaterAgent(name="ProjectsUpdaterAgent", session_id=session_id)
 
     def create_executive_summary_updater_agent(
         self, session_id: Optional[str] = None
@@ -124,8 +135,7 @@ class AgentFactory:
         if session_id is None:
             session_id = self._session_id_provider()
         return ExecutiveSummaryUpdaterAgent(
-            session_id=session_id,
-            name="ExecutiveSummaryUpdaterAgent"
+            session_id=session_id, name="ExecutiveSummaryUpdaterAgent"
         )
 
     def create_professional_experience_writer_agent(
@@ -134,16 +144,16 @@ class AgentFactory:
         """Create a professional experience writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
-        
+
         # Get the LLM model from the service
         llm = self._get_llm_model()
-        
+
         # Get the prompt template
         prompt = self._get_prompt_template("professional_experience_prompt")
-        
+
         # Get the parser
         parser = self._get_output_parser("ProfessionalExperienceLLMOutput")
-        
+
         return ProfessionalExperienceWriterAgent(
             llm=llm,
             prompt=prompt,
@@ -158,16 +168,16 @@ class AgentFactory:
         """Create a projects writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
-        
+
         # Get the LLM model from the service
         llm = self._get_llm_model()
-        
+
         # Get the prompt template
         prompt = self._get_prompt_template("projects_prompt")
-        
+
         # Get the parser
         parser = self._get_output_parser("ProjectsLLMOutput")
-        
+
         return ProjectsWriterAgent(
             llm=llm,
             prompt=prompt,
@@ -182,16 +192,16 @@ class AgentFactory:
         """Create an executive summary writer agent instance."""
         if session_id is None:
             session_id = self._session_id_provider()
-        
+
         # Get the LLM model from the service
         llm = self._get_llm_model()
-        
+
         # Get the prompt template
         prompt = self._get_prompt_template("executive_summary_prompt")
-        
+
         # Get the parser
         parser = self._get_output_parser("ExecutiveSummaryLLMOutput")
-        
+
         return ExecutiveSummaryWriterAgent(
             llm=llm,
             prompt=prompt,
@@ -273,10 +283,7 @@ class AgentFactory:
         if session_id is None:
             session_id = self._session_id_provider()
         return UserCVParserAgent(
-            llm_service=self._llm_service,
-            vector_store_service=self._vector_store_service,
-            template_manager=self._template_manager,
-            settings=settings or {},
+            parser_service=self._llm_cv_parser_service,
             session_id=session_id,
         )
 
@@ -285,27 +292,28 @@ class AgentFactory:
         return self._llm_service.get_llm()
 
     def _get_prompt_template(self, template_name: str) -> ChatPromptTemplate:
-         """Get a prompt template by name and convert to ChatPromptTemplate."""
-         # Map template names to content types
-         content_type_map = {
-             "key_qualifications_prompt": "KEY_QUALIFICATIONS",
-             "professional_experience_prompt": "PROFESSIONAL_EXPERIENCE",
-             "projects_prompt": "PROJECTS",
-             "executive_summary_prompt": "EXECUTIVE_SUMMARY"
-         }
-         
-         from src.models.workflow_models import ContentType
-         content_type_str = content_type_map.get(template_name, "CV_ANALYSIS")
-         content_type = ContentType[content_type_str]
-         
-         # Get the template from the manager
-         template = self._template_manager.get_template_by_type(content_type)
-         
-         if template is None:
-             raise ValueError(f"Template not found for {template_name}")
-         
-         # Convert to ChatPromptTemplate
-         return ChatPromptTemplate.from_template(template.template)
+        """Get a prompt template by name and convert to ChatPromptTemplate."""
+        # Map template names to content types
+        content_type_map = {
+            "key_qualifications_prompt": "KEY_QUALIFICATIONS",
+            "professional_experience_prompt": "PROFESSIONAL_EXPERIENCE",
+            "projects_prompt": "PROJECTS",
+            "executive_summary_prompt": "EXECUTIVE_SUMMARY",
+        }
+
+        from src.models.workflow_models import ContentType
+
+        content_type_str = content_type_map.get(template_name, "CV_ANALYSIS")
+        content_type = ContentType[content_type_str]
+
+        # Get the template from the manager
+        template = self._template_manager.get_template_by_type(content_type)
+
+        if template is None:
+            raise ValueError(f"Template not found for {template_name}")
+
+        # Convert to ChatPromptTemplate
+        return ChatPromptTemplate.from_template(template.template)
 
     def _get_output_parser(self, output_model_name: str) -> BaseOutputParser:
         """Get an output parser for the specified model."""
@@ -314,7 +322,7 @@ class AgentFactory:
         elif output_model_name == "ProfessionalExperienceLLMOutput":
             return PydanticOutputParser(pydantic_object=ProfessionalExperienceLLMOutput)
         elif output_model_name == "ProjectsLLMOutput":
-             return PydanticOutputParser(pydantic_object=ProjectLLMOutput)
+            return PydanticOutputParser(pydantic_object=ProjectLLMOutput)
         elif output_model_name == "ExecutiveSummaryLLMOutput":
             return PydanticOutputParser(pydantic_object=ExecutiveSummaryLLMOutput)
         else:

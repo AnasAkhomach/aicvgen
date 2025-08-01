@@ -452,7 +452,7 @@ class SessionManager:
             if session_id in self.session_states:
                 del self.session_states[session_id]
 
-            self.logger.info("Session expired", session_id=session_id)
+            self.logger.info(f"Session expired: {session_id}")
 
     def _save_session(self, session_id: str):
         """Save session to persistent storage."""

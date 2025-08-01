@@ -1,0 +1,73 @@
+graph TD
+    subgraph "State Management (The 'Memory' of the Workflow)"
+        direction LR
+        STATE("GlobalState Object<br/>(in-memory dictionary)")
+        style STATE fill:#FFFDE7,stroke:#FBC02D
+    end
+
+    subgraph "Main MVP Workflow (Orchestrated by Supervisor)"
+        direction TB
+        START([START]) --> JD_PARSER("1. JD Parser Node"):::processor
+        JD_PARSER -- "Writes job_description_data" .-> STATE
+
+        JD_PARSER --> INIT_SUPERVISOR("2. Initialize Supervisor"):::processor
+        INIT_SUPERVISOR -- "Sets up the task list" .-> STATE
+
+        INIT_SUPERVISOR --> SUPERVISOR("3. Supervisor Router"):::router
+        SUPERVISOR -.->|Reads next_section| STATE
+
+        SUPERVISOR -- "Route to Key Qualifications" --> KQ_SUBGRAPH("4. Key Qualifications Subgraph"):::subgraphNode
+        KQ_SUBGRAPH -- "Mark section complete" .-> STATE
+        KQ_SUBGRAPH --> SUPERVISOR
+
+        SUPERVISOR -- "Route to Experience" --> PE_SUBGRAPH("5. Professional Experience Subgraph"):::subgraphNode
+        PE_SUBGRAPH -- "Mark section complete" .-> STATE
+        PE_SUBGRAPH --> SUPERVISOR
+
+        SUPERVISOR -- "Route to Projects" --> PROJ_SUBGRAPH("6. Projects Subgraph"):::subgraphNode
+        PROJ_SUBGRAPH -- "Mark section complete" .-> STATE
+        PROJ_SUBGRAPH --> SUPERVISOR
+
+        SUPERVISOR -- "Route to Summary" --> ES_SUBGRAPH("7. Executive Summary Subgraph"):::subgraphNode
+        ES_SUBGRAPH -- "Mark section complete" .-> STATE
+        ES_SUBGRAPH --> SUPERVISOR
+
+        SUPERVISOR -- "All sections complete" --> END_NODE([🎉 END]):::success
+    end
+
+    subgraph "Typical Content Subgraph (e.g., Key Qualifications)"
+        direction TB
+        SUBGRAPH_START("Subgraph Start"):::processor
+        SUBGRAPH_START -.->|Reads CV & JD data| STATE
+
+        SUBGRAPH_START --> WRITER_AGENT("A. KeyQualificationsWriterAgent"):::agent
+        WRITER_AGENT -- "Writes new content section" .-> STATE
+
+        WRITER_AGENT --> FEEDBACK_HANDLER("B. Feedback Handler Node"):::router
+        FEEDBACK_HANDLER -.->|Reads user_feedback| STATE
+
+        FEEDBACK_HANDLER -- "User requests regeneration" --> UPDATER_AGENT("C. KeyQualificationsUpdaterAgent"):::agent
+        UPDATER_AGENT -- "Writes updated content section" .-> STATE
+        UPDATER_AGENT --> FEEDBACK_HANDLER
+
+        FEEDBACK_HANDLER -- "User approves" --> MARK_COMPLETE("D. Mark Completion Node"):::processor
+        MARK_COMPLETE -- "Updates completed_sections list" .-> STATE
+        MARK_COMPLETE --> SUBGRAPH_END("Subgraph End"):::success
+    end
+
+    subgraph "Legend"
+        direction LR
+        LEGEND_ROUTER("Router/Supervisor"):::router
+        LEGEND_PROCESSOR("Processor Node"):::processor
+        LEGEND_SUBGRAPH("Subgraph"):::subgraphNode
+        LEGEND_AGENT("Agent Node"):::agent
+        LEGEND_FLOW("--> Control Flow")
+        LEGEND_DATA_WRITE("-- 'Writes to' .-> State")
+        LEGEND_DATA_READ("-.->|'Reads from'| State")
+    end
+
+    classDef router fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#ffffff,font-weight:bold
+    classDef processor fill:#7ED321,stroke:#5BA816,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef subgraphNode fill:#F5A623,stroke:#D1890B,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef agent fill:#9013FE,stroke:#6A0DAD,stroke-width:2px,color:#ffffff,font-weight:bold
+    classDef success fill:#50E3C2,stroke:#3AC9A6,stroke-width:3px,color:#ffffff,font-weight:bold

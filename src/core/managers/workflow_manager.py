@@ -7,9 +7,11 @@ workflow using the modular workflow graph pattern and manages workflow lifecycle
 import json
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
+from uuid import UUID
 
 from langgraph.graph.state import CompiledStateGraph
+from pydantic import BaseModel
 
 from src.config.logging_config import get_structured_logger
 from src.models.cv_models import JobDescriptionData, StructuredCV
@@ -22,6 +24,66 @@ from src.services.session_manager import SessionManager
 logger = get_structured_logger(__name__)
 
 
+def _serialize_for_json(obj: Any) -> Any:
+    """Custom serializer for JSON that handles Pydantic models and UUID objects properly.
+
+    Args:
+        obj: Object to serialize
+
+    Returns:
+        JSON-serializable representation
+    """
+    if isinstance(obj, BaseModel):
+        return {
+            "__pydantic_model__": obj.__class__.__module__
+            + "."
+            + obj.__class__.__name__,
+            "data": obj.model_dump(mode="json"),
+        }
+    elif isinstance(obj, UUID):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: _serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_serialize_for_json(item) for item in obj]
+    else:
+        return obj
+
+
+def _deserialize_from_json(obj: Any) -> Any:
+    """Custom deserializer for JSON that reconstructs Pydantic models.
+
+    Args:
+        obj: JSON object to deserialize
+
+    Returns:
+        Deserialized object with Pydantic models reconstructed
+    """
+    if isinstance(obj, dict):
+        if "__pydantic_model__" in obj:
+            # Reconstruct Pydantic model
+            model_path = obj["__pydantic_model__"]
+            data = obj["data"]
+
+            # Import the model class
+            module_name, class_name = model_path.rsplit(".", 1)
+            try:
+                module = __import__(module_name, fromlist=[class_name])
+                model_class = getattr(module, class_name)
+                return model_class.model_validate(data)
+            except (ImportError, AttributeError) as e:
+                logger.warning(
+                    f"Failed to deserialize Pydantic model {model_path}: {e}"
+                )
+                return data  # Fallback to raw data
+        else:
+            return {k: _deserialize_from_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_deserialize_from_json(item) for item in obj]
+    else:
+        return obj
+
+
 class WorkflowManager:
     """Manages CV generation workflows and their lifecycle.
 
@@ -29,20 +91,26 @@ class WorkflowManager:
     and monitoring CV generation workflows using the modular workflow graph.
     """
 
-    def __init__(self, container, session_manager: Optional[SessionManager] = None):
+    def __init__(
+        self,
+        cv_template_loader_service: CVTemplateLoaderService,
+        session_manager: SessionManager,
+        container,
+    ):
         """Initialize the WorkflowManager.
 
         Args:
-            container: The dependency injection container
-            session_manager: Optional SessionManager for centralized session management
+            cv_template_loader_service: Service for loading CV templates
+            session_manager: SessionManager for centralized session management
+            container: Dependency injection container for workflow graph creation
         """
+        self.cv_template_loader_service = cv_template_loader_service
+        self.session_manager = session_manager
         self.container = container
-        self.cv_template_loader_service = container.cv_template_loader_service()
-        self.session_manager = session_manager or container.session_manager()
         self.logger = logger
         self.sessions_dir = Path("instance/sessions")
 
-        logger.info("WorkflowManager initialized with DI container")
+        logger.info("WorkflowManager initialized with injected services")
 
     def create_new_workflow(
         self,
@@ -80,8 +148,8 @@ class WorkflowManager:
             structured_cv = self.cv_template_loader_service.load_from_markdown(
                 template_path
             )
-            # Set the original CV text for reference
-            structured_cv.cv_text = cv_text
+            # Set the original CV text for reference in metadata
+            structured_cv.metadata.extra["original_cv_text"] = cv_text
         except (FileNotFoundError, ValueError) as e:
             logger.warning(
                 "Failed to load CV template, falling back to empty structure",
@@ -93,11 +161,11 @@ class WorkflowManager:
         # Create initial GlobalState object
         if session_id:
             agent_state = create_global_state(
-                session_id=session_id, structured_cv=structured_cv, cv_text=cv_text
+                cv_text=cv_text, session_id=session_id, structured_cv=structured_cv
             )
         else:
             agent_state = create_global_state(
-                structured_cv=structured_cv, cv_text=cv_text
+                cv_text=cv_text, structured_cv=structured_cv
             )
             session_id = agent_state["session_id"]  # Use the auto-generated session_id
 
@@ -119,7 +187,8 @@ class WorkflowManager:
         session_file = self.sessions_dir / f"{session_id}.json"
         try:
             with open(session_file, "w", encoding="utf-8") as f:
-                json.dump(agent_state, f, indent=2, default=str)
+                serialized_state = _serialize_for_json(agent_state)
+                json.dump(serialized_state, f, indent=2)
         except (OSError, IOError) as e:
             logger.error(
                 "Failed to save session file",
@@ -187,8 +256,19 @@ class WorkflowManager:
 
             return updated_state
 
-        except (RuntimeError, ValueError, OSError, IOError, Exception) as e:
-            # Add error to agent state and save
+        except Exception as e:
+            # Check if this is a normal workflow completion (END state)
+            if str(e) == "END":
+                logger.info(
+                    f"Workflow completed successfully for session {session_id}",
+                    extra={"session_id": session_id, "final_state": "END"},
+                )
+                # Update workflow status to completed
+                agent_state["workflow_status"] = "COMPLETED"
+                self._save_state(session_id, agent_state)
+                return agent_state
+
+            # Handle actual errors
             if agent_state.get("error_messages") is None:
                 agent_state["error_messages"] = []
             agent_state["error_messages"].append(str(e))
@@ -203,7 +283,7 @@ class WorkflowManager:
                 )
 
             logger.error(
-                "Workflow step execution failed",
+                f"Workflow step execution failed for session {session_id}: {str(e)}",
                 extra={"session_id": session_id, "error": str(e)},
             )
             raise RuntimeError(f"Workflow execution failed: {str(e)}") from e
@@ -221,7 +301,10 @@ class WorkflowManager:
 
         try:
             with open(session_file, "r", encoding="utf-8") as f:
-                agent_state = json.load(f)
+                raw_data = json.load(f)
+
+            # Deserialize with proper Pydantic model reconstruction
+            agent_state = _deserialize_from_json(raw_data)
 
             logger.debug(
                 "Retrieved workflow status from file",
@@ -341,8 +424,10 @@ class WorkflowManager:
         session_file = self.sessions_dir / f"{session_id}.json"
 
         try:
+            # Serialize with proper Pydantic model handling
+            serialized_state = _serialize_for_json(agent_state)
             with open(session_file, "w", encoding="utf-8") as f:
-                json.dump(agent_state, f, indent=2, default=str)
+                json.dump(serialized_state, f, indent=2)
         except (OSError, IOError) as e:
             logger.error(
                 "Failed to save session file",
@@ -378,6 +463,81 @@ class WorkflowManager:
                 extra={"session_id": session_id, "error": str(e)},
             )
             return False
+
+    async def astream_workflow(self, session_id: str, callback_handler=None):
+        """Stream workflow execution asynchronously.
+
+        Args:
+            session_id: The session ID
+            callback_handler: Optional callback handler for streaming updates
+
+        Yields:
+            dict: Workflow state updates during execution
+        """
+        try:
+            # Get current workflow status
+            status = self.get_workflow_status(session_id)
+            if not status or status.get("status") == "completed":
+                logger.warning(
+                    "Cannot stream workflow - invalid or completed session",
+                    extra={"session_id": session_id},
+                )
+                return
+
+            # Load current state
+            session_file = self.sessions_dir / f"{session_id}.json"
+            if not session_file.exists():
+                logger.error(
+                    "Session file not found for streaming",
+                    extra={"session_id": session_id},
+                )
+                return
+
+            with open(session_file, "r", encoding="utf-8") as f:
+                state_data = json.load(f)
+
+            current_state = _deserialize_from_json(state_data)
+
+            # Get workflow graph
+            compiled_graph = self._get_workflow_graph(session_id)
+
+            # Stream workflow execution
+            async for state_update in compiled_graph.astream(current_state):
+                # Yield state update to callback handler
+                if callback_handler:
+                    await callback_handler.on_workflow_update(state_update)
+
+                yield state_update
+
+                # Save intermediate state
+                self._save_state(session_id, state_update)
+
+        except Exception as e:
+            # Check if this is a normal workflow completion (END state)
+            if str(e) == "END":
+                logger.info(
+                    "Workflow streaming completed successfully",
+                    extra={"session_id": session_id, "final_state": "END"},
+                )
+                # Update workflow status to completed in the current state
+                current_state["workflow_status"] = "COMPLETED"
+                self._save_state(session_id, current_state)
+
+                # Notify callback handler of successful completion
+                if callback_handler:
+                    await callback_handler.on_workflow_update(
+                        {"workflow_status": "COMPLETED"}
+                    )
+                return
+
+            # Handle actual errors
+            logger.error(
+                "Error during workflow streaming",
+                extra={"session_id": session_id, "error": str(e)},
+            )
+            if callback_handler:
+                await callback_handler.on_workflow_error(str(e))
+            raise
 
     def _get_workflow_graph(self, session_id: str):
         """Create a compiled workflow graph for the given session.

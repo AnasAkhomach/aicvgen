@@ -107,7 +107,7 @@ class EnhancedLLMService(
             # This maintains abstraction while providing LCEL compatibility
             self._llm_model = self.llm_client.get_langchain_model(
                 model=self.model_name,
-                temperature=self.settings.llm_settings.temperature,
+                temperature=self.settings.llm_settings.default_temperature,
                 max_tokens=self.settings.llm_settings.max_tokens,
             )
         return self._llm_model
@@ -195,18 +195,30 @@ class EnhancedLLMService(
         Args:
             prompt: Text prompt to send to the model
             response_model: Pydantic model class for structured output
-            **kwargs: Additional arguments
+            **kwargs: Additional arguments (application-specific params are filtered out)
 
         Returns:
             Instance of response_model with structured data
         """
+        # Filter out application-specific parameters that aren't valid for LangChain's ainvoke
+        # These are used for logging/tracing but not passed to the LLM
+        app_specific_params = {"session_id", "trace_id", "system_instruction"}
+        llm_kwargs = {k: v for k, v in kwargs.items() if k not in app_specific_params}
+
+        # Log the filtered parameters for debugging
+        if app_specific_params.intersection(kwargs.keys()):
+            filtered_params = {
+                k: v for k, v in kwargs.items() if k in app_specific_params
+            }
+            logger.debug(f"Filtered application-specific parameters: {filtered_params}")
+
         # Get the LangChain model and add structured output capability
         llm = self.get_llm()
         structured_llm = llm.with_structured_output(response_model)
 
         # Generate structured content with retry
         result = await self._generate_structured_with_retry(
-            structured_llm, prompt, **kwargs
+            structured_llm, prompt, **llm_kwargs
         )
 
         return result
@@ -267,33 +279,33 @@ class EnhancedLLMService(
         await self._ensure_cache_initialized()
 
         # Clear expired cache entries (if cache is available)
-        cache_stats_before = (
-            await self.caching_service.get_cache_stats()
-            if self.caching_service
-            else {"size": 0}
-        )
-        if self.caching_service and hasattr(
-            self.caching_service, "evict_expired_entries"
-        ):
-            await self.caching_service.evict_expired_entries()
-        cache_stats_after = (
-            await self.caching_service.get_cache_stats()
-            if self.caching_service
-            else {"size": 0}
-        )
+        # cache_stats_before = (
+        #     await self.caching_service.get_cache_stats()
+        #     if self.caching_service
+        #     else {"size": 0}
+        # )
+        # if self.caching_service and hasattr(
+        #     self.caching_service, "evict_expired_entries"
+        # ):
+        #     await self.caching_service.evict_expired_entries()
+        # cache_stats_after = (
+        #     await self.caching_service.get_cache_stats()
+        #     if self.caching_service
+        #     else {"size": 0}
+        # )
 
-        result = LLMPerformanceOptimizationResult(
-            cache_optimization={
-                "entries_before": cache_stats_before["size"],
-                "entries_after": cache_stats_after["size"],
-                "entries_removed": cache_stats_before["size"]
-                - cache_stats_after["size"],
-            },
-            timestamp=datetime.now().isoformat(),
-        )
+        # result = LLMPerformanceOptimizationResult(
+        #     cache_optimization={
+        #         "entries_before": cache_stats_before["size"],
+        #         "entries_after": cache_stats_after["size"],
+        #         "entries_removed": cache_stats_before["size"]
+        #         - cache_stats_after["size"],
+        #     },
+        #     timestamp=datetime.now().isoformat(),
+        # )
 
-        logger.info("Performance optimization completed", result=result.dict())
-        return result
+        # logger.info("Performance optimization completed", result=result.dict())
+        # return result
 
     async def generate(self, prompt: str, **kwargs):
         """

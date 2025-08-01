@@ -17,137 +17,139 @@ from src.frontend.callbacks import handle_user_action
 class TestFeedbackCallbacks:
     """Test class for feedback callback functionality."""
 
-    @patch('src.frontend.callbacks._get_or_create_workflow_controller')
-    @patch('src.frontend.callbacks.st')
-    @patch('src.frontend.callbacks.logger')
+    @patch("src.frontend.callbacks._get_or_create_ui_manager")
+    @patch("src.frontend.callbacks.st")
+    @patch("src.frontend.callbacks.logger")
     def test_handle_user_action_approve(
-        self, mock_logger, mock_st, mock_get_controller
+        self, mock_logger, mock_st, mock_get_ui_manager
     ):
-        """Test that approve action uses WorkflowController."""
+        """Test that approve action uses UIManager."""
         # Setup
         session_id = "test-session-123"
         item_id = "test-item-456"
-        
+
         mock_st.session_state.get.side_effect = lambda key, default=None: {
             "agent_state": Mock(),
-            "workflow_session_id": session_id
+            "workflow_session_id": session_id,
         }.get(key, default)
-        
-        # Mock WorkflowController
-        mock_controller = Mock()
-        mock_controller.submit_user_feedback.return_value = True
-        mock_get_controller.return_value = mock_controller
-        
+
+        # Mock UIManager
+        mock_ui_manager = Mock()
+        mock_ui_manager.submit_user_feedback.return_value = True
+        mock_get_ui_manager.return_value = mock_ui_manager
+
         # Execute
         handle_user_action("accept", item_id)
-        
-        # Verify submit_user_feedback was called with correct parameters
-        mock_controller.submit_user_feedback.assert_called_once_with(
-            action="accept",
-            item_id=item_id,
-            workflow_session_id=session_id
-        )
-        
-        # Verify success message was shown
-        mock_st.success.assert_called_once_with("Action 'accept' processed successfully")
 
-    @patch('src.frontend.callbacks._get_or_create_workflow_controller')
-    @patch('src.frontend.callbacks.st')
-    @patch('src.frontend.callbacks.logger')
+        # Verify submit_user_feedback was called with correct parameters
+        mock_ui_manager.submit_user_feedback.assert_called_once_with(
+            action="accept", item_id=item_id, workflow_session_id=session_id
+        )
+
+        # Verify success message was shown
+        mock_st.success.assert_called_once_with(
+            "Action 'accept' processed successfully"
+        )
+
+    @patch("src.frontend.callbacks._get_or_create_ui_manager")
+    @patch("src.frontend.callbacks.st")
+    @patch("src.frontend.callbacks.logger")
     def test_handle_user_action_regenerate(
-        self, mock_logger, mock_st, mock_get_controller
+        self, mock_logger, mock_st, mock_get_ui_manager
     ):
-        """Test that regenerate action uses WorkflowController."""
+        """Test that regenerate action uses UIManager."""
         # Setup
         session_id = "test-session-123"
         item_id = "test-item-456"
-        
+
         mock_st.session_state.get.side_effect = lambda key, default=None: {
             "agent_state": Mock(),
-            "workflow_session_id": session_id
+            "workflow_session_id": session_id,
         }.get(key, default)
-        
-        # Mock WorkflowController
-        mock_controller = Mock()
-        mock_controller.submit_user_feedback.return_value = True
-        mock_get_controller.return_value = mock_controller
-        
+
+        # Mock UIManager
+        mock_ui_manager = Mock()
+        mock_ui_manager.submit_user_feedback.return_value = True
+        mock_get_ui_manager.return_value = mock_ui_manager
+
         # Execute
         handle_user_action("regenerate", item_id)
-        
-        # Verify submit_user_feedback was called with correct parameters
-        mock_controller.submit_user_feedback.assert_called_once_with(
-            action="regenerate",
-            item_id=item_id,
-            workflow_session_id=session_id
-        )
-        
-        # Verify success message was shown
-        mock_st.success.assert_called_once_with("Action 'regenerate' processed successfully")
 
-    @patch('src.frontend.callbacks.st')
+        # Verify submit_user_feedback was called with correct parameters
+        mock_ui_manager.submit_user_feedback.assert_called_once_with(
+            action="regenerate", item_id=item_id, workflow_session_id=session_id
+        )
+
+        # Verify success message was shown
+        mock_st.success.assert_called_once_with(
+            "Action 'regenerate' processed successfully"
+        )
+
+    @patch("src.frontend.callbacks.st")
     def test_handle_user_action_no_agent_state(self, mock_st):
         """Test handle_user_action when agent state is missing."""
         # Mock session state without agent_state
-        mock_st.session_state.get.side_effect = lambda key, default=None: {
-        }.get(key, default)
-        
+        mock_st.session_state.get.side_effect = lambda key, default=None: {}.get(
+            key, default
+        )
+
         # Call the function
-        handle_user_action('approve', 'item_123')
-        
+        handle_user_action("approve", "item_123")
+
         # Verify session state was checked for agent_state
-        mock_st.session_state.get.assert_called_with('agent_state')
-        
+        mock_st.session_state.get.assert_called_with("agent_state")
+
         # Verify error message was shown
         mock_st.error.assert_called_once_with("No agent state found")
 
-    @patch('src.frontend.callbacks._get_or_create_workflow_controller')
-    @patch('src.frontend.callbacks.st')
-    @patch('src.frontend.callbacks.logger')
+    @patch("src.frontend.callbacks._get_or_create_ui_manager")
+    @patch("src.frontend.callbacks.st")
+    @patch("src.frontend.callbacks.logger")
     def test_handle_user_action_no_workflow_session(
-        self, mock_logger, mock_st, mock_get_controller
+        self, mock_logger, mock_st, mock_get_ui_manager
     ):
         """Test that function handles missing workflow session gracefully."""
         # Setup - agent_state exists but no workflow session
         mock_st.session_state.get.side_effect = lambda key, default=None: {
             "agent_state": Mock(),
-            "workflow_session_id": None
+            "workflow_session_id": None,
         }.get(key, default)
-        
+
         # Execute
         handle_user_action("accept", "test-item")
-        
+
         # Verify error message and early return
         mock_st.error.assert_called_with("No workflow session found")
-        mock_get_controller.assert_not_called()
+        mock_get_ui_manager.assert_not_called()
 
-    @patch('src.frontend.callbacks.logger')
-    @patch('src.frontend.callbacks._get_or_create_workflow_controller')
-    @patch('src.frontend.callbacks.st')
-    def test_handle_user_action_controller_error(
-        self, mock_st, mock_get_controller, mock_logger
+    @patch("src.frontend.callbacks.logger")
+    @patch("src.frontend.callbacks._get_or_create_ui_manager")
+    @patch("src.frontend.callbacks.st")
+    def test_handle_user_action_ui_manager_error(
+        self, mock_st, mock_get_ui_manager, mock_logger
     ):
-        """Test handle_user_action when WorkflowController raises an exception."""
+        """Test handle_user_action when UIManager raises an exception."""
         # Setup mocks
-        mock_controller = Mock()
-        mock_get_controller.return_value = mock_controller
-        test_exception = Exception("Controller error")
-        mock_controller.submit_user_feedback.side_effect = test_exception
-        
+        mock_ui_manager = Mock()
+        mock_get_ui_manager.return_value = mock_ui_manager
+        test_exception = Exception("UIManager error")
+        mock_ui_manager.submit_user_feedback.side_effect = test_exception
+
         # Mock session state
         mock_st.session_state.get.side_effect = lambda key, default=None: {
-            'agent_state': Mock(),
-            'workflow_session_id': 'test_session_789'
+            "agent_state": Mock(),
+            "workflow_session_id": "test_session_789",
         }.get(key, default)
-        
+
         # Call the function
-        handle_user_action('approve', 'item_789')
-        
+        handle_user_action("approve", "item_789")
+
         # Verify error was logged (should be the unexpected error case)
         mock_logger.error.assert_called_with(
-            "Unexpected error handling user action: Controller error",
-            exc_info=True
+            "Unexpected error handling user action: UIManager error", exc_info=True
         )
-        
+
         # Verify error message was displayed
-        mock_st.error.assert_called_with("An unexpected error occurred while handling approve action")
+        mock_st.error.assert_called_with(
+            "An unexpected error occurred while handling approve action"
+        )

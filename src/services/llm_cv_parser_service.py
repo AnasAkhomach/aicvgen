@@ -7,7 +7,7 @@ from typing import Optional
 
 from src.config.settings import Settings
 from src.error_handling.exceptions import LLMResponseParsingError, TemplateError
-from src.models.cv_models import JobDescriptionData
+from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.llm_data_models import (
     CVParsingResult,
     CVParsingStructuredOutput,
@@ -58,6 +58,92 @@ class LLMCVParserService:
         Returns:
             The parsed CV data.
         """
+        # Use the private method to get structured output
+        structured_output = await self._parse_cv_with_structured_output(
+            cv_text=cv_text,
+            session_id=session_id,
+            trace_id=trace_id,
+            system_instruction=system_instruction,
+        )
+
+        # Convert structured output to CVParsingResult for backward compatibility
+        return CVParsingResult(
+            personal_info=structured_output.personal_info,
+            sections=structured_output.sections,
+        )
+
+    async def parse_cv_to_structured_cv(
+        self,
+        cv_text: str,
+        session_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+    ) -> StructuredCV:
+        """Parse CV text and return a StructuredCV object directly.
+
+        Args:
+            cv_text: The raw CV text to parse.
+            session_id: The session ID for the request.
+            trace_id: The trace ID for the request.
+            system_instruction: Optional system instruction for the LLM.
+
+        Returns:
+            A StructuredCV object.
+        """
+        # Get the structured output from LLM
+        structured_output = await self._parse_cv_with_structured_output(
+            cv_text=cv_text,
+            session_id=session_id,
+            trace_id=trace_id,
+            system_instruction=system_instruction,
+        )
+
+        # Convert to StructuredCV directly
+        from src.models.cv_models import StructuredCV, Section, Item
+
+        # Convert sections
+        sections = []
+        for section in structured_output.sections:
+            # Convert items directly
+            items = [Item(content=item) for item in section.items if item.strip()]
+
+            if items:  # Only add section if it has content
+                sections.append(Section(name=section.name, items=items))
+
+        # Ensure required sections exist
+        required_sections = [
+            "Executive Summary",
+            "Key Qualifications",
+            "Professional Experience",
+            "Project Experience",
+            "Education",
+        ]
+        existing_section_names = {section.name for section in sections}
+
+        for required_section in required_sections:
+            if required_section not in existing_section_names:
+                sections.append(Section(name=required_section, items=[]))
+
+        return StructuredCV(sections=sections)
+
+    async def _parse_cv_with_structured_output(
+        self,
+        cv_text: str,
+        session_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+    ) -> CVParsingStructuredOutput:
+        """Parse CV text and return structured output from LLM.
+
+        Args:
+            cv_text: The raw CV text to parse.
+            session_id: The session ID for the request.
+            trace_id: The trace ID for the request.
+            system_instruction: Optional system instruction for the LLM.
+
+        Returns:
+            CVParsingStructuredOutput from the LLM.
+        """
         content_template = self.template_manager.get_template(
             name="cv_parsing_prompt", content_type=ContentType.CV_PARSING
         )
@@ -82,11 +168,7 @@ class LLMCVParserService:
             system_instruction=system_instruction,
         )
 
-        # Convert structured output to CVParsingResult for backward compatibility
-        return CVParsingResult(
-            personal_info=structured_output.personal_info,
-            sections=structured_output.sections,
-        )
+        return structured_output
 
     async def parse_job_description_with_llm(
         self,

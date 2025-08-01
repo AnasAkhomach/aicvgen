@@ -321,7 +321,9 @@ class ProgressTracker:
         """Clean up tracking data for a completed session."""
         if session_id in self.sessions:
             del self.sessions[session_id]
-            self.logger.info("Cleaned up session tracking data", session_id=session_id)
+            self.logger.info(
+                f"Cleaned up session tracking data - Session: {session_id}"
+            )
 
     def get_active_sessions(self) -> List[str]:
         """Get list of active session IDs."""

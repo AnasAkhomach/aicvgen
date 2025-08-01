@@ -106,10 +106,8 @@ class TestStructuredOutput:
         # Verify the LangChain methods were called correctly
         llm_service.get_llm.assert_called_once()
         mock_llm.with_structured_output.assert_called_once_with(ResearchFindings)
-        mock_structured_llm.ainvoke.assert_called_once_with(
-            "Test prompt",
-            system_instruction="Test instruction",
-        )
+        # system_instruction should be filtered out and not passed to ainvoke
+        mock_structured_llm.ainvoke.assert_called_once_with("Test prompt")
 
     @pytest.mark.asyncio
     async def test_generate_structured_content_error_handling(

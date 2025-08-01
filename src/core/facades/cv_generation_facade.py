@@ -6,7 +6,7 @@ of the WorkflowManager and provides a high-level interface for CV generation.
 
 import asyncio
 import threading
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 from src.config.logging_config import get_structured_logger
 from src.core.facades.cv_template_manager_facade import CVTemplateManagerFacade
@@ -15,6 +15,9 @@ from src.core.managers.workflow_manager import WorkflowManager
 from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.workflow_models import ContentType, UserFeedback, WorkflowType
 from src.orchestration.state import GlobalState, create_global_state
+
+if TYPE_CHECKING:
+    from src.agents.user_cv_parser_agent import UserCVParserAgent
 
 logger = get_structured_logger(__name__)
 
@@ -63,6 +66,7 @@ class CvGenerationFacade:
     def __init__(
         self,
         workflow_manager: WorkflowManager,
+        user_cv_parser_agent: "UserCVParserAgent",
         template_facade: Optional[CVTemplateManagerFacade] = None,
         vector_store_facade: Optional[CVVectorStoreFacade] = None,
     ):
@@ -70,15 +74,19 @@ class CvGenerationFacade:
 
         Args:
             workflow_manager: The WorkflowManager instance to encapsulate
+            user_cv_parser_agent: The UserCVParserAgent for CV parsing
             template_facade: Optional template manager facade
             vector_store_facade: Optional vector store facade
         """
         self.workflow_manager = workflow_manager
+        self.user_cv_parser_agent = user_cv_parser_agent
         self.template_facade = template_facade
         self.vector_store_facade = vector_store_facade
         self.logger = logger
 
-        logger.info("CvGenerationFacade initialized with WorkflowManager and facades")
+        logger.info(
+            "CvGenerationFacade initialized with WorkflowManager, UserCVParserAgent and facades"
+        )
 
     async def generate_cv(
         self,
@@ -436,6 +444,7 @@ class CvGenerationFacade:
 
             # Create global state
             agent_state = create_global_state(
+                cv_text="",
                 structured_cv=structured_cv,
                 session_metadata={
                     "personal_info": personal_info,
@@ -503,6 +512,7 @@ class CvGenerationFacade:
 
             # Create global state
             agent_state = create_global_state(
+                cv_text="",
                 structured_cv=structured_cv,
                 job_description_data=job_description_data,
                 session_metadata={
@@ -548,6 +558,7 @@ class CvGenerationFacade:
 
             # Create global state
             agent_state = create_global_state(
+                cv_text="",
                 structured_cv=structured_cv,
                 session_metadata={"optimization_request": True, **kwargs},
             )
@@ -588,6 +599,7 @@ class CvGenerationFacade:
 
             # Create global state
             agent_state = create_global_state(
+                cv_text="",
                 structured_cv=structured_cv,
                 session_metadata={"quality_check_request": True, **kwargs},
             )
@@ -644,7 +656,7 @@ class CvGenerationFacade:
         """Initializes and triggers the first step of the CV generation workflow.
 
         This method encapsulates the full sequence of workflow_manager calls:
-        1. Creates a new workflow (equivalent to start_workflow)
+        1. Creates a new workflow with raw CV text (equivalent to start_workflow)
         2. Immediately triggers the first workflow step (equivalent to resume_workflow)
 
         Args:
@@ -667,7 +679,7 @@ class CvGenerationFacade:
                 raise ValueError("Job description cannot be empty")
 
             logger.info(
-                "Starting CV generation workflow with immediate execution",
+                "Starting CV generation workflow with CV parsing and immediate execution",
                 extra={
                     "has_user_api_key": user_api_key is not None,
                     "cv_content_length": len(cv_content),
@@ -675,12 +687,12 @@ class CvGenerationFacade:
                 },
             )
 
-            # Step 1: Create new workflow (equivalent to start_workflow)
+            # Create new workflow with raw CV text (parsing will be done by workflow node)
             session_id = self.workflow_manager.create_new_workflow(
                 cv_text=cv_content, jd_text=job_description
             )
 
-            # Step 2: Get initial state and immediately trigger first workflow step (equivalent to resume_workflow)
+            # Get initial state and immediately trigger first workflow step (equivalent to resume_workflow)
             initial_state = self.workflow_manager.get_workflow_status(session_id)
             if initial_state is None:
                 raise RuntimeError(
@@ -777,3 +789,58 @@ class CvGenerationFacade:
                 extra={"session_id": session_id, "error": str(e)},
             )
             raise RuntimeError(f"Failed to provide user feedback: {str(e)}") from e
+
+    async def stream_cv_generation(
+        self,
+        cv_text: str,
+        jd_text: str,
+        workflow_type: WorkflowType = WorkflowType.JOB_TAILORED_CV,
+        callback_handler=None,
+    ):
+        """Stream CV generation workflow with real-time updates.
+
+        This method provides streaming capabilities for CV generation,
+        yielding intermediate states and progress updates.
+
+        Args:
+            cv_text: The original CV text content
+            jd_text: The job description text
+            workflow_type: Type of workflow to execute
+            callback_handler: Optional callback handler for streaming updates
+
+        Yields:
+            dict: Workflow state updates during execution
+
+        Raises:
+            ValueError: If input parameters are invalid
+            RuntimeError: If workflow execution fails
+        """
+        try:
+            # Start the workflow
+            session_id = self.start_cv_generation(
+                cv_content=cv_text, job_description=jd_text
+            )
+
+            logger.info(
+                "Started streaming CV generation workflow",
+                extra={"session_id": session_id},
+            )
+
+            # Stream workflow execution
+            async for state_update in self.workflow_manager.astream_workflow(
+                session_id, callback_handler
+            ):
+                yield state_update
+
+            logger.info(
+                "Completed streaming CV generation workflow",
+                extra={"session_id": session_id},
+            )
+
+        except Exception as e:
+            logger.error(
+                "Error during streaming CV generation", extra={"error": str(e)}
+            )
+            if callback_handler:
+                await callback_handler.on_workflow_error(str(e))
+            raise RuntimeError(f"Streaming CV generation failed: {str(e)}") from e

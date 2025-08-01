@@ -12,16 +12,20 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from src.constants.error_constants import ErrorConstants
-from src.error_handling.exceptions import (AgentExecutionError,
-                                         ConfigurationError,
-                                         LLMResponseParsingError,
-                                         NetworkError,
-                                         OperationTimeoutError,
-                                         RateLimitError,
-                                         StateManagerError, ValidationError,
-                                         WorkflowPreconditionError)
+from src.error_handling.exceptions import (
+    AgentExecutionError,
+    ConfigurationError,
+    LLMResponseParsingError,
+    NetworkError,
+    OperationTimeoutError,
+    RateLimitError,
+    StateManagerError,
+    ValidationError,
+    WorkflowPreconditionError,
+)
 from src.models.data_models import ContentType, Item, ItemStatus
 from src.utils.retry_predicates import is_transient_error
+
 # Additional exception types for comprehensive error handling
 
 
@@ -114,7 +118,7 @@ class ErrorRecoveryService:
 
     def __init__(self, logger: logging.Logger):
         """Initialize ErrorRecoveryService with injected dependencies.
-        
+
         Args:
             logger: Logger instance for error recovery operations
         """
@@ -156,15 +160,15 @@ class ErrorRecoveryService:
             ),
             ErrorType.VALIDATION_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.MANUAL_INTERVENTION,
-                max_retries=ErrorConstants.VALIDATION_ERROR_MAX_RETRIES
+                max_retries=ErrorConstants.VALIDATION_ERROR_MAX_RETRIES,
             ),
             ErrorType.PARSING_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.FALLBACK_CONTENT,
-                max_retries=ErrorConstants.PARSING_ERROR_MAX_RETRIES
+                max_retries=ErrorConstants.PARSING_ERROR_MAX_RETRIES,
             ),
             ErrorType.CONTENT_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.FALLBACK_CONTENT,
-                max_retries=ErrorConstants.CONTENT_ERROR_MAX_RETRIES
+                max_retries=ErrorConstants.CONTENT_ERROR_MAX_RETRIES,
             ),
             ErrorType.SYSTEM_ERROR: RecoveryAction(
                 strategy=RecoveryStrategy.CIRCUIT_BREAKER,
@@ -318,11 +322,7 @@ class ErrorRecoveryService:
 
         # Log the error
         self.logger.error(
-            f"Error recorded: {error_context.error_type.value}",
-            session_id=session_id,
-            item_id=error_context.item_id,
-            error_message=error_context.error_message,
-            retry_count=error_context.retry_count,
+            f"Error recorded: {error_context.error_type.value} - Session: {session_id}, Item: {error_context.item_id}, Message: {error_context.error_message}, Retry: {error_context.retry_count}"
         )
 
     def _should_circuit_break(self, error_type: ErrorType, session_id: str) -> bool:
@@ -406,22 +406,22 @@ class ErrorRecoveryService:
         # First check metadata for explicit retry_after value
         if "retry_after" in error_context.metadata:
             return float(error_context.metadata["retry_after"])
-        
+
         # Check if the original exception has retry_after information
         if error_context.original_exception is not None:
             original_exc = error_context.original_exception
-            if hasattr(original_exc, 'retry_after'):
+            if hasattr(original_exc, "retry_after"):
                 return float(original_exc.retry_after)
-            if hasattr(original_exc, 'headers') and original_exc.headers:
+            if hasattr(original_exc, "headers") and original_exc.headers:
                 # Check both 'Retry-After' and 'retry-after' headers
-                for header_key in ['Retry-After', 'retry-after']:
+                for header_key in ["Retry-After", "retry-after"]:
                     if header_key in original_exc.headers:
                         return float(original_exc.headers[header_key])
-        
+
         # Fallback for rate limit errors: provide default backoff
         if error_context.error_type == ErrorType.RATE_LIMIT:
             return 60.0
-        
+
         return None
 
     def _get_final_fallback_action(self, error_context: ErrorContext) -> RecoveryAction:
@@ -499,10 +499,7 @@ class ErrorRecoveryService:
 
         if action.delay_seconds > 0:
             self.logger.info(
-                f"Waiting {action.delay_seconds} seconds before recovery action",
-                session_id=session_id,
-                item_id=item.id,
-                strategy=action.strategy.value,
+                f"Waiting {action.delay_seconds} seconds before recovery action - Session: {session_id}, Item: {item.id}, Strategy: {action.strategy.value}"
             )
             await asyncio.sleep(action.delay_seconds)
 
@@ -513,7 +510,7 @@ class ErrorRecoveryService:
                 item.metadata.completed_at = datetime.now()
 
                 self.logger.info(
-                    "Applied fallback content", session_id=session_id, item_id=item.id
+                    f"Applied fallback content - Session: {session_id}, Item: {item.id}"
                 )
                 return True
 
@@ -522,15 +519,13 @@ class ErrorRecoveryService:
             item.metadata.completed_at = datetime.now()
 
             self.logger.info(
-                "Skipped item due to recovery action",
-                session_id=session_id,
-                item_id=item.id,
+                f"Skipped item due to recovery action - Session: {session_id}, Item: {item.id}"
             )
             return True
 
         elif action.strategy == RecoveryStrategy.CIRCUIT_BREAKER:
             self.logger.warning(
-                "Circuit breaker triggered, stopping processing", session_id=session_id
+                f"Circuit breaker triggered, stopping processing - Session: {session_id}"
             )
             return False
 
@@ -555,8 +550,7 @@ class ErrorRecoveryService:
                         breaker.half_open_attempts = 0
 
                         self.logger.info(
-                            f"Circuit breaker closed for {error_type.value}",
-                            session_id=session_id,
+                            f"Circuit breaker closed for {error_type.value} - Session: {session_id}"
                         )
 
     def get_error_summary(self, session_id: str) -> Dict[str, Any]:
@@ -609,4 +603,4 @@ class ErrorRecoveryService:
         for key in keys_to_remove:
             del self.circuit_breakers[key]
 
-        self.logger.info("Cleaned up error tracking data", session_id=session_id)
+        self.logger.info(f"Cleaned up error tracking data - Session: {session_id}")

@@ -6,25 +6,7 @@ from typing import Optional
 
 from dependency_injector import containers, providers
 
-from src.agents.cleaning_agent import CleaningAgent
-from src.agents.cv_analyzer_agent import CVAnalyzerAgent
-from src.agents.executive_summary_updater_agent import ExecutiveSummaryUpdaterAgent
-from src.agents.executive_summary_writer_agent import ExecutiveSummaryWriterAgent
-from src.agents.formatter_agent import FormatterAgent
-from src.agents.job_description_parser_agent import JobDescriptionParserAgent
-from src.agents.key_qualifications_updater_agent import KeyQualificationsUpdaterAgent
-from src.agents.key_qualifications_writer_agent import KeyQualificationsWriterAgent
-from src.agents.professional_experience_updater_agent import (
-    ProfessionalExperienceUpdaterAgent,
-)
-from src.agents.professional_experience_writer_agent import (
-    ProfessionalExperienceWriterAgent,
-)
-from src.agents.projects_updater_agent import ProjectsUpdaterAgent
-from src.agents.projects_writer_agent import ProjectsWriterAgent
-from src.agents.quality_assurance_agent import QualityAssuranceAgent
-from src.agents.research_agent import ResearchAgent
-from src.agents.user_cv_parser_agent import UserCVParserAgent
+# Agent imports removed - all agents now created through AgentFactory
 from src.config.logging_config import get_logger, get_structured_logger
 from src.config.settings import get_config
 from src.core.factories import AgentFactory
@@ -43,6 +25,7 @@ from src.services.llm_service import EnhancedLLMService
 from src.services.progress_tracker import ProgressTracker
 from src.services.session_manager import SessionManager
 from src.services.vector_store_service import VectorStoreService
+from src.core.state_manager import StateManager
 
 # Workflow graph creation is now handled directly in WorkflowManager
 # from src.orchestration.graphs.main_graph import create_cv_workflow_graph_with_di
@@ -191,6 +174,11 @@ class Container(
         logger=providers.Callable(get_structured_logger, "session_manager"),
     )
 
+    # State Manager Service
+    state_manager = providers.Singleton(  # pylint: disable=c-extension-no-member
+        StateManager,
+    )
+
     # Error Recovery Service
     error_recovery_service = (
         providers.Singleton(  # pylint: disable=c-extension-no-member
@@ -220,117 +208,79 @@ class Container(
         llm_service=llm_service,
         template_manager=template_manager,
         vector_store_service=vector_store_service,
+        llm_cv_parser_service=llm_cv_parser_service,
         session_id_provider=session_manager.provided.get_current_session_id,
     )
 
     # Agent Providers - session_id passed as runtime argument
     cv_analyzer_agent = providers.Factory(  # pylint: disable=c-extension-no-member
-        CVAnalyzerAgent,
-        llm_service=llm_service,
-        settings=providers.Callable(
-            _get_agent_settings_dict
-        ),  # pylint: disable=c-extension-no-member
+        agent_factory.provided.create_cv_analyzer_agent,
     )
 
     key_qualifications_writer_agent = providers.Factory(
         agent_factory.provided.create_key_qualifications_writer_agent,
-        settings=providers.Callable(_get_agent_settings_dict),
     )
 
     professional_experience_writer_agent = providers.Factory(
-        ProfessionalExperienceWriterAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
-        settings=providers.Callable(_get_agent_settings_dict),
+        agent_factory.provided.create_professional_experience_writer_agent,
     )
 
     projects_writer_agent = providers.Factory(
-        ProjectsWriterAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
-        settings=providers.Callable(_get_agent_settings_dict),
+        agent_factory.provided.create_projects_writer_agent,
     )
 
     executive_summary_writer_agent = providers.Factory(
-        ExecutiveSummaryWriterAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
-        settings=providers.Callable(_get_agent_settings_dict),
+        agent_factory.provided.create_executive_summary_writer_agent,
     )
 
-    cleaning_agent = providers.Factory(  # pylint: disable=c-extension-no-member
-        CleaningAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
-        settings=providers.Callable(
-            _get_agent_settings_dict
-        ),  # pylint: disable=c-extension-no-member
+    # Cleaning Agent
+    cleaning_agent = providers.Factory(
+        agent_factory.provided.create_cleaning_agent,
     )
 
     quality_assurance_agent = providers.Factory(
-        QualityAssuranceAgent,
-        llm_service=llm_service,
-        template_manager=template_manager,
-        settings=providers.Callable(
-            _get_agent_settings_dict
-        ),  # pylint: disable=c-extension-no-member
+        agent_factory.provided.create_quality_assurance_agent,
     )
 
-    formatter_agent = providers.Factory(  # pylint: disable=c-extension-no-member
-        FormatterAgent,
-        template_manager=template_manager,
-        settings=providers.Callable(
-            _get_agent_settings_dict
-        ),  # pylint: disable=c-extension-no-member
+    formatter_agent = providers.Factory(
+        agent_factory.provided.create_formatter_agent,
     )
 
-    research_agent = providers.Factory(  # pylint: disable=c-extension-no-member
-        ResearchAgent,
-        llm_service=llm_service,
-        vector_store_service=vector_store_service,
-        template_manager=template_manager,
-        settings=providers.Callable(
-            _get_agent_settings_dict
-        ),  # pylint: disable=c-extension-no-member
+    research_agent = providers.Factory(
+        agent_factory.provided.create_research_agent,
     )
 
     job_description_parser_agent = providers.Factory(
-        JobDescriptionParserAgent,
-        llm_service=llm_service,
-        llm_cv_parser_service=llm_cv_parser_service,
-        template_manager=template_manager,
-        settings=providers.Callable(_get_agent_settings_dict),
+        agent_factory.provided.create_job_description_parser_agent,
     )
 
     user_cv_parser_agent = providers.Factory(
-        UserCVParserAgent,
-        llm_service=llm_service,
-        vector_store_service=vector_store_service,
-        template_manager=template_manager,
-        settings=providers.Callable(_get_agent_settings_dict),
+        agent_factory.provided.create_user_cv_parser_agent,
     )
 
     # Updater Agent Providers
     key_qualifications_updater_agent = providers.Factory(
-        KeyQualificationsUpdaterAgent,
+        agent_factory.provided.create_key_qualifications_updater_agent,
     )
 
     professional_experience_updater_agent = providers.Factory(
-        ProfessionalExperienceUpdaterAgent,
+        agent_factory.provided.create_professional_experience_updater_agent,
     )
 
     projects_updater_agent = providers.Factory(
-        ProjectsUpdaterAgent,
+        agent_factory.provided.create_projects_updater_agent,
     )
 
     executive_summary_updater_agent = providers.Factory(
-        ExecutiveSummaryUpdaterAgent,
+        agent_factory.provided.create_executive_summary_updater_agent,
     )
 
     # WorkflowManager Singleton - now uses DI container directly
     workflow_manager = providers.Singleton(
         WorkflowManager,
-        container=providers.Self(),
+        cv_template_loader_service=cv_template_loader_service,
+        session_manager=session_manager,
+        container=providers.Callable(lambda: ContainerSingleton.get_instance()),
     )
 
     # Facade providers
@@ -347,6 +297,7 @@ class Container(
     cv_generation_facade = providers.Singleton(
         CvGenerationFacade,
         workflow_manager=workflow_manager,
+        user_cv_parser_agent=user_cv_parser_agent,
         template_facade=cv_template_manager_facade,
         vector_store_facade=cv_vector_store_facade,
     )

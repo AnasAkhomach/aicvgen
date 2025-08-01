@@ -15,15 +15,28 @@ from pathlib import Path
 
 from pythonjsonlogger import jsonlogger
 from .settings import get_config
+
 # from src.config.logging_config.settings import get_config
+
+# Global flag to ensure setup_logging is only called once
+_logging_initialized = False
+
 
 def setup_logging(log_level=logging.DEBUG):
     """Configures logging based on the APP_ENV environment variable."""
+    global _logging_initialized
+
+    # Prevent multiple initializations
+    if _logging_initialized:
+        return
+
     APP_ENV = os.environ.get("APP_ENV", "development").lower()
     if APP_ENV == "production":
         _setup_production_logging(log_level)
     else:
         _setup_development_logging(log_level)
+
+    _logging_initialized = True
 
 
 def _setup_development_logging(log_level=logging.INFO):
@@ -148,20 +161,38 @@ class StructuredLogger:
         self._logger = logging.getLogger(name)
 
     def info(self, message, **kwargs):
-        self._logger.info(message, extra=kwargs)
+        # Filter out application-specific parameters that shouldn't be passed to logger
+        filtered_kwargs = self._filter_logging_kwargs(kwargs)
+        self._logger.info(message, extra=filtered_kwargs)
 
     def warning(self, message, **kwargs):
-        self._logger.warning(message, extra=kwargs)
+        # Filter out application-specific parameters that shouldn't be passed to logger
+        filtered_kwargs = self._filter_logging_kwargs(kwargs)
+        self._logger.warning(message, extra=filtered_kwargs)
 
     def error(self, message, *args, **kwargs):
         exc_info = kwargs.pop("exc_info", None)
         # Handle old-style string formatting
         if args:
             message = message % args
-        self._logger.error(message, extra=kwargs, exc_info=exc_info)
+        # Filter out application-specific parameters that shouldn't be passed to logger
+        filtered_kwargs = self._filter_logging_kwargs(kwargs)
+        self._logger.error(message, extra=filtered_kwargs, exc_info=exc_info)
 
     def debug(self, message, **kwargs):
-        self._logger.debug(message, extra=kwargs)
+        # Filter out application-specific parameters that shouldn't be passed to logger
+        filtered_kwargs = self._filter_logging_kwargs(kwargs)
+        self._logger.debug(message, extra=filtered_kwargs)
+
+    def _filter_logging_kwargs(self, kwargs):
+        """Filter out application-specific parameters that shouldn't be passed to logger."""
+        # Remove parameters that are not valid for logger.extra
+        filtered = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in ["session_id", "trace_id", "user_id"]
+        }
+        return filtered
 
     def log_agent_decision(self, decision_log):
         """Log agent decision data."""

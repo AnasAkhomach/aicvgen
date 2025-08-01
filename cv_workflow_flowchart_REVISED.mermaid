@@ -1,0 +1,59 @@
+graph TD
+    subgraph " "
+        direction LR
+        A(User)
+        subgraph 1. UI Layer [streamlit run app.py]
+            style 1. UI Layer fill:#E6F7FF,stroke:#B3D9FF
+            A -- Interacts with --> APP("app.py")
+        end
+    end
+
+    subgraph 2. Application Bootstrap
+        style 2. Application Bootstrap fill:#E8F5E9,stroke:#C8E6C9
+        STARTUP("ApplicationStartupService")
+        STARTUP -- Initializes --> CONTAINER("DI Container")
+        STARTUP -- Initializes --> LOGGING("Logging")
+        STARTUP -- Initializes --> STATEMANAGER("StateManager")
+    end
+
+    subgraph 3. Facade Layer
+        style 3. Facade Layer fill:#FFF8E1,stroke:#FFECB3
+        FACADE("CvGenerationFacade")
+    end
+
+    subgraph 4. Core Logic Layer
+        style 4. Core Logic Layer fill:#F3E5F5,stroke:#E1BEE7
+        MANAGER("WorkflowManager")
+        MANAGER -- Manages --> GRAPH("LangGraph<br/>Workflow")
+    end
+
+    subgraph 5. Service & Data Layer
+        style 5. Service & Data Layer fill:#FBE9E7,stroke:#FFCCBC
+        LLM_SERVICE("EnhancedLLMService<br/>(with Tenacity @retry)")
+        LANGCHAIN_CACHE("LangChain Global Cache")
+        VECTOR_STORE("VectorStoreService")
+    end
+
+    %% Defining the flow of control
+    APP -- 1. Initializes App --> STARTUP
+    APP -- 2. Makes calls to --> FACADE
+
+    FACADE -- Manages --> MANAGER
+
+    MANAGER -- Executes --> GRAPH
+
+    subgraph MVP Workflow [Simplified MVP Workflow]
+        direction TB
+        B1("JD Parser") --> B2("Initialize Supervisor")
+        B2 --> B3("Supervisor Router")
+        B3 -- Routes to --> B4("Key Qualifications<br/>Subgraph")
+        B4 -- Returns to --> B3
+        B3 -- Routes to --> B5("...other content subgraphs...")
+        B5 -- Returns to --> B3
+        B3 -- Completes --> B6([END])
+    end
+
+    GRAPH -- Defines --> MVP Workflow
+    MVP Workflow -- Makes calls via Agents to --> LLM_SERVICE
+    LLM_SERVICE -- Uses --> LANGCHAIN_CACHE
+    LLM_SERVICE -- Uses --> VECTOR_STORE

@@ -167,6 +167,14 @@ class StateManager:
         """Check if both CV and job description data are available."""
         return self.cv_text is not None and self.job_description_text is not None
 
+    def get_workflow_session_id(self) -> Optional[str]:
+        """Get the current workflow session ID."""
+        return self.get("session_id")
+
+    def get_agent_state(self) -> Optional[GlobalState]:
+        """Get the current agent state (alias for agent_state property)."""
+        return self.agent_state
+
     def get_state_summary(self) -> Dict[str, Any]:
         """Get a summary of current state for debugging/logging."""
         return {

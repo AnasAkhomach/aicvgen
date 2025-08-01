@@ -2,6 +2,7 @@
 
 import logging
 from typing import Dict, Any, Literal
+from langgraph.graph import END
 
 from src.orchestration.state import GlobalState
 from src.core.enums import WorkflowNodes
@@ -9,12 +10,14 @@ from src.core.enums import WorkflowNodes
 logger = logging.getLogger(__name__)
 
 
-def route_after_content_generation(state: GlobalState) -> Literal["REGENERATE", "MARK_COMPLETION", "AWAITING_FEEDBACK", "ERROR"]:
+def route_after_content_generation(
+    state: GlobalState,
+) -> Literal["REGENERATE", "MARK_COMPLETION", "AWAITING_FEEDBACK", "ERROR"]:
     """Route after content generation based on errors, user feedback, or completion.
-    
+
     Args:
         state: Current workflow state
-        
+
     Returns:
         Next node identifier
     """
@@ -24,7 +27,7 @@ def route_after_content_generation(state: GlobalState) -> Literal["REGENERATE", 
         if error_messages:
             logger.warning(f"Errors detected in content generation: {error_messages}")
             return WorkflowNodes.ERROR.value
-        
+
         # Check user feedback
         user_feedback = state.get("user_feedback", "")
         if user_feedback:
@@ -34,17 +37,17 @@ def route_after_content_generation(state: GlobalState) -> Literal["REGENERATE", 
             elif "approve" in user_feedback.lower():
                 logger.info("User approved content")
                 return "MARK_COMPLETION"
-        
+
         # Check if automated mode is enabled
         automated_mode = state.get("automated_mode", False)
         if automated_mode:
             logger.info("Automated mode enabled, marking completion")
             return "MARK_COMPLETION"
-        
+
         # Default: await user feedback
         logger.info("Awaiting user feedback")
         return "AWAITING_FEEDBACK"
-        
+
     except Exception as exc:
         logger.error(f"Error in content generation routing: {exc}")
         return WorkflowNodes.ERROR.value
@@ -52,20 +55,20 @@ def route_after_content_generation(state: GlobalState) -> Literal["REGENERATE", 
 
 def route_from_supervisor(state: GlobalState) -> str:
     """Route from supervisor based on next_node decision.
-    
+
     Args:
         state: Current workflow state
-        
+
     Returns:
         Next node identifier
     """
     try:
         next_node = state.get("next_node")
-        
+
         if not next_node:
             logger.warning("No next_node specified in supervisor state")
             return WorkflowNodes.ERROR_HANDLER.value
-        
+
         # Map section names to subgraph nodes
         section_to_subgraph = {
             "KEY_QUALIFICATIONS_SUBGRAPH": WorkflowNodes.KEY_QUALIFICATIONS_SUBGRAPH.value,
@@ -73,12 +76,17 @@ def route_from_supervisor(state: GlobalState) -> str:
             "PROJECTS_SUBGRAPH": WorkflowNodes.PROJECTS_SUBGRAPH.value,
             "EXECUTIVE_SUMMARY_SUBGRAPH": WorkflowNodes.EXECUTIVE_SUMMARY_SUBGRAPH.value,
         }
-        
+
         # Return the mapped node or the original next_node
+        # Handle END state specially to return the LangGraph END constant
+        if next_node == "END":
+            logger.info(f"Supervisor routing to: END")
+            return END
+
         mapped_node = section_to_subgraph.get(next_node, next_node)
         logger.info(f"Supervisor routing to: {mapped_node}")
         return mapped_node
-        
+
     except Exception as exc:
         logger.error(f"Error in supervisor routing: {exc}")
         return WorkflowNodes.ERROR_HANDLER.value
@@ -86,23 +94,23 @@ def route_from_supervisor(state: GlobalState) -> str:
 
 def route_from_entry(state: GlobalState) -> str:
     """Route from entry point based on available data.
-    
+
     Args:
         state: Current workflow state
-        
+
     Returns:
         Next node identifier
     """
     try:
         entry_route = state.get("entry_route")
-        
+
         if not entry_route:
             logger.warning("No entry_route specified in entry router state")
-            return WorkflowNodes.JD_PARSER.value  # Default to JD parser
-        
+            return "USER_CV_PARSER"  # Default to CV parser as first node
+
         logger.info(f"Entry routing to: {entry_route}")
         return entry_route
-        
+
     except Exception as exc:
         logger.error(f"Error in entry routing: {exc}")
-        return WorkflowNodes.JD_PARSER.value  # Default fallback
+        return "USER_CV_PARSER"  # Default fallback to CV parser

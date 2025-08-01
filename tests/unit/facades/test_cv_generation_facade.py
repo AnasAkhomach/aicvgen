@@ -60,17 +60,34 @@ class TestCvGenerationFacade:
         return mock
 
     @pytest.fixture
-    def facade(self, mock_workflow_manager):
+    def mock_user_cv_parser_agent(self):
+        """Create a mock UserCVParserAgent for testing."""
+        mock_agent = Mock()
+        mock_structured_cv = Mock(spec=StructuredCV)
+        mock_structured_cv.sections = []
+        mock_agent.run.return_value = mock_structured_cv
+        return mock_agent
+
+    @pytest.fixture
+    def facade(self, mock_workflow_manager, mock_user_cv_parser_agent):
         """Create a CvGenerationFacade instance for testing."""
-        return CvGenerationFacade(mock_workflow_manager)
+        return CvGenerationFacade(
+            workflow_manager=mock_workflow_manager,
+            user_cv_parser_agent=mock_user_cv_parser_agent,
+        )
 
     @pytest.fixture
     def facade_with_facades(
-        self, mock_workflow_manager, mock_template_facade, mock_vector_store_facade
+        self,
+        mock_workflow_manager,
+        mock_user_cv_parser_agent,
+        mock_template_facade,
+        mock_vector_store_facade,
     ):
         """Create a CvGenerationFacade instance with all facades."""
         return CvGenerationFacade(
             workflow_manager=mock_workflow_manager,
+            user_cv_parser_agent=mock_user_cv_parser_agent,
             template_facade=mock_template_facade,
             vector_store_facade=mock_vector_store_facade,
         )
@@ -527,7 +544,9 @@ class TestCvGenerationFacade:
         mock_logger.warning.assert_called()
 
     # Tests for TICKET REM-P2-01 required methods
-    def test_start_cv_generation_success(self, facade, mock_workflow_manager):
+    def test_start_cv_generation_success(
+        self, facade, mock_workflow_manager, mock_user_cv_parser_agent
+    ):
         """Test successful CV generation start using new method."""
         cv_content = "Sample CV content"
         job_description = "Sample job description"
@@ -536,8 +555,13 @@ class TestCvGenerationFacade:
         result = facade.start_cv_generation(cv_content, job_description, user_api_key)
 
         assert result == "test-session-123"
+        # Verify workflow creation is called with raw CV text (parsing now handled by workflow node)
         mock_workflow_manager.create_new_workflow.assert_called_once_with(
             cv_text=cv_content, jd_text=job_description
+        )
+        # Verify workflow step is triggered (via trigger_workflow_step in background thread)
+        mock_workflow_manager.get_workflow_status.assert_called_once_with(
+            "test-session-123"
         )
 
     def test_start_cv_generation_empty_cv_content(self, facade):

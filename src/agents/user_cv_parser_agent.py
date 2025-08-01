@@ -3,20 +3,13 @@ This module defines the UserCVParserAgent, responsible for parsing user CVs.
 """
 
 from typing import Any
-from uuid import uuid4
 
 from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
-from src.error_handling.exceptions import AgentExecutionError, DataConversionError, LLMResponseParsingError, VectorStoreError
-
-from src.models.agent_output_models import ParserAgentOutput
-from src.models.data_models import Item, ItemStatus, Section, StructuredCV, Subsection
+from src.error_handling.exceptions import AgentExecutionError
+from src.models.cv_models import StructuredCV
 from src.services.llm_cv_parser_service import LLMCVParserService
-from src.services.llm_service_interface import LLMServiceInterface
 from src.constants.agent_constants import AgentConstants
-from src.services.vector_store_service import VectorStoreService
-from src.templates.content_templates import ContentTemplateManager
-from src.utils.cv_data_factory import determine_item_type, determine_section_content_type
 
 logger = get_structured_logger(__name__)
 
@@ -24,164 +17,50 @@ logger = get_structured_logger(__name__)
 class UserCVParserAgent(AgentBase):
     """Agent responsible for parsing user CVs."""
 
-    def __init__(
-        self,
-        llm_service: LLMServiceInterface,
-        vector_store_service: VectorStoreService,
-        template_manager: ContentTemplateManager,
-        settings: dict,
-        session_id: str,
-    ):
+    def __init__(self, parser_service: LLMCVParserService, session_id: str, **kwargs):
         """Initialize the UserCVParserAgent with required dependencies."""
         super().__init__(
             name="UserCVParserAgent",
-            description="Parses raw text of user CVs into structured data.",
+            description="Agent responsible for parsing user CVs into structured format",
             session_id=session_id,
-            settings=settings,
         )
-        self.vector_store_service = vector_store_service
-        self.llm_cv_parser_service = LLMCVParserService(
-            llm_service, settings, template_manager
-        )
+        self._parser_service = parser_service
+        self.logger = logger
 
-    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
-        """Execute the core parsing logic."""
-        # Add comprehensive debug logging to track all kwargs
-        self.logger.debug(f"UserCVParserAgent received kwargs: {list(kwargs.keys())}")
-        for key, value in kwargs.items():
-            if isinstance(value, str):
-                self.logger.debug(f"  {key}: {type(value)} (length: {len(value)})")
-            else:
-                self.logger.debug(f"  {key}: {type(value)}")
-        
-        # Extract cv_text directly from kwargs (passed from extract_agent_inputs)
-        raw_text = kwargs.get("cv_text")
-        
-        # Add debug logging to track the cv_text value
-        self.logger.debug(f"UserCVParserAgent received cv_text: {raw_text is not None} (length: {len(raw_text) if raw_text else 0})")
-        
-        if raw_text is None:
+    async def run(self, cv_text: str) -> StructuredCV:
+        """Parse the raw CV text into a StructuredCV object using the dedicated service.
+
+        Args:
+            cv_text: The raw CV text to parse
+
+        Returns:
+            StructuredCV: The parsed and structured CV data
+        """
+        self.logger.info("Starting CV parsing with LLMCVParserService.")
+
+        if not cv_text or not cv_text.strip():
             raise AgentExecutionError(
-                agent_name=self.name, 
-                message="cv_text is None - cannot parse CV without text content"
+                agent_name=self.name, message="Cannot parse empty CV text"
             )
 
         self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Parsing CV")
-        parsed_data = await self.parse_cv(raw_text)
+
+        # Parse CV directly to StructuredCV
+        structured_cv = await self._parser_service.parse_cv_to_structured_cv(
+            cv_text=cv_text, session_id=self.session_id
+        )
 
         self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Parsing completed")
-        return {"structured_cv": parsed_data}
-
-    async def parse_cv(self, raw_text: str) -> StructuredCV:
-        """Parses a raw CV using an LLM and converts it to a structured format."""
-        if not raw_text.strip():
-            raise AgentExecutionError(
-                agent_name=self.name, message="Cannot parse an empty CV."
-            )
-        try:
-            self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Calling LLM for CV parsing")
-            
-            # Extract system instruction from settings
-            system_instruction = None
-            if self.settings and isinstance(self.settings, dict):
-                system_instruction = self.settings.get('cv_parser_system_instruction')
-            
-            llm_output = await self.llm_cv_parser_service.parse_cv_with_llm(
-                raw_text, 
-                system_instruction=system_instruction,
-                session_id=self.session_id
-            )
-
-            self.update_progress(AgentConstants.PROGRESS_PARSING_COMPLETE, "Converting LLM output to structured format")
-            # Create a StructuredCV directly from CVParsingResult
-            structured_cv = self._convert_cv_parsing_result_to_structured_cv(
-                llm_output, raw_text
-            )
-
-            self.update_progress(AgentConstants.PROGRESS_VECTOR_STORAGE, "Storing CV vectors")
-            await self._store_cv_vectors(structured_cv)
-
-            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Parsing completed")
-            return structured_cv
-        except (LLMResponseParsingError, DataConversionError) as e:
-            raise AgentExecutionError(
-                agent_name=self.name, message=f"Failed during CV parsing process: {e}"
-            ) from e
-
-    def _convert_cv_parsing_result_to_structured_cv(
-        self, parsing_result, cv_text: str
-    ) -> StructuredCV:
-        """Convert CVParsingResult to StructuredCV."""
-
-        # Create base structure with all required sections pre-initialized
-        structured_cv = StructuredCV.create_empty(cv_text=cv_text)
-
-        # Convert LLM-parsed sections and merge with existing structure
-        for section_data in parsing_result.sections:
-            # Find existing section or create new one
-            existing_section = structured_cv.get_section_by_name(section_data.name)
-            
-            if existing_section:
-                # Update existing section with LLM data
-                section = existing_section
-                section.status = ItemStatus.GENERATED
-                section.content_type = determine_section_content_type(section_data.name)
-            else:
-                # Create new section if it doesn't exist in required sections
-                section = Section(
-                    id=uuid4(),
-                    name=section_data.name,
-                    content_type=determine_section_content_type(section_data.name),
-                    status=ItemStatus.GENERATED,
-                    subsections=[],
-                    order=len(structured_cv.sections)
-                )
-                structured_cv.sections.append(section)
-
-            # Clear existing items/subsections and add LLM-parsed content
-            section.items = []
-            section.subsections = []
-
-            # Add direct items to section if any
-            if section_data.items:
-                for item_content in section_data.items:
-                    item = Item(
-                        id=uuid4(),
-                        content=item_content,
-                        item_type=determine_item_type(section_data.name),
-                        status=ItemStatus.GENERATED,
-                    )
-                    section.items.append(item)
-
-            # Add subsections
-            for subsection_data in section_data.subsections:
-                subsection = Subsection(
-                    id=uuid4(),
-                    name=subsection_data.name,
-                    status=ItemStatus.GENERATED,
-                    items=[],
-                )
-
-                for item_content in subsection_data.items:
-                    item = Item(
-                        id=uuid4(),
-                        content=item_content,
-                        item_type=determine_item_type(section_data.name),
-                        status=ItemStatus.GENERATED,
-                    )
-                    subsection.items.append(item)
-                section.subsections.append(subsection)
-        
-        # Ensure all required sections still exist (this should be redundant now but kept for safety)
-        structured_cv.ensure_required_sections()
-        
+        self.logger.info("Successfully parsed CV into StructuredCV object.")
         return structured_cv
 
-    async def _store_cv_vectors(self, structured_cv: StructuredCV):
-        """Stores the vectors for the parsed CV content."""
-        try:
-            await self.vector_store_service.add_structured_cv(structured_cv)
-            logger.info("Successfully stored vectors for CV.")
-        except VectorStoreError as e:
-            logger.warning("Failed to store CV vectors", error=str(e))
-            # Non-critical error, so we don't re-raise as AgentExecutionError
+    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
+        """Execute the core parsing logic (legacy interface for workflow compatibility)."""
+        cv_text = kwargs.get("cv_text")
+        if not cv_text:
+            raise AgentExecutionError(
+                agent_name=self.name, message="cv_text is required for parsing"
+            )
+
+        structured_cv = await self.run(cv_text)
+        return {"structured_cv": structured_cv}
