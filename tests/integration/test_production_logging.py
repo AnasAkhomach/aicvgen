@@ -196,13 +196,27 @@ logger.info("Docker integration test completed")
 
             # Create temporary directory for volume mount
             with tempfile.TemporaryDirectory() as temp_instance_dir:
+                # Create logs directory structure to match expected paths
+                logs_dir = Path(temp_instance_dir) / "logs"
+                error_logs_dir = logs_dir / "error"
+                error_logs_dir.mkdir(parents=True, exist_ok=True)
+
                 # Write test script directly to the mounted directory
                 test_script_path = Path(temp_instance_dir) / "test_logging.py"
                 test_script_path.write_text(test_script)
                 # Set proper permissions for Docker to read the file
                 test_script_path.chmod(0o644)
 
+                # Ensure directory permissions are correct for Docker user
+                import os
+
+                if os.name != "nt":  # Only on Unix-like systems
+                    os.chmod(temp_instance_dir, 0o755)
+                    os.chmod(logs_dir, 0o755)
+                    os.chmod(error_logs_dir, 0o755)
+
                 # Run container with our test script
+                # Ensure the script has executable permissions and proper ownership
                 result = subprocess.run(
                     [
                         "docker",
@@ -210,6 +224,8 @@ logger.info("Docker integration test completed")
                         "--rm",
                         "-v",
                         f"{temp_instance_dir}:/app/instance",
+                        "--user",
+                        "aicvgen:aicvgen",
                         "aicvgen-test",
                         "python",
                         "/app/instance/test_logging.py",
