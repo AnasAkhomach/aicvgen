@@ -18,28 +18,30 @@ class TestStructuredCVRequiredSections:
             order=0,
             status=ItemStatus.INITIAL,
             subsections=[],
-            items=[]
+            items=[],
         )
-        
+
         cv = StructuredCV(sections=[existing_section])
-        
+
         # Ensure required sections
         cv.ensure_required_sections()
-        
+
         # Check that all required sections are present
         required_sections = [
             "Executive Summary",
             "Key Qualifications",
             "Professional Experience",
             "Project Experience",
-            "Education"
+            "Education",
         ]
-        
+
         section_names = {section.name for section in cv.sections}
-        
+
         for required_section in required_sections:
-            assert required_section in section_names, f"Missing required section: {required_section}"
-        
+            assert (
+                required_section in section_names
+            ), f"Missing required section: {required_section}"
+
         # Should have 5 sections total
         assert len(cv.sections) == 5
 
@@ -52,14 +54,14 @@ class TestStructuredCVRequiredSections:
             "Key Qualifications",
             "Professional Experience",
             "Project Experience",
-            "Education"
+            "Education",
         ]
-        
+
         for i, section_name in enumerate(required_sections):
             test_item = Item(
                 id=uuid4(),
                 content=f"Test item for {section_name}",
-                status=ItemStatus.INITIAL
+                status=ItemStatus.INITIAL,
             )
             section = Section(
                 id=uuid4(),
@@ -68,19 +70,19 @@ class TestStructuredCVRequiredSections:
                 order=i,
                 status=ItemStatus.INITIAL,
                 subsections=[],
-                items=[test_item]
+                items=[test_item],
             )
             sections.append(section)
-        
+
         cv = StructuredCV(sections=sections)
         original_section_count = len(cv.sections)
-        
+
         # Ensure required sections
         cv.ensure_required_sections()
-        
+
         # Should not add any new sections
         assert len(cv.sections) == original_section_count
-        
+
         # Should preserve existing content
         for section in cv.sections:
             assert len(section.items) == 1
@@ -89,27 +91,29 @@ class TestStructuredCVRequiredSections:
     def test_ensure_required_sections_with_empty_cv(self):
         """Test that ensure_required_sections works with completely empty CV."""
         cv = StructuredCV(sections=[])
-        
+
         # Ensure required sections
         cv.ensure_required_sections()
-        
+
         # Check that all required sections are present
         required_sections = [
             "Executive Summary",
             "Key Qualifications",
             "Professional Experience",
             "Project Experience",
-            "Education"
+            "Education",
         ]
-        
+
         section_names = {section.name for section in cv.sections}
-        
+
         for required_section in required_sections:
-            assert required_section in section_names, f"Missing required section: {required_section}"
-        
+            assert (
+                required_section in section_names
+            ), f"Missing required section: {required_section}"
+
         # Should have 5 sections total
         assert len(cv.sections) == 5
-        
+
         # All sections should be empty initially
         for section in cv.sections:
             assert len(section.items) == 0
@@ -119,18 +123,20 @@ class TestStructuredCVRequiredSections:
     def test_create_empty_includes_all_required_sections(self):
         """Test that create_empty method includes all required sections."""
         cv = StructuredCV.create_empty()
-        
+
         required_sections = [
             "Executive Summary",
             "Key Qualifications",
             "Professional Experience",
             "Project Experience",
-            "Education"
+            "Education",
         ]
-        
+
         section_names = {section.name for section in cv.sections}
-        
+
         for required_section in required_sections:
-            assert required_section in section_names, f"Missing required section: {required_section}"
-        
+            assert (
+                required_section in section_names
+            ), f"Missing required section: {required_section}"
+
         assert len(cv.sections) == 5

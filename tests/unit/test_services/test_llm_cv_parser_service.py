@@ -1,7 +1,11 @@
 import pytest
 from unittest.mock import Mock
 from src.services.llm_cv_parser_service import LLMCVParserService
-from src.templates.content_templates import ContentTemplateManager, ContentTemplate, TemplateCategory
+from src.templates.content_templates import (
+    ContentTemplateManager,
+    ContentTemplate,
+    TemplateCategory,
+)
 from src.config.settings import PromptSettings, Settings
 from src.services.llm_service import EnhancedLLMService
 from src.models.data_models import ContentType
@@ -23,7 +27,7 @@ def template_manager(prompt_settings):
         content_type=ContentType.CV_PARSING,
         template="Test content",
         variables=[],
-        description="A test prompt"
+        description="A test prompt",
     )
     manager.templates = {"cv_parsing_prompt_v2": mock_template}
     return manager
@@ -41,6 +45,3 @@ def mock_settings(prompt_settings):
     settings = Mock(spec=Settings)
     settings.prompts = prompt_settings
     return settings
-
-
-

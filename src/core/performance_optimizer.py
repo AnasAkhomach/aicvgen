@@ -235,9 +235,9 @@ class IntelligentBatchProcessor:
 
     def __init__(self, config: BatchConfig):
         self.config = config
-        self._pending_requests: Dict[str, List[Tuple[Any, asyncio.Future]]] = (
-            defaultdict(list)
-        )
+        self._pending_requests: Dict[
+            str, List[Tuple[Any, asyncio.Future]]
+        ] = defaultdict(list)
         self._batch_timers: Dict[str, asyncio.Task] = {}
         self._semaphore = asyncio.Semaphore(config.max_concurrent_batches)
         self._lock = asyncio.Lock()
@@ -628,7 +628,6 @@ class PerformanceOptimizer:
         batch_config: Optional[BatchConfig] = None,
         cache_config: Optional[CacheConfig] = None,
     ):
-
         self.connection_config = connection_config or ConnectionPoolConfig()
         self.batch_config = batch_config or BatchConfig()
         self.cache_config = cache_config or CacheConfig()

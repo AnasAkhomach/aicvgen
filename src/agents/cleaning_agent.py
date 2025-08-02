@@ -72,23 +72,31 @@ class CleaningAgent(AgentBase):
             "cleaned_data": cleaned_data,
             "raw_output": raw_output_for_model,
             "output_type": output_type_for_model,
-            "modifications_made": modifications
+            "modifications_made": modifications,
         }
 
     def _clean_generic_output(self, raw_output: str) -> Tuple[str, List[str]]:
         """Cleans generic text output by removing unnecessary formatting."""
-        self.update_progress(AgentConstants.PROGRESS_PREPROCESSING, "Cleaning generic output")
+        self.update_progress(
+            AgentConstants.PROGRESS_PREPROCESSING, "Cleaning generic output"
+        )
         cleaned_text = raw_output.strip()
         modifications = ["Stripped leading/trailing whitespace."]
-        self.update_progress(AgentConstants.PROGRESS_CLEANING_COMPLETE, "Generic output cleaned")
+        self.update_progress(
+            AgentConstants.PROGRESS_CLEANING_COMPLETE, "Generic output cleaned"
+        )
         return cleaned_text, modifications
 
     def _clean_skills_list(self, skills_list: List[str]) -> Tuple[List[str], List[str]]:
         """Cleans a list of skills by standardizing format."""
-        self.update_progress(AgentConstants.PROGRESS_PREPROCESSING, "Cleaning skills list")
+        self.update_progress(
+            AgentConstants.PROGRESS_PREPROCESSING, "Cleaning skills list"
+        )
         cleaned_skills = [skill.strip().lower() for skill in skills_list]
         modifications = [
             "Standardized all skills to lowercase and stripped whitespace."
         ]
-        self.update_progress(AgentConstants.PROGRESS_CLEANING_COMPLETE, "Skills list cleaned")
+        self.update_progress(
+            AgentConstants.PROGRESS_CLEANING_COMPLETE, "Skills list cleaned"
+        )
         return cleaned_skills, modifications

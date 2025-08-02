@@ -63,14 +63,14 @@ class ValidatorFactory:
     @classmethod
     def validate_agent_input(cls, agent_type: str, state: "GlobalState") -> Any:
         """Validate agent input data against the appropriate Pydantic model.
-        
+
         Args:
             agent_type: The type of agent to validate input for
             state: The agent state containing input data
-            
+
         Returns:
             Validated input model instance
-            
+
         Raises:
             ValueError: If validation fails or agent type is unknown
         """
@@ -78,22 +78,24 @@ class ValidatorFactory:
         if not validator_class:
             logger.warning(f"No validator found for agent type: {agent_type}")
             return state
-            
+
         try:
             return cls._create_validator_instance(validator_class, agent_type, state)
         except ValidationError as e:
             logger.error("Validation error", agent_type=agent_type, error=str(e))
             raise ValueError(f"Input validation failed for {agent_type}: {e}") from e
-    
+
     @classmethod
-    def _create_validator_instance(cls, validator_class: Type[BaseModel], agent_type: str, state: "GlobalState") -> BaseModel:
+    def _create_validator_instance(
+        cls, validator_class: Type[BaseModel], agent_type: str, state: "GlobalState"
+    ) -> BaseModel:
         """Create a validator instance based on the agent type.
-        
+
         Args:
             validator_class: The Pydantic model class to instantiate
             agent_type: The type of agent
             state: The agent state containing input data
-            
+
         Returns:
             Instantiated validator model
         """
@@ -135,22 +137,24 @@ class ValidatorFactory:
         else:
             # This should not happen due to registry check, but included for safety
             raise ValueError(f"Unknown agent type: {agent_type}")
-    
+
     @classmethod
-    def register_validator(cls, agent_type: str, validator_class: Type[BaseModel]) -> None:
+    def register_validator(
+        cls, agent_type: str, validator_class: Type[BaseModel]
+    ) -> None:
         """Register a new validator for an agent type.
-        
+
         Args:
             agent_type: The agent type identifier
             validator_class: The Pydantic model class for validation
         """
         cls._VALIDATOR_REGISTRY[agent_type] = validator_class
         logger.info(f"Registered validator for agent type: {agent_type}")
-    
+
     @classmethod
     def get_supported_agent_types(cls) -> list[str]:
         """Get list of supported agent types.
-        
+
         Returns:
             List of supported agent type identifiers
         """

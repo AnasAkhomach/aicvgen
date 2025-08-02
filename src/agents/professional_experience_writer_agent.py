@@ -19,11 +19,19 @@ class ProfessionalExperienceAgentInput(BaseModel):
     job_title: str = Field(description="Job title from the job description")
     company_name: str = Field(description="Company name from the job description")
     job_description: str = Field(description="Full job description text")
-    experience_item: Dict[str, Any] = Field(description="The specific experience item being processed")
+    experience_item: Dict[str, Any] = Field(
+        description="The specific experience item being processed"
+    )
     cv_summary: str = Field(description="Summary from the CV")
-    required_skills: list = Field(default=[], description="Required skills from job description")
-    preferred_qualifications: list = Field(default=[], description="Preferred qualifications from job description")
-    research_findings: Optional[Dict[str, Any]] = Field(default=None, description="Research findings if available")
+    required_skills: list = Field(
+        default=[], description="Required skills from job description"
+    )
+    preferred_qualifications: list = Field(
+        default=[], description="Preferred qualifications from job description"
+    )
+    research_findings: Optional[Dict[str, Any]] = Field(
+        default=None, description="Research findings if available"
+    )
 
 
 class ProfessionalExperienceWriterAgent(AgentBase):
@@ -55,7 +63,7 @@ class ProfessionalExperienceWriterAgent(AgentBase):
             name="ProfessionalExperienceWriterAgent",
             description="Agent responsible for generating professional experience content for a CV",
             session_id=session_id,
-            settings=settings
+            settings=settings,
         )
         # Create the LCEL chain
         self.chain = prompt | llm | parser
@@ -77,11 +85,15 @@ class ProfessionalExperienceWriterAgent(AgentBase):
             # 2. Invoke the chain with the validated data
             # The agent's only job is to run the chain and return the result
             # It does NOT modify the structured_cv itself
-            generated_data: ProfessionalExperienceLLMOutput = await self.chain.ainvoke(validated_input.model_dump())
+            generated_data: ProfessionalExperienceLLMOutput = await self.chain.ainvoke(
+                validated_input.model_dump()
+            )
 
             # 3. Return the generated data in the format expected by the graph
             return {"generated_professional_experience": generated_data}
 
         except Exception as e:
             logger.error(f"Error in {self.name} execution: {e}")
-            raise AgentExecutionError(self.name, f"Failed to generate professional experience content: {e}") from e
+            raise AgentExecutionError(
+                self.name, f"Failed to generate professional experience content: {e}"
+            ) from e

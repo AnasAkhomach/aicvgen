@@ -15,12 +15,12 @@ class AgentConstants:
     PROGRESS_COMPLETE: Final[int] = ProgressConstants.PROGRESS_COMPLETE
     PROGRESS_START: Final[int] = ProgressConstants.PROGRESS_START
     PROGRESS_HALFWAY: Final[int] = ProgressConstants.PROGRESS_HALFWAY
-    
+
     # Common progress milestones
     PROGRESS_INPUT_VALIDATION: Final[int] = ProgressConstants.PROGRESS_INPUT_VALIDATION
     PROGRESS_PROCESSING: Final[int] = ProgressConstants.PROGRESS_MAIN_PROCESSING
     PROGRESS_NEAR_COMPLETE: Final[int] = ProgressConstants.PROGRESS_NEAR_COMPLETE
-    
+
     # Agent-specific progress stages
     PROGRESS_PARSING_COMPLETE: Final[int] = ProgressConstants.PROGRESS_PARSING_COMPLETE
     PROGRESS_VECTOR_STORAGE: Final[int] = ProgressConstants.PROGRESS_VECTOR_STORAGE
@@ -28,7 +28,9 @@ class AgentConstants:
     PROGRESS_OVERALL_CHECKS: Final[int] = ProgressConstants.PROGRESS_OVERALL_CHECKS
     PROGRESS_PDF_GENERATION: Final[int] = ProgressConstants.PROGRESS_PDF_GENERATION
     PROGRESS_HTML_GENERATION: Final[int] = ProgressConstants.PROGRESS_HTML_GENERATION
-    PROGRESS_CLEANING_COMPLETE: Final[int] = ProgressConstants.PROGRESS_CLEANING_COMPLETE
+    PROGRESS_CLEANING_COMPLETE: Final[
+        int
+    ] = ProgressConstants.PROGRESS_CLEANING_COMPLETE
     PROGRESS_LLM_PARSING: Final[int] = ProgressConstants.PROGRESS_LLM_PARSING
     PROGRESS_MAIN_PROCESSING: Final[int] = ProgressConstants.PROGRESS_MAIN_PROCESSING
     PROGRESS_POST_PROCESSING: Final[int] = ProgressConstants.PROGRESS_POST_PROCESSING

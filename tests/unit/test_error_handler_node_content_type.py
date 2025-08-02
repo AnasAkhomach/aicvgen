@@ -10,6 +10,7 @@ from src.models.workflow_models import ContentType
 
 # No fixtures needed for direct function testing
 
+
 @pytest.fixture
 def sample_state():
     """Create a sample GlobalState for testing."""
@@ -36,7 +37,7 @@ def sample_state():
         node_execution_metadata={},
         workflow_status="PROCESSING",
         ui_display_data={},
-        automated_mode=False
+        automated_mode=False,
     )
 
 
@@ -44,26 +45,32 @@ def sample_state():
 class TestCB004ErrorHandlerNodeFix:
     """Test cases for CB-004 fix in error_handler_node."""
 
-    async def test_error_handler_uses_current_content_type_experience(self, sample_state):
+    async def test_error_handler_uses_current_content_type_experience(
+        self, sample_state
+    ):
         """Test that error_handler_node uses current_content_type for EXPERIENCE."""
         # Arrange
         sample_state["error_messages"] = ["Test error"]
         sample_state["current_content_type"] = ContentType.EXPERIENCE
         sample_state["current_item_id"] = "test-item-123"
         sample_state["trace_id"] = "test-trace-456"
-        
-        with patch('src.services.error_recovery.ErrorRecoveryService') as mock_service_class:
+
+        with patch(
+            "src.services.error_recovery.ErrorRecoveryService"
+        ) as mock_service_class:
             mock_service_instance = MagicMock()
             mock_service_class.return_value = mock_service_instance
-            
+
             # Mock recovery action with strategy
             mock_recovery_action = MagicMock()
             mock_recovery_action.strategy.value = "immediate_retry"
-            mock_service_instance.handle_error = AsyncMock(return_value=mock_recovery_action)
-            
+            mock_service_instance.handle_error = AsyncMock(
+                return_value=mock_recovery_action
+            )
+
             # Act
             result = await error_handler_node(sample_state)
-            
+
             # Assert
             mock_service_instance.handle_error.assert_called_once()
             call_args = mock_service_instance.handle_error.call_args
@@ -71,26 +78,30 @@ class TestCB004ErrorHandlerNodeFix:
             assert call_args[0][2] == ContentType.EXPERIENCE
             assert result["error_messages"] == []  # Should clear error messages
 
-    async def test_error_handler_fallback_to_qualification_when_none(self, sample_state):
+    async def test_error_handler_fallback_to_qualification_when_none(
+        self, sample_state
+    ):
         """Test that error_handler_node falls back to QUALIFICATION when current_content_type is None."""
         # Arrange
         sample_state["error_messages"] = ["Test error"]
         sample_state["current_content_type"] = None
         sample_state["current_item_id"] = "test-item-123"
         sample_state["trace_id"] = "test-trace-456"
-        
-        with patch('src.services.error_recovery.ErrorRecoveryService') as mock_service:
+
+        with patch("src.services.error_recovery.ErrorRecoveryService") as mock_service:
             mock_service_instance = MagicMock()
             mock_service.return_value = mock_service_instance
-            
+
             # Mock recovery action with strategy
             mock_recovery_action = MagicMock()
             mock_recovery_action.strategy.value = "immediate_retry"
-            mock_service_instance.handle_error = AsyncMock(return_value=mock_recovery_action)
-            
+            mock_service_instance.handle_error = AsyncMock(
+                return_value=mock_recovery_action
+            )
+
             # Act
             result = await error_handler_node(sample_state)
-            
+
             # Assert
             mock_service_instance.handle_error.assert_called_once()
             call_args = mock_service_instance.handle_error.call_args
@@ -103,10 +114,10 @@ class TestCB004ErrorHandlerNodeFix:
         # Arrange
         sample_state["error_messages"] = []
         sample_state["current_content_type"] = ContentType.EXPERIENCE
-        
+
         # Act
         result = await error_handler_node(sample_state)
-        
+
         # Assert
         assert result == sample_state
         assert isinstance(result, dict)

@@ -125,7 +125,9 @@ class PredictiveCacheWarmer:
 
             # Limit pattern history
             if len(self._access_patterns[key]) > CacheConstants.MAX_PATTERN_HISTORY:
-                self._access_patterns[key] = self._access_patterns[key][-CacheConstants.MAX_PATTERN_HISTORY:]
+                self._access_patterns[key] = self._access_patterns[key][
+                    -CacheConstants.MAX_PATTERN_HISTORY :
+                ]
 
     def predict_next_accesses(self, current_key: str, count: int = 10) -> List[str]:
         """Predict next likely cache accesses."""
@@ -150,10 +152,15 @@ class PredictiveCacheWarmer:
         combined_predictions = {}
 
         for key, score in temporal_predictions.items():
-            combined_predictions[key] = combined_predictions.get(key, 0) + score * CacheConstants.TEMPORAL_WEIGHT
+            combined_predictions[key] = (
+                combined_predictions.get(key, 0)
+                + score * CacheConstants.TEMPORAL_WEIGHT
+            )
 
         for key, score in spatial_predictions.items():
-            combined_predictions[key] = combined_predictions.get(key, 0) + score * CacheConstants.SPATIAL_WEIGHT
+            combined_predictions[key] = (
+                combined_predictions.get(key, 0) + score * CacheConstants.SPATIAL_WEIGHT
+            )
 
         # Sort by score and return top predictions
         sorted_predictions = sorted(
@@ -177,7 +184,11 @@ class PredictiveCacheWarmer:
                     continue
 
                 for other_time in other_accesses:
-                    if access_time < other_time <= access_time + CacheConstants.TEMPORAL_WINDOW_SECONDS:
+                    if (
+                        access_time
+                        < other_time
+                        <= access_time + CacheConstants.TEMPORAL_WINDOW_SECONDS
+                    ):
                         time_diff = other_time - access_time
                         score = 1.0 / (
                             1.0 + time_diff / CacheConstants.TEMPORAL_WINDOW_SECONDS
@@ -316,7 +327,6 @@ class IntelligentCacheManager:
         enable_prediction: bool = True,
         enable_coherence: bool = True,
     ):
-
         self.max_memory_bytes = max_memory_mb * CacheConstants.MEMORY_CONVERSION_FACTOR
         self.enable_prediction = enable_prediction
         self.enable_coherence = enable_coherence
@@ -507,7 +517,10 @@ class IntelligentCacheManager:
     ) -> CacheLevel:
         """Determine optimal cache level for an entry."""
         # Small, high-priority items go to L1
-        if size_bytes < CacheConstants.SMALL_ITEM_THRESHOLD and priority >= CacheConstants.HIGH_PRIORITY_THRESHOLD:
+        if (
+            size_bytes < CacheConstants.SMALL_ITEM_THRESHOLD
+            and priority >= CacheConstants.HIGH_PRIORITY_THRESHOLD
+        ):
             return CacheLevel.L1_MEMORY
 
         # Medium items with frequent access patterns
@@ -518,7 +531,10 @@ class IntelligentCacheManager:
             return CacheLevel.L2_COMPRESSED
 
         # Large items or write-heavy patterns
-        if size_bytes > CacheConstants.LARGE_ITEM_THRESHOLD or pattern == CachePattern.WRITE_HEAVY:
+        if (
+            size_bytes > CacheConstants.LARGE_ITEM_THRESHOLD
+            or pattern == CachePattern.WRITE_HEAVY
+        ):
             return CacheLevel.L3_PERSISTENT
 
         # Default to L2
@@ -537,7 +553,8 @@ class IntelligentCacheManager:
         if level == CacheLevel.L1_MEMORY:
             current_size = sum(e.size_bytes for e in current_cache.values())
             if (
-                current_size + entry.size_bytes > self.max_memory_bytes * CacheConstants.L1_MEMORY_PERCENTAGE
+                current_size + entry.size_bytes
+                > self.max_memory_bytes * CacheConstants.L1_MEMORY_PERCENTAGE
             ):
                 return False
 
@@ -566,7 +583,11 @@ class IntelligentCacheManager:
         # Evict entries until we have enough space
         freed_bytes = 0
         config = self._level_configs[level]
-        target_count = max(len(current_cache) - int(config["max_entries"] * CacheConstants.EVICTION_BATCH_SIZE_RATIO), 0)
+        target_count = max(
+            len(current_cache)
+            - int(config["max_entries"] * CacheConstants.EVICTION_BATCH_SIZE_RATIO),
+            0,
+        )
 
         for key, entry, _ in entries_with_scores:
             if freed_bytes >= needed_bytes and len(current_cache) <= target_count:

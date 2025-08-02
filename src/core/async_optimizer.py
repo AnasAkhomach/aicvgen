@@ -28,7 +28,9 @@ logger = get_structured_logger("async_optimizer")
 class ConcurrencyConfig:
     """Configuration for concurrency control."""
 
-    max_concurrent_operations: int = PerformanceConstants.DEFAULT_MAX_CONCURRENT_OPERATIONS
+    max_concurrent_operations: int = (
+        PerformanceConstants.DEFAULT_MAX_CONCURRENT_OPERATIONS
+    )
     max_concurrent_per_type: int = PerformanceConstants.DEFAULT_MAX_CONCURRENT_PER_TYPE
     adaptive_scaling: bool = True
     scaling_factor: float = PerformanceConstants.DEFAULT_SCALING_FACTOR
@@ -64,8 +66,12 @@ class AdaptiveSemaphore:
         self._lock = asyncio.Lock()
 
         # Performance tracking
-        self._operation_times: deque = deque(maxlen=PerformanceConstants.MAX_OPERATION_TIMES_HISTORY)
-        self._wait_times: deque = deque(maxlen=PerformanceConstants.MAX_WAIT_TIMES_HISTORY)
+        self._operation_times: deque = deque(
+            maxlen=PerformanceConstants.MAX_OPERATION_TIMES_HISTORY
+        )
+        self._wait_times: deque = deque(
+            maxlen=PerformanceConstants.MAX_WAIT_TIMES_HISTORY
+        )
 
         logger.info("Adaptive semaphore initialized", initial_capacity=initial_value)
 
@@ -104,7 +110,10 @@ class AdaptiveSemaphore:
             now = time.time()
 
             # Only adjust every minimum interval
-            if now - self._last_adjustment < PerformanceConstants.MIN_ADJUSTMENT_INTERVAL:
+            if (
+                now - self._last_adjustment
+                < PerformanceConstants.MIN_ADJUSTMENT_INTERVAL
+            ):
                 return
 
             # Calculate performance metrics
@@ -121,14 +130,19 @@ class AdaptiveSemaphore:
             # Determine if scaling is needed
             should_scale_up = (
                 avg_wait_time
-                > avg_operation_time * PerformanceConstants.WAIT_TIME_THRESHOLD  # Wait time > threshold of operation time
-                and error_rate < PerformanceConstants.ERROR_RATE_THRESHOLD  # Low error rate
+                > avg_operation_time
+                * PerformanceConstants.WAIT_TIME_THRESHOLD  # Wait time > threshold of operation time
+                and error_rate
+                < PerformanceConstants.ERROR_RATE_THRESHOLD  # Low error rate
                 and self._current_capacity < self.config.max_concurrency
             )
 
             should_scale_down = (
-                avg_wait_time < avg_operation_time * PerformanceConstants.PERFORMANCE_IMPROVEMENT_THRESHOLD  # Very low wait time
-                or error_rate > PerformanceConstants.HIGH_ERROR_RATE_THRESHOLD  # High error rate
+                avg_wait_time
+                < avg_operation_time
+                * PerformanceConstants.PERFORMANCE_IMPROVEMENT_THRESHOLD  # Very low wait time
+                or error_rate
+                > PerformanceConstants.HIGH_ERROR_RATE_THRESHOLD  # High error rate
                 or self._current_capacity > self.config.min_concurrency
             )
 
@@ -168,7 +182,10 @@ class AdaptiveSemaphore:
             # Decrease capacity (acquire without releasing)
             for _ in range(self._current_capacity - new_capacity):
                 try:
-                    await asyncio.wait_for(self._semaphore.acquire(), timeout=PerformanceConstants.CAPACITY_ADJUSTMENT_TIMEOUT)
+                    await asyncio.wait_for(
+                        self._semaphore.acquire(),
+                        timeout=PerformanceConstants.CAPACITY_ADJUSTMENT_TIMEOUT,
+                    )
                 except asyncio.TimeoutError:
                     break
 
@@ -420,7 +437,9 @@ class DeadlockDetector:
         """Periodic deadlock detection."""
         while True:
             try:
-                await asyncio.sleep(PerformanceConstants.DEADLOCK_DETECTION_INTERVAL)  # Check every interval
+                await asyncio.sleep(
+                    PerformanceConstants.DEADLOCK_DETECTION_INTERVAL
+                )  # Check every interval
                 await self._detect_deadlocks()
             except asyncio.CancelledError:
                 break
@@ -479,7 +498,6 @@ class AsyncOptimizer:
         concurrency_config: Optional[ConcurrencyConfig] = None,
         pool_config: Optional[AsyncPoolConfig] = None,
     ):
-
         self.concurrency_config = concurrency_config or ConcurrencyConfig()
         self.pool_config = pool_config or AsyncPoolConfig()
 

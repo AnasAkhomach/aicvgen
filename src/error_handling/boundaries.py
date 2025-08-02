@@ -20,7 +20,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from src.config.logging_config import get_logger, log_error_with_context
 from src.utils.retry_predicates import is_transient_error
 
-from .exceptions import (CATCHABLE_EXCEPTIONS, AicvgenError, NetworkError, OperationTimeoutError)
+from .exceptions import (
+    CATCHABLE_EXCEPTIONS,
+    AicvgenError,
+    NetworkError,
+    OperationTimeoutError,
+)
 from .models import ErrorSeverity
 
 
@@ -76,7 +81,9 @@ class StreamlitErrorBoundary:
         }
 
         logger = get_logger("error_boundaries")
-        log_error_with_context(logger, f"Error in {self.component_name}.{func_name}", error)
+        log_error_with_context(
+            logger, f"Error in {self.component_name}.{func_name}", error
+        )
 
         self._display_error_message(error, error_id)
 
@@ -166,9 +173,7 @@ def handle_api_errors(func: Callable) -> Callable:
             logger.error(f"Data validation error in {func.__name__}: {str(e)}")
         except AicvgenError as e:
             st.error(f"❌ An application error occurred: {e}")
-            log_error_with_context(
-                logger, f"API error in {func.__name__}", e
-            )
+            log_error_with_context(logger, f"API error in {func.__name__}", e)
         return None
 
     return wrapper
@@ -241,7 +246,7 @@ class ErrorRecovery:
             stop=stop_after_attempt(max_retries),
             wait=wait_exponential(multiplier=backoff_factor, min=1, max=60),
             retry=retry_if_exception(is_transient_error),
-            reraise=True
+            reraise=True,
         )
 
         # Apply the decorator to the function and execute it

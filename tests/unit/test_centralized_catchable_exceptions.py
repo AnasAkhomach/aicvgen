@@ -32,7 +32,6 @@ def test_boundaries_imports_centralized_exceptions():
     assert boundaries_exceptions is exceptions_exceptions
 
 
-
 def test_no_duplicate_catchable_exceptions_definitions():
     """Test that there's only one definition of CATCHABLE_EXCEPTIONS in the codebase."""
     # This test ensures we've successfully eliminated duplication

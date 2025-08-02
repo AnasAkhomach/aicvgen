@@ -53,14 +53,12 @@ class CVWorkflowExecutor:
             "cache_hits": 0,
             "cache_misses": 0,
         }
-    
+
     @property
     def orchestrator(self):
         """Lazy initialization of the workflow orchestrator."""
         if self._orchestrator is None:
-            self._orchestrator = create_cv_workflow_graph_with_di(
-                self.container
-            )
+            self._orchestrator = create_cv_workflow_graph_with_di(self.container)
         return self._orchestrator
 
     @property
@@ -168,7 +166,9 @@ class CVWorkflowExecutor:
         if isinstance(workflow_result, dict) and "structured_cv" in workflow_result:
             structured_cv = workflow_result.get("structured_cv")
             result_state = create_agent_state(
-                cv_text=structured_cv.to_raw_text() if structured_cv else initial_agent_state["cv_text"],
+                cv_text=structured_cv.to_raw_text()
+                if structured_cv
+                else initial_agent_state["cv_text"],
                 structured_cv=structured_cv,
                 job_description_data=workflow_result.get("job_description_data"),
                 error_messages=workflow_result.get("error_messages", []),
@@ -180,10 +180,7 @@ class CVWorkflowExecutor:
             # Create a new state with the error message added
             error_messages = list(initial_agent_state["error_messages"])
             error_messages.append("Workflow execution did not return expected results")
-            result_state = {
-                **initial_agent_state,
-                "error_messages": error_messages
-            }
+            result_state = {**initial_agent_state, "error_messages": error_messages}
 
         success = not bool(result_state["error_messages"] if result_state else True)
         self.logger.info("Workflow success", extra={"success": success})
@@ -313,7 +310,9 @@ class CVWorkflowExecutor:
         success = False
         result_state = None
 
-        cache_key, cached_result = await self._handle_caching_logic(workflow_type, input_data, custom_options)
+        cache_key, cached_result = await self._handle_caching_logic(
+            workflow_type, input_data, custom_options
+        )
         if cached_result:
             return cached_result
 
@@ -346,10 +345,17 @@ class CVWorkflowExecutor:
                 )
 
                 self._update_performance_stats(
-                    start_time, workflow_type, session_id, success, result_state, cache_key
+                    start_time,
+                    workflow_type,
+                    session_id,
+                    success,
+                    result_state,
+                    cache_key,
                 )
 
-                final_errors = result_state.get("error_messages", []) if result_state else []
+                final_errors = (
+                    result_state.get("error_messages", []) if result_state else []
+                )
                 self.logger.info(
                     f"Final return structure - success: {success}, errors: {final_errors}"
                 )

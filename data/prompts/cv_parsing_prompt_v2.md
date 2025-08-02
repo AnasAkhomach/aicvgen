@@ -46,7 +46,7 @@ Your entire output must be a single JSON object. Do not include any commentary o
     - "Executive Summary"
     - "Key Qualifications"
     - "Professional Experience"
-    - "Project Experience" 
+    - "Project Experience"
     - "Education"
     If a section is missing from the CV, include it with empty `items` and `subsections` arrays.
 3.  **Handle `subsections`:** For sections like "Professional Experience" or "Projects", treat each distinct role or project as a subsection. The `name` of the subsection should be the role title/company/dates line.

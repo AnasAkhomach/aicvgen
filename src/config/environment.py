@@ -16,6 +16,7 @@ from src.utils.import_fallbacks import get_dotenv
 from .settings import UIConfig, EnvironmentConfig
 from .shared_configs import PerformanceConfig, DatabaseConfig as SharedDatabaseConfig
 
+
 # Load environment variables with standardized fallback handling
 # Note: Import moved to avoid circular dependency
 def _load_environment_variables():
@@ -30,6 +31,7 @@ def _load_environment_variables():
             load_dotenv()
         except ImportError:
             pass
+
 
 # Load environment variables at module level
 _load_environment_variables()

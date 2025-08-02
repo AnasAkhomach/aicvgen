@@ -17,35 +17,37 @@ class TestLLMServiceInterface:
         """Test that EnhancedLLMService properly implements LLMServiceInterface."""
         # Verify that EnhancedLLMService is a subclass of LLMServiceInterface
         assert issubclass(EnhancedLLMService, LLMServiceInterface)
-        
+
         # Verify that all interface methods are implemented
         interface_methods = {
-            'generate_content',
-            'generate', 
-            'validate_api_key',
-            'get_current_api_key_info',
-            'ensure_api_key_valid'
+            "generate_content",
+            "generate",
+            "validate_api_key",
+            "get_current_api_key_info",
+            "ensure_api_key_valid",
         }
-        
+
         enhanced_service_methods = set(dir(EnhancedLLMService))
-        
+
         for method in interface_methods:
-            assert method in enhanced_service_methods, f"Method {method} not implemented in EnhancedLLMService"
+            assert (
+                method in enhanced_service_methods
+            ), f"Method {method} not implemented in EnhancedLLMService"
 
     @pytest.fixture
     def mock_llm_service(self):
         """Create a mock LLM service that implements the interface."""
         mock_service = Mock(spec=LLMServiceInterface)
-        
+
         # Mock the async methods
         mock_service.generate_content = AsyncMock()
         mock_service.generate = AsyncMock()
         mock_service.validate_api_key = AsyncMock()
         mock_service.ensure_api_key_valid = AsyncMock()
-        
+
         # Mock the sync method
         mock_service.get_current_api_key_info = Mock()
-        
+
         return mock_service
 
     @pytest.mark.asyncio
@@ -56,26 +58,26 @@ class TestLLMServiceInterface:
             content="Test response",
             model="test-model",
             tokens_used=10,
-            processing_time=1.0
+            processing_time=1.0,
         )
         mock_llm_service.generate_content.return_value = expected_response
-        
+
         # Test the interface method
         result = await mock_llm_service.generate_content(
             prompt="test prompt",
             content_type=ContentType.CV_ANALYSIS,
             session_id="test_session",
             max_tokens=100,
-            temperature=0.7
+            temperature=0.7,
         )
-        
+
         assert result == expected_response
         mock_llm_service.generate_content.assert_called_once_with(
             prompt="test prompt",
             content_type=ContentType.CV_ANALYSIS,
             session_id="test_session",
             max_tokens=100,
-            temperature=0.7
+            temperature=0.7,
         )
 
     @pytest.mark.asyncio
@@ -86,13 +88,13 @@ class TestLLMServiceInterface:
             content="Test response",
             model="test-model",
             tokens_used=10,
-            processing_time=1.0
+            processing_time=1.0,
         )
         mock_llm_service.generate.return_value = expected_response
-        
+
         # Test the interface method
         result = await mock_llm_service.generate("test prompt", max_tokens=100)
-        
+
         assert result == expected_response
         mock_llm_service.generate.assert_called_once_with("test prompt", max_tokens=100)
 
@@ -100,9 +102,9 @@ class TestLLMServiceInterface:
     async def test_interface_contract_validate_api_key(self, mock_llm_service):
         """Test that the interface contract for validate_api_key is respected."""
         mock_llm_service.validate_api_key.return_value = True
-        
+
         result = await mock_llm_service.validate_api_key()
-        
+
         assert result is True
         mock_llm_service.validate_api_key.assert_called_once()
 
@@ -112,12 +114,12 @@ class TestLLMServiceInterface:
             using_user_key=True,
             using_fallback=False,
             has_fallback_available=True,
-            key_source="test"
+            key_source="test",
         )
         mock_llm_service.get_current_api_key_info.return_value = expected_info
-        
+
         result = mock_llm_service.get_current_api_key_info()
-        
+
         assert result == expected_info
         mock_llm_service.get_current_api_key_info.assert_called_once()
 
@@ -131,50 +133,52 @@ class TestLLMServiceInterface:
     def test_interface_hides_implementation_details(self):
         """Test that the interface does not expose implementation details."""
         interface_methods = set(dir(LLMServiceInterface))
-        
+
         # These methods should NOT be in the interface as they expose implementation details
         forbidden_methods = {
-            'get_service_stats',
-            'clear_cache', 
-            'optimize_performance',
-            'caching_service',
-            'retry_service',
-            'rate_limiter'
+            "get_service_stats",
+            "clear_cache",
+            "optimize_performance",
+            "caching_service",
+            "retry_service",
+            "rate_limiter",
         }
-        
+
         for method in forbidden_methods:
-            assert method not in interface_methods, f"Implementation detail {method} exposed in interface"
+            assert (
+                method not in interface_methods
+            ), f"Implementation detail {method} exposed in interface"
 
     def test_cb011_contract_breach_resolved(self):
         """Test that CB-011 contract breach has been resolved."""
         # Verify that EnhancedLLMService implements the clean interface
         assert issubclass(EnhancedLLMService, LLMServiceInterface)
-        
+
         # Verify that implementation details are not exposed in the interface
         interface_methods = set(dir(LLMServiceInterface))
-        
+
         # These were the problematic methods that exposed implementation details
         problematic_methods = {
-            'get_service_stats',  # Exposed cache_stats, optimizer_stats
-            'clear_cache',        # Exposed caching mechanism
-            'optimize_performance' # Exposed optimization internals
+            "get_service_stats",  # Exposed cache_stats, optimizer_stats
+            "clear_cache",  # Exposed caching mechanism
+            "optimize_performance",  # Exposed optimization internals
         }
-        
+
         for method in problematic_methods:
-            assert method not in interface_methods, (
-                f"CB-011 contract breach: {method} still exposed in interface"
-            )
-        
+            assert (
+                method not in interface_methods
+            ), f"CB-011 contract breach: {method} still exposed in interface"
+
         # Verify that the essential methods are still available
         essential_methods = {
-            'generate_content',
-            'generate',
-            'validate_api_key', 
-            'get_current_api_key_info',
-            'ensure_api_key_valid'
+            "generate_content",
+            "generate",
+            "validate_api_key",
+            "get_current_api_key_info",
+            "ensure_api_key_valid",
         }
-        
+
         for method in essential_methods:
-            assert method in interface_methods, (
-                f"Essential method {method} missing from interface"
-            )
+            assert (
+                method in interface_methods
+            ), f"Essential method {method} missing from interface"

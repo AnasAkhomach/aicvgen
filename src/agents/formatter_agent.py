@@ -7,7 +7,11 @@ from typing import Any, Optional
 
 from src.agents.agent_base import AgentBase
 from src.config.logging_config import get_structured_logger
-from src.error_handling.exceptions import (AgentExecutionError, DependencyError, TemplateError)
+from src.error_handling.exceptions import (
+    AgentExecutionError,
+    DependencyError,
+    TemplateError,
+)
 
 from src.models.agent_output_models import FormatterAgentOutput
 from src.constants.agent_constants import AgentConstants
@@ -79,27 +83,35 @@ class FormatterAgent(AgentBase):
         template_name: str = input_data.get("template_name", "default_template.html")
         output_path: Optional[str] = input_data.get("output_path")
 
-        self.update_progress(AgentConstants.PROGRESS_START, "Starting formatting process")
+        self.update_progress(
+            AgentConstants.PROGRESS_START, "Starting formatting process"
+        )
         format_type = format_type.lower()
 
         try:
-            self.update_progress(AgentConstants.PROGRESS_PREPROCESSING, "Rendering CV from template")
+            self.update_progress(
+                AgentConstants.PROGRESS_PREPROCESSING, "Rendering CV from template"
+            )
             html_content = self._format_html(structured_cv, template_name)
 
             final_output_path = self._get_output_path(output_path, format_type)
             final_output_path.parent.mkdir(parents=True, exist_ok=True)
 
             if format_type == "pdf":
-                self.update_progress(AgentConstants.PROGRESS_PDF_GENERATION, "Generating PDF file")
+                self.update_progress(
+                    AgentConstants.PROGRESS_PDF_GENERATION, "Generating PDF file"
+                )
                 self._generate_pdf(html_content, final_output_path)
             else:  # html
-                self.update_progress(AgentConstants.PROGRESS_HTML_GENERATION, "Generating HTML file")
+                self.update_progress(
+                    AgentConstants.PROGRESS_HTML_GENERATION, "Generating HTML file"
+                )
                 self._generate_html(html_content, final_output_path)
 
-            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Formatting completed successfully")
-            return {
-                "output_path": str(final_output_path.resolve())
-            }
+            self.update_progress(
+                AgentConstants.PROGRESS_COMPLETE, "Formatting completed successfully"
+            )
+            return {"output_path": str(final_output_path.resolve())}
         except AgentExecutionError:
             # Re-raise without modification to preserve original error context
             raise

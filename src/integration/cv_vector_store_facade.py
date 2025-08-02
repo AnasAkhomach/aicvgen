@@ -44,7 +44,10 @@ class CVVectorStoreFacade:
             return None
 
     async def search_content(
-        self, query: str, content_type: Optional[ContentType] = None, limit: int = ConfigConstants.DEFAULT_SEARCH_LIMIT
+        self,
+        query: str,
+        content_type: Optional[ContentType] = None,
+        limit: int = ConfigConstants.DEFAULT_SEARCH_LIMIT,
     ) -> List[Dict[str, Any]]:
         """Search for similar content."""
         if not self._vector_db:
@@ -68,7 +71,10 @@ class CVVectorStoreFacade:
             return []
 
     async def find_similar_content(
-        self, content: str, content_type: Optional[ContentType] = None, limit: int = ConfigConstants.DEFAULT_SIMILAR_CONTENT_LIMIT
+        self,
+        content: str,
+        content_type: Optional[ContentType] = None,
+        limit: int = ConfigConstants.DEFAULT_SIMILAR_CONTENT_LIMIT,
     ) -> List[Dict[str, Any]]:
         """Find content similar to the provided content."""
         if not self._vector_db:

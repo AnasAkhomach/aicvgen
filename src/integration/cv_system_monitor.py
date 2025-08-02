@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from src.config.logging_config import get_structured_logger
 from src.error_handling.exceptions import VectorStoreError, WorkflowError
+
 # Removed CVWorkflowGraph import - using Any for orchestrator type
 from src.services.vector_store_service import VectorStoreService
 from src.templates.content_templates import ContentTemplateManager

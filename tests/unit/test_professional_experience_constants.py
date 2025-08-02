@@ -2,7 +2,9 @@
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from src.agents.professional_experience_writer_agent import ProfessionalExperienceWriterAgent
+from src.agents.professional_experience_writer_agent import (
+    ProfessionalExperienceWriterAgent,
+)
 from src.constants.llm_constants import LLMConstants
 from src.models.data_models import StructuredCV, Section, Item, JobDescriptionData
 from src.models.cv_models import ItemType
@@ -20,8 +22,12 @@ class TestProfessionalExperienceConstants:
         self.settings = {"test_setting": "test_value"}
 
         # Mock the chain creation to avoid | operator issues with Mock objects
-        with patch.object(ProfessionalExperienceWriterAgent, '__init__', return_value=None):
-            self.agent = ProfessionalExperienceWriterAgent.__new__(ProfessionalExperienceWriterAgent)
+        with patch.object(
+            ProfessionalExperienceWriterAgent, "__init__", return_value=None
+        ):
+            self.agent = ProfessionalExperienceWriterAgent.__new__(
+                ProfessionalExperienceWriterAgent
+            )
             self.agent.name = "ProfessionalExperienceWriterAgent"
             self.agent.description = "Agent responsible for generating professional experience content for a CV"
             self.agent.session_id = "test_session"
@@ -35,7 +41,7 @@ class TestProfessionalExperienceConstants:
         experience_item = {
             "id": "test_item_id",
             "content": "Software Engineer at TechCorp",
-            "item_type": ItemType.EXPERIENCE_ROLE_TITLE
+            "item_type": ItemType.EXPERIENCE_ROLE_TITLE,
         }
 
         structured_cv = StructuredCV(
@@ -46,21 +52,23 @@ class TestProfessionalExperienceConstants:
                         Item(
                             content="Software Engineer at TechCorp",
                             item_type=ItemType.EXPERIENCE_ROLE_TITLE,
-                            metadata={"item_id": "test_item_id"}
+                            metadata={"item_id": "test_item_id"},
                         )
                     ],
-                    subsections=[]
+                    subsections=[],
                 )
             ]
         )
 
         job_data = JobDescriptionData(
             raw_text="Looking for a senior software engineer",
-            job_title="Senior Software Engineer"
+            job_title="Senior Software Engineer",
         )
 
         # Mock the LCEL chain response
-        mock_response = {"generated_professional_experience": "Generated professional experience content"}
+        mock_response = {
+            "generated_professional_experience": "Generated professional experience content"
+        }
         self.agent.chain = AsyncMock()
         self.agent.chain.ainvoke = AsyncMock(return_value=mock_response)
 
@@ -72,12 +80,12 @@ class TestProfessionalExperienceConstants:
             experience_item=experience_item,
             cv_summary="Software engineer with experience",
             required_skills=["Python", "JavaScript"],
-            preferred_qualifications=["React", "Node.js"]
+            preferred_qualifications=["React", "Node.js"],
         )
 
         # Verify that the chain was called
         self.agent.chain.ainvoke.assert_called_once()
-        
+
         # Verify the result structure
         assert "generated_professional_experience" in result
 
@@ -87,11 +95,15 @@ class TestProfessionalExperienceConstants:
         # Set custom settings
         custom_settings = {
             "max_tokens_content_generation": 1500,
-            "temperature_content_generation": 0.5
+            "temperature_content_generation": 0.5,
         }
 
-        with patch.object(ProfessionalExperienceWriterAgent, '__init__', return_value=None):
-            agent_with_custom_settings = ProfessionalExperienceWriterAgent.__new__(ProfessionalExperienceWriterAgent)
+        with patch.object(
+            ProfessionalExperienceWriterAgent, "__init__", return_value=None
+        ):
+            agent_with_custom_settings = ProfessionalExperienceWriterAgent.__new__(
+                ProfessionalExperienceWriterAgent
+            )
             agent_with_custom_settings.name = "ProfessionalExperienceWriterAgent"
             agent_with_custom_settings.description = "Agent responsible for generating professional experience content for a CV"
             agent_with_custom_settings.session_id = "test_session"
@@ -102,7 +114,7 @@ class TestProfessionalExperienceConstants:
         experience_item = {
             "id": "test_item_id",
             "content": "Software Engineer at TechCorp",
-            "item_type": ItemType.EXPERIENCE_ROLE_TITLE
+            "item_type": ItemType.EXPERIENCE_ROLE_TITLE,
         }
 
         structured_cv = StructuredCV(
@@ -113,21 +125,23 @@ class TestProfessionalExperienceConstants:
                         Item(
                             content="Software Engineer at TechCorp",
                             item_type=ItemType.EXPERIENCE_ROLE_TITLE,
-                            metadata={"item_id": "test_item_id"}
+                            metadata={"item_id": "test_item_id"},
                         )
                     ],
-                    subsections=[]
+                    subsections=[],
                 )
             ]
         )
 
         job_data = JobDescriptionData(
             raw_text="Looking for a senior software engineer",
-            job_title="Senior Software Engineer"
+            job_title="Senior Software Engineer",
         )
 
         # Mock the LCEL chain response
-        mock_response = {"generated_professional_experience": "Generated professional experience content"}
+        mock_response = {
+            "generated_professional_experience": "Generated professional experience content"
+        }
         agent_with_custom_settings.chain = AsyncMock()
         agent_with_custom_settings.chain.ainvoke = AsyncMock(return_value=mock_response)
 
@@ -139,19 +153,19 @@ class TestProfessionalExperienceConstants:
             experience_item=experience_item,
             cv_summary="Software engineer with experience",
             required_skills=["Python", "JavaScript"],
-            preferred_qualifications=["React", "Node.js"]
+            preferred_qualifications=["React", "Node.js"],
         )
 
         # Verify that the chain was called
         agent_with_custom_settings.chain.ainvoke.assert_called_once()
-        
+
         # Verify the result structure
         assert "generated_professional_experience" in result
 
     def test_llm_constants_are_defined(self):
         """Test that the required LLM constants are properly defined."""
-        assert hasattr(LLMConstants, 'MAX_TOKENS_GENERATION')
-        assert hasattr(LLMConstants, 'TEMPERATURE_BALANCED')
+        assert hasattr(LLMConstants, "MAX_TOKENS_GENERATION")
+        assert hasattr(LLMConstants, "TEMPERATURE_BALANCED")
         assert isinstance(LLMConstants.MAX_TOKENS_GENERATION, int)
         assert isinstance(LLMConstants.TEMPERATURE_BALANCED, float)
         assert LLMConstants.MAX_TOKENS_GENERATION > 0

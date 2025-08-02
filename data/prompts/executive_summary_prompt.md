@@ -78,4 +78,3 @@ Return only:
 {{Executive Summary including **Skills Summary**}}
 ```
 No explanations. No headers. No preambles.
-

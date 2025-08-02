@@ -9,7 +9,12 @@ from src.constants.agent_constants import AgentConstants
 from src.constants.qa_constants import QAConstants
 from src.error_handling.exceptions import AgentExecutionError
 
-from src.models.agent_output_models import ItemQualityResultModel, OverallQualityCheckResultModel, QualityAssuranceAgentOutput, SectionQualityResultModel
+from src.models.agent_output_models import (
+    ItemQualityResultModel,
+    OverallQualityCheckResultModel,
+    QualityAssuranceAgentOutput,
+    SectionQualityResultModel,
+)
 from src.models.data_models import Item, Section, StructuredCV
 from src.services.llm_service_interface import LLMServiceInterface
 from src.templates.content_templates import ContentTemplateManager
@@ -49,7 +54,7 @@ class QualityAssuranceAgent(AgentBase):
         self.template_manager = template_manager
 
     @ensure_pydantic_model(
-        ('structured_cv', StructuredCV),
+        ("structured_cv", StructuredCV),
     )
     async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """
@@ -62,43 +67,52 @@ class QualityAssuranceAgent(AgentBase):
             # Extract structured_cv from kwargs (passed by base class run method)
             structured_cv = kwargs.get("structured_cv")
             if not structured_cv:
-                raise AgentExecutionError(agent_name=self.name, message="structured_cv is required but not provided")
+                raise AgentExecutionError(
+                    agent_name=self.name,
+                    message="structured_cv is required but not provided",
+                )
 
             # Pydantic validation is now handled by the decorator
-            self.update_progress(AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation passed.")
+            self.update_progress(
+                AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation passed."
+            )
 
             section_results = [
                 self._check_section(section) for section in structured_cv.sections
             ]
-            self.update_progress(AgentConstants.PROGRESS_SECTION_CHECKS, "Section checks completed.")
+            self.update_progress(
+                AgentConstants.PROGRESS_SECTION_CHECKS, "Section checks completed."
+            )
 
             overall_checks = self._check_overall_cv()
-            self.update_progress(AgentConstants.PROGRESS_OVERALL_CHECKS, "Overall CV checks completed.")
+            self.update_progress(
+                AgentConstants.PROGRESS_OVERALL_CHECKS, "Overall CV checks completed."
+            )
 
             qa_results = QualityAssuranceAgentOutput(
                 section_results=section_results, overall_checks=overall_checks
             )
 
             logger.info("Quality Assurance Agent: Execution completed successfully.")
-            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "QA checks completed.")
+            self.update_progress(
+                AgentConstants.PROGRESS_COMPLETE, "QA checks completed."
+            )
 
-            return {
-                "quality_check_results": qa_results
-            }
+            return {"quality_check_results": qa_results}
 
         except AgentExecutionError as e:
             error_message = f"{self.name} failed: {str(e)}"
             logger.error(error_message, exc_info=True)
             return {
                 "error_messages": [error_message],
-                "quality_check_results": QualityAssuranceAgentOutput()
+                "quality_check_results": QualityAssuranceAgentOutput(),
             }
         except Exception as e:
             error_message = f"An unexpected error occurred in {self.name}: {str(e)}"
             logger.error(error_message, exc_info=True)
             return {
                 "error_messages": [error_message],
-                "quality_check_results": QualityAssuranceAgentOutput()
+                "quality_check_results": QualityAssuranceAgentOutput(),
             }
 
     def _check_section(self, section: Section) -> SectionQualityResultModel:
@@ -125,7 +139,7 @@ class QualityAssuranceAgent(AgentBase):
                 issues.append(
                     QAConstants.ERROR_WORD_COUNT_LOW.format(
                         actual=word_count,
-                        minimum=QAConstants.MIN_WORD_COUNT_EXECUTIVE_SUMMARY
+                        minimum=QAConstants.MIN_WORD_COUNT_EXECUTIVE_SUMMARY,
                     )
                 )
                 passed = False
@@ -133,7 +147,7 @@ class QualityAssuranceAgent(AgentBase):
                 issues.append(
                     QAConstants.ERROR_WORD_COUNT_HIGH.format(
                         actual=word_count,
-                        maximum=QAConstants.MAX_WORD_COUNT_EXECUTIVE_SUMMARY
+                        maximum=QAConstants.MAX_WORD_COUNT_EXECUTIVE_SUMMARY,
                     )
                 )
                 passed = False

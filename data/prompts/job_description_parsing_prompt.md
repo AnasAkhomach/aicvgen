@@ -18,7 +18,7 @@ description: Prompt for parsing job descriptions into structured fields.
 ```
 {{
   "job_title": "string",
-  "company_name": "string", 
+  "company_name": "string",
   "main_job_description_raw": "string",
   "skills": ["string"],
   "experience_level": "string",

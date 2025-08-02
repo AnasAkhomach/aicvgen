@@ -17,7 +17,10 @@ from src.integration.cv_component_initializer import CVComponentInitializer
 from src.integration.cv_system_monitor import CVSystemMonitor
 from src.integration.cv_template_manager_facade import CVTemplateManagerFacade
 from src.integration.cv_vector_store_facade import CVVectorStoreFacade
-from src.integration.cv_workflow_executor import CVWorkflowExecutor, WorkflowDependencies
+from src.integration.cv_workflow_executor import (
+    CVWorkflowExecutor,
+    WorkflowDependencies,
+)
 from src.models.cv_models import JobDescriptionData, StructuredCV
 from src.models.workflow_models import ContentType, WorkflowType
 from src.orchestration.state import GlobalState, create_global_state
@@ -61,7 +64,7 @@ class EnhancedCVIntegration:
             async_optimizer=self._async_optimizer,
             intelligent_cache=self._intelligent_cache,
         )
-        
+
         self._workflow_executor = CVWorkflowExecutor(
             dependencies=dependencies,
             session_id=self._session_id,

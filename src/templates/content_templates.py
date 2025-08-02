@@ -160,7 +160,7 @@ class ContentTemplateManager:
         template = self.templates.get(name)
         if template and template.content_type == content_type:
             return template
-        
+
         # Fallback to composite key lookup (for templates registered via register_template)
         template_key = f"{content_type.value}_{category.value}_{name}"
         return self.templates.get(template_key)

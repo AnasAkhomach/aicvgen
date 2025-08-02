@@ -3,7 +3,11 @@ from pathlib import Path
 import streamlit as st
 
 from src.config.logging_config import get_logger
-from src.frontend.callbacks import (handle_api_key_validation, handle_user_action, start_cv_generation)
+from src.frontend.callbacks import (
+    handle_api_key_validation,
+    handle_user_action,
+    start_cv_generation,
+)
 from src.orchestration.state import GlobalState
 
 # Initialize logger
@@ -71,9 +75,7 @@ def display_sidebar():
         st.divider()  # Safety Controls Section
         st.subheader("🛡️ Safety Controls")  # Manual Stop Button
         if st.session_state.get("is_processing"):
-            if st.button(
-                "🛑 STOP PROCESSING", type="primary", use_container_width=True
-            ):
+            if st.button("🛑 STOP PROCESSING", type="primary", use_container_width=True):
                 st.session_state.stop_processing = True
                 st.session_state.is_processing = False
                 st.warning("Processing stopped by user")
@@ -240,7 +242,10 @@ def _display_reviewable_item(item):
             "✅ Approve",
             key=f"approve_{item_id}",
             on_click=handle_user_action,
-            args=("accept", item_id),  # Keep "accept" as internal action for backward compatibility
+            args=(
+                "accept",
+                item_id,
+            ),  # Keep "accept" as internal action for backward compatibility
         )
     with cols[1]:
         st.button(

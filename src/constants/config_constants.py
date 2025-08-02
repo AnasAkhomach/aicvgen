@@ -91,7 +91,9 @@ class ConfigConstants:
     DEFAULT_LLM_LOG_FILE: Final[str] = "llm_calls.log"
     DEFAULT_MAX_LOG_SIZE_MB: Final[int] = 10
     DEFAULT_BACKUP_COUNT: Final[int] = 5
-    DEFAULT_LOG_FORMAT: Final[str] = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    DEFAULT_LOG_FORMAT: Final[
+        str
+    ] = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     DEFAULT_DATE_FORMAT: Final[str] = "%Y-%m-%d %H:%M:%S"
 
     # Application Metadata

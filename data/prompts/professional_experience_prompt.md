@@ -57,7 +57,7 @@ description: "Generates tailored CV content for professional experience and role
   "roles": [
     {{
       "job_title": "string",
-      "organization": "string", 
+      "organization": "string",
       "organization_description": "string (max 200 chars)",
       "role_description": "string (max 200 chars)",
       "bullet_points": [

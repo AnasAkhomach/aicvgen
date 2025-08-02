@@ -74,8 +74,8 @@ class AgentBase(ABC):
         This method extracts necessary inputs from the GlobalState using explicit
         input mapping, runs the agent, and returns the results or errors as a dictionary.
         """
-        self.session_id = (
-            state.get("session_id", "")
+        self.session_id = state.get(
+            "session_id", ""
         )  # Ensure agent uses current session ID from state
         self.logger = get_structured_logger(
             f"{self.name}:{self.session_id}"

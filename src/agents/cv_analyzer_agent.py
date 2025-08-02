@@ -22,19 +22,20 @@ logger = get_structured_logger("cv_analyzer_agent")
 class CVAnalyzerAgent(AgentBase):
     """Agent specialized in analyzing CV content and job requirements using Pydantic models."""
 
-    def __init__(self, llm_service: LLMServiceInterface, settings: dict, session_id: str):
+    def __init__(
+        self, llm_service: LLMServiceInterface, settings: dict, session_id: str
+    ):
         super().__init__(
             name="CVAnalyzerAgent",
             description="Analyzes CV content and job requirements to provide optimization recommendations",
             session_id=session_id,
-            settings=settings
+            settings=settings,
         )
         self.llm_service = llm_service
         self.settings = get_config()
 
     @ensure_pydantic_model(
-        ('cv_data', StructuredCV),
-        ('job_description', JobDescriptionData)
+        ("cv_data", StructuredCV), ("job_description", JobDescriptionData)
     )
     async def _execute(self, **kwargs: Any) -> dict[str, Any]:
         """Analyze CV content against job requirements using Pydantic models."""
@@ -47,21 +48,28 @@ class CVAnalyzerAgent(AgentBase):
             if not cv_data:
                 return {"error_messages": ["cv_data is required but not provided"]}
             if not job_description:
-                return {"error_messages": ["job_description is required but not provided"]}
+                return {
+                    "error_messages": ["job_description is required but not provided"]
+                }
 
             # Pydantic validation is now handled by the decorator
-            self.update_progress(AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation completed")
-
-            analysis = await self._analyze_cv_job_match(
-                cv_data, job_description
+            self.update_progress(
+                AgentConstants.PROGRESS_INPUT_VALIDATION, "Input validation completed"
             )
 
-            self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, "Analyzing CV-job match")
+            analysis = await self._analyze_cv_job_match(cv_data, job_description)
+
+            self.update_progress(
+                AgentConstants.PROGRESS_MAIN_PROCESSING, "Analyzing CV-job match"
+            )
 
             recommendations = await self._generate_recommendations(analysis)
             match_score = self._calculate_match_score(analysis)
 
-            self.update_progress(AgentConstants.PROGRESS_POST_PROCESSING, "Generating recommendations and scores")
+            self.update_progress(
+                AgentConstants.PROGRESS_POST_PROCESSING,
+                "Generating recommendations and scores",
+            )
 
             analysis_result = CVAnalysisResult(
                 skill_matches=analysis.skill_matches,
@@ -73,11 +81,11 @@ class CVAnalyzerAgent(AgentBase):
                 analysis_timestamp=datetime.now().isoformat(),
             )
 
-            self.update_progress(AgentConstants.PROGRESS_COMPLETE, "CV analysis completed successfully")
+            self.update_progress(
+                AgentConstants.PROGRESS_COMPLETE, "CV analysis completed successfully"
+            )
 
-            return {
-                "cv_analysis_results": analysis_result
-            }
+            return {"cv_analysis_results": analysis_result}
         except (ValidationError, KeyError, TypeError, AttributeError) as e:
             logger.error(f"CV analysis error: {str(e)}")
             return {"error_messages": [f"CV analysis failed: {str(e)}"]}
@@ -97,24 +105,26 @@ class CVAnalyzerAgent(AgentBase):
         analysis = self._AnalysisResult()
         cv_skills = getattr(cv_data, "big_10_skills", [])
         job_requirements = getattr(job_description, "skills", [])
-        
+
         # Extract system instruction from settings
         system_instruction = None
-        if self.settings and hasattr(self.settings, 'agent_settings'):
-            system_instruction = getattr(self.settings.agent_settings, 'cv_analyzer_system_instruction', None)
+        if self.settings and hasattr(self.settings, "agent_settings"):
+            system_instruction = getattr(
+                self.settings.agent_settings, "cv_analyzer_system_instruction", None
+            )
         elif self.settings and isinstance(self.settings, dict):
-            system_instruction = self.settings.get('cv_analyzer_system_instruction')
-        
+            system_instruction = self.settings.get("cv_analyzer_system_instruction")
+
         # Basic skill matching logic
         if cv_skills and job_requirements:
             for skill in cv_skills:
                 for req in job_requirements:
                     if skill.lower() in req.lower():
                         analysis.skill_matches.append(skill)
-        
+
         # TODO: Enhance with LLM-based analysis using system instruction
         # This would involve calling self.llm_service.generate_content with system_instruction
-        
+
         return analysis
 
     async def _generate_recommendations(
@@ -135,7 +145,16 @@ class CVAnalyzerAgent(AgentBase):
     def _calculate_match_score(
         self, analysis: "CVAnalyzerAgent._AnalysisResult"
     ) -> float:
-        skill_score = min(len(analysis.skill_matches) * AnalysisConstants.SKILL_SCORE_MULTIPLIER, AnalysisConstants.MAX_MATCH_SCORE)
+        skill_score = min(
+            len(analysis.skill_matches) * AnalysisConstants.SKILL_SCORE_MULTIPLIER,
+            AnalysisConstants.MAX_MATCH_SCORE,
+        )
         experience_score = analysis.experience_relevance
-        gap_penalty = len(analysis.gaps_identified) * AnalysisConstants.GAP_PENALTY_MULTIPLIER
-        return max(AnalysisConstants.MIN_MATCH_SCORE, (skill_score + experience_score) * AnalysisConstants.SCORE_WEIGHT_FACTOR - gap_penalty)
+        gap_penalty = (
+            len(analysis.gaps_identified) * AnalysisConstants.GAP_PENALTY_MULTIPLIER
+        )
+        return max(
+            AnalysisConstants.MIN_MATCH_SCORE,
+            (skill_score + experience_score) * AnalysisConstants.SCORE_WEIGHT_FACTOR
+            - gap_penalty,
+        )

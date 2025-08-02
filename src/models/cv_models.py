@@ -48,14 +48,14 @@ class MetadataModel(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     status: Optional[ItemStatus] = None  # Added status field for item processing
-    
+
     # Template loader specific fields
     created_by: Optional[str] = None
     source_file: Optional[str] = None
     template_version: Optional[str] = None
     section_type: Optional[str] = None
     subsection_type: Optional[str] = None
-    
+
     extra: Dict[str, Any] = Field(
         default_factory=dict
     )  # Added extra field for arbitrary data
@@ -284,14 +284,14 @@ class StructuredCV(BaseModel):
         """
         required_sections = [
             "Executive Summary",
-            "Key Qualifications", 
+            "Key Qualifications",
             "Professional Experience",
             "Project Experience",
-            "Education"
+            "Education",
         ]
-        
+
         existing_section_names = {section.name for section in self.sections}
-        
+
         for section_name in required_sections:
             if section_name not in existing_section_names:
                 section = Section(
@@ -301,7 +301,7 @@ class StructuredCV(BaseModel):
                     order=len(self.sections),
                     status=ItemStatus.INITIAL,
                     subsections=[],
-                    items=[]
+                    items=[],
                 )
                 self.sections.append(section)  # pylint: disable=no-member
 
@@ -319,7 +319,7 @@ class StructuredCV(BaseModel):
             "Key Qualifications",
             "Professional Experience",
             "Project Experience",
-            "Education"
+            "Education",
         ]
 
         sections = []
@@ -331,22 +331,22 @@ class StructuredCV(BaseModel):
                 order=i,
                 status=ItemStatus.INITIAL,
                 subsections=[],
-                items=[]
+                items=[],
             )
             sections.append(section)
 
         structured_cv = StructuredCV(sections=sections)
         if job_data:
-            structured_cv.metadata.extra["job_description"] = (  # pylint: disable=no-member
-                job_data.model_dump()
-            )
+            structured_cv.metadata.extra[
+                "job_description"
+            ] = job_data.model_dump()  # pylint: disable=no-member
         else:
-            structured_cv.metadata.extra["job_description"] = (  # pylint: disable=no-member
-                {}
-            )
-        structured_cv.metadata.extra["original_cv_text"] = (  # pylint: disable=no-member
-            cv_text
-        )
+            structured_cv.metadata.extra[
+                "job_description"
+            ] = {}  # pylint: disable=no-member
+        structured_cv.metadata.extra[
+            "original_cv_text"
+        ] = cv_text  # pylint: disable=no-member
         return structured_cv
 
 

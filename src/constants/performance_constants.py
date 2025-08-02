@@ -19,21 +19,21 @@ class PerformanceConstants:
     MONITORING_INTERVAL: Final[float] = 5.0
     METRICS_COLLECTION_INTERVAL: Final[float] = 10.0
     HEALTH_CHECK_INTERVAL: Final[float] = 30.0
-    
+
     # PerformanceMonitor specific constants
     DEFAULT_MAX_HISTORY_SIZE: Final[int] = 1000
     DEFAULT_MONITORING_INTERVAL_SECONDS: Final[int] = 30
     OPERATION_TIMES_MAX_SIZE: Final[int] = 100
     MEMORY_CONVERSION_FACTOR: Final[int] = 1024 * 1024
     MILLISECONDS_PER_SECOND: Final[int] = 1000
-    
+
     # System resource alert thresholds
     CPU_THRESHOLD_PERCENT: Final[float] = 80.0
     MEMORY_THRESHOLD_PERCENT: Final[float] = 85.0
     RESPONSE_TIME_THRESHOLD_MS: Final[float] = 5000.0
     ERROR_RATE_THRESHOLD_PERCENT: Final[float] = 5.0
     POOL_UTILIZATION_THRESHOLD_PERCENT: Final[float] = 90.0
-    
+
     # Recommendation thresholds (lower than alert thresholds)
     RECOMMENDATION_CPU_THRESHOLD: Final[int] = 70
     RECOMMENDATION_MEMORY_THRESHOLD: Final[int] = 75
@@ -65,7 +65,7 @@ class PerformanceConstants:
     # Metrics buckets for histogram data
     LATENCY_BUCKETS: Final[tuple] = (0.1, 0.5, 1.0, 2.0, 5.0, 10.0)
     MEMORY_BUCKETS: Final[tuple] = (100, 250, 500, 1000, 2000, 4000)
-    
+
     # Async optimization constants
     DEFAULT_MAX_CONCURRENT_OPERATIONS: Final[int] = 50
     DEFAULT_MAX_CONCURRENT_PER_TYPE: Final[int] = 10
@@ -76,7 +76,7 @@ class PerformanceConstants:
     DEFAULT_CLEANUP_INTERVAL: Final[float] = 60.0
     DEFAULT_WARMUP_SIZE: Final[int] = 5
     DEADLOCK_DETECTION_INTERVAL: Final[int] = 5
-    
+
     # AdaptiveSemaphore constants
     MIN_ADJUSTMENT_INTERVAL: Final[int] = 10  # seconds
     WAIT_TIME_THRESHOLD: Final[float] = 0.1
@@ -85,12 +85,12 @@ class PerformanceConstants:
     PERFORMANCE_IMPROVEMENT_THRESHOLD: Final[float] = 0.01
     MAX_OPERATION_TIMES_HISTORY: Final[int] = 100
     MAX_WAIT_TIMES_HISTORY: Final[int] = 100
-    
+
     # Scaling thresholds
     HIGH_LOAD_THRESHOLD: Final[float] = 0.8
     LOW_LOAD_THRESHOLD: Final[float] = 0.3
     CAPACITY_ADJUSTMENT_TIMEOUT: Final[float] = 1.0
-    
+
     # Performance operation thresholds (seconds)
     LLM_CALL_THRESHOLD: Final[float] = 30.0
     AGENT_EXECUTION_THRESHOLD: Final[float] = 60.0

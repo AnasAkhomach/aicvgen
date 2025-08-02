@@ -14,6 +14,7 @@ from src.constants.config_constants import ConfigConstants
 from src.utils.import_fallbacks import get_dotenv
 from .shared_configs import PerformanceConfig, DatabaseConfig
 
+
 # Try to import python-dotenv, but don't fail if it's not available
 # Load environment variables with standardized fallback handling
 # Note: Import moved to avoid circular dependency
@@ -37,12 +38,16 @@ def _load_environment_variables():
         # Fallback if import_fallbacks is not available
         try:
             from dotenv import load_dotenv
+
             env_path = Path(__file__).parent.parent.parent / ".env"
             if env_path.exists():
                 load_dotenv(env_path)
                 print(f"Loaded environment variables from {env_path}")
         except ImportError:
-            print("Warning: python-dotenv not available, environment variables must be set manually")
+            print(
+                "Warning: python-dotenv not available, environment variables must be set manually"
+            )
+
 
 # Load environment variables at module level
 _load_environment_variables()
@@ -90,53 +95,70 @@ class AgentSettings(BaseModel):
     # System instruction settings for different agent types
     job_description_parser_system_instruction: str = Field(
         default="You are an expert job description parser. Extract key information from job descriptions including requirements, responsibilities, and qualifications.",
-        description="System instruction for job description parser agent"
+        description="System instruction for job description parser agent",
     )
     cv_parser_system_instruction: str = Field(
         default="You are an expert CV/resume parser. Extract and structure information from CVs including experience, skills, and education.",
-        description="System instruction for CV parser agent"
+        description="System instruction for CV parser agent",
     )
     cv_analyzer_system_instruction: str = Field(
         default="You are an expert CV analyzer. Analyze CVs against job requirements and provide detailed insights and recommendations.",
-        description="System instruction for CV analyzer agent"
+        description="System instruction for CV analyzer agent",
     )
     writer_agent_system_instruction: str = Field(
         default="You are an expert CV writer. Create compelling and professional CV content that highlights relevant experience and skills.",
-        description="System instruction for writer agents (key qualifications, professional experience, projects, executive summary)"
+        description="System instruction for writer agents (key qualifications, professional experience, projects, executive summary)",
     )
     cleaning_agent_system_instruction: str = Field(
         default="You are an expert content cleaner. Clean and format text content while preserving important information and structure.",
-        description="System instruction for cleaning agent"
+        description="System instruction for cleaning agent",
     )
     quality_assurance_system_instruction: str = Field(
         default="You are an expert quality assurance reviewer. Review CV content for accuracy, consistency, and professional standards.",
-        description="System instruction for quality assurance agent"
+        description="System instruction for quality assurance agent",
     )
     research_agent_system_instruction: str = Field(
         default="You are an expert researcher. Research and provide relevant information to enhance CV content and job matching.",
-        description="System instruction for research agent"
+        description="System instruction for research agent",
     )
 
 
 @dataclass
 class RateLimitingConfig:
     """Rate limiting settings for LLM API calls."""
+
     max_requests_per_minute: int = field(
-        default_factory=lambda: int(os.getenv("LLM_REQUESTS_PER_MINUTE", str(ConfigConstants.DEFAULT_REQUESTS_PER_MINUTE)))
+        default_factory=lambda: int(
+            os.getenv(
+                "LLM_REQUESTS_PER_MINUTE",
+                str(ConfigConstants.DEFAULT_REQUESTS_PER_MINUTE),
+            )
+        )
     )
     max_tokens_per_minute: int = field(
-        default_factory=lambda: int(os.getenv("LLM_TOKENS_PER_MINUTE", str(ConfigConstants.DEFAULT_TOKENS_PER_MINUTE)))
+        default_factory=lambda: int(
+            os.getenv(
+                "LLM_TOKENS_PER_MINUTE", str(ConfigConstants.DEFAULT_TOKENS_PER_MINUTE)
+            )
+        )
     )
+
 
 @dataclass
 class RetryConfig:
     """Retry settings for LLM API calls."""
+
     max_retries: int = ConfigConstants.DEFAULT_MAX_RETRIES
     retry_delay: float = ConfigConstants.DEFAULT_RETRY_DELAY
     exponential_backoff: bool = True
     request_timeout: int = field(
-        default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT_SECONDS", str(ConfigConstants.DEFAULT_REQUEST_TIMEOUT)))
+        default_factory=lambda: int(
+            os.getenv(
+                "REQUEST_TIMEOUT_SECONDS", str(ConfigConstants.DEFAULT_REQUEST_TIMEOUT)
+            )
+        )
     )
+
 
 @dataclass
 class LLMConfig:
@@ -171,26 +193,46 @@ class VectorDBConfig:
 
     # ChromaDB Configuration
     persist_directory: str = field(
-        default_factory=lambda: os.getenv("VECTOR_DB_PERSIST_DIR", ConfigConstants.DEFAULT_PERSIST_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "VECTOR_DB_PERSIST_DIR", ConfigConstants.DEFAULT_PERSIST_DIRECTORY
+        )
     )
     collection_name: str = field(
-        default_factory=lambda: os.getenv("VECTOR_DB_COLLECTION", ConfigConstants.DEFAULT_COLLECTION_NAME)
+        default_factory=lambda: os.getenv(
+            "VECTOR_DB_COLLECTION", ConfigConstants.DEFAULT_COLLECTION_NAME
+        )
     )
 
     # Embedding Configuration
     embedding_model: str = field(
-        default_factory=lambda: os.getenv("VECTOR_DB_EMBEDDING_MODEL", ConfigConstants.DEFAULT_EMBEDDING_MODEL)
+        default_factory=lambda: os.getenv(
+            "VECTOR_DB_EMBEDDING_MODEL", ConfigConstants.DEFAULT_EMBEDDING_MODEL
+        )
     )
     embedding_dimension: int = field(
-        default_factory=lambda: int(os.getenv("VECTOR_DB_EMBEDDING_DIM", str(ConfigConstants.DEFAULT_EMBEDDING_DIMENSION)))
+        default_factory=lambda: int(
+            os.getenv(
+                "VECTOR_DB_EMBEDDING_DIM",
+                str(ConfigConstants.DEFAULT_EMBEDDING_DIMENSION),
+            )
+        )
     )
 
     # Search Configuration
     max_search_results: int = field(
-        default_factory=lambda: int(os.getenv("VECTOR_DB_MAX_RESULTS", str(ConfigConstants.DEFAULT_MAX_SEARCH_RESULTS)))
+        default_factory=lambda: int(
+            os.getenv(
+                "VECTOR_DB_MAX_RESULTS", str(ConfigConstants.DEFAULT_MAX_SEARCH_RESULTS)
+            )
+        )
     )
     similarity_threshold: float = field(
-        default_factory=lambda: float(os.getenv("VECTOR_DB_SIMILARITY_THRESHOLD", str(ConfigConstants.DEFAULT_SIMILARITY_THRESHOLD)))
+        default_factory=lambda: float(
+            os.getenv(
+                "VECTOR_DB_SIMILARITY_THRESHOLD",
+                str(ConfigConstants.DEFAULT_SIMILARITY_THRESHOLD),
+            )
+        )
     )
 
 
@@ -200,10 +242,14 @@ class UIConfig:
 
     # Streamlit Configuration
     page_title: str = field(
-        default_factory=lambda: os.getenv("UI_PAGE_TITLE", ConfigConstants.DEFAULT_PAGE_TITLE)
+        default_factory=lambda: os.getenv(
+            "UI_PAGE_TITLE", ConfigConstants.DEFAULT_PAGE_TITLE
+        )
     )
     page_icon: str = field(
-        default_factory=lambda: os.getenv("UI_PAGE_ICON", ConfigConstants.DEFAULT_PAGE_ICON)
+        default_factory=lambda: os.getenv(
+            "UI_PAGE_ICON", ConfigConstants.DEFAULT_PAGE_ICON
+        )
     )
     layout: str = field(
         default_factory=lambda: os.getenv("UI_LAYOUT", ConfigConstants.DEFAULT_LAYOUT)
@@ -211,21 +257,32 @@ class UIConfig:
 
     # Session Configuration
     session_timeout_seconds: int = field(
-        default_factory=lambda: int(os.getenv("SESSION_TIMEOUT_SECONDS", str(ConfigConstants.DEFAULT_SESSION_TIMEOUT)))
+        default_factory=lambda: int(
+            os.getenv(
+                "SESSION_TIMEOUT_SECONDS", str(ConfigConstants.DEFAULT_SESSION_TIMEOUT)
+            )
+        )
     )
     auto_save_interval_seconds: int = field(
-        default_factory=lambda: int(os.getenv("UI_AUTO_SAVE_INTERVAL", str(ConfigConstants.DEFAULT_AUTO_SAVE_INTERVAL)))
+        default_factory=lambda: int(
+            os.getenv(
+                "UI_AUTO_SAVE_INTERVAL", str(ConfigConstants.DEFAULT_AUTO_SAVE_INTERVAL)
+            )
+        )
     )
 
     # Display Configuration
     show_raw_llm_output: bool = field(
-        default_factory=lambda: os.getenv("UI_SHOW_RAW_OUTPUT", "true").lower() == "true"
+        default_factory=lambda: os.getenv("UI_SHOW_RAW_OUTPUT", "true").lower()
+        == "true"
     )
     show_debug_information: bool = field(
         default_factory=lambda: os.getenv("UI_SHOW_DEBUG", "false").lower() == "true"
     )
     items_per_page: int = field(
-        default_factory=lambda: int(os.getenv("UI_ITEMS_PER_PAGE", str(ConfigConstants.DEFAULT_ITEMS_PER_PAGE)))
+        default_factory=lambda: int(
+            os.getenv("UI_ITEMS_PER_PAGE", str(ConfigConstants.DEFAULT_ITEMS_PER_PAGE))
+        )
     )
 
 
@@ -234,10 +291,19 @@ class SessionSettings:
     """Configuration for session management."""
 
     max_active_sessions: int = field(
-        default_factory=lambda: int(os.getenv("MAX_ACTIVE_SESSIONS", str(ConfigConstants.DEFAULT_MAX_ACTIVE_SESSIONS)))
+        default_factory=lambda: int(
+            os.getenv(
+                "MAX_ACTIVE_SESSIONS", str(ConfigConstants.DEFAULT_MAX_ACTIVE_SESSIONS)
+            )
+        )
     )
     cleanup_interval_minutes: int = field(
-        default_factory=lambda: int(os.getenv("SESSION_CLEANUP_INTERVAL_MINUTES", str(ConfigConstants.DEFAULT_CLEANUP_INTERVAL_MINUTES)))
+        default_factory=lambda: int(
+            os.getenv(
+                "SESSION_CLEANUP_INTERVAL_MINUTES",
+                str(ConfigConstants.DEFAULT_CLEANUP_INTERVAL_MINUTES),
+            )
+        )
     )
 
 
@@ -247,16 +313,17 @@ class LangSmithConfig:
 
     # LangSmith Tracing Configuration
     tracing_enabled: bool = field(
-        default_factory=lambda: os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+        default_factory=lambda: os.getenv("LANGSMITH_TRACING", "false").lower()
+        == "true"
     )
-    api_key: str = field(
-        default_factory=lambda: os.getenv("LANGSMITH_API_KEY", "")
-    )
+    api_key: str = field(default_factory=lambda: os.getenv("LANGSMITH_API_KEY", ""))
     project: str = field(
         default_factory=lambda: os.getenv("LANGSMITH_PROJECT", "aicvgen-observability")
     )
     endpoint: str = field(
-        default_factory=lambda: os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
+        default_factory=lambda: os.getenv(
+            "LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"
+        )
     )
 
     def __post_init__(self):
@@ -279,32 +346,59 @@ class OutputConfig:
 
     # Output Formats
     primary_format: str = field(
-        default_factory=lambda: os.getenv("OUTPUT_PRIMARY_FORMAT", ConfigConstants.DEFAULT_PRIMARY_FORMAT)
+        default_factory=lambda: os.getenv(
+            "OUTPUT_PRIMARY_FORMAT", ConfigConstants.DEFAULT_PRIMARY_FORMAT
+        )
     )
     supported_formats: list = field(
-        default_factory=lambda: os.getenv("OUTPUT_SUPPORTED_FORMATS", ",".join(ConfigConstants.DEFAULT_SUPPORTED_FORMATS)).split(",")
+        default_factory=lambda: os.getenv(
+            "OUTPUT_SUPPORTED_FORMATS",
+            ",".join(ConfigConstants.DEFAULT_SUPPORTED_FORMATS),
+        ).split(",")
     )
 
     # PDF Configuration
     pdf_template_path: str = field(
-        default_factory=lambda: os.getenv("OUTPUT_PDF_TEMPLATE_PATH", ConfigConstants.DEFAULT_PDF_TEMPLATE_PATH)
+        default_factory=lambda: os.getenv(
+            "OUTPUT_PDF_TEMPLATE_PATH", ConfigConstants.DEFAULT_PDF_TEMPLATE_PATH
+        )
     )
     pdf_output_directory: str = field(
-        default_factory=lambda: os.getenv("OUTPUT_PDF_DIRECTORY", ConfigConstants.DEFAULT_PDF_OUTPUT_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "OUTPUT_PDF_DIRECTORY", ConfigConstants.DEFAULT_PDF_OUTPUT_DIRECTORY
+        )
     )
 
     # Content Generation Constants
     max_skills_count: int = field(
-        default_factory=lambda: int(os.getenv("OUTPUT_MAX_SKILLS_COUNT", str(ConfigConstants.DEFAULT_MAX_SKILLS_COUNT)))
+        default_factory=lambda: int(
+            os.getenv(
+                "OUTPUT_MAX_SKILLS_COUNT", str(ConfigConstants.DEFAULT_MAX_SKILLS_COUNT)
+            )
+        )
     )
     max_bullet_points_per_role: int = field(
-        default_factory=lambda: int(os.getenv("OUTPUT_MAX_BULLET_POINTS_ROLE", str(ConfigConstants.MAX_BULLET_POINTS_PER_ROLE)))
+        default_factory=lambda: int(
+            os.getenv(
+                "OUTPUT_MAX_BULLET_POINTS_ROLE",
+                str(ConfigConstants.MAX_BULLET_POINTS_PER_ROLE),
+            )
+        )
     )
     max_bullet_points_per_project: int = field(
-        default_factory=lambda: int(os.getenv("OUTPUT_MAX_BULLET_POINTS_PROJECT", str(ConfigConstants.MAX_BULLET_POINTS_PER_PROJECT)))
+        default_factory=lambda: int(
+            os.getenv(
+                "OUTPUT_MAX_BULLET_POINTS_PROJECT",
+                str(ConfigConstants.MAX_BULLET_POINTS_PER_PROJECT),
+            )
+        )
     )
     min_skill_length: int = field(
-        default_factory=lambda: int(os.getenv("OUTPUT_MIN_SKILL_LENGTH", str(ConfigConstants.DEFAULT_MIN_SKILL_LENGTH)))
+        default_factory=lambda: int(
+            os.getenv(
+                "OUTPUT_MIN_SKILL_LENGTH", str(ConfigConstants.DEFAULT_MIN_SKILL_LENGTH)
+            )
+        )
     )
 
 
@@ -314,37 +408,55 @@ class LoggingConfig:
 
     # Log Levels
     log_level: str = field(
-        default_factory=lambda: os.getenv("LOG_LEVEL", ConfigConstants.DEFAULT_LOG_LEVEL)
+        default_factory=lambda: os.getenv(
+            "LOG_LEVEL", ConfigConstants.DEFAULT_LOG_LEVEL
+        )
     )
 
     # Log Files
     log_directory: str = field(
-        default_factory=lambda: os.getenv("LOG_DIRECTORY", ConfigConstants.DEFAULT_LOG_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "LOG_DIRECTORY", ConfigConstants.DEFAULT_LOG_DIRECTORY
+        )
     )
     main_log_file: str = field(
-        default_factory=lambda: os.getenv("LOG_MAIN_FILE", ConfigConstants.DEFAULT_MAIN_LOG_FILE)
+        default_factory=lambda: os.getenv(
+            "LOG_MAIN_FILE", ConfigConstants.DEFAULT_MAIN_LOG_FILE
+        )
     )
     error_log_file: str = field(
-        default_factory=lambda: os.getenv("LOG_ERROR_FILE", ConfigConstants.DEFAULT_ERROR_LOG_FILE)
+        default_factory=lambda: os.getenv(
+            "LOG_ERROR_FILE", ConfigConstants.DEFAULT_ERROR_LOG_FILE
+        )
     )
     llm_log_file: str = field(
-        default_factory=lambda: os.getenv("LOG_LLM_FILE", ConfigConstants.DEFAULT_LLM_LOG_FILE)
+        default_factory=lambda: os.getenv(
+            "LOG_LLM_FILE", ConfigConstants.DEFAULT_LLM_LOG_FILE
+        )
     )
 
     # Log Rotation
     max_log_size_mb: int = field(
-        default_factory=lambda: int(os.getenv("LOG_MAX_SIZE_MB", str(ConfigConstants.DEFAULT_MAX_LOG_SIZE_MB)))
+        default_factory=lambda: int(
+            os.getenv("LOG_MAX_SIZE_MB", str(ConfigConstants.DEFAULT_MAX_LOG_SIZE_MB))
+        )
     )
     backup_count: int = field(
-        default_factory=lambda: int(os.getenv("LOG_BACKUP_COUNT", str(ConfigConstants.DEFAULT_BACKUP_COUNT)))
+        default_factory=lambda: int(
+            os.getenv("LOG_BACKUP_COUNT", str(ConfigConstants.DEFAULT_BACKUP_COUNT))
+        )
     )
 
     # Log Format
     log_format: str = field(
-        default_factory=lambda: os.getenv("LOG_FORMAT", ConfigConstants.DEFAULT_LOG_FORMAT)
+        default_factory=lambda: os.getenv(
+            "LOG_FORMAT", ConfigConstants.DEFAULT_LOG_FORMAT
+        )
     )
     date_format: str = field(
-        default_factory=lambda: os.getenv("LOG_DATE_FORMAT", ConfigConstants.DEFAULT_DATE_FORMAT)
+        default_factory=lambda: os.getenv(
+            "LOG_DATE_FORMAT", ConfigConstants.DEFAULT_DATE_FORMAT
+        )
     )
 
     # Performance Logging
@@ -364,7 +476,9 @@ class ApplicationMetadataConfig:
         default_factory=lambda: os.getenv("APP_NAME", ConfigConstants.DEFAULT_APP_NAME)
     )
     app_version: str = field(
-        default_factory=lambda: os.getenv("APP_VERSION", ConfigConstants.DEFAULT_APP_VERSION)
+        default_factory=lambda: os.getenv(
+            "APP_VERSION", ConfigConstants.DEFAULT_APP_VERSION
+        )
     )
 
 
@@ -372,8 +486,14 @@ class ApplicationMetadataConfig:
 class EnvironmentConfig:
     """Environment-specific settings."""
 
-    environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", ConfigConstants.DEFAULT_ENVIRONMENT))
-    debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "true").lower() == "true")
+    environment: str = field(
+        default_factory=lambda: os.getenv(
+            "ENVIRONMENT", ConfigConstants.DEFAULT_ENVIRONMENT
+        )
+    )
+    debug: bool = field(
+        default_factory=lambda: os.getenv("DEBUG", "true").lower() == "true"
+    )
 
 
 @dataclass
@@ -382,26 +502,39 @@ class PathsConfig:
 
     project_root: Path = field(default_factory=lambda: Path.cwd())
     data_directory: str = field(
-        default_factory=lambda: os.getenv("PATHS_DATA_DIRECTORY", ConfigConstants.DEFAULT_DATA_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "PATHS_DATA_DIRECTORY", ConfigConstants.DEFAULT_DATA_DIRECTORY
+        )
     )
     prompts_directory: str = field(
-        default_factory=lambda: os.getenv("PATHS_PROMPTS_DIRECTORY", ConfigConstants.DEFAULT_PROMPTS_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "PATHS_PROMPTS_DIRECTORY", ConfigConstants.DEFAULT_PROMPTS_DIRECTORY
+        )
     )
     sessions_directory: str = field(
-        default_factory=lambda: os.getenv("PATHS_SESSIONS_DIRECTORY", ConfigConstants.DEFAULT_SESSIONS_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "PATHS_SESSIONS_DIRECTORY", ConfigConstants.DEFAULT_SESSIONS_DIRECTORY
+        )
     )
     logs_directory: str = field(
-        default_factory=lambda: os.getenv("PATHS_LOGS_DIRECTORY", ConfigConstants.DEFAULT_LOGS_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "PATHS_LOGS_DIRECTORY", ConfigConstants.DEFAULT_LOGS_DIRECTORY
+        )
     )
     output_directory: str = field(
-        default_factory=lambda: os.getenv("PATHS_OUTPUT_DIRECTORY", ConfigConstants.DEFAULT_OUTPUT_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "PATHS_OUTPUT_DIRECTORY", ConfigConstants.DEFAULT_OUTPUT_DIRECTORY
+        )
     )
     vector_db_directory: str = field(
-        default_factory=lambda: os.getenv("PATHS_VECTOR_DB_DIRECTORY", ConfigConstants.DEFAULT_VECTOR_DB_DIRECTORY)
+        default_factory=lambda: os.getenv(
+            "PATHS_VECTOR_DB_DIRECTORY", ConfigConstants.DEFAULT_VECTOR_DB_DIRECTORY
+        )
     )
 
 
 # PerformanceConfig and DatabaseConfig are imported from environment.py
+
 
 @dataclass
 class AppConfig:
@@ -426,14 +559,14 @@ class AppConfig:
     llm_settings: LLMSettings = field(default_factory=LLMSettings)
     prompts: PromptSettings = field(default_factory=PromptSettings)
     agent_settings: AgentSettings = field(default_factory=AgentSettings)
-    metadata: ApplicationMetadataConfig = field(default_factory=ApplicationMetadataConfig)
+    metadata: ApplicationMetadataConfig = field(
+        default_factory=ApplicationMetadataConfig
+    )
     env: EnvironmentConfig = field(default_factory=EnvironmentConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     langsmith: LangSmithConfig = field(default_factory=LangSmithConfig)
-
-
 
     def __post_init__(self):
         """Initialize paths and create directories if needed."""
@@ -449,7 +582,9 @@ class AppConfig:
 
         # Ensure source data directories exist (relative to project root)
         (self.paths.project_root / self.paths.data_directory).mkdir(exist_ok=True)
-        (self.paths.project_root / self.paths.prompts_directory).mkdir(parents=True, exist_ok=True)
+        (self.paths.project_root / self.paths.prompts_directory).mkdir(
+            parents=True, exist_ok=True
+        )
 
         # Environment-specific adjustments
         if self.env.environment == "development":
@@ -468,7 +603,9 @@ class AppConfig:
 
     def get_prompt_path(self, prompt_name: str) -> Path:
         """Get the full path to a prompt file."""
-        return self.paths.project_root / self.paths.prompts_directory / f"{prompt_name}.md"
+        return (
+            self.paths.project_root / self.paths.prompts_directory / f"{prompt_name}.md"
+        )
 
     def get_prompt_path_by_key(self, prompt_key: str) -> str:
         """

@@ -1,9 +1,18 @@
 from typing import Any
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from src.constants.config_constants import ConfigConstants
-from src.error_handling.exceptions import NetworkError, RateLimitError, OperationTimeoutError
+from src.error_handling.exceptions import (
+    NetworkError,
+    RateLimitError,
+    OperationTimeoutError,
+)
 
 
 class LLMRetryHandler:
@@ -17,9 +26,11 @@ class LLMRetryHandler:
         wait=wait_exponential(
             multiplier=ConfigConstants.LLM_RETRY_MULTIPLIER,
             min=ConfigConstants.LLM_RETRY_MIN_WAIT,
-            max=ConfigConstants.LLM_RETRY_MAX_WAIT
+            max=ConfigConstants.LLM_RETRY_MAX_WAIT,
         ),
-        retry=retry_if_exception_type((NetworkError, RateLimitError, OperationTimeoutError)),
+        retry=retry_if_exception_type(
+            (NetworkError, RateLimitError, OperationTimeoutError)
+        ),
         reraise=True,
     )
     async def generate_content(self, prompt: str, **kwargs) -> Any:

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from src.config.logging_config import get_structured_logger
 from src.error_handling.boundaries import CATCHABLE_EXCEPTIONS
-from src.error_handling.models import (ErrorCategory, ErrorContext, ErrorSeverity)
+from src.error_handling.models import ErrorCategory, ErrorContext, ErrorSeverity
 
 from src.error_handling.exceptions import ValidationError
 from src.orchestration.state import GlobalState
@@ -110,7 +110,9 @@ class AgentErrorHandler:
         error_msg = f"{agent_type} Error{context_msg}: {str(error)}"
         logger.error(error_msg, exc_info=True)
 
-        error_list = list(state.get("error_messages", [])) if state.get("error_messages") else []
+        error_list = (
+            list(state.get("error_messages", [])) if state.get("error_messages") else []
+        )
         error_list.append(error_msg)
         return {"error_messages": error_list}
 

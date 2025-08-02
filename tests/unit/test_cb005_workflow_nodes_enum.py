@@ -19,21 +19,38 @@ class TestWorkflowNodesEnum:
         """Test that WorkflowNodes enum is properly defined."""
         # Test that all expected enum members exist
         expected_nodes = [
-            'JD_PARSER', 'CV_PARSER', 'RESEARCH', 'CV_ANALYZER', 'SUPERVISOR',
-            'FORMATTER', 'ERROR_HANDLER', 'KEY_QUALIFICATIONS_SUBGRAPH',
-            'PROFESSIONAL_EXPERIENCE_SUBGRAPH', 'PROJECTS_SUBGRAPH',
-            'EXECUTIVE_SUMMARY_SUBGRAPH', 'GENERATE', 'QA', 'HANDLE_FEEDBACK',
-            'REGENERATE', 'CONTINUE', 'ERROR', 'PREPARE_REGENERATION'
+            "JD_PARSER",
+            "CV_PARSER",
+            "RESEARCH",
+            "CV_ANALYZER",
+            "SUPERVISOR",
+            "FORMATTER",
+            "ERROR_HANDLER",
+            "KEY_QUALIFICATIONS_SUBGRAPH",
+            "PROFESSIONAL_EXPERIENCE_SUBGRAPH",
+            "PROJECTS_SUBGRAPH",
+            "EXECUTIVE_SUMMARY_SUBGRAPH",
+            "GENERATE",
+            "QA",
+            "HANDLE_FEEDBACK",
+            "REGENERATE",
+            "CONTINUE",
+            "ERROR",
+            "PREPARE_REGENERATION",
         ]
-        
+
         for node_name in expected_nodes:
-            assert hasattr(WorkflowNodes, node_name), f"Missing enum member: {node_name}"
+            assert hasattr(
+                WorkflowNodes, node_name
+            ), f"Missing enum member: {node_name}"
             assert isinstance(getattr(WorkflowNodes, node_name).value, str)
 
     def test_enum_values_are_strings(self):
         """Test that all enum values are strings."""
         for node in WorkflowNodes:
-            assert isinstance(node.value, str), f"Enum value {node.name} is not a string"
+            assert isinstance(
+                node.value, str
+            ), f"Enum value {node.name} is not a string"
 
     # Removed test_supervisor_node_uses_enum_values as CVWorkflowGraph no longer exists
     # The enum usage is now tested through the actual workflow graph implementation
@@ -51,11 +68,11 @@ class TestWorkflowNodesEnum:
         """Test that enum provides type safety and prevents typos."""
         # This test demonstrates that using the enum prevents typos
         # that would only be caught at runtime with string literals
-        
+
         # Valid enum access
         assert WorkflowNodes.SUPERVISOR.value == "supervisor"
         assert WorkflowNodes.FORMATTER.value == "formatter"
-        
+
         # Invalid enum access would raise AttributeError at development time
         with pytest.raises(AttributeError):
             _ = WorkflowNodes.INVALID_NODE  # This would be caught by IDE/linter
@@ -67,11 +84,11 @@ class TestWorkflowNodesEnum:
             WorkflowNodes.REGENERATE.value,
             WorkflowNodes.CONTINUE.value,
             WorkflowNodes.ERROR.value,
-            WorkflowNodes.PREPARE_REGENERATION.value
+            WorkflowNodes.PREPARE_REGENERATION.value,
         ]
-        
+
         expected_outcomes = ["regenerate", "continue", "error", "prepare_regeneration"]
-        
+
         for expected in expected_outcomes:
             assert expected in routing_outcomes, f"Missing routing outcome: {expected}"
 
@@ -85,18 +102,27 @@ class TestWorkflowNodesEnum:
         assert WorkflowNodes.SUPERVISOR.value == "supervisor"
         assert WorkflowNodes.FORMATTER.value == "formatter"
         assert WorkflowNodes.ERROR_HANDLER.value == "error_handler"
-        
+
         # Test subgraph nodes
-        assert WorkflowNodes.KEY_QUALIFICATIONS_SUBGRAPH.value == "key_qualifications_subgraph"
-        assert WorkflowNodes.PROFESSIONAL_EXPERIENCE_SUBGRAPH.value == "professional_experience_subgraph"
+        assert (
+            WorkflowNodes.KEY_QUALIFICATIONS_SUBGRAPH.value
+            == "key_qualifications_subgraph"
+        )
+        assert (
+            WorkflowNodes.PROFESSIONAL_EXPERIENCE_SUBGRAPH.value
+            == "professional_experience_subgraph"
+        )
         assert WorkflowNodes.PROJECTS_SUBGRAPH.value == "projects_subgraph"
-        assert WorkflowNodes.EXECUTIVE_SUMMARY_SUBGRAPH.value == "executive_summary_subgraph"
-        
+        assert (
+            WorkflowNodes.EXECUTIVE_SUMMARY_SUBGRAPH.value
+            == "executive_summary_subgraph"
+        )
+
         # Test internal subgraph nodes
         assert WorkflowNodes.GENERATE.value == "generate"
         assert WorkflowNodes.QA.value == "qa"
         assert WorkflowNodes.HANDLE_FEEDBACK.value == "handle_feedback"
-        
+
         # Test routing outcomes
         assert WorkflowNodes.REGENERATE.value == "regenerate"
         assert WorkflowNodes.CONTINUE.value == "continue"

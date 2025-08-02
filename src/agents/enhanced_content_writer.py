@@ -11,7 +11,7 @@ from src.constants.llm_constants import LLMConstants
 from src.error_handling.exceptions import AgentExecutionError
 
 from src.models.agent_output_models import EnhancedContentWriterOutput
-from src.models.data_models import (ContentType, JobDescriptionData, StructuredCV)
+from src.models.data_models import ContentType, JobDescriptionData, StructuredCV
 from src.services.llm_service_interface import LLMServiceInterface
 from src.templates.content_templates import ContentTemplateManager
 from src.utils.cv_data_factory import get_item_by_id, update_item_by_id
@@ -71,13 +71,17 @@ class EnhancedContentWriterAgent(AgentBase):
                 message=f"Item with ID '{item_id}' not found in structured_cv.",
             )
 
-        self.update_progress(AgentConstants.PROGRESS_MAIN_PROCESSING, f"Generating content for item {item_id}")
+        self.update_progress(
+            AgentConstants.PROGRESS_MAIN_PROCESSING,
+            f"Generating content for item {item_id}",
+        )
         enhanced_content = await self._generate_enhanced_content(
             structured_cv, job_description_data, content_item, research_findings
         )
 
         self.update_progress(
-            AgentConstants.PROGRESS_POST_PROCESSING, f"Updating CV with enhanced content for item {item_id}"
+            AgentConstants.PROGRESS_POST_PROCESSING,
+            f"Updating CV with enhanced content for item {item_id}",
         )
         updated_cv = update_item_by_id(
             structured_cv, item_id, {"enhanced_content": enhanced_content}
@@ -89,11 +93,11 @@ class EnhancedContentWriterAgent(AgentBase):
             generated_content=enhanced_content,
         )
 
-        self.update_progress(AgentConstants.PROGRESS_COMPLETE, "Content generation completed successfully")
-        return {
-            "structured_cv": updated_cv,
-            "current_item_id": item_id
-        }
+        self.update_progress(
+            AgentConstants.PROGRESS_COMPLETE,
+            "Content generation completed successfully",
+        )
+        return {"structured_cv": updated_cv, "current_item_id": item_id}
 
     async def _generate_enhanced_content(
         self,
@@ -125,8 +129,12 @@ class EnhancedContentWriterAgent(AgentBase):
         response = await self.llm_service.generate_content(
             prompt=prompt,
             content_type=content_type,
-            max_tokens=self.settings.get("max_tokens_content_generation", LLMConstants.MAX_TOKENS_GENERATION),
-            temperature=self.settings.get("temperature_content_generation", LLMConstants.TEMPERATURE_BALANCED),
+            max_tokens=self.settings.get(
+                "max_tokens_content_generation", LLMConstants.MAX_TOKENS_GENERATION
+            ),
+            temperature=self.settings.get(
+                "temperature_content_generation", LLMConstants.TEMPERATURE_BALANCED
+            ),
         )
 
         if not response or not response.content:

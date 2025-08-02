@@ -46,7 +46,9 @@ class ExecutiveSummaryWriterAgent(AgentBase):
             validated_input = ExecutiveSummaryWriterAgentInput(**kwargs)
 
             # 2. Invoke the chain.
-            generated_data: ExecutiveSummaryLLMOutput = await self.chain.ainvoke(validated_input.model_dump())
+            generated_data: ExecutiveSummaryLLMOutput = await self.chain.ainvoke(
+                validated_input.model_dump()
+            )
 
             # 3. Return ONLY the generated data.
             # The agent's job is now finished.
